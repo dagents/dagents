@@ -1,0 +1,193 @@
+/* agent-detail.css — page-local styles for the agent-detail page
+   (v0.3-M4.1 / audit §3). Ported from design/agent-detail.html's <style>
+   block (lines 10-86). Reuses shell.css component classes
+   (.bar/.status/.log/.log-line/.log-ts/.log-lvl/.log-msg/.card-flat/.section-label
+   — note the design calls its section label `.ins-section-label`, kept here)
+   so only the detail-specific pieces live here. */
+
+.detail-back {
+  display: inline-flex;
+  align-items: center;
+  gap: var(--space-2);
+  height: 28px;
+  padding: 0 var(--space-2);
+  border-radius: 8px;
+  color: var(--muted);
+  font-size: var(--text-xs);
+  text-decoration: none;
+  transition: background var(--motion-fast), color var(--motion-fast);
+}
+.detail-back:hover { background: var(--surface-warm); color: var(--fg); }
+.detail-back:focus-visible { outline: none; box-shadow: var(--focus-ring); }
+.detail-back svg { width: 14px; height: 14px; }
+
+.detail-layout {
+  display: grid;
+  grid-template-columns: 320px minmax(0, 1fr);
+  gap: var(--space-4);
+  min-height: calc(100vh - var(--topbar-h) - var(--space-8) - var(--space-8) - 90px);
+}
+
+/* ── inspector (left) ── */
+.inspector {
+  background: var(--bg);
+  border: 1px solid var(--border-soft);
+  border-radius: var(--radius-md);
+  padding: var(--space-5);
+  display: flex;
+  flex-direction: column;
+  gap: var(--space-4);
+  height: fit-content;
+  position: sticky;
+  top: var(--space-4);
+}
+.ins-head { display: flex; gap: var(--space-3); align-items: flex-start; }
+.ins-avatar {
+  width: 56px;
+  height: 56px;
+  border-radius: 12px;
+  display: grid;
+  place-items: center;
+  font-family: var(--font-mono);
+  font-size: 20px;
+  font-weight: 600;
+  flex-shrink: 0;
+  border: 1px solid var(--border-soft);
+}
+.ins-avatar.kind-claude { background: #f4eee6; color: #8b5a2b; }
+.ins-avatar.kind-codex { background: #eef4ee; color: #1f6b3f; }
+.ins-avatar.kind-prompt { background: var(--accent-soft); color: var(--accent-hover); }
+.ins-avatar.kind-remote { background: var(--info-soft); color: var(--info); }
+.ins-name { font-size: var(--text-base); font-weight: 600; color: var(--fg); }
+.ins-desc { font-size: 12px; color: var(--muted); margin-top: 4px; line-height: 1.5; }
+.ins-presence { display: inline-flex; align-items: center; gap: 6px; margin-top: 6px; font-size: 11px; }
+
+.prop-row {
+  display: grid;
+  grid-template-columns: 84px 1fr;
+  gap: var(--space-2);
+  align-items: center;
+  padding: 6px 0;
+  font-size: var(--text-sm);
+}
+.prop-row + .prop-row { border-top: 1px solid var(--border-soft); }
+.prop-row .lbl { color: var(--muted); font-size: 12px; }
+.prop-row .val { color: var(--fg); font-weight: 500; min-width: 0; }
+.prop-row .val.mono { font-family: var(--font-mono); font-size: 12px; font-weight: 400; }
+.prop-row .val .pick {
+  display: inline-flex;
+  align-items: center;
+  gap: 4px;
+  padding: 3px 8px;
+  background: var(--surface);
+  border: 1px solid var(--border-soft);
+  border-radius: 6px;
+  font-size: 12px;
+}
+
+.skill-chips { display: flex; flex-wrap: wrap; gap: 4px; }
+.skill-chip { font-size: 11px; padding: 2px 8px; background: var(--surface); border-radius: 6px; color: var(--muted); font-weight: 500; }
+
+.ins-section-label {
+  font-size: 11px;
+  color: var(--meta);
+  letter-spacing: var(--tracking-label);
+  text-transform: uppercase;
+  margin-bottom: var(--space-2);
+}
+
+/* ── overview (right) ── */
+.overview {
+  background: var(--bg);
+  border: 1px solid var(--border-soft);
+  border-radius: var(--radius-md);
+  display: flex;
+  flex-direction: column;
+  overflow: hidden;
+  min-height: 560px;
+}
+.tabs {
+  display: flex;
+  gap: 0;
+  border-bottom: 1px solid var(--border-soft);
+  padding: 0 var(--space-4);
+  overflow-x: auto;
+  flex-shrink: 0;
+}
+.tab {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  padding: var(--space-3) var(--space-3);
+  border: 0;
+  background: transparent;
+  border-bottom: 2px solid transparent;
+  font-size: var(--text-sm);
+  font-weight: 500;
+  color: var(--muted);
+  cursor: pointer;
+  transition: color var(--motion-fast), border-color var(--motion-fast);
+  white-space: nowrap;
+}
+.tab:hover { color: var(--fg); }
+.tab:focus-visible { outline: none; box-shadow: var(--focus-ring); border-radius: var(--radius-sm); }
+.tab[aria-selected="true"] { color: var(--fg); border-bottom-color: var(--fg); }
+.tab-body { flex: 1; overflow-y: auto; padding: var(--space-6); }
+
+/* activity tab */
+.act-kpi-row { display: grid; grid-template-columns: repeat(3, 1fr); gap: var(--space-3); margin-bottom: var(--space-5); }
+.act-kpi { background: var(--surface-warm); border: 1px solid var(--border-soft); border-radius: var(--radius-sm); padding: var(--space-4); }
+.act-kpi .v { font-family: var(--font-mono); font-size: 22px; font-weight: 500; color: var(--fg); letter-spacing: -0.02em; }
+.act-kpi .l { font-size: 11px; color: var(--muted); margin-top: 4px; }
+.act-chart { width: 100%; height: 120px; display: block; }
+.act-chart-bar { fill: var(--accent); }
+.act-chart-bar.fail { fill: var(--danger); }
+.act-axis-row { display: flex; justify-content: space-between; margin-top: 4px; font-size: 10px; font-family: var(--font-mono); color: var(--meta); }
+.act-recent { margin-top: var(--space-5); }
+.act-recent-item { display: flex; gap: var(--space-3); padding: var(--space-2) 0; font-size: var(--text-sm); border-bottom: 1px solid var(--border-soft); }
+.act-recent-item:last-child { border-bottom: 0; }
+
+/* instructions tab */
+.instr {
+  background: var(--surface-warm);
+  border: 1px solid var(--border-soft);
+  border-radius: var(--radius-sm);
+  padding: var(--space-4);
+  font-size: var(--text-sm);
+  color: var(--fg-2);
+  line-height: 1.7;
+  white-space: pre-wrap;
+}
+
+/* skills tab */
+.skills-grid { display: grid; grid-template-columns: repeat(auto-fill, minmax(180px, 1fr)); gap: var(--space-3); }
+.skill-card { background: var(--bg); border: 1px solid var(--border-soft); border-radius: var(--radius-sm); padding: var(--space-3); }
+.skill-card .nm { font-size: var(--text-sm); font-weight: 500; color: var(--fg); font-family: var(--font-mono); }
+.skill-card .ds { font-size: 11px; color: var(--muted); margin-top: 4px; line-height: 1.5; }
+
+/* skeleton (shared .sk shimmer) */
+.sk {
+  display: inline-block;
+  border-radius: 6px;
+  background: linear-gradient(90deg, var(--surface) 25%, var(--surface-warm) 50%, var(--surface) 75%);
+  background-size: 200% 100%;
+  animation: shimmer 1.4s infinite;
+}
+@keyframes shimmer { 0% { background-position: 200% 0; } 100% { background-position: -200% 0; } }
+
+.not-found { display: flex; flex-direction: column; align-items: center; justify-content: center; padding: var(--space-16); text-align: center; }
+.not-found .h { font-size: var(--text-base); font-weight: 600; color: var(--fg); margin-bottom: var(--space-2); }
+.not-found .d { font-size: var(--text-sm); color: var(--muted); margin-bottom: var(--space-4); }
+
+@media (max-width: 1024px) {
+  .detail-layout { grid-template-columns: 1fr; }
+  .inspector { position: static; }
+}
+@media (max-width: 560px) {
+  .act-kpi-row { grid-template-columns: 1fr; }
+  .skills-grid { grid-template-columns: 1fr; }
+}
+@media (prefers-reduced-motion: reduce) {
+  .sk { animation: none; }
+  .tab, .detail-back { transition: none; }
+}

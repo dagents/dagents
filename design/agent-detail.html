@@ -1,0 +1,354 @@
+<!doctype html>
+<html lang="zh-CN">
+<head>
+  <meta charset="utf-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1" />
+  <title>Agent 详情 · Mega Agents</title>
+  <link rel="stylesheet" href="css/tokens.css" />
+  <link rel="stylesheet" href="css/shell.css" />
+  <style>
+    .detail-back { display: inline-flex; align-items: center; gap: var(--space-2); height: 28px; padding: 0 var(--space-2); border-radius: 8px; color: var(--muted); font-size: var(--text-xs); text-decoration: none; transition: background var(--motion-fast), color var(--motion-fast); }
+    .detail-back:hover { background: var(--surface-warm); color: var(--fg); }
+    .detail-back:focus-visible { outline: none; box-shadow: var(--focus-ring); }
+    .detail-back svg { width: 14px; height: 14px; }
+
+    .detail-layout { display: grid; grid-template-columns: 320px minmax(0,1fr); gap: var(--space-4); min-height: calc(100vh - var(--topbar-h) - var(--space-8) - var(--space-8) - 90px); }
+
+    /* ── inspector (left) ── */
+    .inspector { background: var(--bg); border: 1px solid var(--border-soft); border-radius: var(--radius-md); padding: var(--space-5); display: flex; flex-direction: column; gap: var(--space-4); height: fit-content; position: sticky; top: var(--space-4); }
+    .ins-head { display: flex; gap: var(--space-3); align-items: flex-start; }
+    .ins-avatar { width: 56px; height: 56px; border-radius: 12px; display: grid; place-items: center; font-family: var(--font-mono); font-size: 20px; font-weight: 600; flex-shrink: 0; border: 1px solid var(--border-soft); }
+    .ins-avatar.kind-claude { background: #f4eee6; color: #8b5a2b; }
+    .ins-avatar.kind-codex { background: #eef4ee; color: #1f6b3f; }
+    .ins-avatar.kind-reader { background: var(--accent-soft); color: var(--accent-hover); }
+    .ins-avatar.kind-verify { background: var(--info-soft); color: var(--info); }
+    .ins-name { font-size: var(--text-base); font-weight: 600; color: var(--fg); }
+    .ins-desc { font-size: 12px; color: var(--muted); margin-top: 4px; line-height: 1.5; }
+    .ins-presence { display: inline-flex; align-items: center; gap: 6px; margin-top: 6px; font-size: 11px; }
+
+    .prop-row { display: grid; grid-template-columns: 84px 1fr; gap: var(--space-2); align-items: center; padding: 6px 0; font-size: var(--text-sm); }
+    .prop-row + .prop-row { border-top: 1px solid var(--border-soft); }
+    .prop-row .lbl { color: var(--muted); font-size: 12px; }
+    .prop-row .val { color: var(--fg); font-weight: 500; min-width: 0; }
+    .prop-row .val.mono { font-family: var(--font-mono); font-size: 12px; font-weight: 400; }
+    .prop-row .val .pick { display: inline-flex; align-items: center; gap: 4px; padding: 3px 8px; background: var(--surface); border: 1px solid var(--border-soft); border-radius: 6px; font-size: 12px; }
+
+    .skill-chips { display: flex; flex-wrap: wrap; gap: 4px; }
+    .skill-chip { font-size: 11px; padding: 2px 8px; background: var(--surface); border-radius: 6px; color: var(--muted); font-weight: 500; }
+
+    .ins-section-label { font-size: 11px; color: var(--meta); letter-spacing: var(--tracking-label); text-transform: uppercase; margin-bottom: var(--space-2); }
+
+    /* ── overview (right) ── */
+    .overview { background: var(--bg); border: 1px solid var(--border-soft); border-radius: var(--radius-md); display: flex; flex-direction: column; overflow: hidden; min-height: 560px; }
+    .tabs { display: flex; gap: 0; border-bottom: 1px solid var(--border-soft); padding: 0 var(--space-4); overflow-x: auto; flex-shrink: 0; }
+    .tab { display: inline-flex; align-items: center; gap: 6px; padding: var(--space-3) var(--space-3); border: 0; background: transparent; border-bottom: 2px solid transparent; font-size: var(--text-sm); font-weight: 500; color: var(--muted); cursor: pointer; transition: color var(--motion-fast), border-color var(--motion-fast); white-space: nowrap; }
+    .tab:hover { color: var(--fg); }
+    .tab:focus-visible { outline: none; box-shadow: var(--focus-ring); border-radius: var(--radius-sm); }
+    .tab[aria-selected="true"] { color: var(--fg); border-bottom-color: var(--fg); }
+    .tab svg { width: 14px; height: 14px; }
+    .tab-body { flex: 1; overflow-y: auto; padding: var(--space-6); }
+
+    /* activity tab */
+    .act-kpi-row { display: grid; grid-template-columns: repeat(3, 1fr); gap: var(--space-3); margin-bottom: var(--space-5); }
+    .act-kpi { background: var(--surface-warm); border: 1px solid var(--border-soft); border-radius: var(--radius-sm); padding: var(--space-4); }
+    .act-kpi .v { font-family: var(--font-mono); font-size: 22px; font-weight: 500; color: var(--fg); letter-spacing: -0.02em; }
+    .act-kpi .l { font-size: 11px; color: var(--muted); margin-top: 4px; }
+    .act-chart { width: 100%; height: 120px; display: block; }
+    .act-chart-bar { fill: var(--accent); }
+    .act-chart-bar.fail { fill: var(--danger); }
+    .act-axis-row { display: flex; justify-content: space-between; margin-top: 4px; font-size: 10px; font-family: var(--font-mono); color: var(--meta); }
+    .act-recent { margin-top: var(--space-5); }
+    .act-recent-item { display: flex; gap: var(--space-3); padding: var(--space-2) 0; font-size: var(--text-sm); border-bottom: 1px solid var(--border-soft); }
+    .act-recent-item:last-child { border-bottom: 0; }
+
+    /* instructions tab */
+    .instr { background: var(--surface-warm); border: 1px solid var(--border-soft); border-radius: var(--radius-sm); padding: var(--space-4); font-size: var(--text-sm); color: var(--fg-2); line-height: 1.7; white-space: pre-wrap; }
+
+    /* skills tab */
+    .skills-grid { display: grid; grid-template-columns: repeat(auto-fill, minmax(180px,1fr)); gap: var(--space-3); }
+    .skill-card { background: var(--bg); border: 1px solid var(--border-soft); border-radius: var(--radius-sm); padding: var(--space-3); }
+    .skill-card .nm { font-size: var(--text-sm); font-weight: 500; color: var(--fg); font-family: var(--font-mono); }
+    .skill-card .ds { font-size: 11px; color: var(--muted); margin-top: 4px; line-height: 1.5; }
+
+    /* logs tab */
+    .log { font-family: var(--font-mono); font-size: 12px; line-height: 1.6; }
+
+    /* skeleton */
+    .sk { display: inline-block; border-radius: 6px; background: linear-gradient(90deg, var(--surface) 25%, var(--surface-warm) 50%, var(--surface) 75%); background-size: 200% 100%; animation: shimmer 1.4s infinite; }
+    @keyframes shimmer { 0% { background-position: 200% 0; } 100% { background-position: -200% 0; } }
+
+    .not-found { display: flex; flex-direction: column; align-items: center; justify-content: center; padding: var(--space-16); text-align: center; }
+    .not-found .h { font-size: var(--text-base); font-weight: 600; color: var(--fg); margin-bottom: var(--space-2); }
+    .not-found .d { font-size: var(--text-sm); color: var(--muted); margin-bottom: var(--space-4); }
+
+    @media (max-width: 1024px) { .detail-layout { grid-template-columns: 1fr; } .inspector { position: static; } }
+    @media (max-width: 560px) { .act-kpi-row { grid-template-columns: 1fr; } .skills-grid { grid-template-columns: 1fr; } }
+    @media (prefers-reduced-motion: reduce) { .sk { animation: none; } .tab, .detail-back { transition: none; } }
+  </style>
+</head>
+<body>
+  <div class="app" id="app">
+    <aside class="app-sidebar" data-od-id="sidebar">
+      <div class="brand"><div class="brand-mark">M</div><div><div class="brand-name">Mega Agents</div><div class="brand-sub">控制台 · v0.2</div></div></div>
+      <nav class="nav" aria-label="主导航"></nav>
+      <div class="sidebar-footer"></div>
+    </aside>
+
+    <header class="app-topbar" data-od-id="topbar">
+      <button class="icon-btn mobile-menu-btn" aria-label="菜单"></button>
+      <div class="crumbs"><span class="crumb">编排</span><span class="sep">/</span><a class="crumb" href="agents.html">Agents</a><span class="sep">/</span><span class="crumb-current" id="crumb-name">详情</span></div>
+      <div class="topbar-spacer"></div>
+      <div class="topbar-search"><span class="search-icon" id="ic"></span><input type="search" placeholder="搜索 agents…" aria-label="搜索" /><kbd>⌘K</kbd></div>
+      <div class="topbar-actions">
+        <button class="icon-btn" aria-label="通知" title="通知"><span id="bell"></span><span class="dot"></span></button>
+        <button class="avatar" aria-label="账户" title="饶哲">RZ</button>
+      </div>
+    </header>
+
+    <main class="app-main">
+      <div class="page">
+        <div class="mb-4">
+          <a class="detail-back" href="agents.html" id="back-link">
+            <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="m15 18-6-6 6-6"/></svg>
+            返回 Agents
+          </a>
+        </div>
+
+        <div class="detail-layout" data-od-id="detail-layout">
+          <!-- inspector -->
+          <aside class="inspector" id="inspector" data-od-id="inspector">
+            <div class="sk" style="width:56px;height:56px;border-radius:12px"></div>
+            <div><div class="sk" style="width:140px;height:16px"></div><div class="sk" style="width:200px;height:12px;margin-top:6px"></div></div>
+            <div class="sk" style="width:100%;height:48px"></div>
+            <div class="sk" style="width:100%;height:120px"></div>
+          </aside>
+
+          <!-- overview -->
+          <section class="overview" data-od-id="overview">
+            <div class="tabs" role="tablist" aria-label="agent 详情标签页">
+              <button class="tab" role="tab" aria-selected="true" data-tab="activity"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"><path d="M22 12h-4l-3 9L9 3l-3 9H2"/></svg>Activity</button>
+              <button class="tab" role="tab" aria-selected="false" data-tab="instructions"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"><path d="M14 2H6a2 2 0 0 0-2 2v16a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2V8z"/><path d="M14 2v6h6"/></svg>Instructions</button>
+              <button class="tab" role="tab" aria-selected="false" data-tab="skills"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"><path d="M2 3h6a4 4 0 0 1 4 4v14a3 3 0 0 0-3-3H2z"/><path d="M22 3h-6a4 4 0 0 0-4 4v14a3 3 0 0 1 3-3h7z"/></svg>Skills</button>
+              <button class="tab" role="tab" aria-selected="false" data-tab="logs"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"><path d="M8 6h13M8 12h13M8 18h13M3 6h.01M3 12h.01M3 18h.01"/></svg>Logs</button>
+            </div>
+            <div class="tab-body" id="tab-body">
+              <div class="sk" style="width:60%;height:16px"></div>
+              <div class="sk" style="width:100%;height:120px;margin-top:12px"></div>
+            </div>
+          </section>
+        </div>
+      </div>
+    </main>
+  </div>
+
+  <script>window.OD_NAV = { active: 'agents' };</script>
+  <script src="js/workspace-data.js"></script>
+  <script src="js/app.js"></script>
+  <script src="js/agents-data.js"></script>
+  <script>
+    document.addEventListener('DOMContentLoaded', () => {
+      const S = window.OD.svg;
+      document.getElementById('ic').innerHTML = S.search;
+      document.getElementById('bell').innerHTML = S.bell;
+      document.querySelector('.mobile-menu-btn').innerHTML = S.menu;
+
+      const params = new URLSearchParams(location.search);
+      const id = params.get('id') || 'agent_01HFK';
+      const agents = window.OD_AGENTS;
+      const a = agents.find(x => x.id === id);
+
+      const KIND_LABEL = { prompt:'提示词', claude:'Claude Code', codex:'Codex', remote:'Remote' };
+      const KIND_GLYPH = { prompt:'P', claude:'C', codex:'X', remote:'R' };
+      const STATUS_CN = { running:'运行', queued:'排队', idle:'空闲', failed:'失败', paused:'已暂停', done:'完成' };
+      const AVAIL_CN = { online:'在线', unstable:'不稳定', offline:'离线' };
+      function avClass(av) { return av === 'online' ? 'running' : av === 'unstable' ? 'queued' : 'idle'; }
+      function avatarClass(k) { return 'ins-avatar kind-' + (k === 'claude' ? 'claude' : k === 'codex' ? 'codex' : k === 'remote' ? 'verify' : 'reader'); }
+      function esc(s) { return String(s).replace(/[&<>"']/g, c => ({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#39;'}[c])); }
+
+      const ins = document.getElementById('inspector');
+      const body = document.getElementById('tab-body');
+      const crumb = document.getElementById('crumb-name');
+
+      function renderNotFound() {
+        document.querySelector('.detail-layout').innerHTML = `<div class="not-found" style="grid-column:1/-1">
+          <div class="h">找不到这个 agent</div>
+          <div class="d">id "${esc(id)}" 不存在，可能已被归档或删除。</div>
+          <a class="btn btn-secondary btn-sm" href="agents.html">返回 Agents 列表</a>
+        </div>`;
+        crumb.textContent = '未找到';
+      }
+
+      function renderInspector(a) {
+        crumb.textContent = a.name;
+        document.title = a.name + ' · Mega Agents';
+        ins.innerHTML = `
+          <div class="ins-head">
+            <div class="${avatarClass(a.kind)}" aria-hidden="true">${KIND_GLYPH[a.kind]}</div>
+            <div style="min-width:0">
+              <div class="ins-name">${esc(a.name)}</div>
+              <div class="ins-desc">${esc(a.summary)}</div>
+              <div class="ins-presence"><span class="status ${avClass(a.availability)}"><span class="dot"></span>${AVAIL_CN[a.availability]}</span></div>
+            </div>
+          </div>
+          <div>
+            <div class="ins-section-label">属性</div>
+            <div class="prop-row"><div class="lbl">Agent ID</div><div class="val mono">${esc(a.id)}</div></div>
+            <div class="prop-row"><div class="lbl">类型</div><div class="val"><span class="pick">${KIND_LABEL[a.kind]}</span></div></div>
+            <div class="prop-row"><div class="lbl">模型</div><div class="val"><span class="pick">${esc(a.model)}</span></div></div>
+            <div class="prop-row"><div class="lbl">运行时</div><div class="val mono">${esc(a.runtime)}</div></div>
+            <div class="prop-row"><div class="lbl">并发</div><div class="val">${a.concurrency}</div></div>
+            <div class="prop-row"><div class="lbl">可见性</div><div class="val">${a.visibility === 'public' ? '公开' : '工作区'}</div></div>
+            <div class="prop-row"><div class="lbl">负责人</div><div class="val">${esc(a.owner)}</div></div>
+            <div class="prop-row"><div class="lbl">创建于</div><div class="val mono">${a.created.slice(0,10)}</div></div>
+          </div>
+          <div>
+            <div class="ins-section-label">Skills</div>
+            <div class="skill-chips">
+              ${a.skills.map(s => `<span class="skill-chip">${esc(s)}</span>`).join('')}
+            </div>
+          </div>
+          <div>
+            <div class="ins-section-label">当前任务</div>
+            <div class="prop-row" style="grid-template-columns:1fr"><div class="val mono">${a.run || '无活跃 run'}</div></div>
+            ${a.run ? `<div class="bar mb-2"><span style="width:${a.progress}%"></span></div>
+            <div class="row-between"><span class="meta" style="font-size:11px">已用 ${esc(a.elapsed)}</span><span class="mono" style="font-size:11px;color:var(--accent-hover)">${a.progress}%</span></div>` : ''}
+          </div>
+        `;
+      }
+
+      function renderActivity(a) {
+        const total = a.activity.reduce((s,b) => s + b.total, 0);
+        const fail = a.activity.reduce((s,b) => s + b.fail, 0);
+        const ok = total - fail;
+        const successRate = total > 0 ? ((ok / total) * 100).toFixed(1) : '—';
+        const W = 600, H = 120, PAD = 8;
+        const max = Math.max(1, ...a.activity.map(b => b.total));
+        const bw = (W - PAD * 2) / a.activity.length;
+        const bars = a.activity.map((b, i) => {
+          const h = (b.total / max) * (H - PAD * 2);
+          const fh = b.fail > 0 ? (b.fail / b.total) * h : 0;
+          const x = PAD + i * bw;
+          const y = H - PAD - h;
+          const fy = H - PAD - fh;
+          return `<rect class="act-chart-bar" x="${x.toFixed(1)}" y="${y.toFixed(1)}" width="${Math.max(0.8, bw - 0.5).toFixed(1)}" height="${Math.max(0.5, h).toFixed(1)}" rx="0.8"/>
+            ${b.fail > 0 ? `<rect class="act-chart-bar fail" x="${x.toFixed(1)}" y="${fy.toFixed(1)}" width="${Math.max(0.8, bw - 0.5).toFixed(1)}" height="${Math.max(0.5, fh).toFixed(1)}" rx="0.8"/>` : ''}`;
+        }).join('');
+        return `
+          <div class="act-kpi-row">
+            <div class="act-kpi"><div class="v">${total}</div><div class="l">30 天总运行</div></div>
+            <div class="act-kpi"><div class="v" style="color:var(--accent-hover)">${successRate}${successRate === '—' ? '' : '%'}</div><div class="l">成功率</div></div>
+            <div class="act-kpi"><div class="v" style="color:var(--danger)">${fail}</div><div class="l">失败次数</div></div>
+          </div>
+          <div class="ins-section-label">运行趋势（30 天）</div>
+          <svg class="act-chart" viewBox="0 0 ${W} ${H}" preserveAspectRatio="none" role="img" aria-label="30 天运行趋势，总 ${total} 次，失败 ${fail} 次">
+            ${bars}
+          </svg>
+          <div class="act-axis-row"><span>30 天前</span><span>今天</span></div>
+          <div class="act-recent">
+            <div class="ins-section-label">最近活动</div>
+            ${a.logs.map(l => `<div class="act-recent-item"><span class="mono meta" style="width:48px;font-size:11px">${l.t}</span><span class="log-lvl ${l.l}" style="width:40px">${l.l.toUpperCase()}</span><span style="color:var(--fg-2)">${esc(l.m)}</span></div>`).join('')}
+          </div>
+        `;
+      }
+
+      function renderInstructions(a) {
+        return `
+          <div class="ins-section-label">系统提示词</div>
+          <div class="instr">${esc(a.instructions || '（未设置提示词）')}</div>
+          <div class="ins-section-label mt-6">能力描述符</div>
+          <div class="card-flat" style="padding:var(--space-4)">
+            <div class="prop-row"><div class="lbl">输入 schema</div><div class="val mono">${esc(a.inputSchema)}</div></div>
+            <div class="prop-row"><div class="lbl">输出 schema</div><div class="val mono">${esc(a.outputSchema)}</div></div>
+          </div>
+        `;
+      }
+
+      function renderSkills(a) {
+        const desc = {
+          'arxiv-parse':'解析 arXiv 论文 PDF', 'pdf-extract':'提取 PDF 正文与图表',
+          'claim-graph':'构建论点依赖图', 'zh/en-bilingual':'中英双语处理',
+          'python':'Python 代码生成', 'pytorch':'PyTorch 模型实现', 'sandbox-exec':'沙箱代码执行',
+          'git-diff':'生成 git diff', 'metrics-cmp':'指标比对', 'evidence-retrieval':'证据检索',
+          'confidence-score':'置信度评分', 'counterexample':'反例生成', 'task-decompose':'任务拆解',
+          'capability-match':'能力匹配', 'budget-guard':'预算守卫', 'fan-out':'并行分发',
+          'pandas':'pandas 数据处理', 'dedupe':'去重', 'type-coerce':'类型规范化', 'missing-impute':'缺失值插补',
+          'citation-trace':'引用溯源', 'verdict':'判定', 'unknown-safe':'未知安全输出',
+          'multi-doc-merge':'多文档合并', 'style-unify':'风格统一', 'citation-keep':'引用保留',
+          'cuda':'CUDA 执行', 'pytorch-train':'PyTorch 训练', 'ckpt-save':'检查点保存', 'oom-retry':'OOM 重试',
+          'hitl-checkpoint':'HITL 检查点', 'redis-resume':'Redis 恢复', 'approve/reject':'审批通过/拒绝',
+          'dep-scan':'依赖扫描', 'prompt-injection-detect':'提示词注入检测', 'severity-classify':'严重度分类',
+          'http-fetch':'HTTP 抓取', 'readability':'正文提取', 'retry-3':'3 次重试', 'rate-limit':'限流',
+          'multi-run-agg':'多 run 聚合', 'template-fill':'模板填充', 'na-safe':'N/A 安全',
+        };
+        return `
+          <div class="ins-section-label">已挂载 Skills（${a.skills.length}）</div>
+          <div class="skills-grid">
+            ${a.skills.map(s => `<div class="skill-card"><div class="nm">${esc(s)}</div><div class="ds">${esc(desc[s] || '—')}</div></div>`).join('')}
+          </div>
+        `;
+      }
+
+      function renderLogs(a) {
+        return `
+          <div class="ins-section-label">最近日志</div>
+          <div class="log">
+            ${a.logs.map(l => `<div class="log-line"><span class="log-ts">${l.t}</span><span class="log-lvl ${l.l}">${l.l.toUpperCase()}</span><span class="log-msg">${esc(l.m)}</span></div>`).join('')}
+          </div>
+          <div class="ins-section-label mt-6">区域与资源</div>
+          <div class="card-flat" style="padding:var(--space-4)">
+            <div class="prop-row"><div class="lbl">区域</div><div class="val">${esc(a.region)}</div></div>
+            <div class="prop-row"><div class="lbl">所属 daemon</div><div class="val mono">${esc(a.daemon)}</div></div>
+            <div class="prop-row"><div class="lbl">负载</div><div class="val">${a.load}%</div></div>
+            <div class="prop-row"><div class="lbl">今日成本</div><div class="val mono">${esc(a.cost)}</div></div>
+          </div>
+        `;
+      }
+
+      function renderTab(tab, a) {
+        if (tab === 'activity') return renderActivity(a);
+        if (tab === 'instructions') return renderInstructions(a);
+        if (tab === 'skills') return renderSkills(a);
+        if (tab === 'logs') return renderLogs(a);
+        return '';
+      }
+
+      let activeTab = 'activity';
+
+      function render(a) {
+        renderInspector(a);
+        body.innerHTML = renderTab(activeTab, a);
+      }
+
+      // tab switching (click + keyboard arrows for tablist)
+      const tabs = Array.from(document.querySelectorAll('.tab'));
+      tabs.forEach((t, i) => {
+        t.setAttribute('tabindex', t.getAttribute('aria-selected') === 'true' ? '0' : '-1');
+        t.addEventListener('click', () => switchTab(t));
+        t.addEventListener('keydown', (e) => {
+          if (e.key === 'ArrowRight' || e.key === 'ArrowLeft') {
+            e.preventDefault();
+            const dir = e.key === 'ArrowRight' ? 1 : -1;
+            const next = tabs[(i + dir + tabs.length) % tabs.length];
+            switchTab(next);
+            next.focus();
+          } else if (e.key === 'Home') { e.preventDefault(); switchTab(tabs[0]); tabs[0].focus(); }
+          else if (e.key === 'End') { e.preventDefault(); switchTab(tabs[tabs.length-1]); tabs[tabs.length-1].focus(); }
+        });
+      });
+      function switchTab(t) {
+        tabs.forEach(x => { x.setAttribute('aria-selected', 'false'); x.setAttribute('tabindex', '-1'); });
+        t.setAttribute('aria-selected', 'true');
+        t.setAttribute('tabindex', '0');
+        activeTab = t.dataset.tab;
+        if (a) body.innerHTML = renderTab(activeTab, a);
+      }
+
+      // simulate loading
+      setTimeout(() => {
+        if (!a) { renderNotFound(); return; }
+        render(a);
+      }, 200);
+    });
+  </script>
+</body>
+</html>

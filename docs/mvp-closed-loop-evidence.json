@@ -1,0 +1,382 @@
+{
+  "flowId": "319528da-d8ed-43b0-a900-03bcbe33290f",
+  "agentDaemonId": "b353e671-8f39-4c2b-b54c-8a6b088c8d81",
+  "fanOut": {
+    "parentRunId": "61e18bc2-06db-4ca5-9c07-b4ac8a9c09e9",
+    "total": 2,
+    "completed": 2,
+    "failed": 0,
+    "children": [
+      {
+        "runId": "e8b71b9a-1fcc-44cc-b442-7bf7f0b1490e",
+        "status": "completed",
+        "output": {
+          "executionId": "exec-paper-A",
+          "sessionId": "paper-paper-A",
+          "agentFlowExecutedData": [
+            {
+              "nodeId": "start",
+              "nodeLabel": "Start",
+              "status": "FINISHED",
+              "data": {
+                "id": "start",
+                "name": "startAgentflow",
+                "output": {
+                  "content": "start"
+                }
+              }
+            },
+            {
+              "nodeId": "agent",
+              "nodeLabel": "Agent",
+              "status": "FINISHED",
+              "data": {
+                "id": "agent",
+                "name": "agentAgentflow",
+                "output": {
+                  "content": "reproduced:paper-A",
+                  "usageMetadata": {
+                    "input_tokens": 42,
+                    "output_tokens": 7,
+                    "total_tokens": 49,
+                    "total_cost": 0.0123
+                  }
+                }
+              }
+            },
+            {
+              "nodeId": "dispatch",
+              "nodeLabel": "DispatchInvoke",
+              "status": "FINISHED",
+              "data": {
+                "id": "dispatch",
+                "name": "dispatchInvoke",
+                "output": {
+                  "content": "reproduced:paper-A"
+                }
+              }
+            }
+          ]
+        }
+      },
+      {
+        "runId": "b2eeaa3d-48c4-48e1-b352-6d570b2ea387",
+        "status": "completed",
+        "output": {
+          "executionId": "exec-paper-B",
+          "sessionId": "paper-paper-B",
+          "agentFlowExecutedData": [
+            {
+              "nodeId": "start",
+              "nodeLabel": "Start",
+              "status": "FINISHED",
+              "data": {
+                "id": "start",
+                "name": "startAgentflow",
+                "output": {
+                  "content": "start"
+                }
+              }
+            },
+            {
+              "nodeId": "agent",
+              "nodeLabel": "Agent",
+              "status": "FINISHED",
+              "data": {
+                "id": "agent",
+                "name": "agentAgentflow",
+                "output": {
+                  "content": "reproduced:paper-B",
+                  "usageMetadata": {
+                    "input_tokens": 42,
+                    "output_tokens": 7,
+                    "total_tokens": 49,
+                    "total_cost": 0.0123
+                  }
+                }
+              }
+            },
+            {
+              "nodeId": "dispatch",
+              "nodeLabel": "DispatchInvoke",
+              "status": "FINISHED",
+              "data": {
+                "id": "dispatch",
+                "name": "dispatchInvoke",
+                "output": {
+                  "content": "reproduced:paper-B"
+                }
+              }
+            }
+          ]
+        }
+      }
+    ]
+  },
+  "parentAggregate": {
+    "total": 2,
+    "failed": 0,
+    "children": [
+      {
+        "id": "e8b71b9a-1fcc-44cc-b442-7bf7f0b1490e",
+        "output": {
+          "sessionId": "paper-paper-A",
+          "executionId": "exec-paper-A",
+          "agentFlowExecutedData": [
+            {
+              "data": {
+                "id": "start",
+                "name": "startAgentflow",
+                "output": {
+                  "content": "start"
+                }
+              },
+              "nodeId": "start",
+              "status": "FINISHED",
+              "nodeLabel": "Start"
+            },
+            {
+              "data": {
+                "id": "agent",
+                "name": "agentAgentflow",
+                "output": {
+                  "content": "reproduced:paper-A",
+                  "usageMetadata": {
+                    "total_cost": 0.0123,
+                    "input_tokens": 42,
+                    "total_tokens": 49,
+                    "output_tokens": 7
+                  }
+                }
+              },
+              "nodeId": "agent",
+              "status": "FINISHED",
+              "nodeLabel": "Agent"
+            },
+            {
+              "data": {
+                "id": "dispatch",
+                "name": "dispatchInvoke",
+                "output": {
+                  "content": "reproduced:paper-A"
+                }
+              },
+              "nodeId": "dispatch",
+              "status": "FINISHED",
+              "nodeLabel": "DispatchInvoke"
+            }
+          ]
+        },
+        "status": "completed"
+      },
+      {
+        "id": "b2eeaa3d-48c4-48e1-b352-6d570b2ea387",
+        "output": {
+          "sessionId": "paper-paper-B",
+          "executionId": "exec-paper-B",
+          "agentFlowExecutedData": [
+            {
+              "data": {
+                "id": "start",
+                "name": "startAgentflow",
+                "output": {
+                  "content": "start"
+                }
+              },
+              "nodeId": "start",
+              "status": "FINISHED",
+              "nodeLabel": "Start"
+            },
+            {
+              "data": {
+                "id": "agent",
+                "name": "agentAgentflow",
+                "output": {
+                  "content": "reproduced:paper-B",
+                  "usageMetadata": {
+                    "total_cost": 0.0123,
+                    "input_tokens": 42,
+                    "total_tokens": 49,
+                    "output_tokens": 7
+                  }
+                }
+              },
+              "nodeId": "agent",
+              "status": "FINISHED",
+              "nodeLabel": "Agent"
+            },
+            {
+              "data": {
+                "id": "dispatch",
+                "name": "dispatchInvoke",
+                "output": {
+                  "content": "reproduced:paper-B"
+                }
+              },
+              "nodeId": "dispatch",
+              "status": "FINISHED",
+              "nodeLabel": "DispatchInvoke"
+            }
+          ]
+        },
+        "status": "completed"
+      }
+    ],
+    "completed": 2,
+    "totalCost": 0
+  },
+  "nodeSpans": [
+    {
+      "runId": "e8b71b9a-1fcc-44cc-b442-7bf7f0b1490e",
+      "nodeId": "start",
+      "status": "done",
+      "traceId": "c1e1cc128b49a05b416a9a1744dac71d",
+      "cost": null
+    },
+    {
+      "runId": "e8b71b9a-1fcc-44cc-b442-7bf7f0b1490e",
+      "nodeId": "agent",
+      "status": "done",
+      "traceId": "c1e1cc128b49a05b416a9a1744dac71d",
+      "cost": "0.012300"
+    },
+    {
+      "runId": "e8b71b9a-1fcc-44cc-b442-7bf7f0b1490e",
+      "nodeId": "dispatch",
+      "status": "done",
+      "traceId": "c1e1cc128b49a05b416a9a1744dac71d",
+      "cost": null
+    },
+    {
+      "runId": "b2eeaa3d-48c4-48e1-b352-6d570b2ea387",
+      "nodeId": "start",
+      "status": "done",
+      "traceId": "e65d30dd4e32a42086e45c5df53f387b",
+      "cost": null
+    },
+    {
+      "runId": "b2eeaa3d-48c4-48e1-b352-6d570b2ea387",
+      "nodeId": "agent",
+      "status": "done",
+      "traceId": "e65d30dd4e32a42086e45c5df53f387b",
+      "cost": "0.012300"
+    },
+    {
+      "runId": "b2eeaa3d-48c4-48e1-b352-6d570b2ea387",
+      "nodeId": "dispatch",
+      "status": "done",
+      "traceId": "e65d30dd4e32a42086e45c5df53f387b",
+      "cost": null
+    }
+  ],
+  "auditLock": {
+    "action": "pipeline_version.lock",
+    "run_id": "61e18bc2-06db-4ca5-9c07-b4ac8a9c09e9"
+  },
+  "versionHash": "b611c86aa75dc913c9564a9adcbf241b2dd1e40ea135a3b5c3a2fbb5ec9ba244",
+  "reproduce": {
+    "sourceRunId": "e8b71b9a-1fcc-44cc-b442-7bf7f0b1490e",
+    "rerunRunId": "ca9a7270-81db-4eed-8679-8053c58fc42a",
+    "status": "completed",
+    "match": true,
+    "diff": null,
+    "versionHash": "b611c86aa75dc913c9564a9adcbf241b2dd1e40ea135a3b5c3a2fbb5ec9ba244",
+    "output": {
+      "executionId": "exec-paper-A",
+      "sessionId": "paper-paper-A",
+      "agentFlowExecutedData": [
+        {
+          "nodeId": "start",
+          "nodeLabel": "Start",
+          "status": "FINISHED",
+          "data": {
+            "id": "start",
+            "name": "startAgentflow",
+            "output": {
+              "content": "start"
+            }
+          }
+        },
+        {
+          "nodeId": "agent",
+          "nodeLabel": "Agent",
+          "status": "FINISHED",
+          "data": {
+            "id": "agent",
+            "name": "agentAgentflow",
+            "output": {
+              "content": "reproduced:paper-A",
+              "usageMetadata": {
+                "input_tokens": 42,
+                "output_tokens": 7,
+                "total_tokens": 49,
+                "total_cost": 0.0123
+              }
+            }
+          }
+        },
+        {
+          "nodeId": "dispatch",
+          "nodeLabel": "DispatchInvoke",
+          "status": "FINISHED",
+          "data": {
+            "id": "dispatch",
+            "name": "dispatchInvoke",
+            "output": {
+              "content": "reproduced:paper-A"
+            }
+          }
+        }
+      ]
+    },
+    "expected": {
+      "sessionId": "paper-paper-A",
+      "executionId": "exec-paper-A",
+      "agentFlowExecutedData": [
+        {
+          "data": {
+            "id": "start",
+            "name": "startAgentflow",
+            "output": {
+              "content": "start"
+            }
+          },
+          "nodeId": "start",
+          "status": "FINISHED",
+          "nodeLabel": "Start"
+        },
+        {
+          "data": {
+            "id": "agent",
+            "name": "agentAgentflow",
+            "output": {
+              "content": "reproduced:paper-A",
+              "usageMetadata": {
+                "total_cost": 0.0123,
+                "input_tokens": 42,
+                "total_tokens": 49,
+                "output_tokens": 7
+              }
+            }
+          },
+          "nodeId": "agent",
+          "status": "FINISHED",
+          "nodeLabel": "Agent"
+        },
+        {
+          "data": {
+            "id": "dispatch",
+            "name": "dispatchInvoke",
+            "output": {
+              "content": "reproduced:paper-A"
+            }
+          },
+          "nodeId": "dispatch",
+          "status": "FINISHED",
+          "nodeLabel": "DispatchInvoke"
+        }
+      ]
+    },
+    "artifactUri": "s3://test-bucket/runs/ca9a7270-81db-4eed-8679-8053c58fc42a/6ffac38838f7e6bca471789d14a54f67c33cf3f83106cd84661b652c7338a157/reproduce-report.json"
+  }
+}

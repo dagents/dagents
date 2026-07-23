@@ -1,0 +1,690 @@
+<!doctype html>
+<html lang="zh-CN">
+<head>
+  <meta charset="utf-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1" />
+  <title>设置 · Mega Agents</title>
+  <link rel="stylesheet" href="css/tokens.css" />
+  <link rel="stylesheet" href="css/shell.css" />
+  <style>
+    .settings-layout { display: grid; grid-template-columns: 220px 1fr; gap: var(--space-8); }
+    .settings-nav { position: sticky; top: var(--space-4); align-self: start; }
+    .settings-nav a { display: block; padding: var(--space-2) var(--space-3); border-radius: 8px; font-size: var(--text-sm); color: var(--muted); font-weight: 500; cursor: pointer; }
+    .settings-nav a:hover { background: var(--surface-warm); color: var(--fg); }
+    .settings-nav a[aria-current="true"] { background: var(--accent-soft); color: var(--accent-hover); }
+    .settings-nav .grp { font-size: 11px; color: var(--meta); letter-spacing: var(--tracking-label); text-transform: uppercase; padding: var(--space-4) var(--space-3) var(--space-1); }
+    .settings-nav .grp:first-child { padding-top: 0; }
+
+    .settings-section { display: none; }
+    .settings-section.active { display: block; }
+    .settings-section + .settings-section { margin-top: var(--space-12); }
+
+    /* gateway connection card */
+    .gateway { background: linear-gradient(180deg, var(--surface-warm), var(--bg)); border: 1px solid var(--border-soft); border-radius: var(--radius-md); padding: var(--space-5) var(--space-6); margin-bottom: var(--space-5); display: flex; align-items: center; gap: var(--space-5); flex-wrap: wrap; }
+    .gw-mark { width: 40px; height: 40px; border-radius: 10px; background: var(--fg); color: var(--bg); display: grid; place-items: center; font-family: var(--font-display); font-size: 18px; font-weight: 600; flex-shrink: 0; }
+    .gw-title { font-size: var(--text-base); font-weight: 600; }
+    .gw-sub { font-size: 12px; color: var(--muted); margin-top: 2px; display: flex; gap: var(--space-3); flex-wrap: wrap; align-items: center; }
+    .gw-sub .s { display: inline-flex; align-items: center; gap: 4px; }
+    .gw-meta { margin-left: auto; display: flex; gap: var(--space-4); align-items: center; }
+    .gw-stat { text-align: right; }
+    .gw-stat .v { font-family: var(--font-mono); font-size: var(--text-sm); font-weight: 500; color: var(--fg); }
+    .gw-stat .l { font-size: 10px; color: var(--meta); letter-spacing: var(--tracking-label); text-transform: uppercase; }
+
+    /* token table */
+    .tokens-toolbar { display: flex; align-items: center; gap: var(--space-3); margin-bottom: var(--space-3); flex-wrap: wrap; }
+    .tokens-toolbar .search-mini { position: relative; flex: 1; min-width: 200px; max-width: 320px; }
+    .tokens-toolbar .search-mini input { width: 100%; height: 34px; padding: 0 var(--space-3) 0 30px; background: var(--bg); border: 1px solid var(--border); border-radius: var(--radius-sm); font-size: var(--text-sm); }
+    .tokens-toolbar .search-mini input:focus { border-color: var(--accent); box-shadow: var(--focus-ring); outline: none; }
+    .tokens-toolbar .search-mini svg { position: absolute; left: 9px; top: 9px; width: 14px; height: 14px; color: var(--meta); }
+    .filter-chip { display: inline-flex; align-items: center; gap: 6px; height: 34px; padding: 0 var(--space-3); background: var(--bg); border: 1px solid var(--border); border-radius: var(--radius-sm); font-size: var(--text-xs); color: var(--fg-2); font-weight: 500; cursor: pointer; transition: all var(--motion-fast); }
+    .filter-chip:hover { border-color: #d4d4d4; }
+    .filter-chip[aria-pressed="true"] { background: var(--fg); color: var(--bg); border-color: var(--fg); }
+
+    .tk-row { display: grid; grid-template-columns: minmax(0,1.6fr) minmax(0,1.4fr) 96px 120px 120px 132px; gap: var(--space-3); align-items: center; padding: var(--space-3) var(--space-4); font-size: var(--text-sm); }
+    .tk-row + .tk-row { border-top: 1px solid var(--border-soft); }
+    .tk-row:hover { background: var(--surface-warm); }
+    .tk-name { display: flex; flex-direction: column; gap: 2px; min-width: 0; }
+    .tk-name .nm { font-weight: 500; color: var(--fg); display: flex; align-items: center; gap: 6px; }
+    .tk-name .nm .badge-default { font-size: 9px; font-weight: 600; color: var(--accent-on); background: var(--accent); padding: 1px 5px; border-radius: 4px; letter-spacing: 0.02em; }
+    .tk-name .meta { font-size: 11px; color: var(--meta); font-family: var(--font-mono); display: flex; align-items: center; gap: 6px; }
+    .tk-key { font-family: var(--font-mono); font-size: 12px; color: var(--fg-2); display: flex; align-items: center; gap: 6px; min-width: 0; }
+    .tk-key .copy { width: 22px; height: 22px; display: grid; place-items: center; background: transparent; border: 0; border-radius: 5px; color: var(--meta); cursor: pointer; flex-shrink: 0; }
+    .tk-key .copy:hover { background: var(--surface); color: var(--fg); }
+    .tk-key .copy svg { width: 13px; height: 13px; }
+    .tk-key .reveal { width: 22px; height: 22px; display: grid; place-items: center; background: transparent; border: 0; border-radius: 5px; color: var(--meta); cursor: pointer; flex-shrink: 0; }
+    .tk-key .reveal:hover { background: var(--surface); color: var(--fg); }
+    .tk-key .reveal svg { width: 13px; height: 13px; }
+    .tk-group { font-family: var(--font-mono); font-size: 11px; color: var(--muted); }
+    .tk-quota { display: flex; flex-direction: column; gap: 4px; }
+    .tk-quota .bar { height: 5px; }
+    .tk-quota .num { font-family: var(--font-mono); font-size: 10px; color: var(--meta); }
+    .tk-actions { display: flex; gap: 2px; justify-content: flex-end; }
+    .tk-actions .mini-btn { width: 30px; height: 30px; display: grid; place-items: center; background: transparent; border: 0; border-radius: 7px; color: var(--muted); cursor: pointer; }
+    .tk-actions .mini-btn:hover { background: var(--surface); color: var(--fg); }
+    .tk-actions .mini-btn.danger:hover { background: var(--danger-soft); color: var(--danger); }
+    .tk-actions .mini-btn svg { width: 15px; height: 15px; }
+
+    /* modal */
+    .modal-backdrop { position: fixed; inset: 0; background: rgba(13,13,13,0.36); opacity: 0; pointer-events: none; transition: opacity var(--motion-base); z-index: 100; display: grid; place-items: center; padding: var(--space-4); }
+    .modal-backdrop.open { opacity: 1; pointer-events: auto; }
+    .modal { width: 560px; max-width: 100%; max-height: 90vh; background: var(--bg); border: 1px solid var(--border); border-radius: var(--radius-md); box-shadow: var(--elev-overlay); display: flex; flex-direction: column; transform: translateY(8px) scale(0.98); transition: transform var(--motion-base) var(--ease-standard); overflow: hidden; }
+    .modal-backdrop.open .modal { transform: translateY(0) scale(1); }
+    .modal-head { display: flex; align-items: center; gap: var(--space-3); padding: var(--space-4) var(--space-6); border-bottom: 1px solid var(--border-soft); flex-shrink: 0; }
+    .modal-head .title { font-size: var(--text-base); font-weight: 600; flex: 1; }
+    .modal-body { padding: var(--space-6); overflow-y: auto; }
+    .modal-foot { border-top: 1px solid var(--border-soft); padding: var(--space-4) var(--space-6); display: flex; gap: var(--space-2); justify-content: flex-end; flex-shrink: 0; }
+    .modal-grid { display: grid; grid-template-columns: 1fr 1fr; gap: var(--space-3); }
+    .modal-grid .full { grid-column: 1 / -1; }
+    .modal-hint-row { display: flex; justify-content: space-between; align-items: center; margin-top: 4px; }
+    .chars { font-size: 10px; color: var(--meta); font-family: var(--font-mono); }
+
+    /* toast */
+    .toast-host { position: fixed; bottom: var(--space-6); right: var(--space-6); z-index: 200; display: flex; flex-direction: column; gap: var(--space-2); pointer-events: none; }
+    .toast { display: flex; align-items: center; gap: var(--space-2); background: var(--fg); color: var(--bg); padding: 10px 16px; border-radius: var(--radius-sm); font-size: var(--text-sm); box-shadow: var(--elev-overlay); pointer-events: auto; animation: toast-in var(--motion-base) var(--ease-standard); }
+    .toast.ok svg { color: var(--accent); }
+    .toast.err svg { color: var(--danger); }
+    .toast svg { width: 16px; height: 16px; flex-shrink: 0; }
+    @keyframes toast-in { from { opacity: 0; transform: translateY(8px); } to { opacity: 1; transform: translateY(0); } }
+    @media (prefers-reduced-motion: reduce) { .toast { animation: none; } }
+
+    .toggle-row { display: flex; align-items: center; justify-content: space-between; padding: var(--space-3) 0; }
+    .toggle-row + .toggle-row { border-top: 1px solid var(--border-soft); }
+    .toggle-row .info .t { font-size: var(--text-sm); font-weight: 500; color: var(--fg); }
+    .toggle-row .info .d { font-size: 12px; color: var(--muted); margin-top: 2px; max-width: 56ch; }
+
+    .model-row { display: grid; grid-template-columns: 1fr 140px 100px 100px; gap: var(--space-3); align-items: center; padding: var(--space-3) 0; font-size: var(--text-sm); }
+    .model-row + .model-row { border-top: 1px solid var(--border-soft); }
+    .model-row .nm { font-weight: 500; color: var(--fg); }
+    .model-row .nm .p { font-size: 11px; color: var(--muted); margin-top: 2px; font-family: var(--font-mono); }
+    .model-row .pr { font-family: var(--font-mono); font-size: 11px; color: var(--muted); }
+
+    .danger-zone { border: 1px solid var(--danger-soft); border-radius: var(--radius-md); padding: var(--space-5); background: var(--danger-soft); background: color-mix(in oklab, var(--danger-soft) 30%, var(--bg)); }
+
+    @media (max-width: 860px) {
+      .settings-layout { grid-template-columns: 1fr; }
+      .settings-nav { position: static; display: flex; gap: var(--space-2); overflow-x: auto; padding-bottom: var(--space-3); }
+      .settings-nav .grp { display: none; }
+      .tk-row { grid-template-columns: 1fr; gap: var(--space-1); padding: var(--space-3); }
+      .tk-row > div { text-align: left !important; }
+      .tk-actions { justify-content: flex-start; }
+      .modal-grid { grid-template-columns: 1fr; }
+      .gw-meta { margin-left: 0; width: 100%; }
+      .model-row { grid-template-columns: 1fr; }
+    }
+  </style>
+</head>
+<body>
+  <div class="app" id="app">
+    <aside class="app-sidebar" data-od-id="sidebar">
+      <div class="brand"><div class="brand-mark">M</div><div><div class="brand-name">Mega Agents</div><div class="brand-sub">控制台 · v0.2</div></div></div>
+      <nav class="nav" aria-label="主导航"></nav>
+      <div class="sidebar-footer"></div>
+    </aside>
+
+    <header class="app-topbar" data-od-id="topbar">
+      <button class="icon-btn mobile-menu-btn" aria-label="菜单"></button>
+      <div class="crumbs"><span class="crumb">系统</span><span class="sep">/</span><span class="crumb-current">设置</span></div>
+      <div class="topbar-spacer"></div>
+      <div class="topbar-search"><span class="search-icon" id="ic"></span><input type="search" placeholder="搜索设置…" aria-label="搜索" /><kbd>⌘K</kbd></div>
+      <div class="topbar-actions">
+        <button class="icon-btn" aria-label="通知"><span id="bell"></span><span class="dot"></span></button>
+        <button class="avatar" aria-label="账户">RZ</button>
+      </div>
+    </header>
+
+    <main class="app-main">
+      <div class="page">
+        <div class="page-head">
+          <div class="page-head-title">
+            <h1 class="page-title">设置</h1>
+            <p class="page-subtitle">new-api 令牌 CRUD、网关健康探测、默认模型、预算配额与熔断、通知。令牌经 new-api 统一签发，上游渠道由网关维护。</p>
+          </div>
+        </div>
+
+        <div class="settings-layout">
+          <nav class="settings-nav" aria-label="设置分组">
+            <div class="grp">密钥</div>
+            <a data-tab="keys" aria-current="true">API Key 管理</a>
+            <div class="grp">模型</div>
+            <a data-tab="models">默认模型</a>
+            <div class="grp">治理</div>
+            <a data-tab="quota">预算与配额</a>
+            <a data-tab="notify">通知</a>
+            <div class="grp">账户</div>
+            <a data-tab="account">账户与团队</a>
+            <a data-tab="danger">危险区</a>
+          </nav>
+
+          <div>
+            <!-- API Keys -->
+            <section class="settings-section active" id="tab-keys" data-od-id="tab-keys">
+              <div class="row-between mb-4">
+                <div><div class="card-title" style="font-size:var(--text-lg)">API Key 管理</div><div class="muted mt-2" style="font-size:13px">通过 new-api 网关统一鉴权与计费，平台只管理令牌（token）的 CRUD</div></div>
+              </div>
+
+              <!-- new-api gateway connection -->
+              <div class="gateway" data-od-id="newapi-gateway">
+                <div class="gw-mark">N</div>
+                <div>
+                  <div class="gw-title">new-api 网关</div>
+                  <div class="gw-sub">
+                    <span class="s status online"><span class="dot"></span>已连接</span>
+                    <span class="s mono">https://new-api.internal:3000</span>
+                    <span class="s">v0.6.8</span>
+                    <span class="s">管理密钥 sk-newapi-••••••••3f</span>
+                  </div>
+                </div>
+                <div class="gw-meta">
+                  <div class="gw-stat"><div class="v">8</div><div class="l">令牌</div></div>
+                  <div class="gw-stat"><div class="v">6</div><div class="l">渠道</div></div>
+                  <div class="gw-stat"><div class="v">$3,118</div><div class="l">今日用量</div></div>
+                  <button class="btn btn-secondary btn-sm">编辑连接</button>
+                </div>
+              </div>
+
+              <!-- tokens toolbar -->
+              <div class="tokens-toolbar" data-od-id="tokens-toolbar">
+                <div class="search-mini">
+                  <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round"><circle cx="11" cy="11" r="7"/><path d="m20 20-3.5-3.5"/></svg>
+                  <input type="search" id="tk-search" placeholder="搜索令牌名称或 key…" aria-label="搜索令牌" />
+                </div>
+                <button class="filter-chip" data-f="status" data-v="active" aria-pressed="false">启用</button>
+                <button class="filter-chip" data-f="status" data-v="disabled" aria-pressed="false">禁用</button>
+                <button class="filter-chip" data-f="status" data-v="expired" aria-pressed="false">已过期</button>
+                <span style="color:var(--meta);font-size:11px;font-family:var(--font-mono)" id="tk-count">8 个令牌</span>
+                <div class="grow"></div>
+                <button class="btn btn-accent btn-sm" id="btn-new-token">+ 新建令牌</button>
+              </div>
+
+              <!-- tokens table -->
+              <div class="table-wrap" data-od-id="tokens-table">
+                <table class="data" style="width:100%">
+                  <thead>
+                    <tr>
+                      <th style="width:24%">名称</th>
+                      <th style="width:22%">Key</th>
+                      <th>分组</th>
+                      <th>额度</th>
+                      <th>过期</th>
+                      <th style="text-align:right">操作</th>
+                    </tr>
+                  </thead>
+                  <tbody id="tk-tbody"></tbody>
+                </table>
+              </div>
+
+              <div class="muted mt-3" style="font-size:12px;line-height:1.6">
+                令牌由 new-api 签发并托管，平台本地不存原文。所有 LLM/工具调用经网关统一鉴权与计费，上游渠道（Anthropic / OpenAI / Google / 本地）由 new-api 的渠道管理维护。
+              </div>
+            </section>
+
+            <!-- token create/edit modal -->
+            <div class="modal-backdrop" id="token-modal" data-od-id="token-modal">
+              <div class="modal" role="dialog" aria-modal="true" aria-labelledby="tm-title">
+                <div class="modal-head">
+                  <div class="title" id="tm-title">新建令牌</div>
+                  <button class="icon-btn" data-modal-close aria-label="关闭"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round"><path d="M6 6l12 12M18 6 6 18"/></svg></button>
+                </div>
+                <div class="modal-body">
+                  <form id="token-form" novalidate>
+                    <div class="modal-grid">
+                      <div class="field full">
+                        <label for="f-name">令牌名称 <span style="color:var(--danger)">*</span></label>
+                        <input class="input" id="f-name" required maxlength="40" placeholder="如：论文复现-生产" aria-describedby="f-name-err" />
+                        <span class="field-error" id="f-name-err">名称不能为空。</span>
+                      </div>
+                      <div class="field">
+                        <label for="f-group">分组</label>
+                        <select class="select" id="f-group">
+                          <option value="default">default</option>
+                          <option value="prod">prod</option>
+                          <option value="dev">dev</option>
+                          <option value="research">research</option>
+                          <option value="external">external</option>
+                        </select>
+                        <span class="hint">用于 new-api 按组限流与分摊</span>
+                      </div>
+                      <div class="field">
+                        <label for="f-quota">额度（额度点）</label>
+                        <input class="input" id="f-quota" type="number" min="0" step="100" placeholder="500000" />
+                        <span class="hint">留空 = 无限；1 点 ≈ $0.002</span>
+                      </div>
+                      <div class="field">
+                        <label for="f-expired">过期时间</label>
+                        <input class="input" id="f-expired" type="datetime-local" />
+                        <span class="hint">留空 = 永不过期</span>
+                      </div>
+                      <div class="field">
+                        <label for="f-models">可用模型范围</label>
+                        <input class="input" id="f-models" placeholder="留空 = 全部，或 claude-sonnet-4,gpt-4o" />
+                        <span class="hint">逗号分隔模型名</span>
+                      </div>
+                      <div class="field full">
+                        <label for="f-remark">备注</label>
+                        <textarea class="textarea" id="f-remark" maxlength="120" rows="2" placeholder="可选，便于团队识别用途"></textarea>
+                        <div class="modal-hint-row"><span class="hint">仅本平台可见，不会同步到 new-api</span><span class="chars" id="f-remark-chars">0 / 120</span></div>
+                      </div>
+                      <div class="field full">
+                        <div class="row gap-3">
+                          <label class="switch"><input type="checkbox" id="f-default" /><span class="track"></span><span class="switch-label">设为默认令牌</span></label>
+                          <label class="switch"><input type="checkbox" id="f-status" checked /><span class="track"></span><span class="switch-label">创建后启用</span></label>
+                        </div>
+                      </div>
+                    </div>
+                  </form>
+                </div>
+                <div class="modal-foot">
+                  <button class="btn btn-ghost btn-sm" data-modal-close>取消</button>
+                  <button class="btn btn-accent btn-sm" id="tm-save">保存</button>
+                </div>
+              </div>
+            </div>
+
+            <!-- delete confirm modal -->
+            <div class="modal-backdrop" id="del-modal" data-od-id="del-modal">
+              <div class="modal" style="width:420px" role="alertdialog" aria-modal="true" aria-labelledby="del-title">
+                <div class="modal-head"><div class="title" id="del-title">删除令牌</div></div>
+                <div class="modal-body">
+                  <p style="font-size:var(--text-sm);color:var(--fg-2);line-height:1.6">即将在 new-api 上删除令牌 <span class="mono" id="del-name" style="font-weight:600"></span>。</p>
+                  <p class="muted mt-3" style="font-size:12px;line-height:1.6">删除后该 key 立即失效，正在进行的请求会被网关拒绝。此操作不可撤销。是否需要同时吊销已分发的副本？</p>
+                  <label class="switch mt-3"><input type="checkbox" id="del-revoke" checked /><span class="track"></span><span class="switch-label">立即吊销所有已分发副本</span></label>
+                </div>
+                <div class="modal-foot">
+                  <button class="btn btn-ghost btn-sm" data-modal-close>取消</button>
+                  <button class="btn btn-danger btn-sm" id="del-confirm">确认删除</button>
+                </div>
+              </div>
+            </div>
+
+            <!-- toast host -->
+            <div class="toast-host" id="toast-host" aria-live="polite" aria-atomic="false"></div>
+
+            <!-- Default models -->
+            <section class="settings-section" id="tab-models" data-od-id="tab-models">
+              <div class="card-title mb-4" style="font-size:var(--text-lg)">默认模型</div>
+              <div class="card mb-6">
+                <div class="card-head"><div class="card-title">按角色分派</div><span class="chip chip-outline">编排器使用</span></div>
+                <div class="model-row"><div><div class="nm">阅读 / reader</div><div class="p">长上下文 · 便宜</div></div><div class="pr">claude-sonnet-4</div><div class="pr">$3/M in</div><div><span class="chip chip-teal">默认</span></div></div>
+                <div class="model-row"><div><div class="nm">编码 / coding</div><div class="p">工具调用强</div></div><div class="pr">claude-sonnet-4</div><div class="pr">$3/M in</div><div><span class="chip chip-teal">默认</span></div></div>
+                <div class="model-row"><div><div class="nm">验证 / verify</div><div class="p">推理深</div></div><div class="pr">o1</div><div class="pr">$15/M in</div><div><span class="chip chip-teal">默认</span></div></div>
+                <div class="model-row"><div><div class="nm">编排 / orchestrator</div><div class="p">分派与计划</div></div><div class="pr">claude-opus-4</div><div class="pr">$15/M in</div><div><span class="chip chip-teal">默认</span></div></div>
+                <div class="model-row"><div><div class="nm">抓取 / fetcher</div><div class="p">便宜快</div></div><div class="pr">gpt-4o-mini</div><div class="pr">$0.15/M in</div><div><span class="chip chip-teal">默认</span></div></div>
+              </div>
+              <div class="card">
+                <div class="card-head"><div class="card-title">回退链</div><span class="hint">主模型失败时按序回退</span></div>
+                <div class="toggle-row"><div class="info"><div class="t">1. Anthropic claude-sonnet-4</div><div class="d">主模型 · 限流时自动切池内其他 key</div></div><span class="chip chip-outline">主</span></div>
+                <div class="toggle-row"><div class="info"><div class="t">2. OpenAI gpt-4o</div><div class="d">跨渠道回退</div></div><span class="chip chip-outline">回退</span></div>
+                <div class="toggle-row"><div class="info"><div class="t">3. 本地 llama-3.1-70b</div><div class="d">最终兜底 · 不消耗外部配额</div></div><span class="chip chip-outline">兜底</span></div>
+              </div>
+            </section>
+
+            <!-- Quota -->
+            <section class="settings-section" id="tab-quota" data-od-id="tab-quota">
+              <div class="card-title mb-4" style="font-size:var(--text-lg)">预算与配额</div>
+              <div class="card mb-4">
+                <div class="card-head"><div class="card-title">全平台预算</div><span class="chip chip-outline">月度</span></div>
+                <div class="row-between mb-3"><span class="muted" style="font-size:13px">月预算</span><span class="mono" style="font-size:14px">$135,000</span></div>
+                <div class="bar mb-2"><span style="width:31%"></span></div>
+                <div class="row-between"><span class="meta" style="font-size:11px">已用 $41,820 (31%)</span><span class="meta" style="font-size:11px">熔断阈值 90%</span></div>
+              </div>
+              <div class="card mb-4">
+                <div class="card-head"><div class="card-title">熔断规则</div></div>
+                <div class="toggle-row"><div class="info"><div class="t">单 run 成本超 $5 暂停</div><div class="d">超阈值自动暂停并通知 owner</div></div><label class="switch"><input type="checkbox" checked /><span class="track"></span></label></div>
+                <div class="toggle-row"><div class="info"><div class="t">workspace 月配额 90% 告警</div><div class="d">达到 90% 通知，100% 阻断新 run</div></div><label class="switch"><input type="checkbox" checked /><span class="track"></span></label></div>
+                <div class="toggle-row"><div class="info"><div class="t">令牌限流自动切换</div><div class="d">429/5xx 时切换网关内其他令牌，3 次失败标记不健康</div></div><label class="switch"><input type="checkbox" checked /><span class="track"></span></label></div>
+                <div class="toggle-row"><div class="info"><div class="t">daemon 超时熔断</div><div class="d">静默 120s 触发双层 watchdog，回收任务重排</div></div><label class="switch"><input type="checkbox" checked /><span class="track"></span></label></div>
+              </div>
+            </section>
+
+            <!-- Notifications -->
+            <section class="settings-section" id="tab-notify" data-od-id="tab-notify">
+              <div class="card-title mb-4" style="font-size:var(--text-lg)">通知</div>
+              <div class="card">
+                <div class="toggle-row"><div class="info"><div class="t">Run 失败</div><div class="d">任何 run 进入 failed 状态时通知</div></div><label class="switch"><input type="checkbox" checked /><span class="track"></span></label></div>
+                <div class="toggle-row"><div class="info"><div class="t">成本熔断</div><div class="d">workspace 或全平台触达熔断阈值</div></div><label class="switch"><input type="checkbox" checked /><span class="track"></span></label></div>
+                <div class="toggle-row"><div class="info"><div class="t">令牌不健康</div><div class="d">new-api 令牌限流、失效或过期</div></div><label class="switch"><input type="checkbox" checked /><span class="track"></span></label></div>
+                <div class="toggle-row"><div class="info"><div class="t">Human Input 等待</div><div class="d">HITL 节点等待人工审批时</div></div><label class="switch"><input type="checkbox" checked /><span class="track"></span></label></div>
+                <div class="toggle-row"><div class="info"><div class="t">Daemon 离线</div><div class="d">daemon 心跳丢失超 60s</div></div><label class="switch"><input type="checkbox" /><span class="track"></span></label></div>
+                <div class="toggle-row"><div class="info"><div class="t">每日成本摘要</div><div class="d">每天 09:00 推送昨日成本与 Top 5 run</div></div><label class="switch"><input type="checkbox" checked /><span class="track"></span></label></div>
+              </div>
+              <div class="card mt-4">
+                <div class="card-head"><div class="card-title">通知渠道</div></div>
+                <div class="toggle-row"><div class="info"><div class="t">站内</div><div class="d">顶栏铃铛</div></div><label class="switch"><input type="checkbox" checked /><span class="track"></span></label></div>
+                <div class="toggle-row"><div class="info"><div class="t">邮件</div><div class="d">rz@team.dev</div></div><label class="switch"><input type="checkbox" checked /><span class="track"></span></label></div>
+                <div class="toggle-row"><div class="info"><div class="t">Webhook</div><div class="d">https://hooks.team.dev/od</div></div><label class="switch"><input type="checkbox" /><span class="track"></span></label></div>
+              </div>
+            </section>
+
+            <!-- Account -->
+            <section class="settings-section" id="tab-account" data-od-id="tab-account">
+              <div class="card-title mb-4" style="font-size:var(--text-lg)">账户与团队</div>
+              <div class="card mb-4">
+                <div class="card-head"><div class="card-title">个人</div></div>
+                <dl class="kv">
+                  <dt>姓名</dt><dd>饶哲</dd>
+                  <dt>邮箱</dt><dd>rz@team.dev</dd>
+                  <dt>角色</dt><dd>owner</dd>
+                  <dt>SSO</dt><dd>已绑定 · Google</dd>
+                  <dt>默认 workspace</dt><dd>论文复现 · RL</dd>
+                </dl>
+              </div>
+              <div class="card">
+                <div class="card-head"><div class="card-title">团队 · 38 成员</div><button class="btn btn-secondary btn-sm">邀请</button></div>
+                <div class="model-row"><div><div class="nm">饶哲</div><div class="p">rz@team.dev</div></div><div class="pr">owner</div><div class="pr">全 workspace</div><div><span class="chip chip-outline">你</span></div></div>
+                <div class="model-row"><div><div class="nm">林敏</div><div class="p">lm@team.dev</div></div><div class="pr">admin</div><div class="pr">3 workspace</div><div></div></div>
+                <div class="model-row"><div><div class="nm">邓凯</div><div class="p">dk@team.dev</div></div><div class="pr">editor</div><div class="pr">2 workspace</div><div></div></div>
+              </div>
+            </section>
+
+            <!-- Danger -->
+            <section class="settings-section" id="tab-danger" data-od-id="tab-danger">
+              <div class="danger-zone">
+                <div class="card-title mb-2" style="color:var(--danger)">危险区</div>
+                <div class="toggle-row"><div class="info"><div class="t">暂停所有运行中的 run</div><div class="d">立即暂停全平台 645K 个运行中 agent。可恢复。</div></div><button class="btn btn-secondary btn-sm" style="color:var(--danger);border-color:var(--danger-soft)">暂停全部</button></div>
+                <div class="toggle-row"><div class="info"><div class="t">轮换全部令牌</div><div class="d">在 new-api 标记所有令牌为待轮换并生成新 key，旧 key 立即吊销。不可逆。</div></div><button class="btn btn-secondary btn-sm" style="color:var(--danger);border-color:var(--danger-soft)">轮换全部</button></div>
+                <div class="toggle-row"><div class="info"><div class="t">删除 workspace 及全部数据</div><div class="d">runs、对话、artifact、版本快照全部删除。30 天可恢复。</div></div><button class="btn btn-danger btn-sm">删除</button></div>
+              </div>
+            </section>
+          </div>
+        </div>
+      </div>
+    </main>
+  </div>
+
+  <script>window.OD_NAV = { active: 'settings' };</script>
+  <script src="js/workspace-data.js"></script>
+  <script src="js/app.js"></script>
+  <script src="js/tokens-data.js"></script>
+  <script>
+    document.addEventListener('DOMContentLoaded', () => {
+      const S = window.OD.svg;
+      document.getElementById('ic').innerHTML = S.search;
+      document.getElementById('bell').innerHTML = S.bell;
+      document.querySelector('.mobile-menu-btn').innerHTML = S.menu;
+
+      // tab switching
+      const tabs = document.querySelectorAll('.settings-nav a');
+      tabs.forEach(t => t.addEventListener('click', () => {
+        tabs.forEach(x => x.removeAttribute('aria-current'));
+        t.setAttribute('aria-current', 'true');
+        document.querySelectorAll('.settings-section').forEach(s => s.classList.remove('active'));
+        document.getElementById('tab-' + t.dataset.tab).classList.add('active');
+      }));
+
+      // ── icons ──
+      const ICON = {
+        copy: '<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"><rect x="9" y="9" width="11" height="11" rx="2"/><path d="M5 15V5a2 2 0 0 1 2-2h10"/></svg>',
+        eye: '<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8"><path d="M2 12s3.5-7 10-7 10 7 10 7-3.5 7-10 7S2 12 2 12Z"/><circle cx="12" cy="12" r="3"/></svg>',
+        eyeOff: '<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round"><path d="M9.9 4.2A10 10 0 0 1 12 4c7 0 10 7 10 7a18 18 0 0 1-2.2 3.2M6.6 6.6A18 18 0 0 0 2 11s3 7 10 7a10 10 0 0 0 4.2-.9"/><path d="m2 2 20 20"/></svg>',
+        edit: '<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"><path d="M12 20h9"/><path d="M16.5 3.5a2.1 2.1 0 0 1 3 3L7 19l-4 1 1-4Z"/></svg>',
+        play: '<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"><path d="m6 4 14 8-14 8Z"/></svg>',
+        pause: '<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round"><rect x="6" y="5" width="4" height="14" rx="1"/><rect x="14" y="5" width="4" height="14" rx="1"/></svg>',
+        del: '<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round"><path d="M3 6h18M8 6V4a2 2 0 0 1 2-2h4a2 2 0 0 1 2 2v2M6 6l1 14a2 2 0 0 0 2 2h6a2 2 0 0 0 2-2l1-14"/></svg>',
+        check: '<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.2" stroke-linecap="round" stroke-linejoin="round"><path d="m20 6-11 11-5-5"/></svg>',
+        x: '<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.2" stroke-linecap="round"><path d="M6 6l12 12M18 6 6 18"/></svg>',
+      };
+
+      // ── state ──
+      let tokens = window.OD_TOKENS.map(t => Object.assign({}, t)); // work on a copy
+      const STATUS_CN = { active: '启用', disabled: '禁用', expired: '已过期' };
+      let editingId = null;
+      let pendingDeleteId = null;
+      const filters = { status: null };
+
+      // ── helpers ──
+      const $ = (id) => document.getElementById(id);
+      function maskKey(k) { return k.slice(0, 8) + '••••••••' + k.slice(-4); }
+      function fmtQuota(used, total) {
+        if (!total) return '∞';
+        const pct = Math.min(100, (used / total) * 100);
+        return (total >= 1000 ? (total / 1000).toFixed(0) + 'K' : total) + ' · ' + pct.toFixed(0) + '%';
+      }
+      function quotaPct(t) { return t.total ? Math.min(100, (t.used / t.total) * 100) : 0; }
+      function expiryText(t) {
+        if (!t.expiredAt) return '永久';
+        const d = new Date(t.expiredAt);
+        const now = new Date();
+        if (d < now) return '已过期';
+        const days = Math.ceil((d - now) / 86400000);
+        return days > 30 ? d.toLocaleDateString('zh-CN') : days + ' 天后';
+      }
+      function effectiveStatus(t) {
+        if (t.status === 'disabled') return 'disabled';
+        if (t.expiredAt && new Date(t.expiredAt) < new Date()) return 'expired';
+        return 'active';
+      }
+
+      // ── render ──
+      const tbody = $('tk-tbody');
+      function render() {
+        const q = ($('tk-search').value || '').trim().toLowerCase();
+        const list = tokens.filter(t => {
+          if (filters.status && effectiveStatus(t) !== filters.status) return false;
+          if (q && !(t.name.toLowerCase().includes(q) || t.key.toLowerCase().includes(q))) return false;
+          return true;
+        });
+        $('tk-count').textContent = list.length + ' / ' + tokens.length + ' 个令牌';
+        if (!list.length) {
+          tbody.innerHTML = '<tr><td colspan="6" style="text-align:center;padding:var(--space-12);color:var(--muted)">' +
+            (q || filters.status ? '没有匹配的令牌。' : '还没有令牌。点击「新建令牌」创建第一个。') + '</td></tr>';
+          return;
+        }
+        tbody.innerHTML = list.map(t => {
+          const st = effectiveStatus(t);
+          const defaultBadge = t.isDefault ? '<span class="badge-default">默认</span>' : '';
+          const qPct = quotaPct(t);
+          const qCls = qPct >= 90 ? 'danger' : qPct >= 70 ? 'warn' : '';
+          return `
+            <tr data-id="${t.id}">
+              <td>
+                <div class="tk-name">
+                  <div class="nm">${escapeHtml(t.name)} ${defaultBadge}</div>
+                  <div class="meta">${t.models ? escapeHtml(t.models) : '全部模型'}</div>
+                </div>
+              </td>
+              <td>
+                <div class="tk-key">
+                  <span class="mono" data-key-text>${maskKey(t.key)}</span>
+                  <button class="copy" data-copy="${t.id}" aria-label="复制 key" title="复制">${ICON.copy}</button>
+                  <button class="reveal" data-reveal="${t.id}" aria-label="显隐 key" title="显隐">${ICON.eye}</button>
+                </div>
+              </td>
+              <td><span class="tk-group">${escapeHtml(t.group)}</span></td>
+              <td>
+                <div class="tk-quota">
+                  <div class="bar ${qCls}"><span style="width:${qPct}%"></span></div>
+                  <div class="num">${fmtQuota(t.used, t.total)}</div>
+                </div>
+              </td>
+              <td><span class="status ${st === 'active' ? 'running' : st === 'expired' ? 'failed' : 'idle'}"><span class="dot"></span>${STATUS_CN[st]}</span><div class="meta" style="font-size:10px;margin-top:2px">${expiryText(t)}</div></td>
+              <td>
+                <div class="tk-actions">
+                  <button class="mini-btn" data-toggle-status="${t.id}" aria-label="${st === 'active' ? '禁用' : '启用'}" title="${st === 'active' ? '禁用' : '启用'}">${st === 'active' ? ICON.pause : ICON.play}</button>
+                  <button class="mini-btn" data-edit="${t.id}" aria-label="编辑" title="编辑">${ICON.edit}</button>
+                  <button class="mini-btn danger" data-delete="${t.id}" aria-label="删除" title="删除">${ICON.del}</button>
+                </div>
+              </td>
+            </tr>`;
+        }).join('');
+      }
+
+      function escapeHtml(s) { return String(s).replace(/[&<>"']/g, c => ({ '&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#39;' }[c])); }
+
+      // ── toast ──
+      const toastHost = $('toast-host');
+      function toast(msg, kind) {
+        const el = document.createElement('div');
+        el.className = 'toast ' + (kind === 'err' ? 'err' : 'ok');
+        el.innerHTML = (kind === 'err' ? ICON.x : ICON.check) + '<span>' + escapeHtml(msg) + '</span>';
+        toastHost.appendChild(el);
+        setTimeout(() => { el.style.opacity = '0'; el.style.transition = 'opacity 200ms'; setTimeout(() => el.remove(), 220); }, 2400);
+      }
+
+      // ── modal open/close ──
+      function openModal(sel) { const m = $(sel); m.classList.add('open'); document.body.style.overflow = 'hidden'; }
+      function closeModals() { document.querySelectorAll('.modal-backdrop.open').forEach(m => m.classList.remove('open')); document.body.style.overflow = ''; }
+      document.addEventListener('click', (e) => {
+        if (e.target.closest('[data-modal-close]') || e.target.classList.contains('modal-backdrop')) closeModals();
+      });
+      document.addEventListener('keydown', (e) => { if (e.key === 'Escape') closeModals(); });
+
+      // ── create / edit ──
+      function openTokenModal(id) {
+        editingId = id || null;
+        const t = id ? tokens.find(x => x.id === id) : null;
+        $('tm-title').textContent = id ? '编辑令牌' : '新建令牌';
+        $('f-name').value = t ? t.name : '';
+        $('f-group').value = t ? t.group : 'default';
+        $('f-quota').value = t && t.total ? t.total : '';
+        $('f-expired').value = t && t.expiredAt ? t.expiredAt.slice(0, 16) : '';
+        $('f-models').value = t && t.models ? t.models : '';
+        $('f-remark').value = t ? (t.remark || '') : '';
+        $('f-default').checked = t ? !!t.isDefault : false;
+        $('f-status').checked = t ? t.status !== 'disabled' : true;
+        updateRemarkChars();
+        clearErrors();
+        openModal('token-modal');
+        setTimeout(() => $('f-name').focus(), 80);
+      }
+      $('btn-new-token').addEventListener('click', () => openTokenModal(null));
+
+      // remark char counter
+      const remarkEl = $('f-remark');
+      function updateRemarkChars() { $('f-remark-chars').textContent = remarkEl.value.length + ' / 120'; }
+      remarkEl.addEventListener('input', updateRemarkChars);
+
+      function clearErrors() { document.querySelectorAll('#token-form .field').forEach(f => f.classList.remove('invalid')); }
+      // on-blur validation for name
+      $('f-name').addEventListener('blur', () => {
+        const v = $('f-name').value.trim();
+        const ok = v.length > 0;
+        $('f-name').parentElement.classList.toggle('invalid', !ok);
+        $('f-name').setAttribute('aria-invalid', !ok);
+      });
+
+      $('tm-save').addEventListener('click', () => {
+        const name = $('f-name').value.trim();
+        if (!name) {
+          $('f-name').parentElement.classList.add('invalid');
+          $('f-name').setAttribute('aria-invalid', 'true');
+          $('f-name').focus();
+          return;
+        }
+        const data = {
+          name,
+          group: $('f-group').value,
+          total: $('f-quota').value ? parseInt($('f-quota').value, 10) : null,
+          expiredAt: $('f-expired').value ? new Date($('f-expired').value).toISOString() : null,
+          models: $('f-models').value.trim() || null,
+          remark: $('f-remark').value.trim(),
+          isDefault: $('f-default').checked,
+          status: $('f-status').checked ? 'active' : 'disabled',
+        };
+        if (editingId) {
+          const t = tokens.find(x => x.id === editingId);
+          Object.assign(t, data);
+          toast('令牌「' + name + '」已更新');
+        } else {
+          const newToken = Object.assign({
+            id: 'tok_' + Math.random().toString(36).slice(2, 8),
+            key: 'sk-newapi-' + Math.random().toString(36).slice(2, 10) + Math.random().toString(36).slice(2, 10),
+            used: 0,
+            createdAt: new Date().toISOString(),
+          }, data);
+          tokens.unshift(newToken);
+          if (data.isDefault) tokens.forEach(x => { if (x.id !== newToken.id) x.isDefault = false; });
+          toast('令牌「' + name + '」已创建');
+        }
+        closeModals();
+        render();
+      });
+
+      // ── row actions (event delegation) ──
+      tbody.addEventListener('click', (e) => {
+        const copyB = e.target.closest('[data-copy]');
+        const revealB = e.target.closest('[data-reveal]');
+        const editB = e.target.closest('[data-edit]');
+        const delB = e.target.closest('[data-delete]');
+        const toggleB = e.target.closest('[data-toggle-status]');
+
+        if (copyB) {
+          const t = tokens.find(x => x.id === copyB.dataset.copy);
+          if (t) { copyText(t.key); toast('Key 已复制到剪贴板'); }
+          return;
+        }
+        if (revealB) {
+          const t = tokens.find(x => x.id === revealB.dataset.reveal);
+          if (!t) return;
+          const span = revealB.parentElement.querySelector('[data-key-text]');
+          const shown = span.dataset.shown === '1';
+          if (shown) { span.textContent = maskKey(t.key); span.dataset.shown = '0'; revealB.innerHTML = ICON.eye; }
+          else { span.textContent = t.key; span.dataset.shown = '1'; revealB.innerHTML = ICON.eyeOff; }
+          return;
+        }
+        if (editB) { openTokenModal(editB.dataset.edit); return; }
+        if (toggleB) {
+          const t = tokens.find(x => x.id === toggleB.dataset.toggleStatus);
+          if (!t) return;
+          const st = effectiveStatus(t);
+          if (st === 'active') { t.status = 'disabled'; toast('令牌「' + t.name + '」已禁用'); }
+          else { t.status = 'active'; toast('令牌「' + t.name + '」已启用'); }
+          render();
+          return;
+        }
+        if (delB) {
+          pendingDeleteId = delB.dataset.delete;
+          const t = tokens.find(x => x.id === pendingDeleteId);
+          if (!t) return;
+          $('del-name').textContent = t.name;
+          $('del-revoke').checked = true;
+          openModal('del-modal');
+          return;
+        }
+      });
+
+      $('del-confirm').addEventListener('click', () => {
+        if (!pendingDeleteId) return;
+        const t = tokens.find(x => x.id === pendingDeleteId);
+        if (!t) { closeModals(); return; }
+        const revoke = $('del-revoke').checked;
+        tokens = tokens.filter(x => x.id !== pendingDeleteId);
+        pendingDeleteId = null;
+        closeModals();
+        render();
+        toast('令牌「' + t.name + '」已删除' + (revoke ? '，副本已吊销' : ''));
+      });
+
+      // ── copy helper ──
+      function copyText(text) {
+        if (navigator.clipboard && navigator.clipboard.writeText) {
+          navigator.clipboard.writeText(text).catch(() => fallbackCopy(text));
+        } else { fallbackCopy(text); }
+      }
+      function fallbackCopy(text) {
+        const ta = document.createElement('textarea');
+        ta.value = text; ta.style.position = 'fixed'; ta.style.opacity = '0';
+        document.body.appendChild(ta); ta.select();
+        try { document.execCommand('copy'); } catch (_) {}
+        document.body.removeChild(ta);
+      }
+
+      // ── search + filters ──
+      $('tk-search').addEventListener('input', render);
+      document.querySelectorAll('.filter-chip[data-f="status"]').forEach(c => {
+        c.addEventListener('click', () => {
+          const v = c.dataset.v;
+          if (filters.status === v) { filters.status = null; c.setAttribute('aria-pressed', 'false'); }
+          else {
+            document.querySelectorAll('.filter-chip[data-f="status"]').forEach(x => x.setAttribute('aria-pressed', 'false'));
+            c.setAttribute('aria-pressed', 'true');
+            filters.status = v;
+          }
+          render();
+        });
+      });
+
+      render();
+    });
+  </script>
+</body>
+</html>

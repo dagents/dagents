@@ -1,0 +1,270 @@
+<!doctype html>
+<html lang="zh-CN">
+<head>
+  <meta charset="utf-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1" />
+  <title>Workspace · Mega Agents</title>
+  <link rel="stylesheet" href="css/tokens.css" />
+  <link rel="stylesheet" href="css/shell.css" />
+  <style>
+    .ws-layout { display: grid; grid-template-columns: 1fr 320px; gap: var(--space-4); height: calc(100vh - var(--topbar-h) - var(--space-8) - var(--space-8) - 90px); min-height: 580px; }
+
+
+    .ws-chat { background: var(--bg); border: 1px solid var(--border-soft); border-radius: var(--radius-md); display: flex; flex-direction: column; overflow: hidden; }
+    .ws-chat-head { padding: var(--space-4); border-bottom: 1px solid var(--border-soft); flex-shrink: 0; }
+    .ws-chat-head .title { font-size: var(--text-base); font-weight: 600; }
+    .ws-chat-head .sub { font-size: 11px; color: var(--muted); margin-top: 2px; }
+    .ws-chat-head .filters { display: flex; gap: var(--space-2); margin-top: var(--space-3); }
+
+    .ws-stream { flex: 1; overflow-y: auto; padding: var(--space-6); display: flex; flex-direction: column; gap: var(--space-4); }
+    .day-sep { display: flex; align-items: center; gap: var(--space-3); color: var(--meta); font-size: 11px; font-family: var(--font-mono); margin: var(--space-2) 0; }
+    .day-sep::before, .day-sep::after { content: ""; flex: 1; height: 1px; background: var(--border-soft); }
+
+    .cmsg { display: flex; gap: var(--space-3); max-width: 88%; }
+    .cmsg.user { align-self: flex-end; flex-direction: row-reverse; }
+    .cmsg-avatar { width: 30px; height: 30px; border-radius: 8px; display: grid; place-items: center; font-size: 12px; font-weight: 600; flex-shrink: 0; }
+    .cmsg-avatar.human { background: var(--fg); color: var(--bg); }
+    .cmsg-avatar.bot { background: var(--accent-soft); color: var(--accent-hover); }
+    .cmsg-body { min-width: 0; }
+    .cmsg-head { font-size: 11px; color: var(--muted); margin-bottom: 4px; display: flex; gap: var(--space-2); align-items: baseline; }
+    .cmsg.user .cmsg-head { justify-content: flex-end; }
+    .cmsg-name { font-weight: 600; color: var(--fg-2); font-size: 12px; }
+    .cmsg-bubble { background: var(--surface-warm); border: 1px solid var(--border-soft); border-radius: 12px 12px 12px 2px; padding: var(--space-3) var(--space-4); font-size: var(--text-sm); color: var(--fg-2); line-height: 1.6; }
+    .cmsg.user .cmsg-bubble { background: var(--fg); color: var(--bg); border-color: var(--fg); border-radius: 12px 12px 2px 12px; }
+    .cmsg-bubble code { font-family: var(--font-mono); font-size: 12px; background: var(--surface); padding: 1px 5px; border-radius: 4px; }
+    .cmsg.user .cmsg-bubble code { background: rgba(255,255,255,0.15); }
+    .cmsg-attach { margin-top: 6px; display: flex; gap: 6px; flex-wrap: wrap; }
+    .attach-chip { display: inline-flex; align-items: center; gap: 4px; font-size: 11px; color: var(--muted); background: var(--bg); border: 1px solid var(--border-soft); border-radius: 6px; padding: 3px 7px; }
+
+    .ws-input { border-top: 1px solid var(--border-soft); padding: var(--space-3) var(--space-4); flex-shrink: 0; }
+    .ws-input-box { display: flex; align-items: flex-end; gap: var(--space-2); background: var(--surface-warm); border: 1px solid var(--border); border-radius: var(--radius-sm); padding: var(--space-2); }
+    .ws-input-box textarea { flex: 1; border: 0; background: transparent; resize: none; font-size: var(--text-sm); line-height: 1.5; max-height: 100px; outline: none; padding: 6px; }
+    .ws-input-box textarea::placeholder { color: var(--meta); }
+
+    .ws-meta { background: var(--bg); border: 1px solid var(--border-soft); border-radius: var(--radius-md); display: flex; flex-direction: column; overflow: hidden; }
+    .ws-meta-head { padding: var(--space-4); border-bottom: 1px solid var(--border-soft); }
+    .ws-meta-head .t { font-size: var(--text-sm); font-weight: 600; }
+    .ws-meta-body { flex: 1; overflow-y: auto; padding: var(--space-4); }
+    .meta-section { margin-bottom: var(--space-5); }
+    .meta-section .lbl { font-size: 11px; color: var(--meta); letter-spacing: var(--tracking-label); text-transform: uppercase; margin-bottom: var(--space-2); }
+    .member { display: flex; align-items: center; gap: var(--space-2); padding: 6px 0; font-size: var(--text-xs); }
+    .member .av { width: 24px; height: 24px; border-radius: 50%; background: var(--surface); display: grid; place-items: center; font-size: 10px; font-weight: 600; }
+    .member .nm { color: var(--fg-2); flex: 1; }
+    .member .role { color: var(--meta); font-size: 10px; }
+
+    .quota-row { padding: 8px 0; }
+    .quota-row + .quota-row { border-top: 1px solid var(--border-soft); }
+    .quota-row .top { display: flex; justify-content: space-between; font-size: 11px; margin-bottom: 4px; }
+    .quota-row .top .nm { color: var(--fg-2); }
+    .quota-row .top .v { font-family: var(--font-mono); color: var(--muted); }
+
+    @media (max-width: 1280px) { .ws-layout { grid-template-columns: 1fr 280px; } }
+    @media (max-width: 1024px) { .ws-layout { grid-template-columns: 1fr; height: auto; } .ws-meta { max-height: 320px; } .ws-chat { min-height: 520px; } }
+  </style>
+</head>
+<body>
+  <div class="app" id="app">
+    <aside class="app-sidebar" data-od-id="sidebar">
+      <div class="brand"><div class="brand-mark">M</div><div><div class="brand-name">Mega Agents</div><div class="brand-sub">控制台 · v0.2</div></div></div>
+      <nav class="nav" aria-label="主导航"></nav>
+      <div class="sidebar-footer"></div>
+    </aside>
+
+    <header class="app-topbar" data-od-id="topbar">
+      <button class="icon-btn mobile-menu-btn" aria-label="菜单"></button>
+      <div class="crumbs"><span class="crumb">协作</span><span class="sep">/</span><span class="crumb-current">Workspace</span></div>
+      <div class="topbar-spacer"></div>
+      <div class="topbar-search"><span class="search-icon" id="ic"></span><input type="search" placeholder="搜索项目或对话…" aria-label="搜索" /><kbd>⌘K</kbd></div>
+      <div class="topbar-actions">
+        <button class="icon-btn" aria-label="通知"><span id="bell"></span><span class="dot"></span></button>
+        <button class="avatar" aria-label="账户">RZ</button>
+      </div>
+    </header>
+
+    <main class="app-main">
+      <div class="page">
+        <div class="page-head">
+          <div class="page-head-title">
+            <h1 class="page-title">Workspace</h1>
+            <p class="page-subtitle">按项目隔离的人-agent 对话记录。成员、关联 flow、产物与配额一站式。对话经网关注入 run_id 全链路可追溯。</p>
+          </div>
+          <div class="page-actions">
+            <button class="btn btn-secondary btn-sm">归档</button>
+            <button class="btn btn-accent btn-sm">+ 新建项目</button>
+          </div>
+        </div>
+
+        <div class="ws-layout" data-od-id="ws-layout">
+          <!-- left project list removed: projects now live in the sidebar -->
+
+          <!-- center: chat -->
+          <div class="ws-chat" data-od-id="ws-chat">
+            <div class="ws-chat-head">
+              <div class="title" id="ws-title">论文复现 · RL</div>
+              <div class="sub" id="ws-sub">24 成员 · 关联 flow flow_repro_01 · 今日 18 条消息</div>
+              <div class="filters">
+                <button class="filter-chip" aria-pressed="true" style="height:26px;font-size:11px">全部</button>
+                <button class="filter-chip" aria-pressed="false" style="height:26px;font-size:11px">@我</button>
+                <button class="filter-chip" aria-pressed="false" style="height:26px;font-size:11px">未读</button>
+                <button class="filter-chip" aria-pressed="false" style="height:26px;font-size:11px">含 run</button>
+              </div>
+            </div>
+            <div class="ws-stream" id="ws-stream"></div>
+            <div class="ws-input">
+              <div class="ws-input-box">
+                <textarea id="ws-textarea" rows="1" placeholder="在项目频道发消息，@agent 可派发任务…" aria-label="项目消息"></textarea>
+                <button class="btn btn-primary btn-sm" id="ws-send">发送</button>
+              </div>
+            </div>
+          </div>
+
+          <!-- right: meta -->
+          <div class="ws-meta" data-od-id="ws-meta">
+            <div class="ws-meta-head"><div class="t" id="meta-title">项目信息</div></div>
+            <div class="ws-meta-body" id="meta-body">
+              <div class="meta-section">
+                <div class="lbl">成员</div>
+                <div class="member"><div class="av" style="background:var(--fg);color:var(--bg)">RZ</div><div class="nm">饶哲</div><div class="role">owner</div></div>
+                <div class="member"><div class="av" style="background:var(--accent-soft);color:var(--accent-hover)">LM</div><div class="nm">林敏</div><div class="role">editor</div></div>
+                <div class="member"><div class="av" style="background:#eef4ee;color:#1f6b3f">DK</div><div class="nm">邓凯</div><div class="role">editor</div></div>
+                <div class="member"><div class="av" style="background:var(--surface);color:var(--muted)">+21</div><div class="nm muted">其余成员</div><div class="role"></div></div>
+              </div>
+              <div class="meta-section">
+                <div class="lbl">关联 flow</div>
+                <div class="card-flat" style="padding:var(--space-3)">
+                  <div class="row-between"><span class="fg" style="font-size:12px;font-weight:500">flow_repro_01</span><span class="status running"><span class="dot"></span>running</span></div>
+                  <div class="muted mt-2" style="font-size:11px">论文批量复现流水线 · v2.3.1</div>
+                  <a href="agentflows.html" class="btn btn-ghost btn-sm mt-3" style="padding:0;height:24px">在 AgentFlows 打开 →</a>
+                </div>
+              </div>
+              <div class="meta-section">
+                <div class="lbl">配额（本月）</div>
+                <div class="quota-row"><div class="top"><span class="nm">成本</span><span class="v">$1,820 / $5,000</span></div><div class="bar"><span style="width:36%"></span></div></div>
+                <div class="quota-row"><div class="top"><span class="nm">runs</span><span class="v">412 / 2,000</span></div><div class="bar"><span style="width:21%"></span></div></div>
+                <div class="quota-row"><div class="top"><span class="nm">tokens</span><span class="v">18.4M / 80M</span></div><div class="bar"><span style="width:23%"></span></div></div>
+              </div>
+              <div class="meta-section">
+                <div class="lbl">产物</div>
+                <div class="card-flat" style="padding:var(--space-3);font-size:11px">
+                  <div class="row-between mb-2"><span class="muted">报告</span><span class="mono">3</span></div>
+                  <div class="row-between mb-2"><span class="muted">数据集</span><span class="mono">7</span></div>
+                  <div class="row-between"><span class="muted">代码 patch</span><span class="mono">12</span></div>
+                </div>
+              </div>
+            </div>
+          </div>
+        </div>
+      </div>
+    </main>
+  </div>
+
+  <script>window.OD_NAV = { active: 'workspace' };</script>
+  <script src="js/workspace-data.js"></script>
+  <script src="js/app.js"></script>
+  <script>
+    document.addEventListener('DOMContentLoaded', () => {
+      const S = window.OD.svg;
+      document.getElementById('ic').innerHTML = S.search;
+      document.getElementById('bell').innerHTML = S.bell;
+      document.querySelector('.mobile-menu-btn').innerHTML = S.menu;
+
+      const projects = window.OD_WS_PROJECTS;
+      const threads = window.OD_WS_THREADS;
+      let initialIdx = 0;
+
+      // incoming new task from new-task.html — materialize a fresh project thread
+      const params = new URLSearchParams(location.search);
+      if (params.get('new') === '1') {
+        const task = params.get('task') || '（空任务）';
+        const dir = params.get('dir');
+        const flows = (params.get('flows') || '').split(',').filter(Boolean);
+        const agents = (params.get('agents') || '').split(',').filter(Boolean);
+        const key = 'new_' + Date.now();
+        const assocBits = [];
+        if (dir) assocBits.push('目录 ' + dir.split(/[\\/]/).pop());
+        if (flows.length) assocBits.push(flows.length + ' flow');
+        if (agents.length) assocBits.push(agents.length + ' agent');
+        const sub = '工作区 · ' + (assocBits.length ? assocBits.join(' · ') : '无关联');
+        projects.unshift({
+          key: key, glyph: 'T', name: task.slice(0, 24) + (task.length > 24 ? '…' : ''),
+          meta: sub, status: 'queued', unread: 0, sub: sub,
+        });
+        threads[key] = [
+          { day:'今天', role:'human', initial:'RZ', name:'饶哲', time:'刚刚',
+            body:'<p>' + task.replace(/</g,'&lt;') + '</p>' +
+                 (dir ? '<p class="muted" style="font-size:12px">📁 workspace: <code>' + dir.replace(/</g,'&lt;') + '</code></p>' : '') +
+                 (flows.length || agents.length ? '<p class="muted" style="font-size:12px">关联 ' + assocBits.join(' · ') + '</p>' : '') },
+          { role:'bot', initial:'O', name:'orchestrator-01', time:'刚刚',
+            body:'<p>已收到任务。' + (flows.length ? '将按关联 flow 派发；' : '') + (agents.length ? '已通知 ' + agents.length + ' 个 agent 待命。' : '') + '等待 dispatch 确认 run_id。</p>' },
+        ];
+        initialIdx = 0;
+        try { localStorage.setItem('od:ws-proj', key); } catch (_) {}
+      } else {
+        // project list now lives in the sidebar; read ?p= to pick project
+        const urlP = params.get('p');
+        if (urlP) { const found = projects.findIndex(p => p.key === urlP); if (found >= 0) initialIdx = found; }
+      }
+
+      function renderThread(key) {
+        const msgs = threads[key] || [];
+        const stream = document.getElementById('ws-stream');
+        let html = '';
+        let lastDay = '';
+        msgs.forEach(m => {
+          if (m.day && m.day !== lastDay) { html += `<div class="day-sep">${m.day}</div>`; lastDay = m.day; }
+          const attach = m.attach ? `<div class="cmsg-attach">${m.attach.map(a => `<span class="attach-chip">📎 ${a}</span>`).join('')}</div>` : '';
+          html += `
+            <div class="cmsg ${m.role === 'human' ? 'user' : ''}">
+              <div class="cmsg-avatar ${m.role === 'human' ? 'human' : 'bot'}">${m.initial}</div>
+              <div class="cmsg-body">
+                <div class="cmsg-head"><span class="cmsg-name">${m.name}</span><span>${m.time}</span>${m.run ? `<span style="color:var(--accent-hover)">· ${m.run}</span>` : ''}</div>
+                <div class="cmsg-bubble">${m.body}</div>
+                ${attach}
+              </div>
+            </div>`;
+        });
+        stream.innerHTML = html;
+        stream.scrollTop = stream.scrollHeight;
+      }
+
+      function selectProject(i) {
+        const p = projects[i];
+        document.getElementById('ws-title').textContent = p.name;
+        document.getElementById('ws-sub').textContent = p.sub;
+        document.getElementById('meta-title').textContent = p.name;
+        renderThread(p.key);
+      }
+
+      // listen for sidebar task clicks (SPA-style switch, no reload)
+      window.addEventListener('od:ws-select', (e) => {
+        const key = e.detail.key;
+        const idx = projects.findIndex(p => p.key === key);
+        if (idx >= 0) selectProject(idx);
+      });
+
+      selectProject(initialIdx);
+
+      // input
+      const ta = document.getElementById('ws-textarea');
+      ta.addEventListener('input', () => { ta.style.height = 'auto'; ta.style.height = Math.min(ta.scrollHeight, 100) + 'px'; });
+      document.getElementById('ws-send').addEventListener('click', () => {
+        const text = ta.value.trim(); if (!text) return;
+        const t = new Date();
+        const ts = String(t.getHours()).padStart(2,'0') + ':' + String(t.getMinutes()).padStart(2,'0');
+        const stream = document.getElementById('ws-stream');
+        const div = document.createElement('div');
+        div.className = 'cmsg user';
+        div.innerHTML = `<div class="cmsg-avatar human">RZ</div><div class="cmsg-body"><div class="cmsg-head"><span class="cmsg-name">你</span><span>${ts}</span></div><div class="cmsg-bubble">${text.replace(/</g,'&lt;')}</div></div>`;
+        stream.appendChild(div); stream.scrollTop = stream.scrollHeight;
+        ta.value = ''; ta.style.height = 'auto';
+      });
+      ta.addEventListener('keydown', (e) => { if (e.key === 'Enter' && !e.shiftKey) { e.preventDefault(); document.getElementById('ws-send').click(); } });
+
+      document.querySelectorAll('.ws-chat-head .filter-chip').forEach(c => c.addEventListener('click', () => {
+        document.querySelectorAll('.ws-chat-head .filter-chip').forEach(x => x.setAttribute('aria-pressed','false'));
+        c.setAttribute('aria-pressed','true');
+      }));
+    });
+  </script>
+</body>
+</html>

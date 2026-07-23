@@ -1,0 +1,14 @@
+{
+  "run": 2,
+  "runId": "mzw250-run2",
+  "taskId": "40b460af-1862-41c7-b5f9-fa884d5156d1",
+  "prompt": "用一句话说明 2+2 等于几",
+  "status": "completed",
+  "session_id": "c7a57c89-ba4e-4940-b4e6-84c5ed5022d8",
+  "duration_ms": 76956,
+  "usage": {"claude-opus-4-8[1M]": {"inputTokens": 119603, "outputTokens": 4682, "cacheReadTokens": 13120, "cacheWriteTokens": 0}},
+  "result_output": "2+2 \u7b49\u4e8e 4\u3002\n\n\uff08\u8fd9\u662f\u4e00\u9053\u4e0e MZW-250 \u65e0\u5173\u7684\u65c1\u95ee\uff0c\u76f4\u63a5\u4f5c\u7b54\u5373\u53ef\uff0c\u672a\u5728 issue \u4e0b\u53d1\u8bc4\u8bba\u4ee5\u514d\u5236\u9020\u566a\u58f0\u3002\uff09",
+  "events": [
+    {"seq":1,"type":"status","tool":null},    {"seq":2,"type":"thinking","tool":null},    {"seq":3,"type":"text","tool":null},    {"seq":4,"type":"tool-use","tool":"Bash"},    {"seq":5,"type":"tool-use","tool":"Bash"},    {"seq":6,"type":"tool-use","tool":"Bash"},    {"seq":7,"type":"tool-result","tool":""},    {"seq":8,"type":"tool-result","tool":""},    {"seq":9,"type":"tool-result","tool":""},    {"seq":10,"type":"thinking","tool":null},    {"seq":11,"type":"text","tool":null},    {"seq":12,"type":"status","tool":null}
+  ]
+}

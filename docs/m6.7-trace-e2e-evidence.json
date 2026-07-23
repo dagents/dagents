@@ -1,0 +1,292 @@
+{
+  "runId": "99db263e-1f9c-4449-967b-6344101c262c",
+  "flowId": "e3fd30d8-a94c-43fd-99b9-8e2ab62a9cf5",
+  "fanOut": {
+    "total": 1,
+    "completed": 1,
+    "failed": 0
+  },
+  "runsRow": {
+    "status": "completed",
+    "agent_daemon_calls": [
+      {
+        "usage": {
+          "stub-model": {
+            "inputTokens": 42,
+            "outputTokens": 7
+          }
+        },
+        "status": "completed",
+        "sessionId": "sess-e2e",
+        "durationMs": 5,
+        "finishedAt": "2026-07-10T14:23:18.579Z",
+        "agentDaemonId": "d3f38044-5814-45bc-b22d-9db1bb7c6089",
+        "dispatchTaskId": "bf656f04-82cc-43d2-a8d5-0e14c77a6082"
+      }
+    ]
+  },
+  "dispatchTask": {
+    "status": "completed",
+    "usage": {
+      "stub-model": {
+        "inputTokens": 42,
+        "outputTokens": 7
+      }
+    }
+  },
+  "dispatchTaskEvents": [
+    {
+      "kind": "message",
+      "seq": 1,
+      "type": "status"
+    },
+    {
+      "kind": "message",
+      "seq": 2,
+      "type": "text",
+      "content": "listing directory"
+    },
+    {
+      "kind": "message",
+      "seq": 3,
+      "type": "tool-use",
+      "tool": "Bash"
+    },
+    {
+      "kind": "message",
+      "seq": 4,
+      "type": "tool-result",
+      "tool": ""
+    }
+  ],
+  "runNodeSpans": [
+    {
+      "nodeId": "start",
+      "nodeLabel": "Start",
+      "status": "done",
+      "traceId": "3d1af28919e10dce68d9b498b0b92383",
+      "cost": null,
+      "tokens": null
+    },
+    {
+      "nodeId": "agent",
+      "nodeLabel": "Agent",
+      "status": "done",
+      "traceId": "3d1af28919e10dce68d9b498b0b92383",
+      "cost": "0.012300",
+      "tokens": {
+        "total_cost": 0.0123,
+        "input_tokens": 42,
+        "total_tokens": 49,
+        "output_tokens": 7
+      }
+    },
+    {
+      "nodeId": "dispatch",
+      "nodeLabel": "DispatchInvoke",
+      "status": "done",
+      "traceId": "3d1af28919e10dce68d9b498b0b92383",
+      "cost": null,
+      "tokens": null
+    }
+  ],
+  "flowiseReceivedTraceparentTraceIds": [
+    "3d1af28919e10dce68d9b498b0b92383",
+    "cbf0825a44abe12e6ba9fdc9a13c19da"
+  ],
+  "llmReceivedTraceId": "9fe25d6819f738b46877ffdcf8b97d12",
+  "spans": [
+    {
+      "name": "tcp.connect",
+      "traceId": "a735a7d147330d01d557526ac25820a0",
+      "runId": null,
+      "taskId": null
+    },
+    {
+      "name": "POST",
+      "traceId": "74cc1d6d00a50a933270b88c54b342cc",
+      "runId": null,
+      "taskId": null
+    },
+    {
+      "name": "tcp.connect",
+      "traceId": "bdea923bdf6ca4f40054ecc5350eafd4",
+      "runId": null,
+      "taskId": null
+    },
+    {
+      "name": "tcp.connect",
+      "traceId": "3d1af28919e10dce68d9b498b0b92383",
+      "runId": null,
+      "taskId": null
+    },
+    {
+      "name": "tcp.connect",
+      "traceId": "cbf0825a44abe12e6ba9fdc9a13c19da",
+      "runId": null,
+      "taskId": null
+    },
+    {
+      "name": "POST",
+      "traceId": "8dfedef43e67c67d6c5673bf70922c45",
+      "runId": null,
+      "taskId": null
+    },
+    {
+      "name": "tcp.connect",
+      "traceId": "38481725245cc877920c951c8074a86c",
+      "runId": null,
+      "taskId": null
+    },
+    {
+      "name": "POST",
+      "traceId": "463236055c523ea1060da83885c94fbf",
+      "runId": null,
+      "taskId": null
+    },
+    {
+      "name": "POST",
+      "traceId": "18fd5e5a20ae921c09126a62775b0cbd",
+      "runId": null,
+      "taskId": null
+    },
+    {
+      "name": "tcp.connect",
+      "traceId": "5c549a219c7e93f476b31f6dbbed48a2",
+      "runId": null,
+      "taskId": null
+    },
+    {
+      "name": "GET",
+      "traceId": "04a2f39c8dc05d29dde610a93cee30d9",
+      "runId": null,
+      "taskId": null
+    },
+    {
+      "name": "GET",
+      "traceId": "ca79211048cb83b3d87dc4b56dd06bfa",
+      "runId": null,
+      "taskId": null
+    },
+    {
+      "name": "POST",
+      "traceId": "c8f396d6e54c892fe4d3399254f146aa",
+      "runId": null,
+      "taskId": null
+    },
+    {
+      "name": "POST",
+      "traceId": "9fe25d6819f738b46877ffdcf8b97d12",
+      "runId": null,
+      "taskId": null
+    },
+    {
+      "name": "tcp.connect",
+      "traceId": "9fe25d6819f738b46877ffdcf8b97d12",
+      "runId": null,
+      "taskId": null
+    },
+    {
+      "name": "POST",
+      "traceId": "9fe25d6819f738b46877ffdcf8b97d12",
+      "runId": null,
+      "taskId": null
+    },
+    {
+      "name": "POST",
+      "traceId": "9fe25d6819f738b46877ffdcf8b97d12",
+      "runId": null,
+      "taskId": null
+    },
+    {
+      "name": "GET",
+      "traceId": "23118fa437fd0adca257cb6d802bbe2b",
+      "runId": null,
+      "taskId": null
+    },
+    {
+      "name": "GET",
+      "traceId": "53ce48ff024a9df8a8c37df2908e7674",
+      "runId": null,
+      "taskId": null
+    },
+    {
+      "name": "POST",
+      "traceId": "9fe25d6819f738b46877ffdcf8b97d12",
+      "runId": null,
+      "taskId": null
+    },
+    {
+      "name": "POST",
+      "traceId": "9fe25d6819f738b46877ffdcf8b97d12",
+      "runId": null,
+      "taskId": null
+    },
+    {
+      "name": "POST",
+      "traceId": "9fe25d6819f738b46877ffdcf8b97d12",
+      "runId": null,
+      "taskId": null
+    },
+    {
+      "name": "POST",
+      "traceId": "9fe25d6819f738b46877ffdcf8b97d12",
+      "runId": null,
+      "taskId": null
+    },
+    {
+      "name": "daemon.execute",
+      "traceId": "9fe25d6819f738b46877ffdcf8b97d12",
+      "runId": "99db263e-1f9c-4449-967b-6344101c262c",
+      "taskId": "bf656f04-82cc-43d2-a8d5-0e14c77a6082"
+    },
+    {
+      "name": "POST",
+      "traceId": "60d446c0edbf8be45822c1aa60425dab",
+      "runId": null,
+      "taskId": null
+    },
+    {
+      "name": "GET",
+      "traceId": "c73f4a50b45efb95917ed3c4c7fad3c5",
+      "runId": null,
+      "taskId": null
+    },
+    {
+      "name": "GET",
+      "traceId": "e2cafd0e8b1ec696e9ae11006f60941b",
+      "runId": null,
+      "taskId": null
+    },
+    {
+      "name": "POST",
+      "traceId": "cbf0825a44abe12e6ba9fdc9a13c19da",
+      "runId": null,
+      "taskId": null
+    },
+    {
+      "name": "gateway.proxy",
+      "traceId": "cbf0825a44abe12e6ba9fdc9a13c19da",
+      "runId": "99db263e-1f9c-4449-967b-6344101c262c",
+      "taskId": null
+    },
+    {
+      "name": "POST",
+      "traceId": "3d1af28919e10dce68d9b498b0b92383",
+      "runId": null,
+      "taskId": null
+    },
+    {
+      "name": "scheduler.child-run",
+      "traceId": "3d1af28919e10dce68d9b498b0b92383",
+      "runId": "99db263e-1f9c-4449-967b-6344101c262c",
+      "taskId": null
+    },
+    {
+      "name": "POST",
+      "traceId": "c2350b9f9d959f270027dabf45ab31b0",
+      "runId": null,
+      "taskId": null
+    }
+  ]
+}

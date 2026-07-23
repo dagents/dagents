@@ -1,0 +1,10 @@
+node_modules/
+dist/
+.turbo/
+coverage/
+.env
+*.log
+.dev.pid
+vendor/flowise/node_modules/
+vendor/flowise/dist/
+vendor/flowise/.turbo/

@@ -1,0 +1,20 @@
+node_modules/
+.next/
+out/
+dist/
+.turbo/
+coverage/
+*.log
+.env
+.env.local
+.env*.local
+next-env.d.ts
+tsconfig.tsbuildinfo
+
+# Playwright e2e artifacts. The viewport matrix (tests/e2e/viewport-matrix.spec.ts)
+# captures a full-page screenshot per 9×10 cell into tests/e2e/screenshots/; those
+# are run-local artifacts (6+ MB, regenerable by `playwright test`), not source.
+# test-results/ is Playwright's default output for traces/failure screenshots.
+tests/e2e/screenshots/
+test-results/
+playwright-report/

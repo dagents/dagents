@@ -1,0 +1,168 @@
+# Mil-Agents local full-stack infrastructure.
+#
+# Bring up the five core services (Postgres + Redis + MinIO + new-api + Langfuse):
+#   cd infra && docker compose up -d && docker compose ps
+#
+# All host ports are bound to 127.0.0.1 only. The canonical service ports
+# (new-api 3000, MinIO 9000/9001, Langfuse 3001) are free on this host so they
+# are bound as-is — matching the plan and the acceptance gates verbatim
+# (`curl http://localhost:3000/api/status`, root/123456 on :3000). Only Postgres
+# (5432) and Redis (6379) collide with other projects on this machine, so their
+# host-side bindings are remapped by default; the in-network service ports stay
+# canonical so inter-container wiring (DSNs, mc host) is unchanged. Override any
+# value via a local .env file (see .env.example).
+#
+# Langfuse is pinned to the latest v2.x (2.95.11). The `:latest` tag now points
+# at v3.x, which mandates ClickHouse (CLICKHOUSE_URL) and a separate migration
+# path — far heavier than this local stack needs. v2 stores traces in Postgres
+# only, matching the plan's "PG + Langfuse, no extra stores" intent. See
+# infra/README.md for the rationale and the v3 upgrade trigger.
+
+name: mil-agents
+
+services:
+  postgres:
+    image: postgres:16-alpine
+    # Single Postgres instance shared by new-api and Langfuse. Each app targets
+    # a dedicated DB (newapi / langfuse) that POSTGRES_DB does not create for
+    # us, so a one-shot init container materializes both after the server is
+    # healthy (and is idempotent on later boots).
+    environment:
+      POSTGRES_DB: ${POSTGRES_DB:-milagents}
+      POSTGRES_USER: ${POSTGRES_USER:-milagents}
+      POSTGRES_PASSWORD: ${POSTGRES_PASSWORD:-milagents_dev}
+    ports:
+      - "127.0.0.1:${POSTGRES_HOST_PORT:-15432}:5432"
+    volumes:
+      - pgdata:/var/lib/postgresql/data
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U ${POSTGRES_USER:-milagents}"]
+      interval: 5s
+      timeout: 5s
+      retries: 10
+    restart: unless-stopped
+
+  # Creates the newapi / langfuse databases on first boot. `createdb` exits
+  # non-zero once a DB exists, so `|| ... skip` keeps the run idempotent; the
+  # container exits 0 and `service_completed_successfully` unblocks dependents.
+  postgres-init:
+    image: postgres:16-alpine
+    environment:
+      PGUSER: ${POSTGRES_USER:-milagents}
+      PGPASSWORD: ${POSTGRES_PASSWORD:-milagents_dev}
+    entrypoint: ["/bin/sh", "-c"]
+    # `$$` escapes the `$` for compose so the shell sees a real loop variable.
+    command:
+      - "set -e; for db in newapi langfuse milagents; do echo \"creating db $$db\"; createdb -h postgres -U \"$$PGUSER\" \"$$db\" || echo \"db $$db already exists, skip\"; done; echo init-done"
+    depends_on:
+      postgres:
+        condition: service_healthy
+    restart: "no"
+
+  redis:
+    image: redis:7-alpine
+    ports:
+      - "127.0.0.1:${REDIS_HOST_PORT:-16479}:6379"
+    volumes:
+      - redisdata:/data
+    healthcheck:
+      test: ["CMD", "redis-cli", "ping"]
+      interval: 5s
+      timeout: 5s
+      retries: 10
+    restart: unless-stopped
+
+  minio:
+    image: minio/minio:latest
+    command: server /data --console-address ":9001"
+    environment:
+      MINIO_ROOT_USER: ${MINIO_ROOT_USER:-milagents}
+      MINIO_ROOT_PASSWORD: ${MINIO_ROOT_PASSWORD:-milagents_dev}
+    ports:
+      - "127.0.0.1:${MINIO_API_HOST_PORT:-9000}:9000"
+      - "127.0.0.1:${MINIO_CONSOLE_HOST_PORT:-9001}:9001"
+    volumes:
+      - miniodata:/data
+    healthcheck:
+      test: ["CMD", "mc", "ready", "local"]
+      interval: 5s
+      timeout: 5s
+      retries: 10
+    restart: unless-stopped
+
+  # One-time bucket bootstrap (mirrors the postgres-init pattern). Idempotent:
+  # `mc mb -p` fails once the bucket exists, the `|| ... skip` guard swallows
+  # that and the container exits 0.
+  minio-init:
+    image: minio/mc:latest
+    environment:
+      MC_HOST_local: http://${MINIO_ROOT_USER:-milagents}:${MINIO_ROOT_PASSWORD:-milagents_dev}@minio:9000
+    entrypoint: ["/bin/sh", "-c"]
+    command:
+      - "set -e; mc mb -p local/${MINIO_BUCKET:-milagents} || echo \"bucket already exists, skip\"; echo init-done"
+    depends_on:
+      minio:
+        condition: service_healthy
+    restart: "no"
+
+  new-api:
+    # calciumion/new-api: LLM gateway / API-key broker. Default web admin login
+    # is root / 123456 (set at first run via the web UI; no env required).
+    image: calciumion/new-api:latest
+    init: true
+    ports:
+      - "127.0.0.1:${NEWAPI_HOST_PORT:-3000}:3000"
+    environment:
+      SQL_DSN: postgresql://${POSTGRES_USER:-milagents}:${POSTGRES_PASSWORD:-milagents_dev}@postgres:5432/newapi?sslmode=disable
+      TZ: Asia/Shanghai
+    depends_on:
+      postgres:
+        condition: service_healthy
+      postgres-init:
+        condition: service_completed_successfully
+    volumes:
+      - newapidata:/data
+    healthcheck:
+      # new-api's /api/status is the same endpoint the acceptance gate curls, so
+      # reuse it as the readiness signal.
+      test: ["CMD-SHELL", "wget -qO- http://127.0.0.1:3000/api/status >/dev/null 2>&1 || exit 1"]
+      interval: 5s
+      timeout: 5s
+      retries: 20
+      start_period: 20s
+    restart: unless-stopped
+
+  langfuse:
+    # Pinned to v2.95.11 (latest v2.x). v3 requires ClickHouse — see header.
+    image: langfuse/langfuse:2.95.11
+    ports:
+      - "127.0.0.1:${LANGFUSE_HOST_PORT:-3001}:3000"
+    environment:
+      DATABASE_URL: postgresql://${POSTGRES_USER:-milagents}:${POSTGRES_PASSWORD:-milagents_dev}@postgres:5432/langfuse?sslmode=disable
+      NEXTAUTH_SECRET: ${LANGFUSE_NEXTAUTH_SECRET:-langfuse_dev_secret_change_me}
+      SALT: ${LANGFUSE_SALT:-langfuse_dev_salt_change_me}
+      NEXTAUTH_URL: http://localhost:${LANGFUSE_HOST_PORT:-3001}
+      TZ: Asia/Shanghai
+    depends_on:
+      postgres:
+        condition: service_healthy
+      postgres-init:
+        condition: service_completed_successfully
+    healthcheck:
+      # Langfuse exposes /api/public/health as its liveness probe. Next.js
+      # binds the listener to the container's hostname (not 127.0.0.1), so a
+      # probe against localhost fails with ECONNREFUSED and the service never
+      # flips to healthy. `$HOSTNAME` resolves to the address next-server is
+      # actually listening on.
+      test: ["CMD-SHELL", "wget -qO- http://$$HOSTNAME:3000/api/public/health >/dev/null 2>&1 || exit 1"]
+      interval: 5s
+      timeout: 5s
+      retries: 30
+      start_period: 40s
+    restart: unless-stopped
+
+volumes:
+  pgdata:
+  redisdata:
+  miniodata:
+  newapidata:

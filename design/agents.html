@@ -1,0 +1,641 @@
+<!doctype html>
+<html lang="zh-CN">
+<head>
+  <meta charset="utf-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1" />
+  <title>Agents · Mega Agents</title>
+  <link rel="stylesheet" href="css/tokens.css" />
+  <link rel="stylesheet" href="css/shell.css" />
+  <style>
+    /* ── scope tabs (mine / all / archived) ── */
+    .scope-tabs { display: inline-flex; gap: 2px; background: var(--surface); border-radius: var(--radius-sm); padding: 3px; }
+    .scope-tabs button { border: 0; background: transparent; padding: 6px var(--space-3); border-radius: 9px; font-size: var(--text-xs); font-weight: 500; color: var(--muted); cursor: pointer; transition: background var(--motion-fast), color var(--motion-fast); display: inline-flex; align-items: center; gap: 5px; }
+    .scope-tabs button:hover { color: var(--fg); }
+    .scope-tabs button[aria-selected="true"] { background: var(--bg); color: var(--fg); box-shadow: var(--elev-ring); }
+    .scope-tabs .cnt { font-family: var(--font-mono); font-size: 10px; opacity: 0.7; }
+
+    /* ── toolbar ── */
+    .toolbar { display: flex; align-items: center; gap: var(--space-3); margin-bottom: var(--space-3); flex-wrap: wrap; }
+    .search-box { position: relative; flex: 1; min-width: 200px; max-width: 320px; }
+    .search-box input { width: 100%; height: 34px; padding: 0 var(--space-3) 0 30px; background: var(--bg); border: 1px solid var(--border); border-radius: var(--radius-sm); font-size: var(--text-sm); }
+    .search-box input:focus { border-color: var(--accent); box-shadow: var(--focus-ring); outline: none; }
+    .search-box .si { position: absolute; left: 9px; top: 9px; width: 14px; height: 14px; color: var(--meta); }
+    .search-box .clear { position: absolute; right: 6px; top: 5px; width: 24px; height: 24px; display: none; grid; place-items: center; background: transparent; border: 0; border-radius: 6px; color: var(--meta); cursor: pointer; }
+    .search-box .clear:hover { background: var(--surface); color: var(--fg); }
+    .search-box .clear svg { width: 13px; height: 13px; }
+    .search-box.has-q .clear { display: grid; }
+
+    /* dropdown filter menus */
+    .menu-btn { display: inline-flex; align-items: center; gap: 6px; height: 34px; padding: 0 var(--space-3); background: var(--bg); border: 1px solid var(--border); border-radius: var(--radius-sm); font-size: var(--text-xs); font-weight: 500; color: var(--fg-2); cursor: pointer; transition: all var(--motion-fast); }
+    .menu-btn:hover { border-color: #d4d4d4; }
+    .menu-btn[aria-expanded="true"] { border-color: var(--accent); box-shadow: var(--focus-ring); }
+    .menu-btn .badge { font-family: var(--font-mono); font-size: 10px; color: var(--accent-on); background: var(--accent); padding: 1px 5px; border-radius: 4px; }
+    .menu-btn svg { width: 13px; height: 13px; }
+    .menu-pop { position: absolute; top: calc(100% + 4px); left: 0; background: var(--bg); border: 1px solid var(--border); border-radius: var(--radius-sm); box-shadow: var(--elev-overlay); padding: var(--space-2); min-width: 180px; max-height: 320px; overflow-y: auto; z-index: 50; display: none; }
+    .menu-pop.open { display: block; }
+    .menu-opt { display: flex; align-items: center; gap: var(--space-2); padding: 7px var(--space-2); border-radius: 6px; cursor: pointer; font-size: var(--text-sm); color: var(--fg-2); transition: background var(--motion-fast); }
+    .menu-opt:hover { background: var(--surface-warm); }
+    .menu-opt .check { width: 16px; height: 16px; flex-shrink: 0; color: var(--accent); opacity: 0; }
+    .menu-opt[data-checked="true"] .check { opacity: 1; }
+    .menu-opt .label { flex: 1; min-width: 0; }
+    .menu-opt .cnt { font-family: var(--font-mono); font-size: 11px; color: var(--muted); }
+    .menu-sep { height: 1px; background: var(--border-soft); margin: var(--space-1) 0; }
+    .menu-opt.radio .check { opacity: 0; }
+    .menu-opt.radio[data-checked="true"] .check { opacity: 1; }
+    .menu-wrap { position: relative; }
+
+    /* clear filters */
+    .clear-filters { font-size: var(--text-xs); color: var(--muted); background: transparent; border: 0; cursor: pointer; display: inline-flex; align-items: center; gap: 4px; padding: 6px; border-radius: 6px; }
+    .clear-filters:hover { color: var(--fg); background: var(--surface); }
+    .clear-filters svg { width: 13px; height: 13px; }
+
+    /* ── list grid (CSS grid table) ── */
+    .agent-list { border: 1px solid var(--border-soft); border-radius: var(--radius-md); overflow: hidden; background: var(--bg); }
+    .lg-head, .lg-row { display: grid; grid-template-columns: 24px minmax(0,1.6fr) 96px 110px 110px 80px 70px 34px; gap: var(--space-3); align-items: center; padding: 0 var(--space-4); }
+    .lg-head { height: 40px; border-bottom: 1px solid var(--border); background: var(--surface-warm); }
+    .lg-head .h { font-size: 11px; font-weight: 500; color: var(--meta); letter-spacing: var(--tracking-label); text-transform: uppercase; }
+    .lg-head .h.sortable { cursor: pointer; display: inline-flex; align-items: center; gap: 4px; }
+    .lg-head .h.sortable:hover { color: var(--fg); }
+    .lg-head .h .sort-ic { width: 11px; height: 11px; opacity: 0; }
+    .lg-head .h.sortable[data-active="true"] { color: var(--fg); }
+    .lg-head .h.sortable[data-active="true"] .sort-ic { opacity: 1; }
+    .lg-row { height: 64px; border-bottom: 1px solid var(--border-soft); cursor: pointer; transition: background var(--motion-fast); position: relative; }
+    .lg-row:hover { background: var(--surface-warm); }
+    .lg-row:focus-visible { outline: none; box-shadow: inset var(--focus-ring); }
+    .lg-row.selected { background: var(--accent-soft); }
+    .lg-row:last-child { border-bottom: 0; }
+    .lg-check { width: 18px; height: 18px; }
+    .lg-check input { margin: 0; }
+    .lg-row .chevron { opacity: 0; transition: opacity var(--motion-fast); }
+    .lg-row:hover .chevron { opacity: 1; }
+
+    .agent-cell { display: flex; align-items: center; gap: var(--space-3); min-width: 0; }
+    .agent-glyph { width: 34px; height: 34px; border-radius: 9px; background: var(--surface); color: var(--fg); display: grid; place-items: center; font-family: var(--font-mono); font-size: 13px; font-weight: 600; flex-shrink: 0; border: 1px solid var(--border-soft); }
+    .agent-glyph.kind-claude { background: #f4eee6; color: #8b5a2b; }
+    .agent-glyph.kind-codex { background: #eef4ee; color: #1f6b3f; }
+    .agent-glyph.kind-reader { background: var(--accent-soft); color: var(--accent-hover); }
+    .agent-glyph.kind-verify { background: var(--info-soft); color: var(--info); }
+    .agent-name { font-weight: 500; color: var(--fg); font-size: var(--text-sm); }
+    .agent-sub { font-family: var(--font-mono); font-size: 11px; color: var(--meta); margin-top: 1px; }
+    .chip-tag { font-family: var(--font-mono); font-size: 10px; height: 18px; padding: 0 6px; }
+
+    .spark { width: 80px; height: 24px; display: block; }
+    .lg-cell { font-size: var(--text-sm); color: var(--fg-2); }
+    .lg-cell.mono { font-family: var(--font-mono); font-size: 12px; color: var(--muted); }
+    .lg-cell.num { font-family: var(--font-mono); font-size: 12px; color: var(--fg); text-align: right; font-variant-numeric: tabular-nums; }
+    .lg-row .actions { display: flex; justify-content: flex-end; }
+    .row-more { width: 28px; height: 28px; display: grid; place-items: center; background: transparent; border: 0; border-radius: 7px; color: var(--muted); cursor: pointer; opacity: 0; transition: opacity var(--motion-fast), background var(--motion-fast); }
+    .lg-row:hover .row-more, .row-more[data-popup-open] { opacity: 1; }
+    .row-more:hover { background: var(--surface); color: var(--fg); }
+    .row-more svg { width: 15px; height: 15px; }
+
+    /* row-action popover menu */
+    .row-pop { position: absolute; top: calc(100% + 4px); right: 0; background: var(--bg); border: 1px solid var(--border); border-radius: var(--radius-sm); box-shadow: var(--elev-overlay); padding: var(--space-2); min-width: 180px; z-index: 60; display: none; }
+    .row-pop.open { display: block; }
+    .row-pop .item { display: flex; align-items: center; gap: var(--space-2); padding: 7px var(--space-2); border-radius: 6px; cursor: pointer; font-size: var(--text-sm); color: var(--fg-2); }
+    .row-pop .item:hover { background: var(--surface-warm); }
+    .row-pop .item.danger { color: var(--danger); }
+    .row-pop .item.danger:hover { background: var(--danger-soft); }
+    .row-pop .item svg { width: 14px; height: 14px; }
+    .row-pop .sep { height: 1px; background: var(--border-soft); margin: var(--space-1) 0; }
+
+    /* ── batch action bar ── */
+    .batch-bar { position: fixed; bottom: var(--space-6); left: 50%; transform: translateX(-50%); display: none; align-items: center; gap: var(--space-1); background: var(--fg); color: var(--bg); border-radius: var(--radius-sm); padding: var(--space-2) var(--space-3); box-shadow: var(--elev-overlay); z-index: 100; }
+    .batch-bar.open { display: flex; }
+    .batch-bar .sel { font-size: var(--text-sm); font-weight: 500; padding: 0 var(--space-2) 0 var(--space-1); display: inline-flex; align-items: center; gap: var(--space-2); }
+    .batch-bar .sel .x { width: 18px; height: 18px; display: grid; place-items: center; background: transparent; border: 0; border-radius: 4px; color: rgba(255,255,255,0.7); cursor: pointer; }
+    .batch-bar .sel .x:hover { color: var(--bg); background: rgba(255,255,255,0.12); }
+    .batch-bar .vbar { width: 1px; height: 20px; background: rgba(255,255,255,0.15); margin: 0 var(--space-1); }
+    .batch-bar .b { display: inline-flex; align-items: center; gap: 5px; background: transparent; border: 0; color: var(--bg); font-size: var(--text-xs); font-weight: 500; padding: 6px var(--space-2); border-radius: 6px; cursor: pointer; }
+    .batch-bar .b:hover { background: rgba(255,255,255,0.12); }
+    .batch-bar .b.danger { color: #ff9b9e; }
+    .batch-bar .b svg { width: 13px; height: 13px; }
+
+    /* ── empty + skeleton ── */
+    .empty-state { display: flex; flex-direction: column; align-items: center; justify-content: center; padding: var(--space-16) var(--space-4); text-align: center; }
+    .empty-state .ic { width: 48px; height: 48px; border-radius: 12px; background: var(--surface); display: grid; place-items: center; margin-bottom: var(--space-4); }
+    .empty-state .ic svg { width: 24px; height: 24px; color: var(--meta); }
+    .empty-state .h { font-size: var(--text-base); font-weight: 600; color: var(--fg); margin-bottom: var(--space-2); }
+    .empty-state .d { font-size: var(--text-sm); color: var(--muted); max-width: 40ch; margin-bottom: var(--space-4); }
+    .sk { display: inline-block; border-radius: 6px; background: linear-gradient(90deg, var(--surface) 25%, var(--surface-warm) 50%, var(--surface) 75%); background-size: 200% 100%; animation: shimmer 1.4s infinite; }
+    @keyframes shimmer { 0% { background-position: 200% 0; } 100% { background-position: -200% 0; } }
+    .sk-row { height: 64px; display: grid; grid-template-columns: 24px minmax(0,1.6fr) 96px 110px 110px 80px 70px 34px; gap: var(--space-3); align-items: center; padding: 0 var(--space-4); border-bottom: 1px solid var(--border-soft); }
+
+    /* result count */
+    .result-count { font-size: 11px; color: var(--meta); font-family: var(--font-mono); }
+
+    @media (max-width: 900px) {
+      .lg-head, .lg-row, .sk-row { grid-template-columns: 24px minmax(0,1fr) 80px 34px; }
+      .lg-head .h:nth-child(n+4):not(:last-child), .lg-row .lg-cell:nth-child(n+4):not(:last-child) { display: none; }
+      .sk-row > *:nth-child(n+4):not(:last-child) { display: none; }
+      .toolbar { gap: var(--space-2); }
+      .search-box { max-width: none; }
+    }
+    @media (prefers-reduced-motion: reduce) { .sk { animation: none; } .lg-row, .row-more, .menu-btn { transition: none; } }
+  </style>
+</head>
+<body>
+  <div class="app" id="app">
+    <aside class="app-sidebar" data-od-id="sidebar">
+      <div class="brand"><div class="brand-mark">M</div><div><div class="brand-name">Mega Agents</div><div class="brand-sub">控制台 · v0.2</div></div></div>
+      <nav class="nav" aria-label="主导航"></nav>
+      <div class="sidebar-footer"></div>
+    </aside>
+
+    <header class="app-topbar" data-od-id="topbar">
+      <button class="icon-btn mobile-menu-btn" aria-label="菜单"></button>
+      <div class="crumbs"><span class="crumb">编排</span><span class="sep">/</span><span class="crumb-current">Agents</span></div>
+      <div class="topbar-spacer"></div>
+      <div class="topbar-search"><span class="search-icon" id="ic"></span><input type="search" placeholder="搜索 agents…" aria-label="搜索 agents" /><kbd>⌘K</kbd></div>
+      <div class="topbar-actions">
+        <button class="icon-btn" aria-label="通知" title="通知"><span id="bell"></span><span class="dot"></span></button>
+        <button class="avatar" aria-label="账户" title="饶哲">RZ</button>
+      </div>
+    </header>
+
+    <main class="app-main">
+      <div class="page">
+        <div class="page-head">
+          <div class="page-head-title">
+            <h1 class="page-title">Agents</h1>
+            <p class="page-subtitle">提示词 agent（Flowise 原生）与异构 CLI agent（经 Agent Daemon 接入）。点击整行进入详情，悬停 ⋯ 看行操作，勾选多选后底部批量操作。</p>
+          </div>
+          <div class="page-actions">
+            <button class="btn btn-accent btn-sm" id="new-agent" title="注册一个新 agent">+ 注册 Agent</button>
+          </div>
+        </div>
+
+        <!-- scope tabs -->
+        <div class="scope-tabs mb-6" role="tablist" aria-label="agent 范围">
+          <button role="tab" aria-selected="false" data-scope="mine">我的 <span class="cnt" id="cnt-mine">0</span></button>
+          <button role="tab" aria-selected="true" data-scope="all">全部 <span class="cnt" id="cnt-all">0</span></button>
+          <button role="tab" aria-selected="false" data-scope="archived">已归档 <span class="cnt" id="cnt-archived">0</span></button>
+        </div>
+
+        <!-- toolbar -->
+        <div class="toolbar" data-od-id="filters">
+          <div class="search-box" id="search-box">
+            <span class="si" id="si"></span>
+            <input type="search" id="q" placeholder="搜索 agent 名称或描述…" aria-label="搜索 agent" />
+            <button class="clear" id="clear-q" aria-label="清除搜索"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round"><path d="M6 6l12 12M18 6 6 18"/></svg></button>
+          </div>
+
+          <div class="menu-wrap">
+            <button class="menu-btn" id="btn-status" aria-expanded="false" aria-haspopup="true">
+              状态
+              <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="m6 9 6 6 6-6"/></svg>
+            </button>
+            <div class="menu-pop" id="pop-status" role="menu"></div>
+          </div>
+
+          <div class="menu-wrap">
+            <button class="menu-btn" id="btn-kind" aria-expanded="false" aria-haspopup="true">
+              类型
+              <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="m6 9 6 6 6-6"/></svg>
+            </button>
+            <div class="menu-pop" id="pop-kind" role="menu"></div>
+          </div>
+
+          <div class="menu-wrap">
+            <button class="menu-btn" id="btn-role" aria-expanded="false" aria-haspopup="true">
+              角色
+              <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="m6 9 6 6 6-6"/></svg>
+            </button>
+            <div class="menu-pop" id="pop-role" role="menu"></div>
+          </div>
+
+          <div class="menu-wrap">
+            <button class="menu-btn" id="btn-sort" aria-expanded="false" aria-haspopup="true">
+              排序：<span id="sort-label">最近活跃</span>
+              <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="m6 9 6 6 6-6"/></svg>
+            </button>
+            <div class="menu-pop" id="pop-sort" role="menu"></div>
+          </div>
+
+          <button class="clear-filters hidden" id="clear-filters">
+            <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round"><path d="M6 6l12 12M18 6 6 18"/></svg>
+            清除筛选
+          </button>
+
+          <div class="grow"></div>
+          <span class="result-count" id="result-count"></span>
+        </div>
+
+        <!-- list -->
+        <div class="agent-list" data-od-id="agent-list">
+          <div class="lg-head" role="row">
+            <div class="h"><input type="checkbox" id="check-all" aria-label="全选" /></div>
+            <div class="h sortable" data-sort="name" role="columnheader">Agent
+              <svg class="sort-ic" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="m6 9 6 6 6-6"/></svg>
+            </div>
+            <div class="h">状态</div>
+            <div class="h">类型</div>
+            <div class="h">运行（30d）</div>
+            <div class="h sortable" data-sort="runs" role="columnheader">次数
+              <svg class="sort-ic" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="m6 9 6 6 6-6"/></svg>
+            </div>
+            <div class="h">成本</div>
+            <div class="h" aria-label="操作"></div>
+          </div>
+          <div id="lg-body"></div>
+        </div>
+      </div>
+    </main>
+  </div>
+
+  <!-- batch bar -->
+  <div class="batch-bar" id="batch-bar" role="region" aria-label="批量操作">
+    <div class="sel"><span id="batch-count">0</span> 已选<button class="x" id="batch-clear" aria-label="清除选择"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round"><path d="M6 6l12 12M18 6 6 18"/></svg></button></div>
+    <div class="vbar"></div>
+    <button class="b" id="batch-detail" title="在新页签查看选中项"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"><path d="M5 12h14M13 6l6 6-6 6"/></svg>查看详情</button>
+    <button class="b" id="batch-duplicate" title="复制选中 agent 配置"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"><rect x="9" y="9" width="11" height="11" rx="2"/><path d="M5 15V5a2 2 0 0 1 2-2h10"/></svg>复制</button>
+    <button class="b danger" id="batch-archive" title="归档选中 agent"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round"><path d="M3 6h18M8 6V4a2 2 0 0 1 2-2h4a2 2 0 0 1 2 2v2M6 6l1 14a2 2 0 0 0 2 2h6a2 2 0 0 0 2-2l1-14"/></svg>归档</button>
+  </div>
+
+  <script>window.OD_NAV = { active: 'agents' };</script>
+  <script src="js/workspace-data.js"></script>
+  <script src="js/app.js"></script>
+  <script src="js/agents-data.js"></script>
+  <script>
+    document.addEventListener('DOMContentLoaded', () => {
+      const S = window.OD.svg;
+      document.getElementById('ic').innerHTML = S.search;
+      document.getElementById('bell').innerHTML = S.bell;
+      document.querySelector('.mobile-menu-btn').innerHTML = S.menu;
+      document.getElementById('si').innerHTML = S.search;
+
+      const agents = window.OD_AGENTS;
+      const KIND_LABEL = { prompt:'提示词', claude:'Claude Code', codex:'Codex', remote:'Remote' };
+      const KIND_GLYPH = { prompt:'P', claude:'C', codex:'X', remote:'R' };
+      const STATUS_CN = { running:'运行', queued:'排队', idle:'空闲', failed:'失败', paused:'已暂停', done:'完成' };
+      function glyphClass(k) { return 'agent-glyph kind-' + (k === 'claude' ? 'claude' : k === 'codex' ? 'codex' : k === 'remote' ? 'verify' : 'reader'); }
+
+      // state
+      let scope = 'all';                // mine | all | archived
+      let q = '';
+      const filters = { status: new Set(), kind: new Set(), role: new Set() };
+      let sortField = 'lastActive';     // lastActive | name | runs | created
+      let sortDir = 'desc';             // asc | desc
+      const selected = new Set();       // agent ids
+
+      // scope counts (ignore filters — mirrors multica)
+      function scopeOf(a) {
+        if (a.status === 'failed' || a.status === 'paused') return 'archived';
+        if (scope === 'mine') return a.owner === '饶哲';
+        return true;
+      }
+      function updateScopeCounts() {
+        const c = { mine: 0, all: 0, archived: 0 };
+        agents.forEach(a => {
+          if (a.status === 'failed' || a.status === 'paused') c.archived++;
+          else { c.all++; if (a.owner === '饶哲') c.mine++; }
+        });
+        document.getElementById('cnt-mine').textContent = c.mine;
+        document.getElementById('cnt-all').textContent = c.all;
+        document.getElementById('cnt-archived').textContent = c.archived;
+      }
+      updateScopeCounts();
+
+      // build filter menus with counts
+      function buildMenu(popId, dim, labels) {
+        const counts = new Map();
+        agents.forEach(a => {
+          const vals = dim === 'role' ? a.roles : [a[dim]];
+          vals.forEach(v => counts.set(v, (counts.get(v) || 0) + 1));
+        });
+        const pop = document.getElementById(popId);
+        pop.innerHTML = Array.from(counts.entries()).map(([v, n]) => `
+          <div class="menu-opt" data-dim="${dim}" data-v="${v}" role="menuitemcheckbox" data-checked="false" tabindex="0">
+            <svg class="check" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.4" stroke-linecap="round" stroke-linejoin="round"><path d="m20 6-11 11-5-5"/></svg>
+            <span class="label">${labels[v] || v}</span>
+            <span class="cnt">${n}</span>
+          </div>
+        `).join('');
+      }
+      buildMenu('pop-status', 'status', STATUS_CN);
+      buildMenu('pop-kind', 'kind', KIND_LABEL);
+      buildMenu('pop-role', 'role', {});
+
+      // sort menu (radio)
+      const SORT_LABELS = { lastActive:'最近活跃', name:'名称', runs:'运行次数', created:'创建时间' };
+      const popSort = document.getElementById('pop-sort');
+      popSort.innerHTML = Object.entries(SORT_LABELS).map(([k, label]) => `
+        <div class="menu-opt radio" data-sort="${k}" data-checked="${k === sortField ? 'true' : 'false'}" role="menuitemradio" tabindex="0">
+          <svg class="check" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.4" stroke-linecap="round" stroke-linejoin="round"><path d="m20 6-11 11-5-5"/></svg>
+          <span class="label">${label}</span>
+        </div>
+      `).join('') + `<div class="menu-sep"></div>
+        <div class="menu-opt radio" data-dir="asc" data-checked="${sortDir === 'asc' ? 'true' : 'false'}" role="menuitemradio" tabindex="0">
+          <svg class="check" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.4" stroke-linecap="round" stroke-linejoin="round"><path d="m20 6-11 11-5-5"/></svg>
+          <span class="label">升序</span>
+        </div>
+        <div class="menu-opt radio" data-dir="desc" data-checked="${sortDir === 'desc' ? 'true' : 'false'}" role="menuitemradio" tabindex="0">
+          <svg class="check" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.4" stroke-linecap="round" stroke-linejoin="round"><path d="m20 6-11 11-5-5"/></svg>
+          <span class="label">降序</span>
+        </div>`;
+
+      // menu open/close
+      function bindMenu(btnId, popId) {
+        const btn = document.getElementById(btnId), pop = document.getElementById(popId);
+        btn.addEventListener('click', (e) => {
+          e.stopPropagation();
+          const open = pop.classList.contains('open');
+          closeAllMenus();
+          if (!open) { pop.classList.add('open'); btn.setAttribute('aria-expanded', 'true'); }
+        });
+        pop.addEventListener('click', (e) => {
+          const opt = e.target.closest('.menu-opt'); if (!opt) return;
+          if (opt.dataset.dim) {
+            const dim = opt.dataset.dim, v = opt.dataset.v;
+            if (filters[dim].has(v)) { filters[dim].delete(v); opt.setAttribute('data-checked', 'false'); }
+            else { filters[dim].add(v); opt.setAttribute('data-checked', 'true'); }
+            updateFilterBadges();
+            render();
+          } else if (opt.dataset.sort) {
+            sortField = opt.dataset.sort;
+            pop.querySelectorAll('[data-sort]').forEach(o => o.setAttribute('data-checked', o === opt ? 'true' : 'false'));
+            document.getElementById('sort-label').textContent = SORT_LABELS[sortField];
+            render();
+          } else if (opt.dataset.dir) {
+            sortDir = opt.dataset.dir;
+            pop.querySelectorAll('[data-dir]').forEach(o => o.setAttribute('data-checked', o === opt ? 'true' : 'false'));
+            render();
+          }
+        });
+      }
+      function closeAllMenus() {
+        document.querySelectorAll('.menu-pop.open').forEach(p => p.classList.remove('open'));
+        document.querySelectorAll('.menu-btn[aria-expanded="true"]').forEach(b => b.setAttribute('aria-expanded', 'false'));
+        document.querySelectorAll('.row-pop.open').forEach(p => p.classList.remove('open'));
+      }
+      bindMenu('btn-status', 'pop-status');
+      bindMenu('btn-kind', 'pop-kind');
+      bindMenu('btn-role', 'pop-role');
+      bindMenu('btn-sort', 'pop-sort');
+      document.addEventListener('click', closeAllMenus);
+      document.addEventListener('keydown', (e) => { if (e.key === 'Escape') closeAllMenus(); });
+
+      function updateFilterBadges() {
+        [['btn-status','status'],['btn-kind','kind'],['btn-role','role']].forEach(([bid, dim]) => {
+          const btn = document.getElementById(bid);
+          const n = filters[dim].size;
+          const old = btn.querySelector('.badge');
+          if (old) old.remove();
+          if (n > 0) { const b = document.createElement('span'); b.className = 'badge'; b.textContent = n; btn.appendChild(b); }
+        });
+        const any = filters.status.size + filters.kind.size + filters.role.size > 0 || q.trim().length > 0;
+        document.getElementById('clear-filters').classList.toggle('hidden', !any);
+      }
+
+      // search
+      const qInput = document.getElementById('q');
+      const qBox = document.getElementById('search-box');
+      qInput.addEventListener('input', () => {
+        q = qInput.value;
+        qBox.classList.toggle('has-q', q.length > 0);
+        updateFilterBadges();
+        render();
+      });
+      document.getElementById('clear-q').addEventListener('click', () => {
+        qInput.value = ''; q = ''; qBox.classList.remove('has-q'); updateFilterBadges(); render(); qInput.focus();
+      });
+      document.getElementById('clear-filters').addEventListener('click', () => {
+        qInput.value = ''; q = ''; qBox.classList.remove('has-q');
+        ['status','kind','role'].forEach(d => filters[d].clear());
+        document.querySelectorAll('.menu-opt[data-checked="true"]').forEach(o => o.setAttribute('data-checked', 'false'));
+        updateFilterBadges(); render();
+      });
+
+      // scope tabs
+      document.querySelectorAll('.scope-tabs button').forEach(b => b.addEventListener('click', () => {
+        document.querySelectorAll('.scope-tabs button').forEach(x => x.setAttribute('aria-selected', 'false'));
+        b.setAttribute('aria-selected', 'true');
+        scope = b.dataset.scope;
+        selected.clear();
+        render();
+      }));
+
+      // sparkline svg (30 buckets)
+      function sparkSVG(buckets, isFail) {
+        const W = 80, H = 24, PAD = 2;
+        const max = Math.max(1, ...buckets.map(b => isFail ? b.fail : b.total));
+        const bw = (W - PAD * 2) / buckets.length;
+        const bars = buckets.map((b, i) => {
+          const v = isFail ? b.fail : b.total;
+          const h = (v / max) * (H - PAD * 2);
+          const x = PAD + i * bw;
+          const y = H - PAD - h;
+          const fill = (isFail ? b.fail > 0 : b.total > 0) ? (isFail ? 'var(--danger)' : 'var(--accent)') : 'var(--border-soft)';
+          return `<rect x="${x.toFixed(1)}" y="${y.toFixed(1)}" width="${Math.max(0.8, bw - 0.6).toFixed(1)}" height="${Math.max(0.5, h).toFixed(1)}" rx="0.6" fill="${fill}"/>`;
+        }).join('');
+        return `<svg class="spark" viewBox="0 0 ${W} ${H}" preserveAspectRatio="none" role="img" aria-label="30 天运行 ${buckets.reduce((s,b)=>s+b.total,0)} 次，失败 ${buckets.reduce((s,b)=>s+b.fail,0)} 次">${bars}</svg>`;
+      }
+
+      // sort
+      function sortRows(rows) {
+        const dir = sortDir === 'asc' ? 1 : -1;
+        return rows.slice().sort((a, b) => {
+          if (sortField === 'name') return a.name.localeCompare(b.name) * dir;
+          if (sortField === 'runs') return (a.runCount - b.runCount) * dir || a.name.localeCompare(b.name);
+          if (sortField === 'created') return (new Date(a.created) - new Date(b.created)) * dir;
+          // lastActive
+          const av = a.lastActiveDays ?? 9999, bv = b.lastActiveDays ?? 9999;
+          return (av - bv) * dir || (b.runCount - a.runCount);
+        });
+      }
+
+      // render list
+      const body = document.getElementById('lg-body');
+      function visibleRows() {
+        const ql = q.trim().toLowerCase();
+        return agents.filter(a => {
+          if (scope === 'archived') { if (!(a.status === 'failed' || a.status === 'paused')) return false; }
+          else {
+            if (a.status === 'failed' || a.status === 'paused') return false;
+            if (scope === 'mine' && a.owner !== '饶哲') return false;
+          }
+          if (filters.status.size && !filters.status.has(a.status)) return false;
+          if (filters.kind.size && !filters.kind.has(a.kind)) return false;
+          if (filters.role.size && !a.roles.some(r => filters.role.has(r))) return false;
+          if (ql && !(a.name.toLowerCase().includes(ql) || (a.summary && a.summary.toLowerCase().includes(ql)))) return false;
+          return true;
+        });
+      }
+
+      function render() {
+        const rows = sortRows(visibleRows());
+        const total = scope === 'archived'
+          ? agents.filter(a => a.status === 'failed' || a.status === 'paused').length
+          : agents.filter(a => !(a.status === 'failed' || a.status === 'paused')).length;
+        document.getElementById('result-count').textContent = `${rows.length} / ${total}`;
+
+        // sort header indicators
+        document.querySelectorAll('.lg-head .sortable').forEach(h => {
+          h.setAttribute('data-active', h.dataset.sort === sortField ? 'true' : 'false');
+          const ic = h.querySelector('.sort-ic');
+          if (ic) ic.style.transform = sortDir === 'asc' && h.dataset.sort === sortField ? 'rotate(180deg)' : '';
+        });
+
+        // checkbox header state
+        const checkAll = document.getElementById('check-all');
+        const visibleSelected = rows.filter(r => selected.has(r.id));
+        checkAll.checked = rows.length > 0 && visibleSelected.length === rows.length;
+        checkAll.indeterminate = visibleSelected.length > 0 && visibleSelected.length < rows.length;
+
+        // batch bar
+        const bb = document.getElementById('batch-bar');
+        if (selected.size > 0) { bb.classList.add('open'); document.getElementById('batch-count').textContent = selected.size; }
+        else bb.classList.remove('open');
+
+        if (!rows.length) {
+          const isFiltered = q || filters.status.size || filters.kind.size || filters.role.size;
+          body.innerHTML = `<div class="empty-state" style="grid-column:1/-1">
+            <div class="ic"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.6" stroke-linecap="round" stroke-linejoin="round"><circle cx="11" cy="11" r="7"/><path d="m20 20-3.5-3.5"/></svg></div>
+            <div class="h">${isFiltered ? '没有匹配的 agent' : (scope === 'archived' ? '没有已归档的 agent' : '还没有 agent')}</div>
+            <div class="d">${isFiltered ? '试试调整筛选条件或清除搜索。' : (scope === 'archived' ? '归档的 agent 会出现在这里。' : '注册第一个 agent，开始编排你的 fleet。')}</div>
+            ${!isFiltered && scope !== 'archived' ? '<button class="btn btn-accent btn-sm" onclick="document.getElementById(\'new-agent\').click()">+ 注册 Agent</button>' : ''}
+          </div>`;
+          return;
+        }
+
+        body.innerHTML = rows.map(a => {
+          const checked = selected.has(a.id);
+          return `
+          <div class="lg-row ${checked ? 'selected' : ''}" data-id="${a.id}" tabindex="0" role="button" aria-label="查看 agent ${a.name} 详情">
+            <div class="lg-check"><input type="checkbox" data-id="${a.id}" ${checked ? 'checked' : ''} aria-label="选择 ${a.name}"></div>
+            <div class="agent-cell">
+              <div class="${glyphClass(a.kind)}" aria-hidden="true">${KIND_GLYPH[a.kind]}</div>
+              <div style="min-width:0">
+                <div class="agent-name">${a.name}</div>
+                <div class="agent-sub">${a.id} · ${a.runtime}</div>
+              </div>
+            </div>
+            <div><span class="status ${a.status}"><span class="dot"></span>${STATUS_CN[a.status]}</span></div>
+            <div class="lg-cell mono">${KIND_LABEL[a.kind]}</div>
+            <div class="lg-cell">${sparkSVG(a.activity, a.status === 'failed')}</div>
+            <div class="lg-cell num">${a.runCount}</div>
+            <div class="lg-cell num">${a.cost}</div>
+            <div class="actions">
+              <button class="row-more" data-id="${a.id}" aria-label="更多操作" aria-haspopup="true"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round"><circle cx="5" cy="12" r="1"/><circle cx="12" cy="12" r="1"/><circle cx="19" cy="12" r="1"/></svg></button>
+              <div class="row-pop" id="pop-${a.id}" role="menu">
+                <a class="item" href="agent-detail.html?id=${a.id}" role="menuitem"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"><path d="M5 12h14M13 6l6 6-6 6"/></svg>查看详情</a>
+                <div class="item" data-act="dup" data-id="${a.id}" role="menuitem"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"><rect x="9" y="9" width="11" height="11" rx="2"/><path d="M5 15V5a2 2 0 0 1 2-2h10"/></svg>复制配置</div>
+                <div class="sep"></div>
+                <div class="item danger" data-act="archive" data-id="${a.id}" role="menuitem"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round"><path d="M3 6h18M8 6V4a2 2 0 0 1 2-2h4a2 2 0 0 1 2 2v2M6 6l1 14a2 2 0 0 0 2 2h6a2 2 0 0 0 2-2l1-14"/></svg>归档</div>
+              </div>
+            </div>
+          </div>`;
+        }).join('');
+      }
+
+      // delegation: row click → detail; checkbox → select; more → popover
+      body.addEventListener('click', (e) => {
+        const cb = e.target.closest('input[type="checkbox"]');
+        if (cb) {
+          if (cb.dataset.id) {
+            if (cb.checked) selected.add(cb.dataset.id); else selected.delete(cb.dataset.id);
+            render();
+          }
+          e.stopPropagation();
+          return;
+        }
+        const more = e.target.closest('.row-more');
+        if (more) {
+          e.stopPropagation();
+          closeAllMenus();
+          const pop = document.getElementById('pop-' + more.dataset.id);
+          if (pop) { pop.classList.add('open'); more.setAttribute('data-popup-open', 'true'); }
+          return;
+        }
+        const act = e.target.closest('[data-act]');
+        if (act) {
+          e.stopPropagation();
+          closeAllMenus();
+          if (act.dataset.act === 'archive') {
+            const a = agents.find(x => x.id === act.dataset.id);
+            if (a) { a.status = a.status === 'failed' || a.status === 'paused' ? 'idle' : 'failed'; updateScopeCounts(); render(); toast('已归档「' + a.name + '」'); }
+          } else if (act.dataset.act === 'dup') {
+            toast('已复制配置到剪贴板（演示）');
+          }
+          return;
+        }
+        const row = e.target.closest('.lg-row');
+        if (row) {
+          const id = row.dataset.id;
+          window.location.href = 'agent-detail.html?id=' + encodeURIComponent(id);
+        }
+      });
+      body.addEventListener('keydown', (e) => {
+        const row = e.target.closest('.lg-row');
+        if (row && (e.key === 'Enter' || e.key === ' ')) { e.preventDefault(); window.location.href = 'agent-detail.html?id=' + encodeURIComponent(row.dataset.id); }
+      });
+      // close row pop on outside
+      document.addEventListener('click', (e) => {
+        if (!e.target.closest('.row-pop') && !e.target.closest('.row-more')) {
+          document.querySelectorAll('.row-pop.open').forEach(p => p.classList.remove('open'));
+          document.querySelectorAll('.row-more[data-popup-open]').forEach(m => m.removeAttribute('data-popup-open'));
+        }
+      });
+
+      // check-all
+      document.getElementById('check-all').addEventListener('click', () => {
+        const rows = visibleRows();
+        const checkAll = document.getElementById('check-all');
+        if (checkAll.checked) rows.forEach(r => selected.add(r.id));
+        else rows.forEach(r => selected.delete(r.id));
+        render();
+      });
+
+      // batch actions
+      document.getElementById('batch-clear').addEventListener('click', () => { selected.clear(); render(); });
+      document.getElementById('batch-detail').addEventListener('click', () => {
+        const ids = Array.from(selected);
+        if (ids.length === 1) window.location.href = 'agent-detail.html?id=' + ids[0];
+        else toast('已选中 ' + ids.length + ' 个，请在列表中逐个查看详情');
+      });
+      document.getElementById('batch-duplicate').addEventListener('click', () => { toast('已复制 ' + selected.size + ' 个配置（演示）'); });
+      document.getElementById('batch-archive').addEventListener('click', () => {
+        selected.forEach(id => { const a = agents.find(x => x.id === id); if (a) a.status = 'failed'; });
+        toast('已归档 ' + selected.size + ' 个 agent');
+        selected.clear(); updateScopeCounts(); render();
+      });
+
+      document.getElementById('new-agent').addEventListener('click', () => toast('打开注册 Agent 对话框（演示）'));
+
+      // skeleton on first paint, then render
+      function showSkeleton() {
+        let html = '';
+        for (let i = 0; i < 6; i++) {
+          html += `<div class="sk-row">
+            <span class="sk" style="width:18px;height:18px"></span>
+            <div style="display:flex;gap:12px;align-items:center"><span class="sk" style="width:34px;height:34px;border-radius:9px"></span><div><span class="sk" style="width:140px;height:12px"></span><div style="margin-top:4px"><span class="sk" style="width:90px;height:10px"></span></div></div></div>
+            <span class="sk" style="width:50px;height:12px"></span>
+            <span class="sk" style="width:60px;height:12px"></span>
+            <span class="sk" style="width:80px;height:24px"></span>
+            <span class="sk" style="width:30px;height:12px"></span>
+            <span class="sk" style="width:50px;height:12px"></span>
+            <span></span>
+          </div>`;
+        }
+        body.innerHTML = html;
+      }
+
+      // toast
+      const toastHost = document.createElement('div');
+      toastHost.className = 'toast-host';
+      toastHost.setAttribute('aria-live', 'polite');
+      document.body.appendChild(toastHost);
+      function toast(msg) {
+        const el = document.createElement('div');
+        el.className = 'toast ok';
+        el.innerHTML = '<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.2" stroke-linecap="round" stroke-linejoin="round"><path d="m20 6-11 11-5-5"/></svg><span>' + msg + '</span>';
+        toastHost.appendChild(el);
+        setTimeout(() => { el.style.opacity = '0'; el.style.transition = 'opacity 200ms'; setTimeout(() => el.remove(), 220); }, 2400);
+      }
+
+      showSkeleton();
+      setTimeout(() => { render(); }, 200); // simulate fetch
+    });
+  </script>
+</body>
+</html>

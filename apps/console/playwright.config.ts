@@ -1,0 +1,76 @@
+import { defineConfig, devices } from '@playwright/test'
+
+/**
+ * Playwright config for the console package (v0.3-M10.1).
+ *
+ * The design-fidelity e2e (tests/e2e/v0.3-design.spec.ts) exercises the two
+ * flows the audit pinned as acceptance for v0.3: the new-task composer's
+ * Path B (direct-agent dispatch) → gateway POST contract + agent-detail
+ * presence-pill render (the WS-refresh e2e is deferred — see the spec header),
+ * and the flows edit button opening the Flowise canvas editor in an iframe.
+ * The webServer block boots `next dev` on :3000 and reuses an already-running
+ * instance so a developer's `pnpm --filter @mil/console dev` is not killed
+ * between runs.
+ *
+ * These are **true end-to-end** tests, not the in-process `app.request()`
+ * suites under `__tests__/`. They need the mil-agents dev stack up: Postgres
+ * (:15432), Redis (:16479), and the gateway (:8080) + dispatch (:8081) +
+ * Flowise (:3100) services the console proxies into. See the issue brief and
+ * `infra/README.md` for bring-up. The webServer here only owns the Next dev
+ * process — the rest is expected to already be running (reuseExistingServer
+ * makes a shared dev stack the happy path).
+ *
+ * Port: defaults to 3000 (the design's console port). Override with
+ * `E2E_PORT` to target an already-running dev server on another port — this
+ * workspace has another Next app parked on :3000, so MZW-309's viewport matrix
+ * already runs against a console booted on a free port pointed at via
+ * `E2E_PORT`; the same override works for the design-fidelity suite.
+ *
+ * Auth: these e2e POST the gateway directly (`/api/v1/tasks`) and rely on the
+ * agents picker resolving from `/api/agents`. The gateway's SSO session gate
+ * is a no-op when `SSO_SESSION_SECRET` is unset (the open dev posture), and
+ * `REQUIRE_LOGIN=1` is only honored when SSO is configured. So a plain dev
+ * stack (no SSO) runs auth-free. On a stack with SSO + `REQUIRE_LOGIN=1`,
+ * `postDirectTask` would 401 — the spec asserts the HTTP status so that 401
+ * surfaces as a clear failure rather than a misleading assertion. Run e2e
+ * against a stack with SSO gated off, or arrange a dev login first.
+ *
+ * Browsers: Chromium only. The 9-viewport visual matrix is MZW-309 (M10.2),
+ * not here.
+ */
+export default defineConfig({
+  testDir: './tests/e2e',
+  fullyParallel: false,
+  forbidOnly: !!process.env.CI,
+  retries: process.env.CI ? 1 : 0,
+  workers: 1,
+  reporter: process.env.CI ? 'github' : 'list',
+  use: {
+    baseURL: `http://127.0.0.1:${process.env.E2E_PORT ?? '3000'}`,
+    headless: true,
+    // `retain-on-failure` (not `on-first-retry`) because local `retries:0` means
+    // the on-first-retry trace would never fire — a local flake would leave no
+    // trace/screenshot to debug. This writes a trace for any failed local run;
+    // CI keeps `on-first-retry`'s behavior implicitly via retries:1 + retain.
+    trace: process.env.CI ? 'on-first-retry' : 'retain-on-failure',
+  },
+  projects: [
+    {
+      name: 'chromium',
+      use: { ...devices['Desktop Chrome'] },
+    },
+  ],
+  webServer: {
+    // Boot the console's `next dev` if it isn't already up. reuseExistingServer
+    // lets a developer keep their own console dev running and have Playwright
+    // attach to it instead of spawning a second instance. Point at a different
+    // port (e.g. another Next app occupies :3000) via `E2E_PORT`.
+    command: 'pnpm --filter @mil/console exec next dev -p ' + (process.env.E2E_PORT ?? '3000'),
+    url: `http://127.0.0.1:${process.env.E2E_PORT ?? '3000'}`,
+    reuseExistingServer: true,
+    timeout: 180_000,
+    stdout: 'ignore',
+    stderr: 'pipe',
+    cwd: __dirname,
+  },
+})
