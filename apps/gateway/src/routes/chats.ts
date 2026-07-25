@@ -520,3 +520,43 @@ chatRoutes.get('/:id/stream', async (c) => {
   respHeaders.set('cache-control', 'no-cache')
   return new Response(upstream.body, { status: 200, headers: respHeaders })
 })
+
+interface RunRow {
+  id: string
+  status: string
+  created_at: Date
+  finished_at: Date | null
+}
+
+chatRoutes.get('/:id/runs', async (c) => {
+  const id = c.req.param('id')
+  if (!UUID_RE.test(id)) {
+    return fail(c, 400, 'invalid chat id', { id })
+  }
+
+  // runs.chat_id is TEXT, so cast chat id to text for the comparison.
+  let rows: RunRow[]
+  try {
+    const { records } = await runQuery<RunRow>(
+      `SELECT id, status, created_at, finished_at
+         FROM runs
+         WHERE chat_id = $1::text
+         ORDER BY created_at DESC
+         LIMIT 50`,
+      [id],
+    )
+    rows = records
+  } catch (err) {
+    log.error('chat runs query failed', { id, error: String(err) })
+    return fail(c, 502, 'chat runs failed')
+  }
+
+  return ok(c, {
+    items: rows.map((r) => ({
+      id: r.id,
+      status: r.status,
+      createdAt: r.created_at instanceof Date ? r.created_at.toISOString() : new Date(r.created_at).toISOString(),
+      finishedAt: r.finished_at instanceof Date ? r.finished_at.toISOString() : (r.finished_at ? new Date(r.finished_at).toISOString() : null),
+    })),
+  })
+})

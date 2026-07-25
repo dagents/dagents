@@ -133,3 +133,21 @@ export async function createMessage(
   )
   return data.message
 }
+
+export interface ChatRun {
+  id: string
+  status: string
+  createdAt: string
+  finishedAt: string | null
+}
+
+export async function fetchChatRuns(chatId: string, signal?: AbortSignal): Promise<ChatRun[]> {
+  const data = await unwrap<{ items: ChatRun[] }>(
+    await fetch(`/api/chats/${encodeURIComponent(chatId)}/runs`, {
+      cache: 'no-store',
+      signal,
+    }),
+    'chat runs',
+  )
+  return data.items
+}

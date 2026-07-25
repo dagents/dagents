@@ -96,6 +96,17 @@ export function ChatDetail({ chatId }: ChatDetailProps): React.ReactElement {
     messagesEndRef.current?.scrollIntoView({ behavior: 'smooth' })
   }, [messages])
 
+  // Refresh chat when the context panel edits agent/flow (emits 'chat-updated').
+  useEffect(() => {
+    const handler = (e: Event) => {
+      const detail = (e as CustomEvent).detail as { chatId: string }
+      if (detail.chatId !== chatId) return
+      void fetchChat(chatId).then(setChat).catch(() => {})
+    }
+    window.addEventListener('chat-updated', handler)
+    return () => window.removeEventListener('chat-updated', handler)
+  }, [chatId])
+
   const handleSend = useCallback(async (text: string) => {
     if (sending) return
     setSending(true)
@@ -257,7 +268,7 @@ export function ChatDetail({ chatId }: ChatDetailProps): React.ReactElement {
         </div>
 
         {/* Right: context panel */}
-        <ChatContextPanel chat={chat} directory={directory} messages={messages} />
+        <ChatContextPanel chat={chat} directory={directory} />
       </div>
     </div>
   )

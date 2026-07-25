@@ -1,17 +1,59 @@
 'use client'
 
-import type { Chat, ChatMessage } from '@/lib/chats'
+import { useEffect, useState } from 'react'
+import type { Chat, ChatRun } from '@/lib/chats'
+import { fetchChatRuns, updateChat } from '@/lib/chats'
 import type { Directory } from '@/lib/directories'
+import { AgentSelector } from '@/components/agent-selector'
 import { Icon } from '@/components/icon'
 import '@/styles/chat-context-panel.css'
 
 interface ChatContextPanelProps {
   chat: Chat | null
   directory: Directory | null
-  messages: ChatMessage[]
 }
 
-export function ChatContextPanel({ chat, directory, messages }: ChatContextPanelProps): React.ReactElement {
+export function ChatContextPanel({ chat, directory }: ChatContextPanelProps): React.ReactElement {
+  const [runs, setRuns] = useState<ChatRun[]>([])
+  const [editingAgent, setEditingAgent] = useState(false)
+  const [editingFlow, setEditingFlow] = useState(false)
+  const [flowInput, setFlowInput] = useState('')
+
+  useEffect(() => {
+    if (!chat) return
+    let cancelled = false
+    void (async () => {
+      try {
+        const r = await fetchChatRuns(chat.id)
+        if (!cancelled) setRuns(r)
+      } catch {}
+    })()
+    return () => { cancelled = true }
+  }, [chat?.id, chat?.updatedAt])
+
+  const handleAgentChange = async (agentId: string | null) => {
+    if (!chat) return
+    try {
+      await updateChat(chat.id, { agentId })
+      // Caller (chat-detail) should refresh chat — emit a custom event
+      window.dispatchEvent(new CustomEvent('chat-updated', { detail: { chatId: chat.id } }))
+    } catch (err) {
+      console.warn('agent update failed', err)
+    }
+    setEditingAgent(false)
+  }
+
+  const handleFlowSave = async () => {
+    if (!chat) return
+    try {
+      await updateChat(chat.id, { flowId: flowInput || null })
+      window.dispatchEvent(new CustomEvent('chat-updated', { detail: { chatId: chat.id } }))
+    } catch (err) {
+      console.warn('flow update failed', err)
+    }
+    setEditingFlow(false)
+  }
+
   return (
     <div className="chat-context-panel">
       {/* Directory */}
@@ -27,22 +69,50 @@ export function ChatContextPanel({ chat, directory, messages }: ChatContextPanel
         )}
       </div>
 
-      {/* Agent */}
+      {/* Agent — editable */}
       <div className="chat-context-section">
-        <div className="chat-context-section-title">绑定 Agent</div>
-        <div className="chat-context-item">
-          <Icon name="bot" style={{ width: 14, height: 14 }} />
-          <span>{chat?.agentId ?? 'auto'}</span>
+        <div className="chat-context-section-title">
+          绑定 Agent
+          {!editingAgent && (
+            <button className="chat-context-edit" onClick={() => setEditingAgent(true)}>编辑</button>
+          )}
         </div>
+        {editingAgent ? (
+          <AgentSelector value={chat?.agentId ?? null} onChange={handleAgentChange} />
+        ) : (
+          <div className="chat-context-item">
+            <Icon name="bot" style={{ width: 14, height: 14 }} />
+            <span>{chat?.agentId ?? 'auto'}</span>
+          </div>
+        )}
       </div>
 
-      {/* Flow */}
+      {/* Flow — editable */}
       <div className="chat-context-section">
-        <div className="chat-context-section-title">绑定 Flow</div>
-        <div className="chat-context-item">
-          <Icon name="flows" style={{ width: 14, height: 14 }} />
-          <span>{chat?.flowId ?? '—'}</span>
+        <div className="chat-context-section-title">
+          绑定 Flow
+          {!editingFlow && (
+            <button className="chat-context-edit" onClick={() => { setFlowInput(chat?.flowId ?? ''); setEditingFlow(true) }}>编辑</button>
+          )}
         </div>
+        {editingFlow ? (
+          <div className="chat-context-flow-edit">
+            <input
+              type="text"
+              value={flowInput}
+              onChange={(e) => setFlowInput(e.target.value)}
+              placeholder="flow id"
+              className="chat-context-flow-input"
+            />
+            <button className="chat-context-flow-save" onClick={handleFlowSave}>保存</button>
+            <button className="chat-context-flow-cancel" onClick={() => setEditingFlow(false)}>取消</button>
+          </div>
+        ) : (
+          <div className="chat-context-item">
+            <Icon name="flows" style={{ width: 14, height: 14 }} />
+            <span>{chat?.flowId ?? '—'}</span>
+          </div>
+        )}
       </div>
 
       {/* Stats */}
@@ -62,24 +132,21 @@ export function ChatContextPanel({ chat, directory, messages }: ChatContextPanel
         </div>
       </div>
 
-      {/* Recent runs (from messages with runId) */}
+      {/* Real runs */}
       <div className="chat-context-section">
         <div className="chat-context-section-title">执行记录</div>
-        {messages.filter((m) => m.runId).length === 0 ? (
+        {runs.length === 0 ? (
           <div className="muted" style={{ fontSize: 'var(--text-sm)' }}>暂无执行记录</div>
         ) : (
           <div className="chat-context-runs">
-            {messages
-              .filter((m) => m.runId)
-              .slice(-5)
-              .map((m) => (
-                <div key={m.id} className="chat-context-run">
-                  <span className="mono" style={{ fontSize: 'var(--text-xs)', color: 'var(--meta)' }}>
-                    {m.runId?.slice(0, 8)}
-                  </span>
-                  <span className="chat-context-run-role">{m.role}</span>
-                </div>
-              ))}
+            {runs.slice(0, 10).map((r) => (
+              <div key={r.id} className="chat-context-run">
+                <span className="mono" style={{ fontSize: 'var(--text-xs)', color: 'var(--meta)' }}>
+                  {r.id.slice(0, 8)}
+                </span>
+                <span className={`chat-context-run-status status-${r.status}`}>{r.status}</span>
+              </div>
+            ))}
           </div>
         )}
       </div>
