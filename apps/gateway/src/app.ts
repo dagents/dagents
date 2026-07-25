@@ -7,6 +7,7 @@ import { llmRoutes } from './routes/llm.js'
 import { auditRoutes } from './routes/audit.js'
 import { workspaceRoutes } from './routes/workspaces.js'
 import { directoryRoutes } from './routes/directories.js'
+import { chatRoutes } from './routes/chats.js'
 import { labRoutes } from './routes/lab.js'
 import { agentsRoutes } from './routes/agents.js'
 import { tasksRoutes } from './routes/tasks.js'
@@ -493,6 +494,15 @@ app.route('/api/v1/workspaces', workspaceRoutes)
  * same posture as the other gateway-owned routes.
  */
 app.route('/api/v1/directories', directoryRoutes)
+
+/**
+ * Chat CRUD API: chat list + detail + create + update + delete with messages.
+ * Parameterised raw SQL via `runQuery`; message creation uses a transactional
+ * CTE to atomically insert the message and update chat counters.
+ * Gated by the SSO session middleware (M5b.4) under `REQUIRE_LOGIN=1`,
+ * same posture as the other gateway-owned routes.
+ */
+app.route('/api/v1/chats', chatRoutes)
 
 /**
  * Lab multi-agent chat room API (M5b.2 / P1.10.T7): the experiment session
