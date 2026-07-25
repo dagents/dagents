@@ -50,6 +50,7 @@ export function ChatDetail({ chatId }: ChatDetailProps): React.ReactElement {
   const [sending, setSending] = useState(false)
   const [loading, setLoading] = useState(true)
   const [error, setError] = useState<string | null>(null)
+  const [selectedAgentId, setSelectedAgentId] = useState<string | null>(chat?.agentId ?? null)
   const messagesEndRef = useRef<HTMLDivElement>(null)
 
   useEffect(() => {
@@ -85,6 +86,11 @@ export function ChatDetail({ chatId }: ChatDetailProps): React.ReactElement {
       ac.abort()
     }
   }, [chatId])
+
+  // Sync selector with chat's persisted agent when chat loads/changes.
+  useEffect(() => {
+    if (chat) setSelectedAgentId(chat.agentId)
+  }, [chat])
 
   useEffect(() => {
     messagesEndRef.current?.scrollIntoView({ behavior: 'smooth' })
@@ -242,7 +248,12 @@ export function ChatDetail({ chatId }: ChatDetailProps): React.ReactElement {
             )}
             <div ref={messagesEndRef} />
           </div>
-          <ChatComposer onSend={handleSend} disabled={sending || loading} />
+          <ChatComposer
+            onSend={handleSend}
+            disabled={sending || loading}
+            agentId={selectedAgentId}
+            onAgentChange={setSelectedAgentId}
+          />
         </div>
 
         {/* Right: context panel */}

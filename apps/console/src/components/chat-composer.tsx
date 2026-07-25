@@ -2,6 +2,7 @@
 
 import { useRef, useState, useCallback } from 'react'
 import { Icon } from '@/components/icon'
+import { AgentSelector } from '@/components/agent-selector'
 import '@/styles/chat-composer.css'
 
 interface ChatComposerProps {
@@ -9,6 +10,10 @@ interface ChatComposerProps {
   disabled?: boolean
   placeholder?: string
   agentSelector?: boolean
+  /** Currently selected agent (null = auto). */
+  agentId?: string | null
+  /** Called when user changes agent selection. */
+  onAgentChange?: (agentId: string | null) => void
 }
 
 export function ChatComposer({
@@ -16,6 +21,8 @@ export function ChatComposer({
   disabled,
   placeholder = 'Send a message…',
   agentSelector = true,
+  agentId = null,
+  onAgentChange,
 }: ChatComposerProps): React.ReactElement {
   const [input, setInput] = useState('')
   const textareaRef = useRef<HTMLTextAreaElement>(null)
@@ -58,12 +65,8 @@ export function ChatComposer({
           />
         </div>
         <div className="chat-composer-bottom">
-          {agentSelector && (
-            <button type="button" className="chat-composer-agent" title="Select agent">
-              <Icon name="bot" style={{ width: 14, height: 14, color: 'var(--accent)' }} />
-              <span>Agent</span>
-              <Icon name="chevronDown" style={{ width: 12, height: 12 }} />
-            </button>
+          {agentSelector && onAgentChange && (
+            <AgentSelector value={agentId} onChange={onAgentChange} disabled={disabled} />
           )}
           <span className="chat-composer-hint">
             ⏎ 发送 · ⇧⏎ 换行 · 输入 @ 触发命令
