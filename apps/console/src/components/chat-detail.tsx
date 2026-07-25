@@ -1,8 +1,21 @@
 'use client'
 
+/**
+ * Chat Detail (/chats/:id) — conversation view.
+ *
+ * Layout (design-redo paradigm):
+ *   - Breadcrumb: 📁 directory / chat title [status]
+ *   - Left: message stream + composer
+ *   - Right: context panel (directory, agent, flow, stats, runs)
+ *
+ * The sidebar is global (ChatNavSidebar in ChatLayout) — not rendered here.
+ */
+
 import { useCallback, useEffect, useRef, useState } from 'react'
-import { useRouter } from 'next/navigation'
-import { ChatSidebar } from '@/components/chat-sidebar'
+import Link from 'next/link'
+import { Icon } from '@/components/icon'
+import { ChatComposer } from '@/components/chat-composer'
+import { ChatContextPanel } from '@/components/chat-context-panel'
 import {
   type Chat,
   type ChatMessage,
@@ -10,6 +23,7 @@ import {
   fetchMessages,
   createMessage,
 } from '@/lib/chats'
+import { fetchDirectory, type Directory } from '@/lib/directories'
 import '@/styles/chat-detail.css'
 
 interface ChatDetailProps {
@@ -17,11 +31,10 @@ interface ChatDetailProps {
 }
 
 function formatTime(dateStr: string): string {
-  const date = new Date(dateStr)
-  return date.toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' })
+  return new Date(dateStr).toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' })
 }
 
-const STATUS_LABEL: Record<Chat['status'], string> = {
+const STATUS_LABEL: Record<string, string> = {
   idle: 'Idle',
   running: 'Running',
   done: 'Done',
@@ -29,45 +42,40 @@ const STATUS_LABEL: Record<Chat['status'], string> = {
 }
 
 export function ChatDetail({ chatId }: ChatDetailProps): React.ReactElement {
-  const router = useRouter()
   const [chat, setChat] = useState<Chat | null>(null)
+  const [directory, setDirectory] = useState<Directory | null>(null)
   const [messages, setMessages] = useState<ChatMessage[]>([])
-  const [input, setInput] = useState('')
   const [sending, setSending] = useState(false)
-  const [loadingChat, setLoadingChat] = useState(true)
-  const [loadingMessages, setLoadingMessages] = useState(true)
+  const [loading, setLoading] = useState(true)
   const [error, setError] = useState<string | null>(null)
   const messagesEndRef = useRef<HTMLDivElement>(null)
 
   useEffect(() => {
     let cancelled = false
-    setLoadingChat(true)
-    setLoadingMessages(true)
+    setLoading(true)
     setError(null)
     setChat(null)
+    setDirectory(null)
     setMessages([])
 
     const ac = new AbortController()
 
     Promise.all([
       fetchChat(chatId, ac.signal).then((c) => {
-        if (!cancelled) {
-          setChat(c)
-          setLoadingChat(false)
-        }
+        if (!cancelled) setChat(c)
+        // Fetch directory after chat loads
+        return fetchDirectory(c.directoryId, ac.signal).then((d) => {
+          if (!cancelled) setDirectory(d)
+        }).catch(() => {})
       }),
       fetchMessages(chatId, ac.signal).then((m) => {
-        if (!cancelled) {
-          setMessages(m)
-          setLoadingMessages(false)
-        }
+        if (!cancelled) setMessages(m)
       }),
     ]).catch((err: unknown) => {
       if (cancelled) return
-      const msg = err instanceof Error ? err.message : String(err)
-      setError(msg)
-      setLoadingChat(false)
-      setLoadingMessages(false)
+      setError(err instanceof Error ? err.message : String(err))
+    }).finally(() => {
+      if (!cancelled) setLoading(false)
     })
 
     return () => {
@@ -80,17 +88,8 @@ export function ChatDetail({ chatId }: ChatDetailProps): React.ReactElement {
     messagesEndRef.current?.scrollIntoView({ behavior: 'smooth' })
   }, [messages])
 
-  const handleSelectChat = useCallback(
-    (id: string) => {
-      router.push(`/chats/${id}`)
-    },
-    [router],
-  )
-
-  const sendMessage = useCallback(async () => {
-    const trimmed = input.trim()
-    if (!trimmed || sending) return
-
+  const handleSend = useCallback(async (text: string) => {
+    if (sending) return
     setSending(true)
     setError(null)
 
@@ -99,113 +98,73 @@ export function ChatDetail({ chatId }: ChatDetailProps): React.ReactElement {
       id: optimisticId,
       chatId,
       role: 'user',
-      content: trimmed,
+      content: text,
       runId: null,
       metadata: {},
       createdAt: new Date().toISOString(),
     }
-
     setMessages((prev) => [...prev, optimisticMsg])
-    setInput('')
 
     try {
-      const message = await createMessage(chatId, {
-        content: trimmed,
-        role: 'user',
-      })
-      setMessages((prev) =>
-        prev.map((m) => (m.id === optimisticId ? message : m)),
-      )
+      const message = await createMessage(chatId, { content: text, role: 'user' })
+      setMessages((prev) => prev.map((m) => (m.id === optimisticId ? message : m)))
     } catch (err) {
-      const msg = err instanceof Error ? err.message : String(err)
-      setError(msg)
+      setError(err instanceof Error ? err.message : String(err))
       setMessages((prev) => prev.filter((m) => m.id !== optimisticId))
-      setInput(trimmed)
     } finally {
       setSending(false)
     }
-  }, [input, sending, chatId])
-
-  const handleKeyDown = useCallback(
-    (e: React.KeyboardEvent<HTMLTextAreaElement>) => {
-      if (e.key === 'Enter' && !e.shiftKey) {
-        e.preventDefault()
-        void sendMessage()
-      }
-    },
-    [sendMessage],
-  )
+  }, [chatId, sending])
 
   return (
-    <div className="chat-detail-layout">
-      <div className="chat-detail-sidebar">
-        <ChatSidebar activeChatId={chatId} onSelectChat={handleSelectChat} />
+    <div className="chat-detail-body">
+      {/* Breadcrumb */}
+      <div className="chat-detail-breadcrumb">
+        {directory && (
+          <Link href="/directories" className="chat-detail-breadcrumb-dir">
+            <Icon name="folder" style={{ width: 14, height: 14 }} />
+            <span>{directory.name}</span>
+          </Link>
+        )}
+        <span className="chat-detail-breadcrumb-sep">/</span>
+        <span className="chat-detail-breadcrumb-title">
+          {loading ? 'Loading…' : chat?.title ?? 'Chat'}
+        </span>
+        {chat && (
+          <span className={`chat-detail-breadcrumb-status status-${chat.status}`}>
+            {STATUS_LABEL[chat.status]}
+          </span>
+        )}
       </div>
 
-      <div className="chat-detail-main">
-        <div className="chat-detail-header">
-          <div className="chat-detail-title">
-            {loadingChat ? 'Loading…' : chat?.title ?? 'Chat'}
-          </div>
-          {chat && (
-            <span className={`status ${chat.status}`}>
-              <span className="dot" />
-              {STATUS_LABEL[chat.status]}
-            </span>
-          )}
-        </div>
-
-        <div className="chat-detail-messages">
-          {loadingChat && loadingMessages ? (
-            <div className="muted" style={{ alignSelf: 'center', margin: 'auto' }}>
-              Loading chat…
-            </div>
-          ) : error ? (
-            <div
-              className="muted"
-              style={{
-                alignSelf: 'center',
-                margin: 'auto',
-                color: 'var(--danger)',
-              }}
-            >
-              Failed to load: {error}
-            </div>
-          ) : messages.length === 0 ? (
-            <div className="muted" style={{ alignSelf: 'center', margin: 'auto' }}>
-              No messages yet. Send a message to start the conversation.
-            </div>
-          ) : (
-            messages.map((m) => (
-              <div key={m.id} className={`chat-msg chat-msg-${m.role}`}>
-                {m.content}
-                <div className="chat-msg-meta">{formatTime(m.createdAt)}</div>
+      {/* Main split: messages + context */}
+      <div className="chat-detail-split">
+        {/* Left: messages + composer */}
+        <div className="chat-detail-conversation">
+          <div className="chat-detail-messages">
+            {loading ? (
+              <div className="chat-detail-empty">Loading chat…</div>
+            ) : error && messages.length === 0 ? (
+              <div className="chat-detail-empty" style={{ color: 'var(--danger)' }}>
+                Failed to load: {error}
               </div>
-            ))
-          )}
-          <div ref={messagesEndRef} />
+            ) : messages.length === 0 ? (
+              <div className="chat-detail-empty">No messages yet. Send a message to start.</div>
+            ) : (
+              messages.map((m) => (
+                <div key={m.id} className={`chat-msg chat-msg-${m.role}`}>
+                  <div className="chat-msg-content">{m.content}</div>
+                  <div className="chat-msg-meta">{formatTime(m.createdAt)}</div>
+                </div>
+              ))
+            )}
+            <div ref={messagesEndRef} />
+          </div>
+          <ChatComposer onSend={handleSend} disabled={sending || loading} />
         </div>
 
-        <div className="chat-detail-composer">
-          <textarea
-            className="chat-detail-textarea"
-            placeholder="Type a message… Enter to send, Shift+Enter for newline"
-            value={input}
-            onChange={(e) => setInput(e.target.value)}
-            onKeyDown={handleKeyDown}
-            disabled={sending || loadingChat}
-          />
-          <div className="chat-detail-actions">
-            <button
-              type="button"
-              className="btn btn-primary btn-sm"
-              onClick={() => void sendMessage()}
-              disabled={!input.trim() || sending || loadingChat}
-            >
-              {sending ? 'Sending…' : 'Send'}
-            </button>
-          </div>
-        </div>
+        {/* Right: context panel */}
+        <ChatContextPanel chat={chat} directory={directory} messages={messages} />
       </div>
     </div>
   )
