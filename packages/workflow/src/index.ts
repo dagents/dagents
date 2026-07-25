@@ -25,4 +25,4 @@ export { SseStreamer } from './engine/sse-streamer.js'
 export { resolveVariables } from './utils/variables.js'
 
 // Nodes (barrel) (Task 3+ — uncomment when modules land)
-// export * from './nodes/index.js'
+export * from './nodes/index.js'
