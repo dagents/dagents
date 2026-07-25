@@ -16,8 +16,8 @@ export type { ExecutionStatus, IExecutedNode, IExecutionContext } from './types/
 export type { IServerSideEventStreamer, StreamEvent } from './types/stream.js'
 
 // Engine (Task 3+ — uncomment when modules land)
-// export { NodeRegistry } from './engine/node-registry.js'
-// export { RuntimeState } from './engine/runtime.js'
+export { NodeRegistry } from './engine/node-registry.js'
+export { RuntimeState } from './engine/runtime.js'
 // export { DagExecutor } from './engine/executor.js'
 // export { SseStreamer } from './engine/sse-streamer.js'
 
