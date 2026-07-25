@@ -3,6 +3,11 @@ import type { ContentfulStatusCode } from 'hono/utils/http-status'
 import { z } from 'zod'
 import { runQuery } from '@mil/db'
 import { createLogger } from '@mil/shared'
+import {
+  parseCommand,
+  routeMessage,
+  type RouteResult,
+} from './chat-execute.js'
 
 export const chatRoutes = new Hono()
 
@@ -40,6 +45,17 @@ const createMessageBodySchema = z.object({
   content: z.string().min(1),
   runId: z.string().uuid().optional(),
   metadata: z.record(z.unknown()).optional(),
+})
+
+const createMessageWithExecBodySchema = z.object({
+  role: z.enum(['user', 'assistant', 'system', 'tool']).default('user'),
+  content: z.string().min(1),
+  runId: z.string().uuid().optional(),
+  metadata: z.record(z.unknown()).optional(),
+  /** Optional agent id — overrides chat.agentId for this message only. */
+  agentIdOverride: z.string().uuid().optional(),
+  /** Optional flow id — overrides chat.flowId for this message only. */
+  flowIdOverride: z.string().optional(),
 })
 
 interface ChatRow {
@@ -348,12 +364,15 @@ chatRoutes.post('/:id/messages', async (c) => {
   } catch {
     return fail(c, 400, 'invalid json body')
   }
-  const parsed = createMessageBodySchema.safeParse(body)
+  const parsed = createMessageWithExecBodySchema.safeParse(body)
   if (!parsed.success) {
     return fail(c, 400, 'invalid body', { detail: parsed.error.message })
   }
   const data = parsed.data
 
+  // Only 'user' role messages trigger execution routing.
+  // 'assistant'/'system'/'tool' are writes from the stream consumer or other
+  // system paths and should not re-route.
   let msgRow: ChatMessageRow | null
   try {
     const result = await runQuery<ChatMessageRow>(
@@ -391,5 +410,31 @@ chatRoutes.post('/:id/messages', async (c) => {
     return fail(c, 404, 'chat not found', { id })
   }
 
-  return ok(c, { message: normalizeMsg(msgRow) })
+  // Non-user roles: return the message without routing.
+  if (data.role !== 'user') {
+    return ok(c, { message: normalizeMsg(msgRow) })
+  }
+
+  // User role: route the message.
+  const route = await routeMessage(id, data.content, {
+    agentIdOverride: data.agentIdOverride,
+    flowIdOverride: data.flowIdOverride,
+  })
+
+  if (route.mode === 'stream') {
+    return ok(c, {
+      message: normalizeMsg(msgRow),
+      mode: 'stream',
+      chatRunId: route.chatRunId ?? null,
+    })
+  }
+
+  // JSON mode: @-command ack or routing error.
+  return ok(c, {
+    message: normalizeMsg(msgRow),
+    mode: 'json',
+    payload: route.payload,
+    error: route.error,
+    systemMessageId: route.systemMessageId ?? null,
+  })
 })
