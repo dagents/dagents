@@ -7,13 +7,13 @@
   <link rel="stylesheet" href="css/tokens.css" />
   <link rel="stylesheet" href="css/shell.css" />
   <style>
-    /* index-only: hero + module cards */
+    /* index-only: hero + module cards + activity timeline + skeleton */
+
+    /* hero */
     .hero {
       border: 1px solid var(--border-soft);
       border-radius: var(--radius-lg);
-      background:
-        radial-gradient(900px 360px at 88% -10%, var(--accent-soft) 0%, transparent 60%),
-        var(--bg);
+      background: var(--bg);
       padding: var(--space-12) var(--space-12);
       display: grid;
       grid-template-columns: 1.4fr 1fr;
@@ -21,21 +21,54 @@
       align-items: center;
       margin-bottom: var(--space-8);
       overflow: hidden;
+      position: relative;
     }
+    /* hero background animation */
+    .hero::before {
+      content: '';
+      position: absolute;
+      top: -25%;
+      right: -8%;
+      width: 900px;
+      height: 400px;
+      background: radial-gradient(ellipse, var(--accent-soft) 0%, transparent 70%);
+      opacity: 0.7;
+      animation: hero-glow 12s ease-in-out infinite alternate;
+      pointer-events: none;
+      z-index: 0;
+    }
+    @keyframes hero-glow {
+      0%   { transform: translate(0, 0) scale(1);     opacity: 0.5; }
+      50%  { transform: translate(-35px, 20px) scale(1.06); opacity: 0.85; }
+      100% { transform: translate(-15px, 35px) scale(0.96); opacity: 0.6; }
+    }
+    .hero > * { position: relative; z-index: 1; }
+
     .hero-eyebrow { font-size: 12px; font-weight: 500; color: var(--accent-hover); letter-spacing: var(--tracking-label); text-transform: uppercase; margin-bottom: var(--space-3); }
     .hero-title { font-family: var(--font-display); font-size: clamp(36px, 5.2vw, 52px); font-weight: 400; line-height: 1.05; letter-spacing: var(--tracking-display); color: var(--fg); }
     .hero-title em { font-style: normal; color: var(--accent-hover); }
     .hero-sub { font-size: var(--text-lg); color: var(--muted); margin-top: var(--space-4); max-width: 48ch; }
     .hero-cta { display: flex; gap: var(--space-3); margin-top: var(--space-6); flex-wrap: wrap; }
     .hero-cta .btn:focus-visible { outline: none; box-shadow: var(--focus-ring); }
+
+    /* hero stats */
     .hero-stats { display: grid; grid-template-columns: 1fr 1fr; gap: var(--space-4); }
-    .hero-stat { background: var(--bg); border: 1px solid var(--border-soft); border-radius: var(--radius-md); padding: var(--space-5); transition: box-shadow var(--motion-base); }
+    .hero-stat { background: var(--bg); border: 1px solid var(--border-soft); border-radius: var(--radius-md); padding: var(--space-5); transition: box-shadow var(--motion-base); position: relative; z-index: 1; }
     .hero-stat:hover { box-shadow: var(--elev-raised); }
     .hero-stat .v { font-family: var(--font-mono); font-size: clamp(24px, 3.2vw, 30px); font-weight: 500; letter-spacing: -0.02em; color: var(--fg); font-variant-numeric: tabular-nums; }
     .hero-stat .l { font-size: var(--text-xs); color: var(--muted); margin-top: 4px; }
-    .hero-stat .d { font-size: 11px; color: var(--accent-hover); margin-top: 6px; font-weight: 500; }
 
-    .module-grid { display: grid; grid-template-columns: repeat(3, 1fr); gap: var(--space-4); }
+    /* trend indicators */
+    .hero-stat .trend { display: inline-flex; align-items: center; gap: 3px; font-size: 11px; font-weight: 500; margin-top: 6px; }
+    .hero-stat .trend svg { width: 10px; height: 10px; flex-shrink: 0; }
+    .hero-stat .trend .trend-pct { font-family: var(--font-mono); }
+    .hero-stat .trend .trend-period { color: var(--meta); font-weight: 400; }
+    .hero-stat .trend.up { color: var(--success); }
+    .hero-stat .trend.down { color: var(--danger); }
+    .hero-stat .trend.flat { color: var(--muted); }
+
+    /* module grid */
+    .module-grid { display: grid; grid-template-columns: repeat(2, 1fr); gap: var(--space-4); }
     .module {
       display: flex; flex-direction: column;
       background: var(--bg);
@@ -56,10 +89,11 @@
     .module-foot { display: flex; align-items: center; justify-content: space-between; margin-top: var(--space-5); padding-top: var(--space-4); border-top: 1px solid var(--border-soft); }
     .module-foot .muted { font-size: 11px; font-family: var(--font-mono); }
     .module-foot .go { font-size: var(--text-xs); font-weight: 500; color: var(--fg-2); display: inline-flex; align-items: center; gap: 4px; transition: color var(--motion-fast), transform var(--motion-fast); }
-    .module-foot .go::after { content: "→"; transition: transform var(--motion-fast); }
+    .module-foot .go::after { content: "\2192"; transition: transform var(--motion-fast); }
     .module:hover .go { color: var(--accent-hover); }
     .module:hover .go::after { transform: translateX(2px); }
 
+    /* architecture strip */
     .arch-strip {
       display: grid; grid-template-columns: repeat(4, 1fr); gap: var(--space-3);
       margin-top: var(--space-6);
@@ -67,24 +101,71 @@
     .arch-step { background: var(--surface-warm); border: 1px solid var(--border-soft); border-radius: var(--radius-sm); padding: var(--space-3) var(--space-4); }
     .arch-step .n { font-family: var(--font-mono); font-size: 11px; color: var(--accent-hover); font-weight: 500; }
     .arch-step .t { font-size: var(--text-sm); font-weight: 500; color: var(--fg); margin-top: 2px; }
-    .hero-stat .d.down { color: var(--danger); }
-    .hero-stat .d.flat { color: var(--muted); }
-
+    .arch-step .d { font-size: 11px; color: var(--muted); margin-top: 2px; }
     .arch-step:focus-visible { outline: none; box-shadow: var(--focus-ring); }
 
-    @media (max-width: 1100px) { .module-grid { grid-template-columns: repeat(2, 1fr); } .hero { grid-template-columns: 1fr; } .arch-strip { grid-template-columns: repeat(2, 1fr); } }
-    @media (max-width: 640px) { .module-grid { grid-template-columns: 1fr; } .hero-stats { grid-template-columns: 1fr; } .hero { padding: var(--space-8) var(--space-6); } .hero-title { font-size: 34px; } }
-    @media (prefers-reduced-motion: reduce) { .module, .hero-stat, .module-foot .go::after { transition: none; } .module:hover { transform: none; } }
+    /* activity timeline */
+    .activity-section { margin-top: var(--space-4); }
+    .activity-list { border: 1px solid var(--border-soft); border-radius: var(--radius-md); background: var(--bg); overflow: hidden; }
+    .activity-item { display: flex; align-items: flex-start; gap: var(--space-4); padding: var(--space-4) var(--space-5); transition: background var(--motion-fast); }
+    .activity-item:not(:last-child) { border-bottom: 1px solid var(--border-soft); }
+    .activity-item:hover { background: var(--surface-warm); }
+    .activity-dot { width: 32px; height: 32px; border-radius: 9px; display: grid; place-items: center; flex-shrink: 0; }
+    .activity-dot svg { width: 16px; height: 16px; }
+    .activity-dot.success { background: var(--success-soft); color: var(--success); }
+    .activity-dot.accent { background: var(--accent-soft); color: var(--accent); }
+    .activity-dot.info { background: var(--info-soft); color: var(--info); }
+    .activity-dot.warn { background: var(--warn-soft); color: var(--warn); }
+    .activity-dot.muted-dot { background: var(--surface); color: var(--meta); }
+    .activity-body { flex: 1; min-width: 0; }
+    .activity-text { font-size: var(--text-sm); color: var(--fg); line-height: 1.5; }
+    .activity-text strong { font-weight: 600; }
+    .activity-time { font-size: 11px; color: var(--meta); margin-top: 2px; font-family: var(--font-mono); }
+
+    /* skeleton shimmer */
+    .sk { display: inline-block; border-radius: 6px; background: linear-gradient(90deg, var(--surface) 25%, var(--surface-warm) 50%, var(--surface) 75%); background-size: 200% 100%; animation: shimmer 1.4s infinite; }
+    @keyframes shimmer { 0% { background-position: 200% 0; } 100% { background-position: -200% 0; } }
+    .sk-stat { height: 96px; border-radius: var(--radius-md); border: 1px solid var(--border-soft); padding: var(--space-5); display: flex; flex-direction: column; justify-content: center; gap: 8px; }
+    .sk-module { min-height: 220px; border-radius: var(--radius-md); border: 1px solid var(--border-soft); padding: var(--space-6); display: flex; flex-direction: column; gap: var(--space-3); }
+    .sk-activity { height: 64px; padding: var(--space-4) var(--space-5); display: flex; align-items: center; gap: var(--space-4); border-bottom: 1px solid var(--border-soft); }
+    .sk-activity:last-child { border-bottom: none; }
+    .sk-arch { height: 60px; border-radius: var(--radius-sm); border: 1px solid var(--border-soft); }
+
+    /* visibility helpers for skeleton swap */
+    [data-skeleton] { display: block; }
+    [data-real] { display: none; }
+    .loaded [data-skeleton] { display: none !important; }
+    .loaded [data-real] { display: block; }
+
+    /* responsive */
+    @media (max-width: 1100px) {
+      .module-grid { grid-template-columns: repeat(2, 1fr); }
+      .hero { grid-template-columns: 1fr; }
+      .arch-strip { grid-template-columns: repeat(2, 1fr); }
+    }
+    @media (max-width: 640px) {
+      .module-grid { grid-template-columns: 1fr; }
+      .hero-stats { grid-template-columns: 1fr; }
+      .hero { padding: var(--space-8) var(--space-6); }
+      .hero-title { font-size: 34px; }
+      .arch-strip { grid-template-columns: 1fr; }
+    }
+    @media (prefers-reduced-motion: reduce) {
+      .module, .hero-stat, .module-foot .go::after { transition: none; }
+      .module:hover { transform: none; }
+      .hero::before { animation: none; opacity: 0.6; }
+      .sk { animation: none; }
+    }
   </style>
 </head>
 <body>
   <div class="app" id="app">
     <aside class="app-sidebar" data-od-id="sidebar">
       <div class="brand">
-        <div class="brand-mark">M</div>
-        <div><div class="brand-name">Mega Agents</div><div class="brand-sub">控制台 · v0.2</div></div>
+        <div class="brand-mark">D</div>
+        <div><div class="brand-name">DAgent</div><div class="brand-sub">控制台 \u00b7 v0.2</div></div>
       </div>
-      <nav class="nav" aria-label="主导航"></nav>
+      <nav class="nav" id="main-nav" aria-label="主导航"></nav>
       <div class="sidebar-footer"></div>
     </aside>
 
@@ -94,8 +175,8 @@
       <div class="topbar-spacer"></div>
       <div class="topbar-search">
         <span class="search-icon" id="ic"></span>
-        <input type="search" placeholder="搜索 agents / flows / runs…" aria-label="全局搜索" />
-        <kbd>⌘K</kbd>
+        <input type="search" placeholder="搜索 agents / flows / runs\u2026" aria-label="全局搜索" />
+        <kbd>\u2318K</kbd>
       </div>
       <div class="topbar-actions">
         <button class="icon-btn" aria-label="通知" title="通知"><span id="bell"></span><span class="dot"></span></button>
@@ -104,79 +185,180 @@
     </header>
 
     <main class="app-main">
-      <div class="page">
+      <div class="page" id="page-root">
         <section class="hero" data-od-id="hero">
           <div>
             <div class="hero-eyebrow">百万智能体编排平台</div>
             <h1 class="hero-title">编排 <em>一百万</em> 个 agent，<br/>像运营一座城市。</h1>
             <p class="hero-sub">基于 Flowise 单引擎 + 自研调度/版本/可复现层。把论文复现、批量推理、异构 CLI agent 协作统一成可视化 DAG 与可追溯 Run。</p>
             <div class="hero-cta">
-              <a class="btn btn-accent" href="dashboard.html" title="进入资源看板">进入资源看板</a>
-              <a class="btn btn-secondary" href="agentflows.html" title="查看 AgentFlows">查看 AgentFlows</a>
+              <a class="btn btn-accent" href="agentflows.html" title="查看 AgentFlows">查看 AgentFlows</a>
+              <a class="btn btn-secondary" href="agents.html" title="管理 Agents">管理 Agents</a>
             </div>
           </div>
-          <div class="hero-stats" aria-label="平台核心指标">
+
+          <!-- skeleton stats -->
+          <div class="hero-stats" data-skeleton>
+            <div class="sk-stat"><span class="sk" style="width:55%;height:28px"></span><span class="sk" style="width:40%;height:12px"></span><span class="sk" style="width:50%;height:10px"></span></div>
+            <div class="sk-stat"><span class="sk" style="width:45%;height:28px"></span><span class="sk" style="width:35%;height:12px"></span><span class="sk" style="width:55%;height:10px"></span></div>
+            <div class="sk-stat"><span class="sk" style="width:50%;height:28px"></span><span class="sk" style="width:45%;height:12px"></span><span class="sk" style="width:48%;height:10px"></span></div>
+            <div class="sk-stat"><span class="sk" style="width:30%;height:28px"></span><span class="sk" style="width:60%;height:12px"></span><span class="sk" style="width:42%;height:10px"></span></div>
+          </div>
+
+          <!-- real stats -->
+          <div class="hero-stats" data-real aria-label="平台核心指标">
             <div class="hero-stat" data-od-id="hero-stat-active">
-              <div class="v" aria-label="注册 agents 一百零四万零三百二十八">1,040,328</div><div class="l">注册 agents</div><div class="d" aria-label="较昨日增长 3.2%">+3.2% / 24h</div>
+              <div class="v" aria-label="注册 agents 一百零四万零三百二十八">1,040,328</div>
+              <div class="l">注册 agents</div>
+              <div class="trend up">
+                <svg viewBox="0 0 10 10"><path d="M5 1.5L8.5 6.5H1.5Z" fill="currentColor"/></svg>
+                <span class="trend-pct">3.2%</span>
+                <span class="trend-period"> / 24h</span>
+              </div>
             </div>
             <div class="hero-stat" data-od-id="hero-stat-throughput">
-              <div class="v" aria-label="今日 runs 八万二千四百">82.4K</div><div class="l">今日 runs</div><div class="d" aria-label="较昨日增长 12.1%">+12.1% / 24h</div>
+              <div class="v" aria-label="今日 runs 八万二千四百">82.4K</div>
+              <div class="l">今日 runs</div>
+              <div class="trend up">
+                <svg viewBox="0 0 10 10"><path d="M5 1.5L8.5 6.5H1.5Z" fill="currentColor"/></svg>
+                <span class="trend-pct">12.1%</span>
+                <span class="trend-period"> / 24h</span>
+              </div>
             </div>
             <div class="hero-stat" data-od-id="hero-stat-cost">
-              <div class="v" aria-label="今日成本 4182 美元">$4,182</div><div class="l">今日成本</div><div class="d down" aria-label="较昨日下降 4.6%">▼ 4.6% / 24h</div>
+              <div class="v" aria-label="今日成本 4182 美元">$4,182</div>
+              <div class="l">今日成本</div>
+              <div class="trend down">
+                <svg viewBox="0 0 10 10"><path d="M5 8.5L1.5 3.5H8.5Z" fill="currentColor"/></svg>
+                <span class="trend-pct">4.6%</span>
+                <span class="trend-period"> / 24h</span>
+              </div>
             </div>
             <div class="hero-stat" data-od-id="hero-stat-daemons">
-              <div class="v" aria-label="在线 Agent Daemon 318 个">318</div><div class="l">在线 Agent Daemon</div><div class="d" aria-label="其中 5 个正在排空">5 draining</div>
+              <div class="v" aria-label="在线 Agent Daemon 318 个">318</div>
+              <div class="l">在线 Agent Daemon</div>
+              <div class="trend flat">
+                <svg viewBox="0 0 10 10" width="10" height="10"><circle cx="5" cy="5" r="2" fill="currentColor" opacity="0.5"/></svg>
+                <span class="trend-pct">5 draining</span>
+              </div>
             </div>
           </div>
         </section>
 
-        <div class="section-label">模块</div>
-        <section class="module-grid" data-od-id="module-grid">
-          <a class="module" href="dashboard.html" data-od-id="module-dashboard">
-            <div class="module-icon" id="m-ic-0"></div>
-            <div class="module-title">资源看板</div>
-            <div class="module-desc">百万级 fleet 实时密度、状态分布、24h 吞吐、区域资源与成本熔断。</div>
-            <div class="module-foot"><span class="muted">1.04M agents · 318 daemons</span><span class="go">进入 →</span></div>
-          </a>
-          <a class="module" href="agents.html" data-od-id="module-agents">
-            <div class="module-icon" id="m-ic-1"></div>
-            <div class="module-title">Agents</div>
-            <div class="module-desc">提示词 agent 与异构 CLI agent 的列表、看板、详情。按类型/状态/角色/区域过滤。</div>
-            <div class="module-foot"><span class="muted">1,040,328 实例</span><span class="go">进入 →</span></div>
-          </a>
-          <a class="module" href="agentflows.html" data-od-id="module-flows">
-            <div class="module-icon" id="m-ic-2"></div>
-            <div class="module-title">AgentFlows</div>
-            <div class="module-desc">Agentflow V2 DAG 可视化。节点 = agent / 工具 / 分支 / HITL，边 = 数据流，状态着色。</div>
-            <div class="module-foot"><span class="muted">328 flows · 14 节点类</span><span class="go">进入 →</span></div>
-          </a>
-          <a class="module" href="lab.html" data-od-id="module-lab">
-            <div class="module-icon" id="m-ic-3"></div>
-            <div class="module-title">Lab</div>
-            <div class="module-desc">多 agent 协作聊天室。自动实验 + 人工随时介入。产出假设、数据、代码与可复现 artifact。</div>
-            <div class="module-foot"><span class="muted">12 个实验会话</span><span class="go">进入 →</span></div>
-          </a>
-          <a class="module" href="workspace.html" data-od-id="module-workspace">
-            <div class="module-icon" id="m-ic-4"></div>
-            <div class="module-title">Workspace</div>
-            <div class="module-desc">按项目隔离的人-agent 对话记录。成员、关联 flow、产物、配额一站式。</div>
-            <div class="module-foot"><span class="muted">24 个工作区</span><span class="go">进入 →</span></div>
-          </a>
-          <a class="module" href="settings.html" data-od-id="module-settings">
-            <div class="module-icon" id="m-ic-5"></div>
-            <div class="module-title">设置</div>
-            <div class="module-desc">new-api 网关连接、令牌 CRUD、默认模型、预算配额与熔断、通知。</div>
-            <div class="module-foot"><span class="muted">new-api · 8 令牌</span><span class="go">进入 →</span></div>
-          </a>
-        </section>
+        <!-- skeleton content -->
+        <div data-skeleton>
+          <div class="section-label">模块</div>
+          <div class="module-grid" style="display:grid">
+            <div class="sk-module"><span class="sk" style="width:38px;height:38px;border-radius:10px"></span><span class="sk" style="width:60%;height:18px"></span><span class="sk" style="width:90%;height:13px"></span><span class="sk" style="width:75%;height:13px"></span><div style="flex:1"></div><span class="sk" style="width:40%;height:10px"></span></div>
+            <div class="sk-module"><span class="sk" style="width:38px;height:38px;border-radius:10px"></span><span class="sk" style="width:50%;height:18px"></span><span class="sk" style="width:85%;height:13px"></span><span class="sk" style="width:70%;height:13px"></span><div style="flex:1"></div><span class="sk" style="width:50%;height:10px"></span></div>
+            <div class="sk-module"><span class="sk" style="width:38px;height:38px;border-radius:10px"></span><span class="sk" style="width:55%;height:18px"></span><span class="sk" style="width:80%;height:13px"></span><span class="sk" style="width:65%;height:13px"></span><div style="flex:1"></div><span class="sk" style="width:35%;height:10px"></span></div>
+            <div class="sk-module"><span class="sk" style="width:38px;height:38px;border-radius:10px"></span><span class="sk" style="width:40%;height:18px"></span><span class="sk" style="width:88%;height:13px"></span><span class="sk" style="width:72%;height:13px"></span><div style="flex:1"></div><span class="sk" style="width:45%;height:10px"></span></div>
+          </div>
+          <div class="section-label mt-8">最近活动</div>
+          <div class="activity-list" style="margin-top:var(--space-4)">
+            <div class="sk-activity"><span class="sk" style="width:32px;height:32px;border-radius:9px;flex-shrink:0"></span><div style="flex:1;display:flex;flex-direction:column;gap:6px"><span class="sk" style="width:80%;height:12px"></span><span class="sk" style="width:30%;height:10px"></span></div></div>
+            <div class="sk-activity"><span class="sk" style="width:32px;height:32px;border-radius:9px;flex-shrink:0"></span><div style="flex:1;display:flex;flex-direction:column;gap:6px"><span class="sk" style="width:70%;height:12px"></span><span class="sk" style="width:25%;height:10px"></span></div></div>
+            <div class="sk-activity"><span class="sk" style="width:32px;height:32px;border-radius:9px;flex-shrink:0"></span><div style="flex:1;display:flex;flex-direction:column;gap:6px"><span class="sk" style="width:75%;height:12px"></span><span class="sk" style="width:28%;height:10px"></span></div></div>
+            <div class="sk-activity"><span class="sk" style="width:32px;height:32px;border-radius:9px;flex-shrink:0"></span><div style="flex:1;display:flex;flex-direction:column;gap:6px"><span class="sk" style="width:65%;height:12px"></span><span class="sk" style="width:22%;height:10px"></span></div></div>
+            <div class="sk-activity" style="border-bottom:none"><span class="sk" style="width:32px;height:32px;border-radius:9px;flex-shrink:0"></span><div style="flex:1;display:flex;flex-direction:column;gap:6px"><span class="sk" style="width:60%;height:12px"></span><span class="sk" style="width:20%;height:10px"></span></div></div>
+          </div>
+          <div class="section-label mt-8">平台分层</div>
+          <div style="display:grid;grid-template-columns:repeat(4,1fr);gap:var(--space-3);margin-top:var(--space-4)">
+            <div class="sk-arch"><span class="sk" style="width:50%;height:10px"></span><span class="sk" style="width:80%;height:12px;margin-top:6px"></span></div>
+            <div class="sk-arch"><span class="sk" style="width:45%;height:10px"></span><span class="sk" style="width:75%;height:12px;margin-top:6px"></span></div>
+            <div class="sk-arch"><span class="sk" style="width:55%;height:10px"></span><span class="sk" style="width:85%;height:12px;margin-top:6px"></span></div>
+            <div class="sk-arch"><span class="sk" style="width:48%;height:10px"></span><span class="sk" style="width:70%;height:12px;margin-top:6px"></span></div>
+          </div>
+        </div>
 
-        <div class="section-label mt-8">平台分层</div>
-        <div class="arch-strip" data-od-id="arch-strip">
-          <div class="arch-step"><div class="n">01 · 接入</div><div class="t">轻量 Chat + Flowise 画布</div><div class="d">Next.js 精简 · OpenAPI · Webhook</div></div>
-          <div class="arch-step"><div class="n">02 · 网关</div><div class="t">鉴权 · 限流 · new-api 令牌</div><div class="d">Trace 注入 run_id 全链路透传</div></div>
-          <div class="arch-step"><div class="n">03 · 编排</div><div class="t">Agentflow V2 状态机引擎</div><div class="d">14 类节点 · HITL · 子流程</div></div>
-          <div class="arch-step"><div class="n">04 · 适配</div><div class="t">中央 dispatch + 本地 Daemon</div><div class="d">pull-based claim · 心跳保活</div></div>
+        <!-- real content (hidden until loaded) -->
+        <div data-real>
+          <div class="section-label">模块</div>
+          <section class="module-grid" data-od-id="module-grid">
+            <a class="module" href="agents.html" data-od-id="module-agents">
+              <div class="module-icon" id="m-ic-0"></div>
+              <div class="module-title">Agents</div>
+              <div class="module-desc">提示词 agent 与异构 CLI agent 的列表、看板、详情。按类型/状态/角色/区域过滤。</div>
+              <div class="module-foot"><span class="muted">1,040,328 实例</span><span class="go">进入 \u2192</span></div>
+            </a>
+            <a class="module" href="agentflows.html" data-od-id="module-flows">
+              <div class="module-icon" id="m-ic-1"></div>
+              <div class="module-title">AgentFlows</div>
+              <div class="module-desc">Agentflow V2 DAG 可视化。节点 = agent / 工具 / 分支 / HITL，边 = 数据流，状态着色。</div>
+              <div class="module-foot"><span class="muted">328 flows \u00b7 14 节点类</span><span class="go">进入 \u2192</span></div>
+            </a>
+            <a class="module" href="workspace.html" data-od-id="module-workspace">
+              <div class="module-icon" id="m-ic-2"></div>
+              <div class="module-title">Workspace</div>
+              <div class="module-desc">按项目隔离的人-agent 对话记录。成员、关联 flow、产物、配额一站式。</div>
+              <div class="module-foot"><span class="muted">24 个工作区</span><span class="go">进入 \u2192</span></div>
+            </a>
+            <a class="module" href="settings.html" data-od-id="module-settings">
+              <div class="module-icon" id="m-ic-3"></div>
+              <div class="module-title">设置</div>
+              <div class="module-desc">new-api 网关连接、令牌 CRUD、默认模型、预算配额与熔断、通知。</div>
+              <div class="module-foot"><span class="muted">new-api \u00b7 8 令牌</span><span class="go">进入 \u2192</span></div>
+            </a>
+          </section>
+
+          <div class="section-label mt-8">最近活动</div>
+          <section class="activity-section">
+            <div class="activity-list">
+              <div class="activity-item">
+                <div class="activity-dot success">
+                  <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="m20 6-11 11-5-5"/></svg>
+                </div>
+                <div class="activity-body">
+                  <div class="activity-text"><strong>Agent claude-code</strong> 完成了论文复现任务</div>
+                  <div class="activity-time">3 分钟前</div>
+                </div>
+              </div>
+              <div class="activity-item">
+                <div class="activity-dot accent">
+                  <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"><rect x="3" y="4" width="6" height="5" rx="1.5"/><rect x="15" y="4" width="6" height="5" rx="1.5"/><rect x="9" y="15" width="6" height="5" rx="1.5"/><path d="M6 9v2a2 2 0 0 0 2 2h8a2 2 0 0 0 2-2V9"/><path d="M12 13v2"/></svg>
+                </div>
+                <div class="activity-body">
+                  <div class="activity-text">Flow <strong>paper-repro</strong> 运行成功，耗时 4m 32s</div>
+                  <div class="activity-time">12 分钟前</div>
+                </div>
+              </div>
+              <div class="activity-item">
+                <div class="activity-dot info">
+                  <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><polyline points="16 18 22 12 16 6"/><polyline points="8 6 2 12 8 18"/></svg>
+                </div>
+                <div class="activity-body">
+                  <div class="activity-text"><strong>Agent codex-parser</strong> 处理了 240 个文件</div>
+                  <div class="activity-time">28 分钟前</div>
+                </div>
+              </div>
+              <div class="activity-item">
+                <div class="activity-dot accent">
+                  <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.2" stroke-linecap="round" stroke-linejoin="round"><path d="M12 5v14M5 12h14"/></svg>
+                </div>
+                <div class="activity-body">
+                  <div class="activity-text">新 Flow <strong>deploy-v2</strong> 已创建</div>
+                  <div class="activity-time">1 小时前</div>
+                </div>
+              </div>
+              <div class="activity-item">
+                <div class="activity-dot muted-dot">
+                  <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"><path d="M3 6h18M8 6V4a2 2 0 0 1 2-2h4a2 2 0 0 1 2 2v2M6 6l1 14a2 2 0 0 0 2 2h6a2 2 0 0 0 2-2l1-14"/></svg>
+                </div>
+                <div class="activity-body">
+                  <div class="activity-text"><strong>Agent reader-pdf</strong> 归档完成</div>
+                  <div class="activity-time">2 小时前</div>
+                </div>
+              </div>
+            </div>
+          </section>
+
+          <div class="section-label mt-8">平台分层</div>
+          <div class="arch-strip" data-od-id="arch-strip">
+            <div class="arch-step"><div class="n">01 \u00b7 接入</div><div class="t">轻量 Chat + Flowise 画布</div><div class="d">Next.js 精简 \u00b7 OpenAPI \u00b7 Webhook</div></div>
+            <div class="arch-step"><div class="n">02 \u00b7 网关</div><div class="t">鉴权 \u00b7 限流 \u00b7 new-api 令牌</div><div class="d">Trace 注入 run_id 全链路透传</div></div>
+            <div class="arch-step"><div class="n">03 \u00b7 编排</div><div class="t">Agentflow V2 状态机引擎</div><div class="d">14 类节点 \u00b7 HITL \u00b7 子流程</div></div>
+            <div class="arch-step"><div class="n">04 \u00b7 适配</div><div class="t">中央 dispatch + 本地 Daemon</div><div class="d">pull-based claim \u00b7 心跳保活</div></div>
+          </div>
         </div>
       </div>
     </main>
@@ -184,19 +366,16 @@
 
   <script>window.OD_NAV = { active: 'overview' };</script>
   <script>
-    // index treats "overview" as no active nav link
     document.addEventListener('DOMContentLoaded', () => {
-      // inject icons that app.js doesn't own (hero search/bell/menu + module icons)
-      const M = ['dashboard','agents','flows','lab','workspace','settings'];
+      const M = ['agents','flows','workspace','settings'];
       const S = window.OD && window.OD.svg;
-      // module icons rendered after app.js loads nav; use same svg set
       M.forEach((k, i) => { const el = document.getElementById('m-ic-' + i); if (el && S && S[k]) el.innerHTML = S[k]; });
+      setTimeout(() => { document.getElementById('page-root').classList.add('loaded'); }, 200);
     });
   </script>
   <script src="js/workspace-data.js"></script>
   <script src="js/app.js"></script>
   <script>
-    // topbar icon injection (after DOM ready)
     document.addEventListener('DOMContentLoaded', () => {
       const S = window.OD && window.OD.svg;
       const ic = document.getElementById('ic'); if (ic && S) ic.innerHTML = S.search;

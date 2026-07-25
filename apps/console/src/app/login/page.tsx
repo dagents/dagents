@@ -50,9 +50,9 @@ export default function LoginPage(): React.ReactElement {
     <div className="login-page">
       <form className="login-card" onSubmit={onSubmit}>
         <div className="brand">
-          <div className="brand-mark">M</div>
+          <div className="brand-mark">D</div>
           <div>
-            <div className="brand-name">Mega Agents</div>
+            <div className="brand-name">DAgent</div>
             <div className="brand-sub">控制台登录</div>
           </div>
         </div>

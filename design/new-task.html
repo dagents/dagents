@@ -3,21 +3,40 @@
 <head>
   <meta charset="utf-8" />
   <meta name="viewport" content="width=device-width, initial-scale=1" />
-  <title>新增 Task · Mega Agents</title>
+  <title>新增 Task · DAgent</title>
   <link rel="stylesheet" href="css/tokens.css" />
   <link rel="stylesheet" href="css/shell.css" />
   <style>
+    /* ── skeleton shimmer ───────────────────────────────────────── */
+    @keyframes shimmer {
+      0% { background-position: -400px 0; }
+      100% { background-position: 400px 0; }
+    }
+    .nt-skeleton .skel-bar {
+      background: linear-gradient(90deg, var(--surface) 25%, var(--border-soft) 50%, var(--surface) 75%);
+      background-size: 800px 100%;
+      animation: shimmer 1.6s infinite linear;
+      border-radius: var(--radius-sm);
+    }
+    .nt-skeleton .skel-title { width: 260px; height: 32px; margin-bottom: var(--space-3); }
+    .nt-skeleton .skel-sub { width: 480px; height: 18px; margin-bottom: var(--space-6); }
+    .nt-skeleton .skel-card { width: 100%; height: 64px; margin-bottom: var(--space-4); }
+    .nt-skeleton .skel-composer { width: 100%; height: 200px; }
+    .nt-skeleton .skel-prompts { display: grid; grid-template-columns: repeat(2,1fr); gap: var(--space-2); margin-top: var(--space-4); }
+    .nt-skeleton .skel-prompts .skel-bar { height: 56px; }
+
     /* ── new-task page ───────────────────────────────────────────── */
-    /* page fills app-main. The composer is pinned so its bottom edge lands
-       exactly on the page's vertical 50% line; content above lives in the
-       top half, the suggest prompts sit below the midpoint. */
     .page.nt-page {
       min-height: 100%;
       box-sizing: border-box;
       display: flex;
       flex-direction: column;
       padding: var(--space-8);
+      opacity: 0;
+      transition: opacity var(--motion-base) var(--ease-standard);
     }
+    .page.nt-page.loaded { opacity: 1; }
+
     .nt-top {
       display: flex;
       flex-direction: column;
@@ -40,22 +59,28 @@
       padding-top: var(--space-3);
     }
     .nt-top > *, .nt-bottom > * { width: 100%; max-width: 880px; }
+
+    /* ── workspace directory card ──────────────────────────────── */
     .nt-ws-card {
       display: flex;
       align-items: center;
       gap: var(--space-3);
       padding: var(--space-4);
       background: var(--bg);
-      border: 1px dashed var(--border);
+      border: 1.5px dashed var(--border);
       border-radius: var(--radius-md);
       cursor: pointer;
-      transition: border-color var(--motion-fast), background var(--motion-fast), box-shadow var(--motion-fast);
+      transition: border-color var(--motion-fast), border-style var(--motion-fast), background var(--motion-fast), box-shadow var(--motion-fast);
       text-align: left;
       width: 100%;
       min-height: 64px;
     }
-    .nt-ws-card:hover { border-color: var(--accent); background: var(--accent-soft); }
-    .nt-ws-card:focus-visible { outline: none; box-shadow: var(--focus-ring); border-color: var(--accent); }
+    .nt-ws-card:hover {
+      border-color: var(--accent);
+      border-style: solid;
+      background: var(--accent-soft);
+    }
+    .nt-ws-card:focus-visible { outline: none; box-shadow: var(--focus-ring); border-color: var(--accent); border-style: solid; }
     .nt-ws-card.has-dir { border-style: solid; border-color: var(--border-soft); background: var(--surface-warm); }
     .nt-ws-card.has-dir:hover { border-color: var(--accent); background: var(--bg); }
     .nt-ws-icon {
@@ -72,7 +97,7 @@
     .nt-ws-icon svg { width: 20px; height: 20px; }
     .nt-ws-text { min-width: 0; flex: 1; }
     .nt-ws-title { font-size: var(--text-sm); font-weight: 600; color: var(--fg); }
-    .nt-ws-sub { font-size: 11px; color: var(--muted); margin-top: 2px; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; font-family: var(--font-mono); }
+    .nt-ws-sub { font-size: 11px; color: var(--meta); margin-top: 2px; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; font-family: var(--font-mono); }
     .nt-ws-card.has-dir .nt-ws-sub { color: var(--fg-2); }
     .nt-ws-cta {
       font-size: 11px; font-weight: 500; color: var(--accent-hover);
@@ -88,6 +113,55 @@
     }
     .nt-ws-clear:hover { background: var(--surface); color: var(--danger); }
     .nt-ws-clear svg { width: 14px; height: 14px; }
+    .nt-ws-actions {
+      display: flex;
+      gap: var(--space-2);
+      flex-shrink: 0;
+    }
+    .nt-ws-browse {
+      display: inline-flex; align-items: center; gap: 5px;
+      height: 28px; padding: 0 var(--space-3);
+      background: var(--surface);
+      border: 1px solid var(--border-soft);
+      border-radius: var(--radius-pill);
+      font-size: 11px; font-weight: 500; color: var(--fg-2);
+      cursor: pointer; white-space: nowrap;
+      transition: background var(--motion-fast), border-color var(--motion-fast), color var(--motion-fast);
+    }
+    .nt-ws-browse:hover { background: var(--border); border-color: var(--border); color: var(--fg); }
+    .nt-ws-browse svg { width: 12px; height: 12px; }
+
+    /* ── toast ──────────────────────────────────────────────────── */
+    .nt-toast-container {
+      position: fixed;
+      bottom: var(--space-6);
+      left: 50%;
+      transform: translateX(-50%);
+      z-index: 200;
+      display: flex;
+      flex-direction: column;
+      align-items: center;
+      gap: var(--space-2);
+      pointer-events: none;
+    }
+    .nt-toast {
+      pointer-events: auto;
+      display: inline-flex;
+      align-items: center;
+      gap: var(--space-2);
+      padding: var(--space-3) var(--space-4);
+      background: var(--fg);
+      color: var(--bg);
+      font-size: var(--text-sm);
+      font-weight: 500;
+      border-radius: var(--radius-sm);
+      box-shadow: var(--elev-overlay);
+      opacity: 0;
+      transform: translateY(8px);
+      transition: opacity var(--motion-base) var(--ease-standard), transform var(--motion-base) var(--ease-standard);
+    }
+    .nt-toast.show { opacity: 1; transform: translateY(0); }
+    .nt-toast svg { width: 14px; height: 14px; flex-shrink: 0; }
 
     /* ── composer ────────────────────────────────────────────────── */
     .nt-composer {
@@ -101,6 +175,14 @@
       transition: border-color var(--motion-fast), box-shadow var(--motion-fast);
     }
     .nt-composer:focus-within { border-color: var(--accent); box-shadow: var(--focus-ring), var(--elev-raised); }
+    .nt-composer.has-error #nt-textarea { border: none; }
+    .nt-composer.has-error { border-color: var(--danger); box-shadow: 0 0 0 3px rgba(239, 65, 70, 0.12), var(--elev-raised); }
+    .nt-composer.has-error:focus-within { border-color: var(--danger); box-shadow: 0 0 0 3px rgba(239, 65, 70, 0.18), var(--elev-raised); }
+    .nt-error-msg {
+      font-size: 11px; color: var(--danger); padding: 0 var(--space-4) var(--space-2);
+      display: none;
+    }
+    .nt-composer.has-error .nt-error-msg { display: block; }
 
     .nt-assoc {
       display: flex;
@@ -122,12 +204,39 @@
       color: var(--fg-2);
       font-weight: 500;
       max-width: 260px;
+      cursor: pointer;
+      transition: background var(--motion-fast), border-color var(--motion-fast);
     }
+    .assoc-chip:hover { border-color: var(--border); }
+    .assoc-chip .kind-icon {
+      width: 16px; height: 16px; border-radius: 4px;
+      display: grid; place-items: center;
+      font-size: 9px; font-weight: 700; text-transform: uppercase;
+      flex-shrink: 0;
+    }
+    .assoc-chip .kind-icon.flow-icon { background: var(--info-soft); color: var(--info); }
+    .assoc-chip .kind-icon.agent-icon { background: var(--accent-soft); color: var(--accent-hover); }
     .assoc-chip .kind {
       font-size: 10px; font-weight: 600; color: var(--accent-hover);
       letter-spacing: var(--tracking-label); text-transform: uppercase;
     }
     .assoc-chip .nm { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+    .assoc-chip .flow-status-chip {
+      display: inline-flex;
+      align-items: center;
+      gap: 3px;
+      font-size: 10px;
+      font-weight: 500;
+      padding: 1px 6px;
+      border-radius: var(--radius-pill);
+      white-space: nowrap;
+    }
+    .assoc-chip .flow-status-chip.running { background: var(--accent-soft); color: var(--accent-hover); }
+    .assoc-chip .flow-status-chip.paused { background: var(--info-soft); color: var(--info); }
+    .assoc-chip .flow-status-chip.failed { background: var(--danger-soft); color: var(--danger); }
+    .assoc-chip .flow-status-chip.done { background: var(--success-soft); color: var(--success); }
+    .assoc-chip .flow-status-chip.idle { background: var(--surface); color: var(--meta); }
+    .assoc-chip .flow-status-chip.queued { background: var(--warn-soft); color: #b9791a; }
     .assoc-chip button {
       width: 18px; height: 18px;
       display: grid; place-items: center;
@@ -139,7 +248,9 @@
     .assoc-chip button:hover { background: var(--bg); color: var(--danger); }
     .assoc-chip button svg { width: 11px; height: 11px; }
 
+    /* ── textarea area ───────────────────────────────────────────── */
     .nt-textarea-wrap { padding: var(--space-3) var(--space-4); }
+    .nt-textarea-inner { position: relative; }
     #nt-textarea {
       width: 100%;
       border: 0; outline: none; resize: none;
@@ -151,9 +262,86 @@
       min-height: 96px;
       max-height: 320px;
       display: block;
+      transition: none;
     }
     #nt-textarea::placeholder { color: var(--meta); }
+    .nt-textarea-footer {
+      display: flex;
+      align-items: center;
+      justify-content: space-between;
+      margin-top: var(--space-1);
+    }
+    .nt-char-count {
+      font-size: 11px;
+      color: var(--meta);
+      font-family: var(--font-mono);
+      font-variant-numeric: tabular-nums;
+    }
+    .nt-md-hint {
+      font-size: 11px;
+      color: var(--meta);
+    }
+    .nt-md-hint svg { width: 12px; height: 12px; vertical-align: -2px; margin-right: 3px; }
 
+    /* ── @mention dropdown ───────────────────────────────────────── */
+    .nt-mention-dropdown {
+      position: absolute;
+      bottom: calc(100% + 4px);
+      left: 0;
+      width: 280px;
+      background: var(--bg);
+      border: 1px solid var(--border);
+      border-radius: var(--radius-md);
+      box-shadow: var(--elev-overlay);
+      z-index: 60;
+      display: none;
+      flex-direction: column;
+      overflow: hidden;
+    }
+    .nt-mention-dropdown.open { display: flex; }
+    .nt-mention-dropdown .nt-mention-head {
+      padding: var(--space-2) var(--space-3);
+      border-bottom: 1px solid var(--border-soft);
+      font-size: 10px;
+      font-weight: 600;
+      color: var(--meta);
+      letter-spacing: var(--tracking-label);
+      text-transform: uppercase;
+    }
+    .nt-mention-dropdown .nt-mention-list {
+      max-height: 200px;
+      overflow-y: auto;
+      padding: var(--space-1);
+    }
+    .nt-mention-opt {
+      display: flex;
+      align-items: center;
+      gap: var(--space-2);
+      width: 100%;
+      text-align: left;
+      padding: var(--space-2) var(--space-3);
+      border: 0;
+      background: transparent;
+      border-radius: 6px;
+      cursor: pointer;
+      font-size: var(--text-sm);
+      color: var(--fg);
+      transition: background var(--motion-fast);
+    }
+    .nt-mention-opt:hover { background: var(--surface-warm); }
+    .nt-mention-opt .mention-glyph {
+      width: 24px; height: 24px; border-radius: 6px;
+      background: var(--surface);
+      display: grid; place-items: center;
+      font-size: 10px; font-weight: 600; flex-shrink: 0;
+      font-family: var(--font-mono);
+      color: var(--fg);
+    }
+    .nt-mention-opt .mention-info { min-width: 0; flex: 1; }
+    .nt-mention-opt .mention-name { font-weight: 500; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+    .nt-mention-opt .mention-meta { font-size: 11px; color: var(--muted); overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+
+    /* ── composer foot ─────────────────────────────────────────── */
     .nt-foot {
       display: flex;
       align-items: center;
@@ -175,6 +363,44 @@
     .nt-add-btn:focus-visible { outline: none; box-shadow: var(--focus-ring); }
     .nt-add-btn svg { width: 14px; height: 14px; color: var(--muted); }
     .nt-add-btn:hover svg { color: var(--accent-hover); }
+    .nt-add-btn.has-flow { border-color: var(--accent); background: var(--accent-soft); color: var(--accent-hover); }
+    .nt-add-btn.has-flow svg { color: var(--accent-hover); }
+
+    /* flow dropdown selector */
+    .nt-flow-selector {
+      display: none;
+      align-items: center;
+      gap: var(--space-2);
+      padding: 0 var(--space-3);
+      height: 32px;
+      background: var(--bg);
+      border: 1px solid var(--accent);
+      border-radius: var(--radius-pill);
+      font-size: 12px;
+      font-weight: 500;
+      color: var(--fg);
+      cursor: pointer;
+      white-space: nowrap;
+      transition: background var(--motion-fast);
+      position: relative;
+    }
+    .nt-flow-selector.visible { display: inline-flex; }
+    .nt-flow-selector:hover { background: var(--surface-warm); }
+    .nt-flow-selector .flow-sel-name { flex: 1; min-width: 0; overflow: hidden; text-overflow: ellipsis; }
+    .nt-flow-selector .flow-sel-chevron { color: var(--meta); flex-shrink: 0; }
+    .nt-flow-selector .flow-sel-chevron svg { width: 12px; height: 12px; }
+    .nt-flow-unlink {
+      display: inline-flex; align-items: center; gap: 4px;
+      height: 28px; padding: 0 var(--space-2) 0 var(--space-3);
+      background: transparent; border: 1px solid var(--border-soft);
+      border-radius: var(--radius-pill);
+      font-size: 11px; font-weight: 500; color: var(--muted);
+      cursor: pointer; white-space: nowrap;
+      transition: background var(--motion-fast), color var(--motion-fast), border-color var(--motion-fast);
+    }
+    .nt-flow-unlink:hover { background: var(--danger-soft); color: var(--danger); border-color: var(--danger); }
+    .nt-flow-unlink svg { width: 11px; height: 11px; }
+
     .nt-foot-spacer { flex: 1; }
     .nt-meta-hint { font-size: 11px; color: var(--meta); font-family: var(--font-mono); }
     .nt-send {
@@ -183,12 +409,25 @@
       background: var(--fg); color: var(--bg);
       border: 0; border-radius: var(--radius-sm);
       font-size: 12px; font-weight: 600; cursor: pointer;
-      transition: background var(--motion-fast);
+      transition: background var(--motion-fast), opacity var(--motion-fast);
+      position: relative;
     }
-    .nt-send:hover { background: var(--fg-2); }
+    .nt-send:hover:not(:disabled) { background: var(--fg-2); }
     .nt-send:focus-visible { outline: none; box-shadow: var(--focus-ring); }
     .nt-send:disabled { background: var(--surface); color: var(--meta); cursor: not-allowed; }
+    .nt-send.loading { pointer-events: none; }
     .nt-send svg { width: 14px; height: 14px; }
+    .nt-send .spinner {
+      display: none;
+      width: 14px; height: 14px;
+      border: 2px solid var(--bg);
+      border-top-color: transparent;
+      border-radius: 50%;
+      animation: spin 0.6s linear infinite;
+    }
+    .nt-send.loading .spinner { display: block; }
+    .nt-send.loading .nt-send-ic { display: none; }
+    @keyframes spin { to { transform: rotate(360deg); } }
 
     /* ── suggestion prompts (empty-state coaching) ──────────────── */
     .nt-suggest-label {
@@ -196,7 +435,29 @@
       letter-spacing: var(--tracking-label); text-transform: uppercase;
       text-align: center;
       margin-top: var(--space-2);
+      display: flex;
+      align-items: center;
+      justify-content: center;
+      gap: var(--space-2);
     }
+    .nt-suggest-actions {
+      margin-left: auto;
+      display: inline-flex;
+    }
+    .nt-save-template-btn {
+      display: inline-flex; align-items: center; gap: 4px;
+      padding: 3px var(--space-2);
+      background: transparent;
+      border: 1px solid var(--border-soft);
+      border-radius: var(--radius-pill);
+      font-size: 10px; font-weight: 500; color: var(--muted);
+      cursor: pointer;
+      text-transform: none; letter-spacing: 0;
+      transition: background var(--motion-fast), color var(--motion-fast), border-color var(--motion-fast);
+    }
+    .nt-save-template-btn:hover { background: var(--surface); color: var(--fg); border-color: var(--border); }
+    .nt-save-template-btn svg { width: 11px; height: 11px; }
+
     .nt-suggest {
       display: grid;
       grid-template-columns: repeat(2, 1fr);
@@ -211,10 +472,56 @@
       font-size: var(--text-sm); color: var(--fg-2);
       cursor: pointer; line-height: 1.5;
       transition: border-color var(--motion-fast), background var(--motion-fast), transform var(--motion-fast);
+      position: relative;
     }
     .nt-suggest-item:hover { border-color: var(--accent); background: var(--accent-soft); transform: translateY(-1px); }
     .nt-suggest-item:focus-visible { outline: none; box-shadow: var(--focus-ring); }
     .nt-suggest-item .tag { display: block; font-size: 10px; color: var(--accent-hover); font-weight: 600; letter-spacing: var(--tracking-label); text-transform: uppercase; margin-bottom: 4px; }
+    .nt-suggest-item .cat-tag {
+      display: inline-block;
+      font-size: 10px;
+      font-weight: 500;
+      padding: 1px 6px;
+      border-radius: var(--radius-pill);
+      margin-right: 4px;
+      margin-bottom: 4px;
+    }
+    .nt-suggest-item .cat-tag.cat-code { background: var(--info-soft); color: var(--info); }
+    .nt-suggest-item .cat-tag.cat-data { background: var(--accent-soft); color: var(--accent-hover); }
+    .nt-suggest-item .cat-tag.cat-paper { background: var(--warn-soft); color: #b9791a; }
+    .nt-suggest-item .cat-tag.cat-ops { background: var(--danger-soft); color: var(--danger); }
+
+    /* tooltip on hover */
+    .nt-suggest-item[data-tooltip]:hover::after {
+      content: attr(data-tooltip);
+      position: absolute;
+      bottom: calc(100% + 6px);
+      left: 50%;
+      transform: translateX(-50%);
+      background: var(--fg);
+      color: var(--bg);
+      font-size: 11px;
+      font-weight: 400;
+      line-height: 1.5;
+      padding: var(--space-2) var(--space-3);
+      border-radius: var(--radius-sm);
+      box-shadow: var(--elev-overlay);
+      white-space: nowrap;
+      max-width: 360px;
+      overflow: hidden;
+      text-overflow: ellipsis;
+      z-index: 40;
+      pointer-events: none;
+    }
+
+    /* fade-in animation for template fill */
+    @keyframes textFadeIn {
+      from { opacity: 0.5; }
+      to { opacity: 1; }
+    }
+    .nt-textarea-fadein {
+      animation: textFadeIn var(--motion-base) var(--ease-standard);
+    }
 
     /* ── picker popover ──────────────────────────────────────────── */
     .nt-picker {
@@ -264,7 +571,16 @@
     .nt-picker-opt.selected .nt-picker-glyph { background: var(--accent); color: var(--accent-on); }
     .nt-picker-info { min-width: 0; flex: 1; }
     .nt-picker-name { font-size: var(--text-sm); font-weight: 500; color: var(--fg); overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
-    .nt-picker-meta { font-size: 11px; color: var(--muted); margin-top: 1px; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+    .nt-picker-meta { font-size: 11px; color: var(--muted); margin-top: 1px; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; display: flex; align-items: center; gap: var(--space-2); }
+    .nt-picker-status-dot {
+      width: 6px; height: 6px; border-radius: 50%; flex-shrink: 0;
+    }
+    .nt-picker-status-dot.running { background: var(--accent); }
+    .nt-picker-status-dot.paused { background: var(--info); }
+    .nt-picker-status-dot.failed { background: var(--danger); }
+    .nt-picker-status-dot.done { background: var(--success); }
+    .nt-picker-status-dot.idle { background: var(--meta); }
+    .nt-picker-status-dot.queued { background: var(--warn); }
     .nt-picker-check { width: 16px; height: 16px; color: var(--accent); flex-shrink: 0; opacity: 0; }
     .nt-picker-opt.selected .nt-picker-check { opacity: 1; }
     .nt-picker-empty { padding: var(--space-6); text-align: center; font-size: var(--text-sm); color: var(--meta); }
@@ -275,14 +591,15 @@
       .nt-suggest { grid-template-columns: 1fr; }
       .nt-meta-hint { display: none; }
       .page.nt-page { grid-template-rows: auto auto; }
+      .nt-ws-actions { flex-direction: column; }
     }
   </style>
 </head>
 <body>
   <div class="app" id="app">
     <aside class="app-sidebar" data-od-id="sidebar">
-      <div class="brand"><div class="brand-mark">M</div><div><div class="brand-name">Mega Agents</div><div class="brand-sub">控制台 · v0.2</div></div></div>
-      <nav class="nav" aria-label="主导航"></nav>
+      <div class="brand"><div class="brand-mark">D</div><div><div class="brand-name">DAgent</div><div class="brand-sub">控制台 · v0.2</div></div></div>
+      <nav class="nav" id="main-nav" aria-label="主导航"></nav>
       <div class="sidebar-footer"></div>
     </aside>
 
@@ -298,7 +615,31 @@
     </header>
 
     <main class="app-main">
-      <div class="page nt-page">
+      <!-- skeleton state -->
+      <div class="page nt-page nt-skeleton" id="nt-skeleton">
+        <div class="nt-top">
+          <div class="page-head">
+            <div class="page-head-title">
+              <div class="skel-bar skel-title"></div>
+              <div class="skel-bar skel-sub"></div>
+            </div>
+          </div>
+          <div class="skel-bar skel-card"></div>
+          <div class="skel-bar skel-composer"></div>
+        </div>
+        <div class="nt-bottom">
+          <div class="skel-bar" style="width:120px;height:14px;margin:0 auto"></div>
+          <div class="skel-prompts">
+            <div class="skel-bar"></div>
+            <div class="skel-bar"></div>
+            <div class="skel-bar"></div>
+            <div class="skel-bar"></div>
+          </div>
+        </div>
+      </div>
+
+      <!-- real content -->
+      <div class="page nt-page" id="nt-page" style="display:none;">
         <div class="nt-top" data-od-id="nt-top">
           <div class="page-head">
             <div class="page-head-title">
@@ -308,32 +649,60 @@
           </div>
 
           <!-- context: directory workspace -->
-          <button class="nt-ws-card" id="nt-ws-card" type="button" aria-label="选择本地目录作为 workspace">
+          <div class="nt-ws-card" id="nt-ws-card" tabindex="0" role="button" aria-label="选择本地目录作为 workspace">
             <span class="nt-ws-icon" id="nt-ws-ic"></span>
             <span class="nt-ws-text">
               <span class="nt-ws-title" id="nt-ws-title">选择本地目录</span>
               <span class="nt-ws-sub" id="nt-ws-sub">作为 workspace · 文件将索引后供 agent 读取</span>
               <span class="nt-ws-cta" id="nt-ws-cta">点击选择文件夹</span>
             </span>
-            <span class="nt-ws-clear" id="nt-ws-clear" hidden aria-label="清除目录"><span id="nt-ws-clear-ic"></span></span>
-          </button>
+            <span class="nt-ws-actions" id="nt-ws-actions" style="display:none;">
+              <button class="nt-ws-browse" id="nt-ws-browse" type="button" aria-label="浏览目录">
+                <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M2 12s3-7 10-7 10 7 10 7-3 7-10 7-10-7-10-7Z"/><circle cx="12" cy="12" r="3"/></svg>
+                浏览目录
+              </button>
+              <span class="nt-ws-clear" id="nt-ws-clear" aria-label="清除目录"><span id="nt-ws-clear-ic"></span></span>
+            </span>
+          </div>
 
-          <!-- hidden directory picker — webkitdirectory lets the user pick a folder -->
+          <!-- hidden directory picker -->
           <input type="file" id="nt-dir-input" webkitdirectory directory multiple hidden />
 
-          <!-- composer — last child of the top half, so its bottom edge
-               pins exactly to the page's 50% line (.nt-top's bottom) -->
-          <div class="nt-composer" data-od-id="nt-composer">
+          <!-- composer -->
+          <div class="nt-composer" id="nt-composer" data-od-id="nt-composer">
+            <div class="nt-error-msg" id="nt-error-msg">任务描述不能为空</div>
             <div class="nt-assoc" id="nt-assoc" aria-live="polite"></div>
 
             <div class="nt-textarea-wrap">
-              <textarea id="nt-textarea" rows="3" placeholder="描述你要完成的任务… 例如：复现这批 RL 论文里的 attention 消融，对照 baseline 给出图表。" aria-label="任务描述"></textarea>
+              <div class="nt-textarea-inner">
+                <textarea id="nt-textarea" rows="3" placeholder="描述你要完成的任务… 例如：复现这批 RL 论文里的 attention 消融，对照 baseline 给出图表。" aria-label="任务描述"></textarea>
+                <div class="nt-mention-dropdown" id="nt-mention-dd">
+                  <div class="nt-mention-head">选择 Agent</div>
+                  <div class="nt-mention-list" id="nt-mention-list"></div>
+                </div>
+              </div>
+              <div class="nt-textarea-footer">
+                <span class="nt-char-count" id="nt-char-count">0 字符</span>
+                <span class="nt-md-hint">
+                  <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M12 20h9"/><path d="M16.5 3.5a2.12 2.12 0 0 1 3 3L7 19l-4 1 1-4Z"/></svg>
+                  格式支持 Markdown
+                </span>
+              </div>
             </div>
 
             <div class="nt-foot">
               <div class="nt-add-wrap">
+                <!-- Flow selector (shows when flow is selected) -->
+                <button class="nt-flow-selector" id="nt-flow-selector" type="button" aria-haspopup="true" aria-expanded="false" aria-label="已关联 Flow">
+                  <span class="flow-sel-name" id="nt-flow-sel-name"></span>
+                  <span class="flow-sel-chevron"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="m6 9 6 6 6-6"/></svg></span>
+                </button>
                 <button class="nt-add-btn" id="nt-add-flow" type="button" aria-haspopup="true" aria-expanded="false">
                   <span id="nt-flow-ic"></span>关联 Flow
+                </button>
+                <button class="nt-flow-unlink" id="nt-flow-unlink" type="button" style="display:none;" aria-label="取消关联 Flow">
+                  <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M18.84 12.25 1.42 2.84M21.5 7.5 8.41 18.45"/><path d="M6 18 18 6"/></svg>
+                  取消关联
                 </button>
                 <div class="nt-picker" id="nt-picker-flow" role="dialog" aria-label="选择 AgentFlow">
                   <div class="nt-picker-head">
@@ -356,17 +725,25 @@
               </div>
 
               <div class="nt-foot-spacer"></div>
-              <span class="nt-meta-hint" id="nt-meta-hint">⏎ 发送 · ⇧⏎ 换行</span>
+              <span class="nt-meta-hint">⌘↵ 发送 · ⇧↵ 换行</span>
               <button class="nt-send" id="nt-send" type="button" disabled>
-                <span id="nt-send-ic"></span>创建并派发
+                <span class="spinner"></span>
+                <span class="nt-send-ic" id="nt-send-ic"></span>创建并派发
               </button>
             </div>
           </div>
         </div>
 
         <div class="nt-bottom" data-od-id="nt-bottom">
-          <!-- empty-state coaching prompts — sit below the composer, after the 50% line -->
-          <div class="nt-suggest-label">或从一个模板开始</div>
+          <div class="nt-suggest-label">
+            或从一个模板开始
+            <span class="nt-suggest-actions">
+              <button class="nt-save-template-btn" id="nt-save-tpl" type="button" aria-label="保存为自定义模板">
+                <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M19 21H5a2 2 0 0 1-2-2V5a2 2 0 0 1 2-2h11l5 5v11a2 2 0 0 1-2 2Z"/><polyline points="17 21 17 13 7 13 7 21"/><polyline points="7 3 7 8 15 8"/></svg>
+                保存为自定义模板
+              </button>
+            </span>
+          </div>
           <div class="nt-suggest" id="nt-suggest"></div>
         </div>
       </div>
@@ -375,6 +752,9 @@
 
   <!-- backdrop for pickers -->
   <div class="drawer-backdrop" data-picker-backdrop hidden></div>
+
+  <!-- toast container -->
+  <div class="nt-toast-container" id="nt-toast-container"></div>
 
   <script>window.OD_NAV = { active: 'new-task' };</script>
   <script src="js/flows-data.js"></script>
@@ -400,19 +780,63 @@
       // ── state ──────────────────────────────────────────────────
       const state = {
         dir: null,            // { name, path, count }
-        flows: [],            // selected flow ids
-        agents: [],           // selected agent ids
+        flows: [],            // selected flow ids (single select for now, but stored as array)
+        agents: [],           // selected agent ids (multi select)
       };
 
-      const FLOWS = (window.OD_FLOWS || []).map(f => ({ id: f.id, name: f.name, meta: f.version + ' · ' + f.status + ' · ' + f.nodes + ' 节点', glyph: 'F' }));
-      const AGENTS = (window.OD_AGENTS || []).map(a => ({ id: a.id, name: a.name, meta: (a.model || a.kind) + ' · ' + (a.roles || []).join('/'), glyph: (a.name || '').slice(-2) }));
+      const FLOWS = (window.OD_FLOWS || []).map(f => ({
+        id: f.id, name: f.name,
+        meta: f.version + ' · ' + f.nodes + ' 节点',
+        status: f.status || 'idle',
+        glyph: 'F'
+      }));
+      const AGENTS = (window.OD_AGENTS || []).map(a => ({
+        id: a.id, name: a.name,
+        meta: (a.model || a.kind) + ' · ' + (a.roles || []).join('/'),
+        kind: (a.kind || 'agent').slice(0, 4),
+        kindLabel: a.kind || 'agent',
+        glyph: (a.name || '').slice(-2),
+      }));
 
       const SUGGEST = [
-        { tag: '论文复现', text: '复现这批 RL 论文里的 attention 消融，对照 baseline 给出图表。' },
-        { tag: '假设验证', text: '读取仓库数据，验证对齐损失对 10% 噪声标签的鲁棒性假设。' },
-        { tag: '代码迁移', text: '把这 4 个 TF 模型迁移到 PyTorch，数值对齐误差控制在 1e-5。' },
-        { tag: '跨域综述', text: '通读目录里的 32 篇跨域论文，提取共性方法并生成综述。' },
+        { tag: '论文复现', cat: 'paper', catLabel: '论文复现', text: '复现这批 RL 论文里的 attention 消融，对照 baseline 给出图表。', tooltip: '复现 RL 论文 attention 消融实验，输出对比图表' },
+        { tag: '数据分析', cat: 'data', catLabel: '数据分析', text: '读取仓库数据，验证对齐损失对 10% 噪声标签的鲁棒性假设。', tooltip: '验证对齐损失在噪声标签场景下的鲁棒性' },
+        { tag: '代码迁移', cat: 'code', catLabel: '代码生成', text: '把这 4 个 TF 模型迁移到 PyTorch，数值对齐误差控制在 1e-5。', tooltip: 'TensorFlow 到 PyTorch 模型迁移，误差 < 1e-5' },
+        { tag: '跨域综述', cat: 'paper', catLabel: '论文复现', text: '通读目录里的 32 篇跨域论文，提取共性方法并生成综述。', tooltip: '批量阅读跨域论文并生成结构化综述报告' },
       ];
+
+      const CAT_MAP = { code: 'cat-code', data: 'cat-data', paper: 'cat-paper', ops: 'cat-ops' };
+
+      // ── skeleton → real content ─────────────────────────────────
+      const skelEl = $('#nt-skeleton');
+      const pageEl = $('#nt-page');
+      setTimeout(() => {
+        skelEl.style.display = 'none';
+        pageEl.style.display = '';
+        requestAnimationFrame(() => { pageEl.classList.add('loaded'); });
+        // init interactive elements
+        renderDir();
+        renderAssoc();
+        refreshPicker('flow');
+        refreshPicker('agent');
+        updateSendState();
+        renderSuggestions();
+      }, 200);
+
+      // ── toast system ────────────────────────────────────────────
+      function showToast(msg, iconSvg) {
+        const container = $('#nt-toast-container');
+        const toast = document.createElement('div');
+        toast.className = 'nt-toast';
+        toast.innerHTML = (iconSvg || '') + '<span>' + escapeHtml(msg) + '</span>';
+        container.appendChild(toast);
+        requestAnimationFrame(() => { toast.classList.add('show'); });
+        setTimeout(() => {
+          toast.classList.remove('show');
+          setTimeout(() => { toast.remove(); }, 220);
+        }, 2400);
+      }
+      const toastIcon = '<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M22 11.08V12a10 10 0 1 1-5.93-9.14"/><polyline points="22 4 12 14.01 9 11.01"/></svg>';
 
       // ── directory picker ───────────────────────────────────────
       const dirInput = $('#nt-dir-input');
@@ -420,13 +844,20 @@
       const wsTitle = $('#nt-ws-title');
       const wsSub = $('#nt-ws-sub');
       const wsCta = $('#nt-ws-cta');
+      const wsActions = $('#nt-ws-actions');
       const wsClear = $('#nt-ws-clear');
+      const wsBrowse = $('#nt-ws-browse');
 
-      wsCard.addEventListener('click', () => { dirInput.click(); });
+      wsCard.addEventListener('click', (e) => {
+        if (e.target.closest('.nt-ws-browse') || e.target.closest('.nt-ws-clear')) return;
+        dirInput.click();
+      });
+      wsCard.addEventListener('keydown', (e) => {
+        if (e.key === 'Enter' || e.key === ' ') { e.preventDefault(); dirInput.click(); }
+      });
       dirInput.addEventListener('change', () => {
         const files = dirInput.files;
         if (!files || !files.length) return;
-        // reconstruct the folder path from the first file's webkitRelativePath
         const first = files[0];
         const rel = first.webkitRelativePath || first.name;
         const parts = rel.split('/');
@@ -435,27 +866,38 @@
         state.dir = { name: folderName, path: path, count: files.length };
         renderDir();
       });
+
       function renderDir() {
         if (!state.dir) {
           wsCard.classList.remove('has-dir');
+          wsCard.setAttribute('role', 'button');
           wsTitle.textContent = '选择本地目录';
           wsSub.textContent = '作为 workspace · 文件将索引后供 agent 读取';
           wsCta.textContent = '点击选择文件夹';
           wsCta.hidden = false;
+          wsActions.style.display = 'none';
           wsClear.hidden = true;
           return;
         }
         wsCard.classList.add('has-dir');
+        wsCard.setAttribute('role', 'region');
         wsTitle.textContent = state.dir.name;
         wsSub.textContent = state.dir.path + ' · ' + state.dir.count + ' 个文件已索引';
         wsCta.hidden = true;
+        wsActions.style.display = 'flex';
         wsClear.hidden = false;
       }
+
       wsClear.addEventListener('click', (e) => {
         e.stopPropagation();
         state.dir = null;
         dirInput.value = '';
         renderDir();
+      });
+
+      wsBrowse.addEventListener('click', (e) => {
+        e.stopPropagation();
+        showToast('已打开目录浏览 · ' + (state.dir ? state.dir.path : '(未选择目录)'), toastIcon);
       });
 
       // ── pickers (flow / agent) ─────────────────────────────────
@@ -466,9 +908,12 @@
         }
         listEl.innerHTML = items.map(it => {
           const sel = selected.includes(it.id) ? ' selected' : '';
+          const statusDot = (it.status && kind === 'flow')
+            ? '<span class="nt-picker-status-dot ' + escapeHtml(it.status) + '"></span>'
+            : '';
           return '<button class="nt-picker-opt' + sel + '" type="button" data-id="' + it.id + '" data-kind="' + kind + '">' +
             '<span class="nt-picker-glyph">' + it.glyph + '</span>' +
-            '<span class="nt-picker-info"><span class="nt-picker-name">' + escapeHtml(it.name) + '</span><span class="nt-picker-meta">' + escapeHtml(it.meta) + '</span></span>' +
+            '<span class="nt-picker-info"><span class="nt-picker-name">' + escapeHtml(it.name) + '</span><span class="nt-picker-meta">' + statusDot + escapeHtml(it.meta) + '</span></span>' +
             '<span class="nt-picker-check"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.4" stroke-linecap="round" stroke-linejoin="round"><path d="M20 6 9 17l-5-5"/></svg></span>' +
           '</button>';
         }).join('');
@@ -476,42 +921,97 @@
           opt.addEventListener('click', () => toggleAssoc(kind, opt.dataset.id));
         });
       }
+
       function escapeHtml(s){ return String(s).replace(/[&<>"']/g, c => ({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#39;'}[c])); }
 
       function toggleAssoc(kind, id) {
         const arr = kind === 'flow' ? state.flows : state.agents;
         const i = arr.indexOf(id);
-        if (i >= 0) arr.splice(i, 1); else arr.push(id);
+        if (i >= 0) { arr.splice(i, 1); } else {
+          if (kind === 'flow') { arr.length = 0; arr.push(id); } // flow is single select
+          else { arr.push(id); } // agent is multi select
+        }
         refreshPicker(kind);
         renderAssoc();
+        renderFlowSelector();
       }
+
       function refreshPicker(kind) {
         const search = (kind === 'flow' ? $('#nt-flow-search') : $('#nt-agent-search')).value.trim().toLowerCase();
         const items = (kind === 'flow' ? FLOWS : AGENTS).filter(it => it.name.toLowerCase().includes(search) || it.id.toLowerCase().includes(search));
         renderPickerList(kind === 'flow' ? $('#nt-flow-list') : $('#nt-agent-list'), items, kind === 'flow' ? state.flows : state.agents, kind);
       }
 
+      // ── flow selector ─────────────────────────────────────────
+      const flowSelector = $('#nt-flow-selector');
+      const flowSelName = $('#nt-flow-sel-name');
+      const addFlowBtn = $('#nt-add-flow');
+      const flowUnlinkBtn = $('#nt-flow-unlink');
+
+      function renderFlowSelector() {
+        if (state.flows.length > 0) {
+          const f = FLOWS.find(x => x.id === state.flows[0]);
+          if (f) {
+            flowSelName.textContent = f.name;
+            flowSelector.classList.add('visible');
+            addFlowBtn.style.display = 'none';
+            flowUnlinkBtn.style.display = '';
+          }
+        } else {
+          flowSelector.classList.remove('visible');
+          addFlowBtn.style.display = '';
+          flowUnlinkBtn.style.display = 'none';
+        }
+      }
+
+      flowSelector.addEventListener('click', (e) => {
+        e.stopPropagation();
+        openPicker('flow');
+      });
+
+      flowUnlinkBtn.addEventListener('click', (e) => {
+        e.stopPropagation();
+        state.flows.length = 0;
+        refreshPicker('flow');
+        renderAssoc();
+        renderFlowSelector();
+      });
+
+      // ── assoc chips ────────────────────────────────────────────
       function renderAssoc() {
         const wrap = $('#nt-assoc');
         const chips = [];
         state.flows.forEach(id => {
           const f = FLOWS.find(x => x.id === id); if (!f) return;
-          chips.push(chipHtml('flow', f.id, 'Flow', f.name));
+          const statusChip = f.status
+            ? ' <span class="flow-status-chip ' + escapeHtml(f.status) + '">' + escapeHtml(f.status) + '</span>'
+            : '';
+          chips.push(chipHtml('flow', f.id, 'Flow', f.name, statusChip, 'flow-icon'));
         });
         state.agents.forEach(id => {
           const a = AGENTS.find(x => x.id === id); if (!a) return;
-          chips.push(chipHtml('agent', a.id, 'Agent', a.name));
+          chips.push(chipHtml('agent', a.id, 'Agent', a.name, '', 'agent-icon', a.kindLabel));
         });
         wrap.innerHTML = chips.join('');
+        wrap.querySelectorAll('.assoc-chip').forEach(chip => {
+          chip.addEventListener('click', (e) => {
+            if (e.target.closest('button')) return;
+            // click chip body toggles
+          });
+        });
         wrap.querySelectorAll('.assoc-chip button').forEach(b => {
           b.addEventListener('click', () => toggleAssoc(b.dataset.kind, b.dataset.id));
         });
         updateSendState();
       }
-      function chipHtml(kind, id, label, name) {
+
+      function chipHtml(kind, id, label, name, extra, iconClass, kindText) {
+        const iconGlyph = kind === 'flow' ? 'F' : (kindText || 'A').slice(0, 2);
         return '<span class="assoc-chip">' +
+          '<span class="kind-icon ' + (iconClass || '') + '">' + iconGlyph + '</span>' +
           '<span class="kind">' + label + '</span>' +
           '<span class="nm" title="' + escapeHtml(name) + '">' + escapeHtml(name) + '</span>' +
+          extra +
           '<button type="button" aria-label="移除" data-kind="' + kind + '" data-id="' + id + '"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.4" stroke-linecap="round"><path d="M6 6l12 12M18 6 6 18"/></svg></button>' +
         '</span>';
       }
@@ -520,9 +1020,10 @@
       const backdrop = document.querySelector('[data-picker-backdrop]');
       function openPicker(kind) {
         closePickers();
+        closeMention();
         const p = kind === 'flow' ? $('#nt-picker-flow') : $('#nt-picker-agent');
         p.classList.add('open');
-        const btn = kind === 'flow' ? $('#nt-add-flow') : $('#nt-add-agent');
+        const btn = kind === 'flow' ? (state.flows.length ? flowSelector : addFlowBtn) : $('#nt-add-agent');
         btn.setAttribute('aria-expanded', 'true');
         backdrop.hidden = false;
         backdrop.classList.add('open');
@@ -531,66 +1032,207 @@
       }
       function closePickers() {
         document.querySelectorAll('.nt-picker.open').forEach(p => p.classList.remove('open'));
-        document.querySelectorAll('.nt-add-btn[aria-expanded="true"]').forEach(b => b.setAttribute('aria-expanded', 'false'));
+        document.querySelectorAll('[aria-expanded="true"]').forEach(b => b.setAttribute('aria-expanded', 'false'));
         backdrop.hidden = true;
         backdrop.classList.remove('open');
       }
-      $('#nt-add-flow').addEventListener('click', (e) => { e.stopPropagation(); openPicker('flow'); });
+      addFlowBtn.addEventListener('click', (e) => { e.stopPropagation(); openPicker('flow'); });
       $('#nt-add-agent').addEventListener('click', (e) => { e.stopPropagation(); openPicker('agent'); });
       $('#nt-flow-search').addEventListener('input', () => refreshPicker('flow'));
       $('#nt-agent-search').addEventListener('input', () => refreshPicker('agent'));
       document.addEventListener('click', (e) => {
-        if (!e.target.closest('.nt-picker') && !e.target.closest('.nt-add-btn')) closePickers();
+        if (!e.target.closest('.nt-picker') && !e.target.closest('.nt-add-btn') && !e.target.closest('.nt-flow-selector') && !e.target.closest('.nt-mention-dropdown')) {
+          closePickers();
+          closeMention();
+        }
       });
-      document.addEventListener('keydown', (e) => { if (e.key === 'Escape') closePickers(); });
-      backdrop.addEventListener('click', closePickers);
+      document.addEventListener('keydown', (e) => { if (e.key === 'Escape') { closePickers(); closeMention(); } });
+      backdrop.addEventListener('click', () => { closePickers(); closeMention(); });
+
+      // ── @mention ───────────────────────────────────────────────
+      const ta = $('#nt-textarea');
+      const mentionDd = $('#nt-mention-dd');
+      const mentionList = $('#nt-mention-list');
+      let mentionActive = false;
+      let mentionQuery = '';
+      let mentionStart = -1;
+
+      function renderMentionList(query) {
+        const q = (query || '').toLowerCase();
+        const filtered = AGENTS.filter(a => a.name.toLowerCase().includes(q) || a.id.toLowerCase().includes(q));
+        if (!filtered.length) {
+          mentionList.innerHTML = '<div class="nt-picker-empty">无匹配 Agent</div>';
+          return;
+        }
+        mentionList.innerHTML = filtered.map(a => {
+          return '<button class="nt-mention-opt" type="button" data-id="' + a.id + '" data-name="' + escapeHtml(a.name) + '">' +
+            '<span class="mention-glyph">' + a.glyph + '</span>' +
+            '<span class="mention-info"><span class="mention-name">' + escapeHtml(a.name) + '</span><span class="mention-meta">' + escapeHtml(a.meta) + '</span></span>' +
+          '</button>';
+        }).join('');
+        mentionList.querySelectorAll('.nt-mention-opt').forEach(opt => {
+          opt.addEventListener('click', () => insertMention(opt.dataset.name));
+        });
+      }
+
+      function showMention() {
+        mentionActive = true;
+        mentionDd.classList.add('open');
+        renderMentionList(mentionQuery);
+      }
+      function closeMention() {
+        mentionActive = false;
+        mentionDd.classList.remove('open');
+        mentionStart = -1;
+      }
+      function insertMention(name) {
+        const before = ta.value.substring(0, mentionStart);
+        const after = ta.value.substring(ta.selectionEnd);
+        ta.value = before + '@' + name + ' ' + after;
+        const cursorPos = before.length + name.length + 2;
+        ta.setSelectionRange(cursorPos, cursorPos);
+        closeMention();
+        ta.dispatchEvent(new Event('input'));
+        ta.focus();
+      }
+
+      ta.addEventListener('input', (e) => {
+        // auto-resize
+        ta.style.height = 'auto';
+        ta.style.height = Math.min(ta.scrollHeight, 320) + 'px';
+
+        // char count
+        $('#nt-char-count').textContent = ta.value.length + ' 字符';
+
+        // @mention detection
+        const val = ta.value;
+        const pos = ta.selectionStart;
+        const textBefore = val.substring(0, pos);
+        const atMatch = textBefore.match(/@(\S*)$/);
+        if (atMatch) {
+          mentionStart = pos - atMatch[0].length;
+          mentionQuery = atMatch[1];
+          if (!mentionActive) showMention();
+          else renderMentionList(mentionQuery);
+        } else {
+          if (mentionActive) closeMention();
+        }
+
+        updateSendState();
+
+        // clear error state on input
+        const composer = $('#nt-composer');
+        if (composer.classList.contains('has-error') && ta.value.trim()) {
+          composer.classList.remove('has-error');
+        }
+      });
 
       // ── send state + behavior ──────────────────────────────────
-      const ta = $('#nt-textarea');
       const send = $('#nt-send');
       function updateSendState() {
         send.disabled = !ta.value.trim();
       }
-      ta.addEventListener('input', () => {
-        ta.style.height = 'auto';
-        ta.style.height = Math.min(ta.scrollHeight, 320) + 'px';
-        updateSendState();
-      });
+
       ta.addEventListener('keydown', (e) => {
-        if (e.key === 'Enter' && !e.shiftKey) { e.preventDefault(); if (!send.disabled) doSend(); }
+        if (mentionActive && (e.key === 'Escape' || e.key === 'Tab')) {
+          e.preventDefault();
+          closeMention();
+          return;
+        }
+        if (mentionActive && e.key === 'Enter') {
+          const first = mentionList.querySelector('.nt-mention-opt');
+          if (first) { e.preventDefault(); insertMention(first.dataset.name); return; }
+        }
+        // ⌘Enter or Ctrl+Enter to submit
+        if (e.key === 'Enter' && (e.metaKey || e.ctrlKey)) {
+          e.preventDefault();
+          if (!send.disabled && !send.classList.contains('loading')) doSend();
+          return;
+        }
+        // plain Enter without shift sends
+        if (e.key === 'Enter' && !e.shiftKey) {
+          e.preventDefault();
+          if (!send.disabled && !send.classList.contains('loading')) doSend();
+        }
       });
-      send.addEventListener('click', doSend);
+
+      send.addEventListener('click', () => {
+        if (!send.disabled && !send.classList.contains('loading')) doSend();
+      });
 
       function doSend() {
-        const text = ta.value.trim(); if (!text) return;
-        // build a query string carrying context, then hand off to workspace
+        const text = ta.value.trim();
+        if (!text) {
+          // validation error
+          const composer = $('#nt-composer');
+          composer.classList.add('has-error');
+          ta.focus();
+          return;
+        }
+
+        // loading state
+        send.classList.add('loading');
+        send.disabled = true;
+
+        // build query with encodeURIComponent
         const params = new URLSearchParams();
         params.set('task', text);
         if (state.dir) params.set('dir', state.dir.path);
-        if (state.flows.length) params.set('flows', state.flows.join(','));
-        if (state.agents.length) params.set('agents', state.agents.join(','));
-        // optimistic: route into workspace as a new task thread
-        location.href = 'workspace.html?new=1&' + params.toString();
+        if (state.flows.length) params.set('flows', state.flows.map(encodeURIComponent).join(','));
+        if (state.agents.length) params.set('agents', state.agents.map(encodeURIComponent).join(','));
+
+        // simulate a brief loading then navigate
+        setTimeout(() => {
+          location.href = 'workspace.html?new=1&' + params.toString();
+        }, 600);
       }
 
       // ── suggestions ────────────────────────────────────────────
-      $('#nt-suggest').innerHTML = SUGGEST.map((s, i) =>
-        '<button class="nt-suggest-item" type="button" data-i="' + i + '"><span class="tag">' + s.tag + '</span>' + escapeHtml(s.text) + '</button>'
-      ).join('');
-      $('#nt-suggest').querySelectorAll('.nt-suggest-item').forEach(b => {
-        b.addEventListener('click', () => {
-          ta.value = SUGGEST[b.dataset.i].text;
-          ta.dispatchEvent(new Event('input'));
-          ta.focus();
+      function renderSuggestions() {
+        $('#nt-suggest').innerHTML = SUGGEST.map((s, i) => {
+          const catClass = CAT_MAP[s.cat] || 'cat-code';
+          return '<button class="nt-suggest-item" type="button" data-i="' + i + '" data-tooltip="' + escapeHtml(s.tooltip) + '">' +
+            '<span class="tag">' + s.tag + '</span>' +
+            '<span class="cat-tag ' + catClass + '">' + escapeHtml(s.catLabel) + '</span>' +
+            escapeHtml(s.text) +
+          '</button>';
+        }).join('');
+        $('#nt-suggest').querySelectorAll('.nt-suggest-item').forEach(b => {
+          b.addEventListener('click', () => {
+            ta.value = SUGGEST[b.dataset.i].text;
+            ta.classList.add('nt-textarea-fadein');
+            setTimeout(() => { ta.classList.remove('nt-textarea-fadein'); }, 250);
+            ta.dispatchEvent(new Event('input'));
+            ta.focus();
+          });
         });
+      }
+
+      // ── save custom template ───────────────────────────────────
+      $('#nt-save-tpl').addEventListener('click', () => {
+        const text = ta.value.trim();
+        if (!text) {
+          showToast('请先输入任务描述再保存模板', toastIcon);
+          return;
+        }
+        // save to localStorage
+        try {
+          let custom = [];
+          try { custom = JSON.parse(localStorage.getItem('od:custom-tpl') || '[]'); } catch(e) {}
+          custom.push({ text: text, cat: 'code', catLabel: '自定义', tag: '自定义', tooltip: text.slice(0, 60), ts: Date.now() });
+          localStorage.setItem('od:custom-tpl', JSON.stringify(custom));
+          showToast('已保存为自定义模板', toastIcon);
+          renderSuggestions();
+        } catch(e) {
+          showToast('保存失败', toastIcon);
+        }
       });
 
-      // initial paint
-      renderDir();
-      renderAssoc();
-      refreshPicker('flow');
-      refreshPicker('agent');
-      updateSendState();
+      // load custom templates into SUGGEST on init
+      try {
+        const custom = JSON.parse(localStorage.getItem('od:custom-tpl') || '[]');
+        custom.forEach(c => { SUGGEST.push(c); });
+      } catch(e) {}
     });
   </script>
 </body>

@@ -119,9 +119,9 @@ export function AppShell({ children }: { children: React.ReactNode }) {
           aria-label="返回概览"
           title="返回概览"
         >
-          <div className="brand-mark">M</div>
+          <div className="brand-mark">D</div>
           <div>
-            <div className="brand-name">Mega Agents</div>
+            <div className="brand-name">DAgent</div>
             <div className="brand-sub">控制台 · v0.2</div>
           </div>
         </Link>

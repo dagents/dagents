@@ -1,0 +1,991 @@
+<!doctype html>
+<html lang="zh-CN">
+<head>
+  <meta charset="utf-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1" />
+  <title>Daemon Execution · DAgents</title>
+  <style>
+/* ============================================================
+   tokens.css — inlined
+   ============================================================ */
+:root {
+  --bg:           #ffffff;
+  --surface:      #f5f5f5;
+  --surface-warm: #fafafa;
+  --fg:   #0d0d0d;
+  --fg-2: #1a1a1a;
+  --muted: #6e6e6e;
+  --meta:  #9b9b9b;
+  --border:      #e5e5e5;
+  --border-soft: #ededed;
+  --accent:        #10a37f;
+  --accent-on:     #ffffff;
+  --accent-hover:  #0a7a5e;
+  --accent-active: color-mix(in oklab, var(--accent), black 14%);
+  --accent-soft:   #e8f5f0;
+  --success: #10a37f;
+  --warn:    #f5a623;
+  --danger:  #ef4146;
+  --info:    #2563eb;
+  --success-soft: #e8f5f0;
+  --warn-soft:    #fdf3e2;
+  --danger-soft:  #fdecec;
+  --info-soft:    #eaf0fe;
+  --font-display: "Signifier", "Source Serif Pro", Georgia, ui-serif, serif;
+  --font-body:    "Söhne", "Inter", system-ui, -apple-system, "Segoe UI", sans-serif;
+  --font-mono:    "Söhne Mono", ui-monospace, "JetBrains Mono", Menlo, Consolas, monospace;
+  --text-xs:   12px;
+  --text-sm:   13px;
+  --text-base: 16px;
+  --text-lg:   18px;
+  --text-xl:   20px;
+  --text-2xl:  28px;
+  --text-3xl:  40px;
+  --leading-body:     1.65;
+  --leading-tight:    1.08;
+  --tracking-display: -0.02em;
+  --tracking-label:   0.04em;
+  --space-1:  4px;
+  --space-2:  8px;
+  --space-3:  12px;
+  --space-4:  16px;
+  --space-5:  20px;
+  --space-6:  24px;
+  --space-8:  32px;
+  --space-12: 48px;
+  --space-16: 64px;
+  --radius-sm:   12px;
+  --radius-md:   16px;
+  --radius-lg:   16px;
+  --radius-pill: 9999px;
+  --elev-flat:   none;
+  --elev-ring:   0 0 0 1px var(--border);
+  --elev-raised: 0 4px 16px rgba(13, 13, 13, 0.06);
+  --elev-overlay: 0 12px 40px rgba(13, 13, 13, 0.10);
+  --focus-ring: 0 0 0 3px rgba(16, 163, 127, 0.18);
+  --motion-fast:   150ms;
+  --motion-base:   220ms;
+  --ease-standard: cubic-bezier(0.16, 1, 0.3, 1);
+  --container-max: 1200px;
+  --sidebar-w: 248px;
+  --sidebar-w-collapsed: 72px;
+  --topbar-h: 60px;
+}
+*, *::before, *::after { box-sizing: border-box; }
+* { margin: 0; padding: 0; }
+html, body { height: 100%; }
+html { -webkit-text-size-adjust: 100%; }
+body {
+  background: var(--bg); color: var(--fg);
+  font-family: var(--font-body); font-size: var(--text-base);
+  line-height: var(--leading-body);
+  -webkit-font-smoothing: antialiased; -moz-osx-font-smoothing: grayscale;
+  text-rendering: optimizeLegibility;
+}
+img, svg, canvas { display: block; max-width: 100%; }
+button, input, textarea, select { font: inherit; color: inherit; }
+a { color: inherit; text-decoration: none; }
+:focus-visible { outline: none; box-shadow: var(--focus-ring); border-radius: 6px; }
+::selection { background: var(--accent-soft); color: var(--fg); }
+.mono { font-family: var(--font-mono); font-variant-numeric: tabular-nums; }
+.tnum { font-variant-numeric: tabular-nums; }
+.app {
+  display: grid;
+  grid-template-columns: var(--sidebar-w) 1fr;
+  grid-template-rows: var(--topbar-h) 1fr;
+  grid-template-areas: "sidebar topbar" "sidebar main";
+  height: 100vh; height: 100dvh; overflow: hidden;
+  transition: grid-template-columns var(--motion-base) var(--ease-standard);
+}
+.app[data-collapsed="true"] { grid-template-columns: var(--sidebar-w-collapsed) 1fr; }
+.app-sidebar { grid-area: sidebar; }
+.app-topbar  { grid-area: topbar; }
+.app-main    { grid-area: main; overflow: auto; }
+.app-sidebar {
+  background: var(--surface-warm); border-right: 1px solid var(--border);
+  display: flex; flex-direction: column; overflow: hidden;
+}
+.brand {
+  display: flex; align-items: center; gap: var(--space-3);
+  height: var(--topbar-h); padding: 0 var(--space-6);
+  border-bottom: 1px solid var(--border-soft); flex-shrink: 0;
+}
+.brand-mark {
+  width: 30px; height: 30px; border-radius: 8px;
+  background: var(--fg); color: var(--bg);
+  display: grid; place-items: center;
+  font-family: var(--font-display); font-size: 17px; font-weight: 600;
+  letter-spacing: -0.02em; flex-shrink: 0;
+}
+.brand-name { font-size: 15px; font-weight: 600; letter-spacing: -0.01em; white-space: nowrap; }
+.brand-sub { font-size: 11px; color: var(--muted); font-weight: 500; letter-spacing: 0.02em; }
+.app[data-collapsed="true"] .brand-name, .app[data-collapsed="true"] .brand-sub { display: none; }
+.nav { padding: var(--space-4); display: flex; flex-direction: column; gap: 2px; overflow-y: auto; flex: 1; }
+.nav-section-label {
+  font-size: 11px; font-weight: 500; color: var(--meta);
+  letter-spacing: var(--tracking-label); text-transform: uppercase;
+  padding: var(--space-4) var(--space-3) var(--space-2);
+}
+.nav-section-label:first-child { padding-top: 0; }
+.app[data-collapsed="true"] .nav-section-label { visibility: hidden; height: var(--space-2); padding: 0; }
+.collapse-btn.collapse-top { margin-bottom: var(--space-3); border: 1px solid var(--border-soft); border-radius: var(--radius-sm); }
+.app[data-collapsed="true"] .collapse-btn.collapse-top #collapse-tx { display: none; }
+.app[data-collapsed="true"] .collapse-btn.collapse-top { justify-content: center; }
+.nav-link {
+  display: flex; align-items: center; gap: var(--space-3);
+  padding: var(--space-3); border-radius: var(--radius-sm);
+  color: var(--muted); font-size: var(--text-sm); font-weight: 500;
+  cursor: pointer; transition: background var(--motion-fast), color var(--motion-fast);
+  position: relative; white-space: nowrap; text-decoration: none;
+}
+.nav-link:hover { background: var(--surface); color: var(--fg); }
+.nav-link[aria-current="page"] { background: var(--bg); color: var(--fg); box-shadow: var(--elev-ring); }
+.nav-link[aria-current="page"] .nav-icon { color: var(--accent); }
+.nav-icon { width: 18px; height: 18px; flex-shrink: 0; color: var(--meta); transition: color var(--motion-fast); }
+.nav-link:hover .nav-icon { color: var(--fg); }
+.nav-label { flex: 1; }
+.nav-badge { font-family: var(--font-mono); font-size: 10px; font-weight: 500; color: var(--muted); background: var(--surface); padding: 1px 6px; border-radius: var(--radius-pill); letter-spacing: 0.02em; }
+.app[data-collapsed="true"] .nav-label, .app[data-collapsed="true"] .nav-badge { display: none; }
+.app[data-collapsed="true"] .nav-link { justify-content: center; }
+.collapse-btn {
+  width: 100%; display: flex; align-items: center; justify-content: center; gap: var(--space-2);
+  background: transparent; border: 0; color: var(--meta);
+  font-size: var(--text-xs); font-weight: 500; letter-spacing: var(--tracking-label);
+  text-transform: uppercase; padding: var(--space-2); border-radius: 8px; cursor: pointer;
+}
+.collapse-btn:hover { background: var(--surface); color: var(--fg); }
+.sidebar-footer { border-top: 1px solid var(--border-soft); padding: var(--space-3); flex-shrink: 0; }
+.nav-spacer { flex: 1; }
+.app-topbar {
+  background: var(--bg); border-bottom: 1px solid var(--border);
+  display: flex; align-items: center; gap: var(--space-4);
+  padding: 0 var(--space-6); flex-shrink: 0;
+}
+.crumbs { display: flex; align-items: center; gap: var(--space-2); font-size: var(--text-sm); color: var(--muted); min-width: 0; }
+.crumbs .crumb { white-space: nowrap; }
+.crumbs .crumb-current { color: var(--fg); font-weight: 500; }
+.crumbs .sep { color: var(--meta); font-size: 11px; }
+.topbar-spacer { flex: 1; }
+.topbar-search { position: relative; width: 280px; max-width: 32vw; }
+.topbar-search input {
+  width: 100%; height: 36px; padding: 0 var(--space-3) 0 var(--space-8);
+  background: var(--surface-warm); border: 1px solid transparent;
+  border-radius: var(--radius-sm); font-size: var(--text-sm); color: var(--fg);
+}
+.topbar-search input::placeholder { color: var(--meta); }
+.topbar-search input:focus { background: var(--bg); border-color: var(--accent); box-shadow: var(--focus-ring); }
+.topbar-search .search-icon { position: absolute; left: var(--space-3); top: 50%; transform: translateY(-50%); width: 15px; height: 15px; color: var(--meta); pointer-events: none; }
+.topbar-search kbd { position: absolute; right: var(--space-2); top: 50%; transform: translateY(-50%); font-family: var(--font-mono); font-size: 10px; color: var(--meta); background: var(--bg); border: 1px solid var(--border); border-radius: 5px; padding: 1px 5px; }
+.topbar-actions { display: flex; align-items: center; gap: var(--space-2); }
+.icon-btn {
+  width: 36px; height: 36px; display: grid; place-items: center;
+  background: transparent; border: 0; border-radius: var(--radius-sm);
+  color: var(--muted); cursor: pointer;
+  transition: background var(--motion-fast), color var(--motion-fast); position: relative;
+}
+.icon-btn:hover { background: var(--surface); color: var(--fg); }
+.icon-btn svg { width: 17px; height: 17px; }
+.icon-btn .dot { position: absolute; top: 8px; right: 8px; width: 7px; height: 7px; background: var(--accent); border: 2px solid var(--bg); border-radius: 50%; }
+.avatar {
+  width: 32px; height: 32px; border-radius: 50%;
+  background: linear-gradient(135deg, var(--fg) 0%, var(--accent) 120%);
+  color: var(--bg); display: grid; place-items: center;
+  font-size: 12px; font-weight: 600; cursor: pointer; border: 1px solid var(--border);
+}
+.app-main { background: var(--bg); }
+.btn {
+  display: inline-flex; align-items: center; gap: var(--space-2);
+  height: 36px; padding: 0 var(--space-4); border-radius: var(--radius-sm);
+  border: 1px solid transparent; background: transparent;
+  font-size: var(--text-sm); font-weight: 500; cursor: pointer;
+  transition: background var(--motion-fast), border-color var(--motion-fast), color var(--motion-fast); white-space: nowrap;
+}
+.btn svg { width: 15px; height: 15px; }
+.btn-primary { background: var(--fg); color: var(--bg); }
+.btn-primary:hover { background: var(--fg-2); }
+.btn-secondary { background: var(--bg); color: var(--fg); border-color: var(--border); }
+.btn-secondary:hover { background: var(--surface-warm); border-color: #d4d4d4; }
+.btn-accent { background: var(--accent); color: var(--accent-on); }
+.btn-accent:hover { background: var(--accent-hover); }
+.btn-ghost { color: var(--muted); }
+.btn-ghost:hover { background: var(--surface); color: var(--fg); }
+.btn-danger { color: var(--danger); }
+.btn-danger:hover { background: var(--danger-soft); }
+.btn-warn { color: var(--warn); background: var(--warn-soft); border-color: color-mix(in oklab, var(--warn) 30%, transparent); }
+.btn-warn:hover { background: var(--warn); color: var(--bg); }
+.btn-sm { height: 30px; padding: 0 var(--space-3); font-size: var(--text-xs); }
+.btn:disabled { opacity: 0.5; cursor: not-allowed; }
+.chip { display: inline-flex; align-items: center; gap: 5px; height: 22px; padding: 0 9px; border-radius: var(--radius-pill); background: var(--surface); color: var(--fg-2); font-size: var(--text-xs); font-weight: 500; line-height: 1; white-space: nowrap; }
+.chip-teal { background: var(--accent-soft); color: var(--accent-hover); }
+.chip-outline { background: transparent; border: 1px solid var(--border); color: var(--muted); }
+.chip-tag { font-family: var(--font-mono); font-size: 11px; height: 20px; padding: 0 7px; }
+.status { display: inline-flex; align-items: center; gap: 6px; font-size: var(--text-xs); font-weight: 500; color: var(--muted); }
+.status .dot { width: 7px; height: 7px; border-radius: 50%; background: var(--meta); flex-shrink: 0; }
+.status.running .dot { background: var(--accent); box-shadow: 0 0 0 3px var(--accent-soft); }
+.status.queued .dot { background: var(--warn); }
+.status.failed .dot { background: var(--danger); }
+.status.done .dot { background: var(--success); }
+.status.online .dot { background: var(--success); }
+.status.offline .dot { background: var(--meta); }
+.status.draining .dot { background: var(--warn); }
+.bar { height: 6px; background: var(--surface); border-radius: var(--radius-pill); overflow: hidden; }
+.bar > span { display: block; height: 100%; background: var(--accent); border-radius: var(--radius-pill); transition: width var(--motion-base) var(--ease-standard); }
+.bar.warn > span { background: var(--warn); }
+.bar.danger > span { background: var(--danger); }
+.row { display: flex; align-items: center; gap: var(--space-3); }
+.row-between { display: flex; align-items: center; justify-content: space-between; gap: var(--space-3); }
+.grow { flex: 1; }
+.muted { color: var(--muted); }
+.meta { color: var(--meta); }
+.gap-2 { gap: var(--space-2); }
+.gap-3 { gap: var(--space-3); }
+.hidden { display: none !important; }
+.mobile-menu-btn { display: none; }
+@media (max-width: 640px) {
+  :root { --sidebar-w: 0px; }
+  .app { grid-template-columns: 1fr; grid-template-areas: "topbar" "main"; }
+  .app-sidebar { position: fixed; z-index: 100; top: 0; left: 0; bottom: 0; width: var(--sidebar-w, 248px); transform: translateX(-100%); transition: transform var(--motion-base) var(--ease-standard); box-shadow: var(--elev-overlay); }
+  .app[data-mobile-nav="open"] .app-sidebar { transform: translateX(0); }
+  .topbar-search { display: none; }
+  .mobile-menu-btn { display: grid !important; }
+}
+@media (prefers-reduced-motion: reduce) {
+  *, *::before, *::after { animation-duration: 0.01ms !important; transition-duration: 0.01ms !important; }
+}
+
+/* ============================================================
+   Page-specific — Daemon Execution View (UPGRADED)
+   ============================================================ */
+.de-layout { display: grid; grid-template-columns: 280px 1fr 300px; gap: var(--space-4); height: calc(100vh - var(--topbar-h)); min-height: 600px; }
+.de-queue  { animation: panelIn 400ms var(--ease-standard) 0ms both; }
+.de-exec   { animation: panelIn 400ms var(--ease-standard) 100ms both; }
+.de-stats  { animation: panelIn 400ms var(--ease-standard) 200ms both; }
+@keyframes panelIn { from { opacity:0; transform:translateY(12px); } to { opacity:1; transform:translateY(0); } }
+
+/* Left: Task Queue */
+.de-queue { background:var(--bg); border:1px solid var(--border-soft); border-radius:var(--radius-md); display:flex; flex-direction:column; overflow:hidden; }
+.de-queue-head { padding:var(--space-4) var(--space-5); border-bottom:1px solid var(--border-soft); flex-shrink:0; }
+.de-queue-title { display:flex; align-items:center; gap:var(--space-2); font-size:var(--text-sm); font-weight:600; color:var(--fg); }
+.de-queue-count { font-family:var(--font-mono); font-size:10px; font-weight:500; color:var(--accent-on); background:var(--accent); padding:1px 6px; border-radius:var(--radius-pill); }
+.de-queue-filters { display:flex; gap:var(--space-1); margin-top:var(--space-3); background:var(--surface); border-radius:var(--radius-sm); padding:3px; }
+.de-queue-filters button { border:0; background:transparent; padding:5px var(--space-2); border-radius:9px; font-size:var(--text-xs); font-weight:500; color:var(--muted); cursor:pointer; transition:background var(--motion-fast),color var(--motion-fast); flex:1; text-align:center; white-space:nowrap; }
+.de-queue-filters button:hover { color:var(--fg); }
+.de-queue-filters button[aria-pressed="true"] { background:var(--bg); color:var(--fg); box-shadow:var(--elev-ring); }
+.de-queue-body { flex:1; overflow-y:auto; padding:var(--space-3); display:flex; flex-direction:column; gap:var(--space-2); }
+.de-task-card { background:var(--surface-warm); border:1px solid var(--border-soft); border-radius:var(--radius-sm); padding:var(--space-3) var(--space-4); cursor:grab; transition:background var(--motion-fast),border-color var(--motion-fast),box-shadow var(--motion-fast); position:relative; }
+.de-task-card:active { cursor:grabbing; }
+.de-task-card.dragging { opacity:0.5; box-shadow:var(--elev-overlay); }
+.de-task-card.drag-over { border-color:var(--accent); border-style:dashed; }
+.de-task-card:hover { background:var(--bg); border-color:var(--border); box-shadow:var(--elev-raised); }
+.de-task-card.active { border-color:var(--accent); box-shadow:0 0 0 1px var(--accent); }
+.de-task-id { font-family:var(--font-mono); font-size:11px; color:var(--meta); margin-bottom:var(--space-1); display:flex; align-items:center; gap:var(--space-2); }
+.de-task-type-icon { width:16px; height:16px; flex-shrink:0; color:var(--meta); }
+.de-task-desc { font-size:var(--text-sm); font-weight:500; color:var(--fg); line-height:1.4; display:-webkit-box; -webkit-line-clamp:2; -webkit-box-orient:vertical; overflow:hidden; margin-bottom:var(--space-2); }
+.de-task-meta { display:flex; align-items:center; gap:var(--space-2); flex-wrap:wrap; }
+.de-task-flow { font-size:11px; color:var(--meta); background:var(--bg); border:1px solid var(--border-soft); padding:1px 6px; border-radius:4px; font-family:var(--font-mono); }
+.de-priority { font-family:var(--font-mono); font-size:10px; font-weight:600; padding:1px 6px; border-radius:4px; }
+.de-priority.p0 { background:var(--danger-soft); color:var(--danger); }
+.de-priority.p1 { background:var(--warn-soft); color:#b9791a; }
+.de-priority.p2 { background:var(--info-soft); color:var(--info); }
+.de-task-footer { display:flex; align-items:center; justify-content:space-between; margin-top:var(--space-2); flex-wrap:wrap; gap:var(--space-1); }
+.de-task-time { font-size:11px; color:var(--meta); font-family:var(--font-mono); display:flex; align-items:center; gap:4px; }
+.de-task-eta { font-size:11px; color:var(--meta); font-family:var(--font-mono); }
+.de-task-actions { position:absolute; top:var(--space-2); right:var(--space-2); display:flex; gap:2px; opacity:0; transition:opacity var(--motion-fast); }
+.de-task-card:hover .de-task-actions { opacity:1; }
+.de-task-action-btn { width:22px; height:22px; display:grid; place-items:center; background:var(--bg); border:1px solid var(--border-soft); border-radius:6px; cursor:pointer; color:var(--muted); transition:color var(--motion-fast),background var(--motion-fast); }
+.de-task-action-btn:hover { color:var(--fg); background:var(--surface); }
+.de-task-action-btn svg { width:12px; height:12px; }
+
+/* Center: Active Execution */
+.de-exec { background:var(--bg); border:1px solid var(--border-soft); border-radius:var(--radius-md); display:flex; flex-direction:column; overflow:hidden; }
+.de-exec-head { padding:var(--space-5) var(--space-6); border-bottom:1px solid var(--border-soft); flex-shrink:0; }
+.de-exec-title-row { display:flex; align-items:center; gap:var(--space-3); margin-bottom:var(--space-2); }
+.de-exec-run-id { font-family:var(--font-mono); font-size:var(--text-xs); color:var(--meta); cursor:pointer; display:inline-flex; align-items:center; gap:var(--space-1); padding:2px 8px; border-radius:6px; transition:background var(--motion-fast),color var(--motion-fast); }
+.de-exec-run-id:hover { background:var(--surface); color:var(--fg); }
+.de-exec-run-id svg { width:12px; height:12px; opacity:0.5; }
+.de-exec-workflow { font-size:var(--text-base); font-weight:600; color:var(--fg); flex:1; }
+.de-exec-trigger { font-size:11px; color:var(--meta); display:flex; align-items:center; gap:var(--space-1); margin-bottom:var(--space-2); }
+.de-exec-trigger svg { width:13px; height:13px; }
+.de-exec-stats { display:flex; align-items:center; gap:var(--space-6); }
+.de-exec-stat { display:flex; flex-direction:column; gap:2px; }
+.de-exec-stat-label { font-size:11px; color:var(--meta); }
+.de-exec-stat-value { font-family:var(--font-mono); font-size:var(--text-sm); font-weight:500; color:var(--fg); }
+.de-exec-progress { margin-top:var(--space-4); }
+.de-exec-progress-info { display:flex; justify-content:space-between; align-items:center; margin-bottom:var(--space-2); }
+.de-exec-progress-label { font-size:var(--text-xs); color:var(--muted); }
+.de-exec-progress-pct { font-family:var(--font-mono); font-size:var(--text-xs); color:var(--accent-hover); font-weight:500; }
+.de-exec-actions { display:flex; align-items:center; gap:var(--space-2); margin-top:var(--space-4); padding-top:var(--space-4); border-top:1px solid var(--border-soft); flex-wrap:wrap; }
+.de-exec-actions .btn svg { width:14px; height:14px; }
+
+/* Timeline */
+.de-timeline-wrap { flex:1; overflow-y:auto; padding:var(--space-5) var(--space-6); min-height:0; }
+.de-timeline-section-label { font-size:11px; font-weight:500; color:var(--meta); letter-spacing:var(--tracking-label); text-transform:uppercase; margin-bottom:var(--space-4); display:flex; align-items:center; justify-content:space-between; }
+.de-timeline-filter-btns { display:flex; gap:var(--space-1); }
+.de-timeline-filter-btns button { border:0; background:transparent; padding:2px var(--space-2); border-radius:6px; font-size:11px; font-weight:500; color:var(--muted); cursor:pointer; transition:background var(--motion-fast),color var(--motion-fast); }
+.de-timeline-filter-btns button:hover { color:var(--fg); background:var(--surface); }
+.de-timeline-filter-btns button.active { color:var(--danger); background:var(--danger-soft); }
+.de-timeline-filter-btns button.active-running { color:var(--accent-hover); background:var(--accent-soft); }
+.de-timeline { position:relative; padding-left:28px; }
+.de-timeline::before { content:""; position:absolute; left:8px; top:8px; bottom:8px; width:2px; background:var(--border-soft); border-radius:1px; }
+.de-tl-node { position:relative; padding-bottom:var(--space-5); transition: opacity var(--motion-fast); }
+.de-tl-node:last-child { padding-bottom:0; }
+.de-tl-node.tl-hidden { opacity:0; height:0; padding:0; overflow:hidden; margin:0; }
+.de-tl-dot { position:absolute; left:-28px; top:2px; width:18px; height:18px; border-radius:50%; border:2px solid var(--border-soft); background:var(--bg); display:grid; place-items:center; z-index:1; transition:border-color var(--motion-fast),background var(--motion-fast); }
+.de-tl-node.status-running .de-tl-dot { border-color:var(--accent); background:var(--accent); box-shadow:0 0 0 4px var(--accent-soft); animation:dotPulse 1.5s infinite; }
+@keyframes dotPulse { 0%,100%{box-shadow:0 0 0 4px var(--accent-soft);} 50%{box-shadow:0 0 0 8px rgba(16,163,127,0.1);} }
+.de-tl-node.status-done .de-tl-dot { border-color:var(--success); background:var(--success); animation:doneFlash 600ms; }
+@keyframes doneFlash { 0%{box-shadow:0 0 0 0 rgba(16,163,127,0.6);} 50%{box-shadow:0 0 0 12px rgba(16,163,127,0);} 100%{box-shadow:none;} }
+.de-tl-node.status-queued .de-tl-dot { border-color:var(--warn); background:var(--bg); }
+.de-tl-node.status-failed .de-tl-dot { border-color:var(--danger); background:var(--danger); animation:failedShake 500ms; }
+@keyframes failedShake { 0%,100%{transform:translateX(0);} 15%{transform:translateX(-4px);} 30%{transform:translateX(4px);} 45%{transform:translateX(-3px);} 60%{transform:translateX(3px);} 75%{transform:translateX(-1px);} 90%{transform:translateX(1px);} }
+.de-tl-node.anim-queued-to-running .de-tl-dot { animation:queuedToRunning 800ms; }
+@keyframes queuedToRunning { 0%{border-color:var(--warn);background:var(--bg);transform:scale(1);} 50%{border-color:var(--accent);background:var(--accent);transform:scale(1.3);} 100%{border-color:var(--accent);background:var(--accent);transform:scale(1);} }
+.de-tl-dot svg { width:10px; height:10px; color:var(--bg); }
+.de-tl-node.status-queued .de-tl-dot svg { color:var(--warn); }
+.de-tl-content { background:var(--surface-warm); border:1px solid var(--border-soft); border-radius:var(--radius-sm); padding:var(--space-3) var(--space-4); transition:background var(--motion-fast),border-color var(--motion-fast),box-shadow var(--motion-fast); }
+.de-tl-node.status-running .de-tl-content { background:var(--accent-soft); border-color:color-mix(in oklab, var(--accent) 30%, transparent); }
+.de-tl-content:hover { background:var(--bg); box-shadow:var(--elev-raised); }
+.de-tl-header { display:flex; align-items:center; gap:var(--space-2); margin-bottom:var(--space-2); }
+.de-tl-icon { width:18px; height:18px; color:var(--muted); flex-shrink:0; }
+.de-tl-node.status-running .de-tl-icon { color:var(--accent-hover); }
+.de-tl-node.status-done .de-tl-icon { color:var(--success); }
+.de-tl-node.status-failed .de-tl-icon { color:var(--danger); }
+.de-tl-label { font-size:var(--text-sm); font-weight:500; color:var(--fg); flex:1; }
+.de-tl-ts { font-family:var(--font-mono); font-size:11px; color:var(--meta); }
+.de-tl-bottom { display:flex; align-items:center; gap:var(--space-3); flex-wrap:wrap; }
+.de-tl-status { font-size:11px; font-weight:500; padding:1px 8px; border-radius:var(--radius-pill); }
+.de-tl-status.running { background:var(--accent-soft); color:var(--accent-hover); }
+.de-tl-status.done { background:var(--success-soft); color:var(--success); }
+.de-tl-status.queued { background:var(--warn-soft); color:#b9791a; }
+.de-tl-status.failed { background:var(--danger-soft); color:var(--danger); }
+.de-tl-duration { font-family:var(--font-mono); font-size:11px; color:var(--meta); }
+.de-tl-detail { display:none; margin-top:var(--space-3); border-top:1px solid var(--border-soft); padding-top:var(--space-3); font-size:var(--text-xs); color:var(--muted); line-height:1.6; }
+.de-tl-detail.open { display:block; animation:detailIn 200ms var(--ease-standard); }
+@keyframes detailIn { from{opacity:0;max-height:0;} to{opacity:1;max-height:500px;} }
+.de-tl-detail-label { font-size:10px; font-weight:500; color:var(--meta); text-transform:uppercase; letter-spacing:var(--tracking-label); margin-bottom:var(--space-1); }
+.de-tl-detail pre { font-family:var(--font-mono); font-size:11px; background:var(--surface); border:1px solid var(--border-soft); border-radius:6px; padding:var(--space-2) var(--space-3); color:var(--fg-2); white-space:pre-wrap; word-break:break-all; max-height:120px; overflow-y:auto; }
+.de-tl-toggle { font-size:11px; color:var(--accent-hover); background:transparent; border:0; cursor:pointer; padding:2px 0; font-weight:500; }
+.de-tl-toggle:hover { text-decoration:underline; }
+.de-tl-resource { display:grid; grid-template-columns:1fr 1fr; gap:var(--space-3); margin-bottom:var(--space-3); }
+.de-tl-resource-item { display:flex; flex-direction:column; gap:3px; }
+.de-tl-resource-label { font-size:10px; color:var(--meta); display:flex; justify-content:space-between; }
+.de-tl-resource-label span:last-child { font-family:var(--font-mono); color:var(--fg-2); }
+.de-tl-sparkline-wrap { margin-bottom:var(--space-3); }
+.de-tl-sparkline-label { font-size:10px; color:var(--meta); margin-bottom:2px; }
+.de-tl-sparkline { width:100%; height:32px; }
+.de-tl-substeps { list-style:none; padding:0; margin:0; }
+.de-tl-substep { display:flex; align-items:center; gap:var(--space-2); padding:var(--space-1) 0; font-size:11px; color:var(--fg-2); }
+.de-tl-substep-dot { width:5px; height:5px; border-radius:50%; background:var(--meta); flex-shrink:0; }
+.de-tl-substep-dot.done { background:var(--success); }
+.de-tl-substep-dot.running { background:var(--accent); }
+.de-tl-substep-dot.queued { background:var(--warn); }
+
+/* Log Stream */
+.de-log { border-top:1px solid var(--border-soft); flex:1; display:flex; flex-direction:column; min-height:0; max-height:45%; }
+.de-log-head { padding:var(--space-3) var(--space-5); border-bottom:1px solid var(--border-soft); flex-shrink:0; font-size:var(--text-xs); font-weight:600; color:var(--fg-2); display:flex; align-items:center; gap:var(--space-3); flex-wrap:wrap; }
+.de-log-head-left { display:flex; align-items:center; gap:var(--space-2); flex:1; }
+.de-log-live { width:6px; height:6px; border-radius:50%; background:var(--accent); animation:pulseDot 2s infinite; }
+.de-log-live.paused { background:var(--warn); animation:none; }
+@keyframes pulseDot { 0%,100%{opacity:1;box-shadow:0 0 0 0 rgba(16,163,127,0.4);} 50%{opacity:0.8;box-shadow:0 0 0 4px rgba(16,163,127,0);} }
+.de-log-controls { display:flex; align-items:center; gap:var(--space-2); }
+.de-log-level-btns { display:flex; background:var(--surface); border-radius:6px; padding:2px; gap:1px; }
+.de-log-level-btns button { border:0; background:transparent; padding:3px 8px; border-radius:5px; font-size:10px; font-weight:600; color:var(--meta); cursor:pointer; font-family:var(--font-mono); transition:background var(--motion-fast),color var(--motion-fast); }
+.de-log-level-btns button:hover { color:var(--fg); }
+.de-log-level-btns button.active { background:var(--bg); color:var(--fg); box-shadow:var(--elev-ring); }
+.de-log-search { width:120px; height:26px; padding:0 var(--space-2); background:var(--surface-warm); border:1px solid var(--border-soft); border-radius:6px; font-size:11px; font-family:var(--font-mono); color:var(--fg); transition:border-color var(--motion-fast),box-shadow var(--motion-fast); }
+.de-log-search::placeholder { color:var(--meta); }
+.de-log-search:focus { border-color:var(--accent); box-shadow:var(--focus-ring); }
+.de-log-ctrl-btn { height:26px; padding:0 var(--space-2); border-radius:6px; border:1px solid var(--border-soft); background:var(--bg); font-size:10px; font-weight:500; color:var(--muted); cursor:pointer; display:flex; align-items:center; gap:3px; transition:background var(--motion-fast),color var(--motion-fast); }
+.de-log-ctrl-btn:hover { background:var(--surface); color:var(--fg); }
+.de-log-ctrl-btn.active { background:var(--warn-soft); color:#b9791a; border-color:color-mix(in oklab, var(--warn) 30%, transparent); }
+.de-log-ctrl-btn svg { width:12px; height:12px; }
+.de-log-body { flex:1; overflow-y:auto; padding:var(--space-2) 0; font-family:var(--font-mono); font-size:11px; line-height:1.7; background:var(--surface-warm); }
+.de-log-line { display:flex; gap:var(--space-3); padding:1px var(--space-5); transition:background var(--motion-fast); animation:logFade 300ms var(--ease-standard); }
+.de-log-line.stderr { background:var(--danger-soft); }
+.de-log-line.stderr .de-log-text { color:var(--danger); }
+@keyframes logFade { from{opacity:0;} to{opacity:1;} }
+.de-log-ts { color:var(--meta); flex-shrink:0; min-width:70px; }
+.de-log-level { font-weight:600; min-width:36px; text-align:right; flex-shrink:0; }
+.de-log-level.info { color:var(--info); }
+.de-log-level.warn { color:var(--warn); }
+.de-log-level.error { color:var(--danger); }
+.de-log-text { color:var(--fg-2); word-break:break-all; }
+.de-log-text mark { background:var(--warn-soft); color:var(--fg); padding:0 2px; border-radius:2px; }
+.de-log-input { border-top:1px solid var(--border-soft); padding:var(--space-3) var(--space-5); flex-shrink:0; }
+.de-log-input-box { display:flex; align-items:flex-end; gap:var(--space-2); background:var(--surface-warm); border:1px solid var(--border); border-radius:var(--radius-sm); padding:var(--space-2); transition:border-color var(--motion-fast),box-shadow var(--motion-fast); }
+.de-log-input-box:focus-within { border-color:var(--accent); box-shadow:var(--focus-ring); }
+.de-log-input-box textarea { flex:1; border:0; background:transparent; resize:none; font-size:var(--text-sm); line-height:1.5; max-height:80px; outline:none; padding:5px 6px; }
+.de-log-input-box textarea::placeholder { color:var(--meta); }
+
+/* Right: Statistics */
+.de-stats { background:var(--bg); border:1px solid var(--border-soft); border-radius:var(--radius-md); display:flex; flex-direction:column; overflow:hidden; }
+.de-stats-head { padding:var(--space-4) var(--space-5); border-bottom:1px solid var(--border-soft); flex-shrink:0; }
+.de-stats-title { display:flex; align-items:center; gap:var(--space-2); font-size:var(--text-sm); font-weight:600; color:var(--fg); }
+.de-stats-body { flex:1; overflow-y:auto; padding:var(--space-4); display:flex; flex-direction:column; gap:var(--space-5); }
+.de-stat-card { background:var(--surface-warm); border:1px solid var(--border-soft); border-radius:var(--radius-sm); padding:var(--space-4); transition:background var(--motion-fast),border-color var(--motion-fast); }
+.de-stat-card:hover { background:var(--bg); border-color:var(--border); }
+.de-stat-card-title { font-size:11px; font-weight:500; color:var(--meta); text-transform:uppercase; letter-spacing:var(--tracking-label); margin-bottom:var(--space-3); }
+.de-cost-gauge-wrap { display:flex; align-items:center; gap:var(--space-4); }
+.de-cost-gauge { width:80px; height:80px; flex-shrink:0; position:relative; }
+.de-cost-gauge-text { position:absolute; width:100%; text-align:center; top:50%; transform:translateY(-50%); }
+.de-cost-info { flex:1; }
+.de-cost-value { font-family:var(--font-mono); font-size:var(--text-xl); font-weight:600; color:var(--fg); }
+.de-cost-budget { font-size:11px; color:var(--meta); margin-top:2px; }
+.de-cost-bar { margin-top:var(--space-2); }
+.de-cost-bar-info { display:flex; justify-content:space-between; font-size:10px; color:var(--meta); margin-bottom:3px; }
+.de-budget-alert { display:flex; align-items:center; gap:var(--space-2); margin-top:var(--space-2); font-size:11px; font-weight:500; padding:var(--space-2) var(--space-3); border-radius:6px; }
+.de-budget-alert.normal { color:var(--accent-hover); background:var(--accent-soft); }
+.de-budget-alert.warning { color:#b9791a; background:var(--warn-soft); }
+.de-budget-alert.critical { color:var(--danger); background:var(--danger-soft); }
+.de-budget-alert svg { width:14px; height:14px; }
+.de-pie-wrap { display:flex; align-items:center; gap:var(--space-4); }
+.de-pie { width:72px; height:72px; flex-shrink:0; }
+.de-pie-legend { display:flex; flex-direction:column; gap:var(--space-1); }
+.de-pie-legend-item { display:flex; align-items:center; gap:var(--space-2); font-size:11px; color:var(--fg-2); }
+.de-pie-legend-dot { width:8px; height:8px; border-radius:2px; flex-shrink:0; }
+.de-pie-legend-val { margin-left:auto; font-family:var(--font-mono); font-weight:500; }
+.de-sparkline-card-value { font-family:var(--font-mono); font-size:var(--text-lg); font-weight:600; color:var(--fg); }
+.de-sparkline-card-label { font-size:11px; color:var(--meta); margin-top:2px; }
+.de-sparkline { width:100%; height:40px; margin-top:var(--space-3); }
+.de-resource-monitor { display:flex; flex-direction:column; gap:var(--space-3); }
+.de-resource-head { display:flex; justify-content:space-between; font-size:11px; margin-bottom:3px; }
+.de-resource-label { color:var(--meta); }
+.de-resource-value { font-family:var(--font-mono); font-weight:500; color:var(--fg-2); }
+.de-resource-bar { height:8px; background:var(--surface); border-radius:var(--radius-pill); overflow:hidden; }
+.de-resource-bar > span { display:block; height:100%; border-radius:var(--radius-pill); transition:width 1s var(--ease-standard); }
+.de-resource-bar > span.cpu { background:var(--info); }
+.de-resource-bar > span.mem { background:var(--accent); }
+.de-resource-bar > span.gpu { background:var(--warn); }
+
+/* Modal */
+.de-modal-overlay { position:fixed; top:0; left:0; right:0; bottom:0; background:rgba(0,0,0,0.4); z-index:300; display:flex; align-items:center; justify-content:center; animation:modOvIn 150ms; }
+@keyframes modOvIn { from{opacity:0;} to{opacity:1;} }
+.de-modal-overlay.closing { animation:modOvOut 150ms forwards; }
+@keyframes modOvOut { from{opacity:1;} to{opacity:0;} }
+.de-modal { background:var(--bg); border-radius:var(--radius-md); box-shadow:var(--elev-overlay); width:400px; max-width:90vw; animation:modIn 250ms var(--ease-standard); overflow:hidden; }
+@keyframes modIn { from{opacity:0;transform:scale(0.95) translateY(8px);} to{opacity:1;transform:scale(1) translateY(0);} }
+.de-modal-head { padding:var(--space-5) var(--space-6); border-bottom:1px solid var(--border-soft); font-size:var(--text-base); font-weight:600; }
+.de-modal-body { padding:var(--space-5) var(--space-6); font-size:var(--text-sm); color:var(--muted); line-height:1.6; }
+.de-modal-footer { padding:var(--space-4) var(--space-6); border-top:1px solid var(--border-soft); display:flex; justify-content:flex-end; gap:var(--space-2); }
+
+/* Dropdown */
+.de-dropdown { position:absolute; top:100%; left:0; margin-top:4px; background:var(--bg); border:1px solid var(--border); border-radius:var(--radius-sm); box-shadow:var(--elev-overlay); z-index:50; min-width:200px; animation:dropIn 150ms var(--ease-standard); overflow:hidden; }
+@keyframes dropIn { from{opacity:0;transform:translateY(-4px);} to{opacity:1;transform:translateY(0);} }
+.de-dropdown-item { display:flex; align-items:center; gap:var(--space-2); padding:var(--space-3) var(--space-4); font-size:var(--text-sm); color:var(--fg-2); cursor:pointer; transition:background var(--motion-fast); border:0; background:transparent; width:100%; text-align:left; }
+.de-dropdown-item:hover { background:var(--surface); }
+.de-dropdown-item svg { width:15px; height:15px; color:var(--muted); }
+
+/* Toast */
+.toast-host { position:fixed; bottom:var(--space-6); right:var(--space-6); display:flex; flex-direction:column; gap:var(--space-2); z-index:200; pointer-events:none; }
+.toast { display:flex; align-items:center; gap:var(--space-2); padding:var(--space-3) var(--space-4); background:var(--fg); color:var(--bg); border-radius:var(--radius-sm); font-size:var(--text-sm); font-weight:500; box-shadow:var(--elev-overlay); pointer-events:auto; animation:toastIn 300ms var(--ease-standard); }
+.toast svg { width:16px; height:16px; flex-shrink:0; }
+@keyframes toastIn { from{opacity:0;transform:translateY(8px);} to{opacity:1;transform:translateY(0);} }
+
+@media (max-width: 1200px) { .de-layout { grid-template-columns:260px 1fr 260px; } }
+@media (max-width: 1024px) { .de-layout { grid-template-columns:1fr; height:auto; } .de-queue,.de-exec,.de-stats { max-height:600px; } }
+@media (max-width: 640px) { .de-layout { padding:0; } .de-exec-head { padding:var(--space-4); } .de-timeline-wrap { padding:var(--space-4); } }
+  </style>
+</head>
+<body>
+  <div class="app" id="app">
+    <aside class="app-sidebar">
+      <div class="brand"><div class="brand-mark">D</div><div><div class="brand-name">DAgent</div><div class="brand-sub">控制台 · v0.2</div></div></div>
+      <nav class="nav" id="main-nav" aria-label="主导航">
+      </nav>
+      <div class="sidebar-footer"></div>
+    </aside>
+
+    <header class="app-topbar">
+      <button class="icon-btn mobile-menu-btn" aria-label="菜单"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round"><path d="M3 6h18M3 12h18M3 18h18"/></svg></button>
+      <div class="crumbs"><span class="crumb">编排</span><span class="sep">/</span><span class="crumb">Daemon 集群</span><span class="sep">/</span><span class="crumb-current">执行视图</span></div>
+      <div class="topbar-spacer"></div>
+      <div class="topbar-search"><span class="search-icon"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><circle cx="11" cy="11" r="7"/><path d="m20 20-3.5-3.5"/></svg></span><input type="search" placeholder="搜索任务或 daemon…" aria-label="搜索" /><kbd>⌘K</kbd></div>
+      <div class="topbar-actions">
+        <button class="icon-btn" aria-label="通知" title="通知"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"><path d="M18 8a6 6 0 1 0-12 0c0 7-3 9-3 9h18s-3-2-3-9"/><path d="M13.7 21a2 2 0 0 1-3.4 0"/></svg><span class="dot"></span></button>
+        <button class="avatar" aria-label="账户" title="饶哲">RZ</button>
+      </div>
+    </header>
+
+    <main class="app-main">
+      <div class="de-layout">
+        <!-- LEFT: Task Queue -->
+        <div class="de-queue">
+          <div class="de-queue-head">
+            <div class="de-queue-title">任务队列 <span class="de-queue-count">6</span></div>
+            <div class="de-queue-filters" role="group" aria-label="任务状态筛选">
+              <button aria-pressed="true">全部</button><button aria-pressed="false">排队中</button><button aria-pressed="false">运行中</button><button aria-pressed="false">已完成</button>
+            </div>
+          </div>
+          <div class="de-queue-body" id="queue-body">
+            <div class="de-task-card active" draggable="true" data-status="running">
+              <div class="de-task-actions">
+                <button class="de-task-action-btn" title="取消任务" onclick="event.stopPropagation();cancelTask(this)"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round"><line x1="18" y1="6" x2="6" y2="18"/><line x1="6" y1="6" x2="18" y2="18"/></svg></button>
+                <button class="de-task-action-btn" title="跳过任务" onclick="event.stopPropagation();skipTask(this)"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round"><polygon points="5 4 15 12 5 20 5 4"/><line x1="19" y1="5" x2="19" y2="19"/></svg></button>
+              </div>
+              <div class="de-task-id"><svg class="de-task-type-icon" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8"><polyline points="22 12 18 12 15 21 9 3 6 12 2 12"/></svg>task-a3f9c2e1</div>
+              <div class="de-task-desc">复现 PPO 算法在 Mujoco Humanoid 上的基线实验</div>
+              <div class="de-task-meta"><span class="de-task-flow">flow_repro_01</span><span class="de-priority p0">P0</span><span class="de-tl-status running">运行中</span></div>
+              <div class="de-task-footer"><span class="status running"><span class="dot"></span><span class="mono" style="font-size:11px">daemon-01</span></span><span class="de-task-time"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" style="width:12px;height:12px"><circle cx="12" cy="12" r="10"/><polyline points="12 6 12 12 16 14"/></svg>3m 42s</span><span class="de-task-eta mono">预计剩余 6m</span></div>
+            </div>
+            <div class="de-task-card" draggable="true" data-status="running">
+              <div class="de-task-actions">
+                <button class="de-task-action-btn" title="取消任务" onclick="event.stopPropagation();cancelTask(this)"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round"><line x1="18" y1="6" x2="6" y2="18"/><line x1="6" y1="6" x2="18" y2="18"/></svg></button>
+                <button class="de-task-action-btn" title="跳过任务" onclick="event.stopPropagation();skipTask(this)"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round"><polygon points="5 4 15 12 5 20 5 4"/><line x1="19" y1="5" x2="19" y2="19"/></svg></button>
+              </div>
+              <div class="de-task-id"><svg class="de-task-type-icon" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8"><path d="M14 2H6a2 2 0 0 0-2 2v16a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2V8z"/><path d="M14 2v6h6"/></svg>task-b7d1e8f3</div>
+              <div class="de-task-desc">生成 Ablation Study 实验报告第 2 节</div>
+              <div class="de-task-meta"><span class="de-task-flow">flow_report_02</span><span class="de-priority p1">P1</span><span class="de-tl-status running">运行中</span></div>
+              <div class="de-task-footer"><span class="status running"><span class="dot"></span><span class="mono" style="font-size:11px">daemon-02</span></span><span class="de-task-time"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" style="width:12px;height:12px"><circle cx="12" cy="12" r="10"/><polyline points="12 6 12 12 16 14"/></svg>1m 18s</span><span class="de-task-eta mono">预计剩余 4m</span></div>
+            </div>
+            <div class="de-task-card" draggable="true" data-status="queued">
+              <div class="de-task-actions">
+                <button class="de-task-action-btn" title="取消任务" onclick="event.stopPropagation();cancelTask(this)"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round"><line x1="18" y1="6" x2="6" y2="18"/><line x1="6" y1="6" x2="18" y2="18"/></svg></button>
+                <button class="de-task-action-btn" title="跳过任务" onclick="event.stopPropagation();skipTask(this)"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round"><polygon points="5 4 15 12 5 20 5 4"/><line x1="19" y1="5" x2="19" y2="19"/></svg></button>
+              </div>
+              <div class="de-task-id"><svg class="de-task-type-icon" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8"><polyline points="22 12 18 12 15 21 9 3 6 12 2 12"/></svg>task-c2e4a9d7</div>
+              <div class="de-task-desc">对比 SAC 与 TD3 在 Walker2d-v4 上的采样效率</div>
+              <div class="de-task-meta"><span class="de-task-flow">flow_repro_01</span><span class="de-priority p0">P0</span><span class="de-tl-status queued">排队中</span></div>
+              <div class="de-task-footer"><span class="status queued"><span class="dot"></span><span style="font-size:11px;color:var(--meta)">等待认领</span></span><span class="de-task-eta mono">预估 8m 05s</span></div>
+            </div>
+            <div class="de-task-card" draggable="true" data-status="queued">
+              <div class="de-task-actions">
+                <button class="de-task-action-btn" title="取消任务" onclick="event.stopPropagation();cancelTask(this)"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round"><line x1="18" y1="6" x2="6" y2="18"/><line x1="6" y1="6" x2="18" y2="18"/></svg></button>
+                <button class="de-task-action-btn" title="跳过任务" onclick="event.stopPropagation();skipTask(this)"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round"><polygon points="5 4 15 12 5 20 5 4"/><line x1="19" y1="5" x2="19" y2="19"/></svg></button>
+              </div>
+              <div class="de-task-id"><svg class="de-task-type-icon" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8"><path d="M3 7a2 2 0 0 1 2-2h4l2 2h8a2 2 0 0 1 2 2v8a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2V7Z"/></svg>task-d5f8b2c4</div>
+              <div class="de-task-desc">清理实验日志并上传至 OSS 归档存储</div>
+              <div class="de-task-meta"><span class="de-task-flow">flow_ops_01</span><span class="de-priority p2">P2</span><span class="de-tl-status queued">排队中</span></div>
+              <div class="de-task-footer"><span class="status queued"><span class="dot"></span><span style="font-size:11px;color:var(--meta)">等待认领</span></span><span class="de-task-eta mono">预估 12m 31s</span></div>
+            </div>
+            <div class="de-task-card" draggable="true" data-status="done">
+              <div class="de-task-id"><svg class="de-task-type-icon" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8"><path d="M9 12l2 2 4-4"/><path d="M21 12c0 4.418-4.03 8-9 8a9.863 9.863 0 0 1-4.255-.949L3 20l1.395-3.72C3.512 15.042 3 13.574 3 12c0-4.418 4.03-8 9-8s9 3.582 9 8z"/></svg>task-e1a6c3d9</div>
+              <div class="de-task-desc">验证 HuggingFacePPOConfig 超参数一致性</div>
+              <div class="de-task-meta"><span class="de-task-flow">flow_verify_01</span><span class="de-priority p1">P1</span><span class="de-tl-status done">已完成</span></div>
+              <div class="de-task-footer"><span class="status done"><span class="dot"></span><span class="mono" style="font-size:11px">daemon-03</span></span><span class="de-task-time">47s</span></div>
+            </div>
+            <div class="de-task-card" draggable="true" data-status="done">
+              <div class="de-task-id"><svg class="de-task-type-icon" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8"><path d="M3 7a2 2 0 0 1 2-2h4l2 2h8a2 2 0 0 1 2 2v8a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2V7Z"/></svg>task-f9b7d4a2</div>
+              <div class="de-task-desc">拉取 stable-baselines3 v2.3.2 源码并解压</div>
+              <div class="de-task-meta"><span class="de-task-flow">flow_ops_01</span><span class="de-priority p2">P2</span><span class="de-tl-status done">已完成</span></div>
+              <div class="de-task-footer"><span class="status done"><span class="dot"></span><span class="mono" style="font-size:11px">daemon-04</span></span><span class="de-task-time">22s</span></div>
+            </div>
+          </div>
+        </div>
+
+        <!-- CENTER: Active Execution -->
+        <div class="de-exec">
+          <div class="de-exec-head">
+            <div class="de-exec-title-row">
+              <span class="de-exec-run-id mono" id="run-id-copy" title="点击复制 Run ID">run-ef8a2b41<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><rect x="9" y="9" width="13" height="13" rx="2"/><path d="M5 15H4a2 2 0 0 1-2-2V4a2 2 0 0 1 2-2h9a2 2 0 0 1 2 2v1"/></svg></span>
+              <div><div class="de-exec-workflow">论文复现流水线 · PPO Humanoid 基线</div><div class="de-exec-trigger"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M12 22c5.523 0 10-4.477 10-10S17.523 2 12 2 2 6.477 2 12s4.477 10 10 10z"/><path d="M12 16v-4"/><path d="M12 8h.01"/></svg>触发来源：手动执行</div></div>
+              <span class="de-tl-status running">运行中</span>
+            </div>
+            <div class="de-exec-stats">
+              <div class="de-exec-stat"><span class="de-exec-stat-label">已耗时</span><span class="de-exec-stat-value mono" id="stat-elapsed">03:42</span></div>
+              <div class="de-exec-stat"><span class="de-exec-stat-label">节点进度</span><span class="de-exec-stat-value mono" id="stat-progress">4 / 8</span></div>
+              <div class="de-exec-stat"><span class="de-exec-stat-label">累计成本</span><span class="de-exec-stat-value mono" style="color:var(--accent-hover)" id="stat-cost">$0.84</span></div>
+              <div class="de-exec-stat"><span class="de-exec-stat-label">执行 Daemon</span><span class="de-exec-stat-value mono" style="color:var(--accent-hover)">daemon-01</span></div>
+              <div class="de-exec-stat"><span class="de-exec-stat-label">预计剩余</span><span class="de-exec-stat-value mono" style="color:var(--accent-hover)" id="stat-remaining">~6m 18s</span></div>
+            </div>
+            <div class="de-exec-progress">
+              <div class="de-exec-progress-info"><span class="de-exec-progress-label">总体进度</span><span class="de-exec-progress-pct" id="progress-pct">50%</span></div>
+              <div class="bar"><span id="progress-bar" style="width:50%"></span></div>
+            </div>
+            <div class="de-exec-actions">
+              <button class="btn btn-warn btn-sm" id="btn-pause" onclick="togglePause()"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round"><rect x="6" y="4" width="4" height="16"/><rect x="14" y="4" width="4" height="16"/></svg><span id="btn-pause-text">暂停执行</span></button>
+              <button class="btn btn-danger btn-sm" onclick="showAbortModal()"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round"><circle cx="12" cy="12" r="10"/><line x1="15" y1="9" x2="9" y2="15"/><line x1="9" y1="9" x2="15" y2="15"/></svg>中止执行</button>
+              <div style="position:relative;display:inline-flex">
+                <button class="btn btn-secondary btn-sm" id="btn-rerun" onclick="toggleRerunMenu()"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round"><polyline points="23 4 23 10 17 10"/><path d="M20.49 15a9 9 0 1 1-2.12-9.36L23 10"/></svg>重新运行</button>
+                <div class="de-dropdown hidden" id="rerun-dropdown">
+                  <button class="de-dropdown-item" onclick="toast('已提交重跑全部节点');closeRerun()"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8"><polyline points="23 4 23 10 17 10"/><path d="M20.49 15a9 9 0 1 1-2.12-9.36L23 10"/></svg>重跑全部节点</button>
+                  <button class="de-dropdown-item" onclick="toast('已提交从失败节点重跑');closeRerun()"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8"><polyline points="23 4 23 10 17 10"/><path d="M20.49 15a9 9 0 1 1-2.12-9.36L23 10"/></svg>从失败节点重跑</button>
+                </div>
+              </div>
+              <button class="btn btn-ghost btn-sm" onclick="toast('执行报告已导出')"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round"><path d="M21 15v4a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2v-4"/><polyline points="7 10 12 15 17 10"/><line x1="12" y1="15" x2="12" y2="3"/></svg>导出报告</button>
+            </div>
+          </div>
+
+          <div class="de-timeline-wrap">
+            <div class="de-timeline-section-label"><span>节点执行时间线</span><div class="de-timeline-filter-btns"><button id="filter-failed" onclick="toggleTimelineFilter('failed')">只看失败</button><button id="filter-running" onclick="toggleTimelineFilter('running')">只看运行中</button></div></div>
+            <div class="de-timeline" id="timeline">
+              <div class="de-tl-node status-done" data-status="done"><div class="de-tl-dot"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="3" stroke-linecap="round" stroke-linejoin="round"><path d="m20 6-11 11-5-5"/></svg></div><div class="de-tl-content"><div class="de-tl-header"><span class="de-tl-icon"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"><path d="M21 15v4a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2v-4"/><path d="M7 10l5 5 5-5"/><path d="M12 15V3"/></svg></span><span class="de-tl-label">拉取源码 (Source Pull)</span><span class="de-tl-ts">14:32:01</span></div><div class="de-tl-bottom"><span class="de-tl-status done">已完成</span><span class="de-tl-duration">22s</span><span class="de-tl-duration mono" style="color:var(--meta)">2.4k tokens</span><button class="de-tl-toggle" data-detail="n1">展开详情</button></div><div class="de-tl-detail" id="n1"><div class="de-tl-detail-label">资源使用</div><div class="de-tl-resource"><div class="de-tl-resource-item"><div class="de-tl-resource-label"><span>CPU</span><span>23%</span></div><div class="bar"><span style="width:23%"></span></div></div><div class="de-tl-resource-item"><div class="de-tl-resource-label"><span>Memory</span><span>156 MB</span></div><div class="bar"><span style="width:15%"></span></div></div></div><div class="de-tl-sparkline-wrap"><div class="de-tl-sparkline-label">Token 消耗趋势</div><svg class="de-tl-sparkline" viewBox="0 0 200 32" preserveAspectRatio="none"><polyline fill="none" stroke="var(--accent)" stroke-width="1.5" points="0,28 30,24 60,20 90,26 120,18 150,22 180,14 200,16"/></svg></div><div class="de-tl-detail-label">子步骤</div><ul class="de-tl-substeps"><li class="de-tl-substep"><span class="de-tl-substep-dot done"></span>解析仓库 URL</li><li class="de-tl-substep"><span class="de-tl-substep-dot done"></span>git clone --depth 1</li><li class="de-tl-substep"><span class="de-tl-substep-dot done"></span>校验 commit hash</li></ul><div class="de-tl-detail-label">输出</div><pre>Cloning into '/data/sb3'...
+remote: Enumerating objects: 18420, done.
+Checking out refs/tags/v2.3.2...</pre></div></div></div>
+              <div class="de-tl-node status-done" data-status="done"><div class="de-tl-dot"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="3" stroke-linecap="round" stroke-linejoin="round"><path d="m20 6-11 11-5-5"/></svg></div><div class="de-tl-content"><div class="de-tl-header"><span class="de-tl-icon"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"><rect x="2" y="3" width="20" height="14" rx="2"/><path d="M8 21h8"/><path d="M12 17v4"/></svg></span><span class="de-tl-label">环境配置 (Env Setup)</span><span class="de-tl-ts">14:32:23</span></div><div class="de-tl-bottom"><span class="de-tl-status done">已完成</span><span class="de-tl-duration">38s</span><span class="de-tl-duration mono" style="color:var(--meta)">3.1k tokens</span><button class="de-tl-toggle" data-detail="n2">展开详情</button></div><div class="de-tl-detail" id="n2"><div class="de-tl-detail-label">资源使用</div><div class="de-tl-resource"><div class="de-tl-resource-item"><div class="de-tl-resource-label"><span>CPU</span><span>67%</span></div><div class="bar"><span style="width:67%"></span></div></div><div class="de-tl-resource-item"><div class="de-tl-resource-label"><span>Memory</span><span>420 MB</span></div><div class="bar"><span style="width:42%"></span></div></div></div><div class="de-tl-detail-label">子步骤</div><ul class="de-tl-substeps"><li class="de-tl-substep"><span class="de-tl-substep-dot done"></span>解析 requirements</li><li class="de-tl-substep"><span class="de-tl-substep-dot done"></span>pip install mujoco</li><li class="de-tl-substep"><span class="de-tl-substep-dot done"></span>pip install gymnasium</li><li class="de-tl-substep"><span class="de-tl-substep-dot done"></span>验证 import</li></ul><div class="de-tl-detail-label">输出</div><pre>mujoco==2.3.7 installed
+gymnasium[mujoco]==0.29.1 installed
+All 12 dependencies satisfied.</pre></div></div></div>
+              <div class="de-tl-node status-done" data-status="done"><div class="de-tl-dot"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="3" stroke-linecap="round" stroke-linejoin="round"><path d="m20 6-11 11-5-5"/></svg></div><div class="de-tl-content"><div class="de-tl-header"><span class="de-tl-icon"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"><circle cx="12" cy="12" r="10"/><path d="M12 6v6l4 2"/></svg></span><span class="de-tl-label">参数注入 (Config Apply)</span><span class="de-tl-ts">14:33:01</span></div><div class="de-tl-bottom"><span class="de-tl-status done">已完成</span><span class="de-tl-duration">5s</span><span class="de-tl-duration mono" style="color:var(--meta)">0.8k tokens</span></div></div></div>
+              <div class="de-tl-node status-done" data-status="done"><div class="de-tl-dot"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="3" stroke-linecap="round" stroke-linejoin="round"><path d="m20 6-11 11-5-5"/></svg></div><div class="de-tl-content"><div class="de-tl-header"><span class="de-tl-icon"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"><path d="M9 12l2 2 4-4"/><path d="M21 12c0 4.418-4.03 8-9 8a9.863 9.863 0 0 1-4.255-.949L3 20l1.395-3.72C3.512 15.042 3 13.574 3 12c0-4.418 4.03-8 9-8s9 3.582 9 8z"/></svg></span><span class="de-tl-label">配置校验 (Validate)</span><span class="de-tl-ts">14:33:06</span></div><div class="de-tl-bottom"><span class="de-tl-status done">已完成</span><span class="de-tl-duration">12s</span><span class="de-tl-duration mono" style="color:var(--meta)">1.2k tokens</span></div></div></div>
+              <div class="de-tl-node status-running" data-status="running"><div class="de-tl-dot"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5" stroke-linecap="round" stroke-linejoin="round"><path d="M13 2L3 14h9l-1 8 10-12h-9l1-8z"/></svg></div><div class="de-tl-content"><div class="de-tl-header"><span class="de-tl-icon"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"><polyline points="22 12 18 12 15 21 9 3 6 12 2 12"/></svg></span><span class="de-tl-label">模型训练 (Training)</span><span class="de-tl-ts">14:33:18</span></div><div class="de-tl-bottom"><span class="de-tl-status running">运行中</span><span class="de-tl-duration mono" style="color:var(--accent-hover)" id="training-duration">2m 45s...</span><span class="de-tl-duration mono" style="color:var(--meta)">24.6k tokens</span><button class="de-tl-toggle" data-detail="n5">展开详情</button></div><div class="de-tl-detail" id="n5"><div class="de-tl-detail-label">资源使用</div><div class="de-tl-resource"><div class="de-tl-resource-item"><div class="de-tl-resource-label"><span>CPU</span><span id="train-cpu">78%</span></div><div class="bar"><span id="train-cpu-bar" style="width:78%"></span></div></div><div class="de-tl-resource-item"><div class="de-tl-resource-label"><span>Memory</span><span id="train-mem">680 MB</span></div><div class="bar"><span id="train-mem-bar" style="width:68%"></span></div></div></div><div class="de-tl-sparkline-wrap"><div class="de-tl-sparkline-label">Token 消耗趋势</div><svg class="de-tl-sparkline" id="train-sparkline" viewBox="0 0 200 32" preserveAspectRatio="none"><polyline fill="none" stroke="var(--accent)" stroke-width="1.5" points="0,30 25,28 50,26 75,24 100,22 125,20 150,18 175,16 200,14"/></svg></div><div class="de-tl-detail-label">子步骤</div><ul class="de-tl-substeps"><li class="de-tl-substep"><span class="de-tl-substep-dot done"></span>初始化 PPO 模型</li><li class="de-tl-substep"><span class="de-tl-substep-dot done"></span>创建向量化环境</li><li class="de-tl-substep"><span class="de-tl-substep-dot running"></span>训练循环 (epoch 142/500)</li><li class="de-tl-substep"><span class="de-tl-substep-dot queued"></span>保存 checkpoint</li></ul><div class="de-tl-detail-label">实时指标</div><pre id="training-output">epoch 142/500 | reward: 4872.3 | entropy: 2.14
+loss={pg:0.0182 vf:0.0341 ent:0.0087}
+learning_rate=3e-4 | n_steps=2048 | batch=64</pre></div></div></div>
+              <div class="de-tl-node status-queued" data-status="queued"><div class="de-tl-dot"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><circle cx="12" cy="12" r="10"/><path d="M12 6v6l4 2"/></svg></div><div class="de-tl-content"><div class="de-tl-header"><span class="de-tl-icon"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"><path d="M14.7 6.3a1 1 0 0 0 0 1.4l1.6 1.6a1 1 0 0 0 1.4 0l3.77-3.77a6 6 0 0 1-7.94 7.94l-6.91 6.91a2.12 2.12 0 0 1-3-3l6.91-6.91a6 6 0 0 1 7.94-7.94l-3.76 3.76z"/></svg></span><span class="de-tl-label">模型评估 (Evaluate)</span><span class="de-tl-ts">--:--:--</span></div><div class="de-tl-bottom"><span class="de-tl-status queued">排队中</span></div></div></div>
+              <div class="de-tl-node status-queued" data-status="queued"><div class="de-tl-dot"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><circle cx="12" cy="12" r="10"/><path d="M12 6v6l4 2"/></svg></div><div class="de-tl-content"><div class="de-tl-header"><span class="de-tl-icon"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"><path d="M14 2H6a2 2 0 0 0-2 2v16a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2V8z"/><path d="M14 2v6h6"/><line x1="16" y1="13" x2="8" y2="13"/><line x1="16" y1="17" x2="8" y2="17"/></svg></span><span class="de-tl-label">生成报告 (Report Gen)</span><span class="de-tl-ts">--:--:--</span></div><div class="de-tl-bottom"><span class="de-tl-status queued">排队中</span></div></div></div>
+              <div class="de-tl-node status-queued" data-status="queued"><div class="de-tl-dot"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><circle cx="12" cy="12" r="10"/><path d="M12 6v6l4 2"/></svg></div><div class="de-tl-content"><div class="de-tl-header"><span class="de-tl-icon"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"><path d="M3 7a2 2 0 0 1 2-2h4l2 2h8a2 2 0 0 1 2 2v8a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2V7Z"/></svg></span><span class="de-tl-label">产物归档 (Archive)</span><span class="de-tl-ts">--:--:--</span></div><div class="de-tl-bottom"><span class="de-tl-status queued">排队中</span></div></div></div>
+            </div>
+          </div>
+
+          <div class="de-log">
+            <div class="de-log-head">
+              <div class="de-log-head-left"><span class="de-log-live" id="log-live-dot"></span><span>实时日志流</span></div>
+              <div class="de-log-controls">
+                <div class="de-log-level-btns"><button class="active" data-level="all" onclick="setLogLevel('all')">ALL</button><button data-level="info" onclick="setLogLevel('info')">INFO</button><button data-level="warn" onclick="setLogLevel('warn')">WARN</button><button data-level="error" onclick="setLogLevel('error')">ERROR</button></div>
+                <input class="de-log-search" type="text" placeholder="搜索日志..." id="log-search" oninput="filterLogs()"/>
+                <button class="de-log-ctrl-btn" id="log-pause-btn" onclick="toggleLogPause()"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" id="log-pause-icon"><rect x="6" y="4" width="4" height="16"/><rect x="14" y="4" width="4" height="16"/></svg><span id="log-pause-text">暂停</span></button>
+                <button class="de-log-ctrl-btn" onclick="clearLogs()"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round"><polyline points="3 6 5 6 21 6"/><path d="M19 6v14a2 2 0 0 1-2 2H7a2 2 0 0 1-2-2V6m3 0V4a2 2 0 0 1 2-2h4a2 2 0 0 1 2 2v2"/></svg>清空</button>
+              </div>
+            </div>
+            <div class="de-log-body" id="log-body"></div>
+            <div class="de-log-input"><div class="de-log-input-box"><textarea rows="1" placeholder="向 daemon-01 发送指令..." aria-label="发送指令" id="log-textarea"></textarea><button class="btn btn-primary btn-sm" onclick="sendLogCommand()">发送</button></div></div>
+          </div>
+        </div>
+
+        <!-- RIGHT: Statistics Panel -->
+        <div class="de-stats">
+          <div class="de-stats-head"><div class="de-stats-title">执行统计</div></div>
+          <div class="de-stats-body">
+            <div class="de-stat-card">
+              <div class="de-stat-card-title">累计成本</div>
+              <div class="de-cost-gauge-wrap">
+                <div class="de-cost-gauge">
+                  <svg viewBox="0 0 36 36" width="80" height="80"><path d="M18 2.0845 a 15.9155 15.9155 0 0 1 0 31.831 a 15.9155 15.9155 0 0 1 0 -31.831" fill="none" stroke="var(--surface)" stroke-width="3"/><path id="cost-arc" d="M18 2.0845 a 15.9155 15.9155 0 0 1 0 31.831 a 15.9155 15.9155 0 0 1 0 -31.831" fill="none" stroke="var(--accent)" stroke-width="3" stroke-dasharray="42, 100" stroke-linecap="round" style="transition:stroke-dasharray 1s var(--ease-standard),stroke 500ms"/></svg>
+                  <div class="de-cost-gauge-text"><div style="font-family:var(--font-mono);font-size:14px;font-weight:600;color:var(--fg)" id="cost-pct-label">42%</div></div>
+                </div>
+                <div class="de-cost-info">
+                  <div class="de-cost-value" id="cost-value">$0.84</div>
+                  <div class="de-cost-budget">预算 $2.00</div>
+                  <div class="de-cost-bar" style="margin-top:8px"><div class="de-cost-bar-info"><span>预算使用</span><span id="cost-bar-pct">42%</span></div><div class="bar"><span id="cost-bar-fill" style="width:42%"></span></div></div>
+                  <div class="de-budget-alert normal" id="budget-alert"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M22 11.08V12a10 10 0 1 1-5.93-9.14"/><polyline points="22 4 12 14.01 9 11.01"/></svg><span id="budget-alert-text">预算充裕</span></div>
+                </div>
+              </div>
+            </div>
+            <div class="de-stat-card">
+              <div class="de-stat-card-title">节点状态分布</div>
+              <div class="de-pie-wrap">
+                <svg class="de-pie" viewBox="0 0 36 36" id="status-pie">
+                  <circle cx="18" cy="18" r="15.9155" fill="none" stroke="var(--success)" stroke-width="4" stroke-dasharray="50 50" stroke-dashoffset="25"/>
+                  <circle cx="18" cy="18" r="15.9155" fill="none" stroke="var(--accent)" stroke-width="4" stroke-dasharray="12.5 87.5" stroke-dashoffset="75"/>
+                  <circle cx="18" cy="18" r="15.9155" fill="none" stroke="var(--warn)" stroke-width="4" stroke-dasharray="37.5 62.5" stroke-dashoffset="62.5"/>
+                </svg>
+                <div class="de-pie-legend">
+                  <div class="de-pie-legend-item"><span class="de-pie-legend-dot" style="background:var(--success)"></span><span>已完成</span><span class="de-pie-legend-val" id="pie-done">4</span></div>
+                  <div class="de-pie-legend-item"><span class="de-pie-legend-dot" style="background:var(--accent)"></span><span>运行中</span><span class="de-pie-legend-val" id="pie-running">1</span></div>
+                  <div class="de-pie-legend-item"><span class="de-pie-legend-dot" style="background:var(--warn)"></span><span>排队中</span><span class="de-pie-legend-val" id="pie-queued">3</span></div>
+                  <div class="de-pie-legend-item"><span class="de-pie-legend-dot" style="background:var(--danger)"></span><span>失败</span><span class="de-pie-legend-val" id="pie-failed">0</span></div>
+                </div>
+              </div>
+            </div>
+            <div class="de-stat-card">
+              <div class="de-stat-card-title">Token 消耗趋势</div>
+              <div class="de-sparkline-card-value" id="token-total">32.1k</div>
+              <div class="de-sparkline-card-label">累计 Token 消耗</div>
+              <svg class="de-sparkline" viewBox="0 0 200 40" preserveAspectRatio="none" id="token-sparkline">
+                <defs><linearGradient id="tokenGrad" x1="0" y1="0" x2="0" y2="1"><stop offset="0%" stop-color="var(--accent)" stop-opacity="0.2"/><stop offset="100%" stop-color="var(--accent)" stop-opacity="0"/></linearGradient></defs>
+                <polygon fill="url(#tokenGrad)" id="token-spark-fill" points="0,40 0,36 25,34 50,30 75,32 100,26 125,22 150,24 175,18 200,14 200,40"/>
+                <polyline fill="none" stroke="var(--accent)" stroke-width="1.5" id="token-spark-line" points="0,36 25,34 50,30 75,32 100,26 125,22 150,24 175,18 200,14"/>
+              </svg>
+            </div>
+            <div class="de-stat-card">
+              <div class="de-stat-card-title">资源监控</div>
+              <div class="de-resource-monitor">
+                <div class="de-resource-item"><div class="de-resource-head"><span class="de-resource-label">CPU 使用率</span><span class="de-resource-value" id="mon-cpu-val">78%</span></div><div class="de-resource-bar"><span class="cpu" id="mon-cpu-bar" style="width:78%"></span></div></div>
+                <div class="de-resource-item"><div class="de-resource-head"><span class="de-resource-label">Memory 使用率</span><span class="de-resource-value" id="mon-mem-val">68%</span></div><div class="de-resource-bar"><span class="mem" id="mon-mem-bar" style="width:68%"></span></div></div>
+                <div class="de-resource-item"><div class="de-resource-head"><span class="de-resource-label">GPU 使用率</span><span class="de-resource-value" id="mon-gpu-val">45%</span></div><div class="de-resource-bar"><span class="gpu" id="mon-gpu-bar" style="width:45%"></span></div></div>
+              </div>
+            </div>
+          </div>
+        </div>
+      </div>
+    </main>
+  </div>
+
+  <div class="toast-host" id="toast-host" aria-live="polite"></div>
+  <div class="de-modal-overlay hidden" id="abort-modal" onclick="closeAbortModal(event)">
+    <div class="de-modal" onclick="event.stopPropagation()">
+      <div class="de-modal-head">确认中止执行</div>
+      <div class="de-modal-body">此操作将立即中止当前工作流的所有节点执行，运行中的训练任务将被终止且无法恢复。确定要中止 <strong>run-ef8a2b41</strong> 吗？</div>
+      <div class="de-modal-footer">
+        <button class="btn btn-secondary btn-sm" onclick="closeAbortModal()">取消</button>
+        <button class="btn btn-sm" style="background:var(--danger);color:#fff" onclick="confirmAbort()">确认中止</button>
+      </div>
+    </div>
+  </div>
+
+  <script>
+  (function() {
+    'use strict';
+
+    // Sidebar
+    var app = document.getElementById('app');
+    var collapseBtn = document.getElementById('collapse-btn');
+    if (collapseBtn) {
+      collapseBtn.addEventListener('click', function() {
+        var c = app.getAttribute('data-collapsed') === 'true';
+        app.setAttribute('data-collapsed', c ? 'false' : 'true');
+        var tx = document.getElementById('collapse-tx');
+        var ic = document.getElementById('collapse-ic');
+        if (tx) tx.textContent = c ? '折叠' : '展开';
+        if (ic) ic.style.transform = c ? '' : 'rotate(180deg)';
+      });
+    }
+
+    var menuBtn = document.querySelector('.mobile-menu-btn');
+    if (menuBtn && app) {
+      menuBtn.addEventListener('click', function() {
+        var o = app.getAttribute('data-mobile-nav') === 'open';
+        app.setAttribute('data-mobile-nav', o ? 'closed' : 'open');
+      });
+    }
+
+    var searchInput = document.querySelector('.topbar-search input');
+    if (searchInput) {
+      document.addEventListener('keydown', function(e) {
+        if ((e.metaKey || e.ctrlKey) && e.key.toLowerCase() === 'k') { e.preventDefault(); searchInput.focus(); }
+        if (e.key === 'Escape' && document.activeElement === searchInput) searchInput.blur();
+      });
+    }
+
+    // Queue filters
+    document.querySelectorAll('.de-queue-filters button').forEach(function(btn) {
+      btn.addEventListener('click', function() {
+        document.querySelectorAll('.de-queue-filters button').forEach(function(b) { b.setAttribute('aria-pressed', 'false'); });
+        btn.setAttribute('aria-pressed', 'true');
+        var f = btn.textContent.trim();
+        var map = {'全部':null,'排队中':'queued','运行中':'running','已完成':'done'};
+        document.querySelectorAll('.de-task-card').forEach(function(card) {
+          card.style.display = (!map[f]) ? '' : (card.getAttribute('data-status') === map[f] ? '' : 'none');
+        });
+      });
+    });
+
+    // Task selection
+    document.querySelectorAll('.de-task-card').forEach(function(card) {
+      card.addEventListener('click', function(e) {
+        if (e.target.closest('.de-task-action-btn')) return;
+        document.querySelectorAll('.de-task-card').forEach(function(c) { c.classList.remove('active'); });
+        card.classList.add('active');
+      });
+    });
+
+    // Drag & drop
+    var dragSrc = null;
+    var qBody = document.getElementById('queue-body');
+    if (qBody) {
+      qBody.addEventListener('dragstart', function(e) { var c = e.target.closest('.de-task-card'); if (!c) return; dragSrc = c; c.classList.add('dragging'); e.dataTransfer.effectAllowed = 'move'; });
+      qBody.addEventListener('dragover', function(e) { e.preventDefault(); e.dataTransfer.dropEffect = 'move'; var c = e.target.closest('.de-task-card'); if (c && c !== dragSrc) c.classList.add('drag-over'); });
+      qBody.addEventListener('dragleave', function(e) { var c = e.target.closest('.de-task-card'); if (c) c.classList.remove('drag-over'); });
+      qBody.addEventListener('drop', function(e) { e.preventDefault(); var c = e.target.closest('.de-task-card'); if (c && c !== dragSrc && dragSrc) { c.classList.remove('drag-over'); var all = Array.from(qBody.querySelectorAll('.de-task-card')); var si = all.indexOf(dragSrc), ti = all.indexOf(c); if (si < ti) qBody.insertBefore(dragSrc, c.nextSibling); else qBody.insertBefore(dragSrc, c); toast('任务优先级已调整'); } });
+      qBody.addEventListener('dragend', function() { if (dragSrc) dragSrc.classList.remove('dragging'); document.querySelectorAll('.drag-over').forEach(function(c) { c.classList.remove('drag-over'); }); dragSrc = null; });
+    }
+
+    window.cancelTask = function(btn) { var card = btn.closest('.de-task-card'); toast('已取消任务 ' + card.querySelector('.de-task-id').textContent.trim()); };
+    window.skipTask = function(btn) { var card = btn.closest('.de-task-card'); toast('已跳过任务 ' + card.querySelector('.de-task-id').textContent.trim()); };
+
+    // Run ID copy
+    document.getElementById('run-id-copy').addEventListener('click', function() {
+      var id = this.childNodes[0].textContent.trim();
+      if (navigator.clipboard) navigator.clipboard.writeText(id).then(function() { toast('Run ID 已复制: ' + id); });
+      else toast('Run ID: ' + id);
+    });
+
+    // Timeline detail toggle
+    document.querySelectorAll('.de-tl-toggle').forEach(function(btn) {
+      btn.addEventListener('click', function() {
+        var d = document.getElementById(btn.getAttribute('data-detail'));
+        if (d) { var o = d.classList.contains('open'); d.classList.toggle('open'); btn.textContent = o ? '展开详情' : '收起详情'; }
+      });
+    });
+
+    // Timeline filter
+    var tlFilter = 'all';
+    window.toggleTimelineFilter = function(type) {
+      var btn = document.getElementById('filter-' + type);
+      var other = type === 'failed' ? document.getElementById('filter-running') : document.getElementById('filter-failed');
+      if (tlFilter === type) { tlFilter = 'all'; btn.classList.remove('active', 'active-running'); }
+      else { tlFilter = type; btn.classList.add(type === 'failed' ? 'active' : 'active-running'); other.classList.remove('active', 'active-running'); }
+      document.querySelectorAll('.de-tl-node').forEach(function(n) {
+        n.style.display = (tlFilter === 'all' || n.getAttribute('data-status') === tlFilter) ? '' : 'none';
+      });
+    };
+
+    // Pause
+    var isPaused = false;
+    window.togglePause = function() {
+      isPaused = !isPaused;
+      var btn = document.getElementById('btn-pause'), txt = document.getElementById('btn-pause-text');
+      if (isPaused) { txt.textContent = '继续执行'; btn.classList.remove('btn-warn'); btn.classList.add('btn-accent'); btn.querySelector('svg').innerHTML = '<polygon points="5 3 19 12 5 21 5 3"/>'; toast('执行已暂停'); }
+      else { txt.textContent = '暂停执行'; btn.classList.remove('btn-accent'); btn.classList.add('btn-warn'); btn.querySelector('svg').innerHTML = '<rect x="6" y="4" width="4" height="16"/><rect x="14" y="4" width="4" height="16"/>'; toast('执行已继续'); }
+    };
+
+    // Abort modal
+    window.showAbortModal = function() { document.getElementById('abort-modal').classList.remove('hidden'); };
+    window.closeAbortModal = function(e) { if (e && e.target !== e.currentTarget) return; var m = document.getElementById('abort-modal'); m.classList.add('closing'); setTimeout(function() { m.classList.add('hidden'); m.classList.remove('closing'); }, 150); };
+    window.confirmAbort = function() { closeAbortModal(); toast('执行已中止'); };
+
+    // Rerun dropdown
+    window.toggleRerunMenu = function() { document.getElementById('rerun-dropdown').classList.toggle('hidden'); };
+    window.closeRerun = function() { document.getElementById('rerun-dropdown').classList.add('hidden'); };
+    document.addEventListener('click', function(e) { if (!e.target.closest('#btn-rerun') && !e.target.closest('#rerun-dropdown')) document.getElementById('rerun-dropdown').classList.add('hidden'); });
+
+    // === Log Stream ===
+    var logBody = document.getElementById('log-body');
+    var logPaused = false, logLevel = 'all', logUserScrolled = false, logIdx = 0;
+    var sampleLogs = [
+      {level:'info',text:'epoch 143/500 | reward: 4891.7 | entropy: 2.13 | lr=3e-4'},
+      {level:'info',text:'loss={pg:0.0178 vf:0.0338 ent:0.0085} steps=2048'},
+      {level:'info',text:'Evaluating policy at step 292352...'},
+      {level:'info',text:'Episode 312: reward=5124.1, length=1000'},
+      {level:'warn',text:'Gradient norm spike: 2.84 (threshold: 2.0), clipping applied'},
+      {level:'info',text:'Checkpoint saved: model_ppo_humanoid_epoch145.pt'},
+      {level:'info',text:'epoch 146/500 | reward: 5012.9 | entropy: 2.11'},
+      {level:'info',text:'Memory usage: 712 MB / 1024 MB'},
+      {level:'error',text:'stderr: OpenAI Gym warning: State shape observation mismatch (expected 376, got 378)'},
+      {level:'info',text:'epoch 148/500 | reward: 5103.4 | entropy: 2.09 | lr=3e-4'},
+      {level:'warn',text:'Episode reward dropped below rolling mean - monitoring'},
+      {level:'info',text:'loss={pg:0.0165 vf:0.0312 ent:0.0081} steps=4096'},
+      {level:'info',text:'Buffer utilization: 82% | Replay ratio: 1.2x'},
+      {level:'error',text:'stderr: CUDA out-of-memory warning: using fallback CPU allocation'},
+      {level:'info',text:'epoch 150/500 | reward: 5234.8 | entropy: 2.07'},
+      {level:'info',text:'Rolling mean reward (100 ep): 5012.3'},
+      {level:'info',text:'Saving tensorboard logs to /data/runs/exp_001'},
+      {level:'warn',text:'Entropy coefficient approaching minimum (0.005), consider annealing schedule'},
+      {level:'info',text:'epoch 152/500 | reward: 5342.1 | entropy: 2.05 | lr=3e-4'},
+    ];
+
+    function escHtml(t) { var d = document.createElement('div'); d.textContent = t; return d.innerHTML; }
+    function addLog(ld) {
+      var now = new Date();
+      var ts = String(now.getHours()).padStart(2,'0')+':'+String(now.getMinutes()).padStart(2,'0')+':'+String(now.getSeconds()).padStart(2,'0');
+      var line = document.createElement('div');
+      line.className = 'de-log-line' + (ld.level==='error' ? ' stderr' : '');
+      line.setAttribute('data-level', ld.level);
+      line.innerHTML = '<span class="de-log-ts">'+ts+'</span><span class="de-log-level '+ld.level+'">'+ld.level.toUpperCase()+'</span><span class="de-log-text">'+escHtml(ld.text)+'</span>';
+      logBody.appendChild(line);
+      applyLogFilters();
+      if (!logUserScrolled) logBody.scrollTop = logBody.scrollHeight;
+    }
+
+    logBody.addEventListener('scroll', function() { logUserScrolled = (logBody.scrollHeight - logBody.scrollTop - logBody.clientHeight) > 40; });
+
+    window.setLogLevel = function(lv) {
+      logLevel = lv;
+      document.querySelectorAll('.de-log-level-btns button').forEach(function(b) { b.classList.toggle('active', b.getAttribute('data-level') === lv); });
+      applyLogFilters();
+    };
+    window.filterLogs = applyLogFilters;
+    function applyLogFilters() {
+      var kw = document.getElementById('log-search').value.trim().toLowerCase();
+      logBody.querySelectorAll('.de-log-line').forEach(function(line) {
+        var lvl = line.getAttribute('data-level'), vis = true;
+        if (logLevel !== 'all' && lvl !== logLevel) vis = false;
+        if (kw) { var txt = line.querySelector('.de-log-text'); if (txt) { var raw = txt.textContent.toLowerCase(); if (raw.indexOf(kw) === -1) vis = false; else { var h = escHtml(txt.textContent); var re = new RegExp('(' + kw.replace(/[.*+?^${}()|[\]\\]/g,'\\$&') + ')','gi'); txt.innerHTML = h.replace(re, '<mark>$1</mark>'); } } }
+        else { var txt = line.querySelector('.de-log-text'); if (txt) txt.innerHTML = escHtml(txt.textContent); }
+        line.style.display = vis ? '' : 'none';
+      });
+    }
+
+    window.toggleLogPause = function() {
+      logPaused = !logPaused;
+      var btn = document.getElementById('log-pause-btn'), txt = document.getElementById('log-pause-text'), ic = document.getElementById('log-pause-icon'), dot = document.getElementById('log-live-dot');
+      if (logPaused) { btn.classList.add('active'); txt.textContent = '继续'; ic.innerHTML = '<polygon points="5 3 19 12 5 21 5 3"/>'; dot.classList.add('paused'); }
+      else { btn.classList.remove('active'); txt.textContent = '暂停'; ic.innerHTML = '<rect x="6" y="4" width="4" height="16"/><rect x="14" y="4" width="4" height="16"/>'; dot.classList.remove('paused'); }
+    };
+    window.clearLogs = function() { logBody.innerHTML = ''; toast('日志已清空'); };
+
+    // Seed initial logs
+    addLog({level:'info',text:'daemon-01: 收到 task-a3f9c2e1，开始执行 flow_repro_01'});
+    addLog({level:'info',text:'git clone --depth 1 --branch v2.3.2 https://github.com/DLR-RM/stable-baselines3'});
+    addLog({level:'info',text:'源码拉取完成，开始安装依赖...'});
+    addLog({level:'info',text:'mujoco==2.3.7, gymnasium[mujoco]==0.29.1 installed'});
+    addLog({level:'info',text:'环境就绪。注入 PPOConfig: lr=3e-4, n_steps=2048, batch=64'});
+    addLog({level:'info',text:'校验通过，开始训练...'});
+    addLog({level:'info',text:'epoch 142/500 | reward: 4872.3 | entropy: 2.14'});
+    addLog({level:'warn',text:'Gradient norm spike: 2.65, clipping applied'});
+    addLog({level:'error',text:'stderr: Warning: Observation space dimension mismatch'});
+    addLog({level:'info',text:'epoch 143/500 | reward: 4891.7 | entropy: 2.13 | lr=3e-4'});
+
+    setInterval(function() { if (!logPaused) { addLog(sampleLogs[logIdx % sampleLogs.length]); logIdx++; } }, 2000);
+
+    // Log input
+    var logTa = document.getElementById('log-textarea');
+    window.sendLogCommand = function() {
+      var t = logTa.value.trim(); if (!t) return;
+      var now = new Date(), ts = String(now.getHours()).padStart(2,'0')+':'+String(now.getMinutes()).padStart(2,'0');
+      var line = document.createElement('div'); line.className = 'de-log-line'; line.setAttribute('data-level', 'info');
+      line.innerHTML = '<span class="de-log-ts">'+ts+'</span><span class="de-log-level" style="color:var(--fg)">CMD</span><span class="de-log-text" style="color:var(--fg);font-weight:500">'+escHtml(t)+'</span>';
+      logBody.appendChild(line); applyLogFilters(); logBody.scrollTop = logBody.scrollHeight; logTa.value = ''; logTa.style.height = 'auto';
+    };
+    if (logTa) { logTa.addEventListener('input', function() { logTa.style.height = 'auto'; logTa.style.height = Math.min(logTa.scrollHeight, 80) + 'px'; }); logTa.addEventListener('keydown', function(e) { if (e.key === 'Enter' && !e.shiftKey) { e.preventDefault(); sendLogCommand(); } }); }
+
+    // === Statistics Updates ===
+    var costVal = 0.84;
+    function updateCost() {
+      costVal = Math.min(2.0, costVal + (Math.random() * 0.06 + 0.02));
+      var pct = costVal / 2.0, pStr = Math.round(pct*100)+'%';
+      document.getElementById('cost-value').textContent = '$'+costVal.toFixed(2);
+      document.getElementById('cost-pct-label').textContent = Math.round(pct*100)+'%';
+      document.getElementById('cost-bar-pct').textContent = pStr;
+      document.getElementById('cost-bar-fill').style.width = pStr;
+      document.getElementById('cost-arc').setAttribute('stroke-dasharray', (pct*100)+', 100');
+      document.getElementById('stat-cost').textContent = '$'+costVal.toFixed(2);
+      var arc = document.getElementById('cost-arc'), bf = document.getElementById('cost-bar-fill'), al = document.getElementById('budget-alert'), at = document.getElementById('budget-alert-text');
+      if (pct > 0.95) { arc.setAttribute('stroke','var(--danger)'); bf.style.background='var(--danger)'; al.className='de-budget-alert critical'; at.textContent='预算即将耗尽！'; }
+      else if (pct > 0.80) { arc.setAttribute('stroke','var(--warn)'); bf.style.background='var(--warn)'; al.className='de-budget-alert warning'; at.textContent='预算使用较高'; }
+      else { arc.setAttribute('stroke','var(--accent)'); bf.style.background='var(--accent)'; al.className='de-budget-alert normal'; at.textContent='预算充裕'; }
+    }
+
+    function updateResources() {
+      var cpu = Math.round(60+Math.random()*30), mem = Math.round(50+Math.random()*35), gpu = Math.round(30+Math.random()*40);
+      document.getElementById('mon-cpu-val').textContent = cpu+'%'; document.getElementById('mon-cpu-bar').style.width = cpu+'%';
+      document.getElementById('mon-mem-val').textContent = mem+'%'; document.getElementById('mon-mem-bar').style.width = mem+'%';
+      document.getElementById('mon-gpu-val').textContent = gpu+'%'; document.getElementById('mon-gpu-bar').style.width = gpu+'%';
+      var tc = document.getElementById('train-cpu'), tcb = document.getElementById('train-cpu-bar');
+      if (tc) { tc.textContent = cpu+'%'; tcb.style.width = cpu+'%'; }
+      var tm = document.getElementById('train-mem'), tmb = document.getElementById('train-mem-bar');
+      if (tm) { var mb = Math.round(400+Math.random()*400); tm.textContent = mb+' MB'; tmb.style.width = Math.round(mb/10)+'%'; }
+    }
+
+    var tokPts = [36,34,30,32,26,22,24,18,14], tokTotal = 32100;
+    function updateTokenSparkline() {
+      var last = tokPts[tokPts.length-1], nv = Math.max(4, last + (Math.random()*4-2));
+      tokPts.push(nv); if (tokPts.length > 10) tokPts.shift();
+      tokTotal += Math.round(Math.random()*2000+500);
+      var pts = tokPts.map(function(v,i) { return (i/(tokPts.length-1)*200)+','+(40-(v/40*40)); }).join(' ');
+      document.getElementById('token-spark-line').setAttribute('points', pts);
+      document.getElementById('token-spark-fill').setAttribute('points', '0,40 '+pts+' 200,40');
+      document.getElementById('token-total').textContent = (tokTotal/1000).toFixed(1)+'k';
+    }
+
+    var trainEpoch = 142;
+    function updateTraining() {
+      trainEpoch = Math.min(500, trainEpoch + 1);
+      var rw = (4800+trainEpoch*3+Math.random()*200).toFixed(1), ent = (2.14-trainEpoch*0.002).toFixed(2);
+      var pg = (0.0182-trainEpoch*0.00002).toFixed(4), vf = (0.0341-trainEpoch*0.00003).toFixed(4), el = (0.0087-trainEpoch*0.00001).toFixed(4);
+      var out = document.getElementById('training-output');
+      if (out) out.textContent = 'epoch '+trainEpoch+'/500 | reward: '+rw+' | entropy: '+ent+'\nloss={pg:'+pg+' vf:'+vf+' ent:'+el+'}\nlearning_rate=3e-4 | n_steps=2048 | batch=64';
+      var dur = document.getElementById('training-duration');
+      if (dur) { var m = Math.floor(trainEpoch/50), s = (trainEpoch%50)*2; dur.textContent = m+'m '+s+'s...'; }
+      var pv = Math.min(100, Math.round(trainEpoch/500*100));
+      document.getElementById('progress-pct').textContent = pv+'%';
+      document.getElementById('progress-bar').style.width = pv+'%';
+      document.getElementById('stat-progress').textContent = Math.min(8, 4+Math.floor(trainEpoch/120))+' / 8';
+    }
+
+    setInterval(updateCost, 4000);
+    setInterval(updateResources, 3000);
+    setInterval(updateTokenSparkline, 5000);
+    setInterval(updateTraining, 6000);
+
+    // Toast
+    window.toast = function(msg) {
+      var host = document.getElementById('toast-host'), el = document.createElement('div');
+      el.className = 'toast';
+      el.innerHTML = '<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.2" stroke-linecap="round" stroke-linejoin="round"><path d="m20 6-11 11-5-5"/></svg><span>'+msg+'</span>';
+      host.appendChild(el);
+      setTimeout(function() { el.style.opacity = '0'; el.style.transition = 'opacity 200ms'; setTimeout(function() { el.remove(); }, 220); }, 2400);
+    };
+  })();
+  </script>
+  <script src="js/app.js"></script>
+</body>
+</html>

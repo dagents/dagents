@@ -3,7 +3,7 @@
 <head>
   <meta charset="utf-8" />
   <meta name="viewport" content="width=device-width, initial-scale=1" />
-  <title>Agent 详情 · Mega Agents</title>
+  <title>Agent 详情 · DAgent</title>
   <link rel="stylesheet" href="css/tokens.css" />
   <link rel="stylesheet" href="css/shell.css" />
   <style>
@@ -16,25 +16,38 @@
 
     /* ── inspector (left) ── */
     .inspector { background: var(--bg); border: 1px solid var(--border-soft); border-radius: var(--radius-md); padding: var(--space-5); display: flex; flex-direction: column; gap: var(--space-4); height: fit-content; position: sticky; top: var(--space-4); }
-    .ins-head { display: flex; gap: var(--space-3); align-items: flex-start; }
+    .ins-head { display: flex; gap: var(--space-3); align-items: flex-start; justify-content: space-between; }
+    .ins-head-left { display: flex; gap: var(--space-3); align-items: flex-start; min-width: 0; }
     .ins-avatar { width: 56px; height: 56px; border-radius: 12px; display: grid; place-items: center; font-family: var(--font-mono); font-size: 20px; font-weight: 600; flex-shrink: 0; border: 1px solid var(--border-soft); }
+    .ins-avatar.kind-prompt  { background: #f5f0e8; color: #8b6914; }
     .ins-avatar.kind-claude { background: #f4eee6; color: #8b5a2b; }
-    .ins-avatar.kind-codex { background: #eef4ee; color: #1f6b3f; }
+    .ins-avatar.kind-codex  { background: #eef4ee; color: #1f6b3f; }
     .ins-avatar.kind-reader { background: var(--accent-soft); color: var(--accent-hover); }
     .ins-avatar.kind-verify { background: var(--info-soft); color: var(--info); }
+    .ins-avatar.kind-remote { background: #f0ecf8; color: #6b3fa0; }
     .ins-name { font-size: var(--text-base); font-weight: 600; color: var(--fg); }
     .ins-desc { font-size: 12px; color: var(--muted); margin-top: 4px; line-height: 1.5; }
     .ins-presence { display: inline-flex; align-items: center; gap: 6px; margin-top: 6px; font-size: 11px; }
+    .ins-edit-btn { flex-shrink: 0; }
 
     .prop-row { display: grid; grid-template-columns: 84px 1fr; gap: var(--space-2); align-items: center; padding: 6px 0; font-size: var(--text-sm); }
     .prop-row + .prop-row { border-top: 1px solid var(--border-soft); }
     .prop-row .lbl { color: var(--muted); font-size: 12px; }
     .prop-row .val { color: var(--fg); font-weight: 500; min-width: 0; }
     .prop-row .val.mono { font-family: var(--font-mono); font-size: 12px; font-weight: 400; }
-    .prop-row .val .pick { display: inline-flex; align-items: center; gap: 4px; padding: 3px 8px; background: var(--surface); border: 1px solid var(--border-soft); border-radius: 6px; font-size: 12px; }
+    .prop-row .val .pick { display: inline-flex; align-items: center; gap: 4px; padding: 3px 8px; background: var(--surface); border: 1px solid var(--border-soft); border-radius: 6px; font-size: 12px; cursor: default; }
+    .prop-row .val .pick.clickable { cursor: pointer; transition: text-decoration var(--motion-fast); }
+    .prop-row .val .pick.clickable:hover { text-decoration: underline; }
+    .prop-row .val .edit-input { width: 100%; height: 30px; padding: 0 var(--space-2); background: var(--surface-warm); border: 1px solid var(--border); border-radius: 6px; font-size: 12px; font-family: inherit; color: var(--fg); outline: none; }
+    .prop-row .val .edit-input:focus { border-color: var(--accent); box-shadow: var(--focus-ring); }
+    .prop-row .val .edit-select { height: 30px; padding: 0 var(--space-2); background: var(--surface-warm); border: 1px solid var(--border); border-radius: 6px; font-size: 12px; font-family: inherit; color: var(--fg); outline: none; cursor: pointer; }
+    .prop-row .val .edit-select:focus { border-color: var(--accent); box-shadow: var(--focus-ring); }
 
     .skill-chips { display: flex; flex-wrap: wrap; gap: 4px; }
-    .skill-chip { font-size: 11px; padding: 2px 8px; background: var(--surface); border-radius: 6px; color: var(--muted); font-weight: 500; }
+    .skill-chip { font-size: 11px; padding: 2px 8px; background: var(--surface); border-radius: 6px; color: var(--muted); font-weight: 500; display: inline-flex; align-items: center; gap: 4px; transition: opacity var(--motion-base), transform var(--motion-base); cursor: default; }
+    .skill-chip .chip-x { width: 12px; height: 12px; display: grid; place-items: center; border-radius: 3px; color: var(--meta); font-size: 10px; cursor: pointer; transition: background var(--motion-fast), color var(--motion-fast); }
+    .skill-chip .chip-x:hover { background: var(--danger-soft); color: var(--danger); }
+    .skill-chip.fading { opacity: 0; transform: scale(0.8); pointer-events: none; }
 
     .ins-section-label { font-size: 11px; color: var(--meta); letter-spacing: var(--tracking-label); text-transform: uppercase; margin-bottom: var(--space-2); }
 
@@ -53,25 +66,75 @@
     .act-kpi { background: var(--surface-warm); border: 1px solid var(--border-soft); border-radius: var(--radius-sm); padding: var(--space-4); }
     .act-kpi .v { font-family: var(--font-mono); font-size: 22px; font-weight: 500; color: var(--fg); letter-spacing: -0.02em; }
     .act-kpi .l { font-size: 11px; color: var(--muted); margin-top: 4px; }
+    .act-kpi .delta { font-size: 11px; font-weight: 500; margin-top: 2px; display: inline-flex; align-items: center; gap: 3px; }
+    .act-kpi .delta.up { color: var(--accent-hover); }
+    .act-kpi .delta.down { color: var(--danger); }
+    .act-kpi .delta.flat { color: var(--muted); }
+    .act-chart-wrap { position: relative; }
+    .chart-tooltip { position: absolute; pointer-events: none; background: var(--fg); color: var(--bg); font-size: 11px; font-family: var(--font-mono); padding: 4px 8px; border-radius: 6px; white-space: nowrap; opacity: 0; transition: opacity var(--motion-fast); z-index: 10; }
+    .chart-tooltip.visible { opacity: 1; }
     .act-chart { width: 100%; height: 120px; display: block; }
-    .act-chart-bar { fill: var(--accent); }
+    .act-chart-bar { fill: var(--accent); transition: opacity var(--motion-fast); cursor: pointer; }
+    .act-chart-bar:hover { opacity: 0.8; }
     .act-chart-bar.fail { fill: var(--danger); }
     .act-axis-row { display: flex; justify-content: space-between; margin-top: 4px; font-size: 10px; font-family: var(--font-mono); color: var(--meta); }
     .act-recent { margin-top: var(--space-5); }
-    .act-recent-item { display: flex; gap: var(--space-3); padding: var(--space-2) 0; font-size: var(--text-sm); border-bottom: 1px solid var(--border-soft); }
+    .act-recent-item { display: flex; gap: var(--space-3); padding: var(--space-2) 0; font-size: var(--text-sm); border-bottom: 1px solid var(--border-soft); align-items: center; }
     .act-recent-item:last-child { border-bottom: 0; }
+    .act-icon { width: 20px; height: 20px; flex-shrink: 0; display: grid; place-items: center; border-radius: 6px; }
+    .act-icon.ok { background: var(--success-soft); color: var(--success); }
+    .act-icon.err { background: var(--danger-soft); color: var(--danger); }
+    .act-icon.info { background: var(--info-soft); color: var(--info); }
+    .act-icon.warn { background: var(--warn-soft); color: var(--warn); }
+    .act-icon svg { width: 12px; height: 12px; }
 
     /* instructions tab */
-    .instr { background: var(--surface-warm); border: 1px solid var(--border-soft); border-radius: var(--radius-sm); padding: var(--space-4); font-size: var(--text-sm); color: var(--fg-2); line-height: 1.7; white-space: pre-wrap; }
+    .instr-wrap { position: relative; }
+    .instr-copy-btn { position: absolute; top: var(--space-3); right: var(--space-3); }
+    .instr { background: var(--surface-warm); border: 1px solid var(--border-soft); border-radius: var(--radius-sm); padding: var(--space-4); font-size: var(--text-sm); color: var(--fg-2); line-height: 1.7; white-space: pre-wrap; overflow-x: auto; }
+    .instr .line { display: flex; min-height: 20px; }
+    .instr .line-num { width: 36px; flex-shrink: 0; text-align: right; padding-right: var(--space-3); color: var(--meta); font-family: var(--font-mono); font-size: 11px; user-select: none; border-right: 1px solid var(--border-soft); margin-right: var(--space-3); }
+    .instr .line-content { flex: 1; }
+    .syn-role { color: var(--accent-hover); font-weight: 600; }
+    .syn-content { color: var(--info); font-weight: 500; }
+    .syn-model { color: var(--warn); font-weight: 500; }
+    .syn-key { color: var(--danger); }
+    .syn-temp { color: #9b59b6; font-weight: 500; }
+    .toast { position: fixed; bottom: var(--space-8); left: 50%; transform: translateX(-50%) translateY(20px); background: var(--fg); color: var(--bg); padding: var(--space-3) var(--space-5); border-radius: var(--radius-sm); font-size: var(--text-sm); font-weight: 500; opacity: 0; transition: opacity var(--motion-base), transform var(--motion-base); z-index: 200; pointer-events: none; }
+    .toast.show { opacity: 1; transform: translateX(-50%) translateY(0); }
 
     /* skills tab */
     .skills-grid { display: grid; grid-template-columns: repeat(auto-fill, minmax(180px,1fr)); gap: var(--space-3); }
-    .skill-card { background: var(--bg); border: 1px solid var(--border-soft); border-radius: var(--radius-sm); padding: var(--space-3); }
+    .skill-card { background: var(--bg); border: 1px solid var(--border-soft); border-radius: var(--radius-sm); padding: var(--space-3); position: relative; transition: box-shadow var(--motion-fast); }
+    .skill-card:hover { box-shadow: var(--elev-raised); }
     .skill-card .nm { font-size: var(--text-sm); font-weight: 500; color: var(--fg); font-family: var(--font-mono); }
     .skill-card .ds { font-size: 11px; color: var(--muted); margin-top: 4px; line-height: 1.5; }
+    .skill-card .progress-row { display: flex; align-items: center; gap: var(--space-2); margin-top: 6px; }
+    .skill-card .progress-text { font-size: 10px; color: var(--meta); font-family: var(--font-mono); }
+    .skill-card .progress-bar { flex: 1; height: 4px; background: var(--surface); border-radius: var(--radius-pill); overflow: hidden; }
+    .skill-card .progress-bar > span { display: block; height: 100%; background: var(--accent); border-radius: var(--radius-pill); }
+    .skill-card .unload-btn { position: absolute; top: var(--space-2); right: var(--space-2); opacity: 0; transition: opacity var(--motion-fast); }
+    .skill-card:hover .unload-btn { opacity: 1; }
+    .skill-add-card { background: transparent; border: 2px dashed var(--border); border-radius: var(--radius-sm); padding: var(--space-4); display: flex; align-items: center; justify-content: center; gap: var(--space-2); font-size: var(--text-sm); color: var(--muted); cursor: pointer; transition: border-color var(--motion-fast), color var(--motion-fast), background var(--motion-fast); min-height: 80px; }
+    .skill-add-card:hover { border-color: var(--accent); color: var(--accent-hover); background: var(--accent-soft); }
 
     /* logs tab */
-    .log { font-family: var(--font-mono); font-size: 12px; line-height: 1.6; }
+    .log-toolbar { display: flex; align-items: center; gap: var(--space-3); margin-bottom: var(--space-4); flex-wrap: wrap; }
+    .log-search { position: relative; flex: 1; min-width: 160px; max-width: 280px; }
+    .log-search input { width: 100%; height: 32px; padding: 0 var(--space-3) 0 28px; background: var(--bg); border: 1px solid var(--border); border-radius: var(--radius-sm); font-size: var(--text-sm); }
+    .log-search input:focus { border-color: var(--accent); box-shadow: var(--focus-ring); outline: none; }
+    .log-search svg { position: absolute; left: 8px; top: 8px; width: 14px; height: 14px; color: var(--meta); }
+    .log-filter-chips { display: inline-flex; gap: 2px; background: var(--surface); border-radius: var(--radius-sm); padding: 3px; }
+    .log-filter-chips button { border: 0; background: transparent; padding: 4px var(--space-2); border-radius: 6px; font-size: 11px; font-weight: 500; color: var(--muted); cursor: pointer; transition: background var(--motion-fast), color var(--motion-fast); }
+    .log-filter-chips button:hover { color: var(--fg); }
+    .log-filter-chips button[aria-pressed="true"] { background: var(--bg); color: var(--fg); box-shadow: var(--elev-ring); }
+    .log-export-btn { margin-left: auto; }
+    .log-expandable { cursor: pointer; transition: background var(--motion-fast); border-radius: 4px; }
+    .log-expandable:hover { background: rgba(0,0,0,0.03); }
+    .log-detail { display: none; padding: var(--space-2) 0 var(--space-2) 60px; font-size: 11px; color: var(--muted); line-height: 1.6; background: var(--surface-warm); margin: 2px 0; border-radius: 4px; border: 1px solid var(--border-soft); }
+    .log-detail.expanded { display: block; }
+    .log-detail dt { color: var(--meta); font-size: 10px; letter-spacing: 0.04em; text-transform: uppercase; margin-top: var(--space-2); }
+    .log-detail dd { font-family: var(--font-mono); color: var(--fg-2); }
 
     /* skeleton */
     .sk { display: inline-block; border-radius: 6px; background: linear-gradient(90deg, var(--surface) 25%, var(--surface-warm) 50%, var(--surface) 75%); background-size: 200% 100%; animation: shimmer 1.4s infinite; }
@@ -81,16 +144,20 @@
     .not-found .h { font-size: var(--text-base); font-weight: 600; color: var(--fg); margin-bottom: var(--space-2); }
     .not-found .d { font-size: var(--text-sm); color: var(--muted); margin-bottom: var(--space-4); }
 
+    /* pulse animation for running status */
+    @keyframes pulse { 0%, 100% { opacity: 1; } 50% { opacity: 0.5; } }
+    .status.running .dot { animation: pulse 1.5s ease-in-out infinite; }
+
     @media (max-width: 1024px) { .detail-layout { grid-template-columns: 1fr; } .inspector { position: static; } }
     @media (max-width: 560px) { .act-kpi-row { grid-template-columns: 1fr; } .skills-grid { grid-template-columns: 1fr; } }
-    @media (prefers-reduced-motion: reduce) { .sk { animation: none; } .tab, .detail-back { transition: none; } }
+    @media (prefers-reduced-motion: reduce) { .sk { animation: none; } .tab, .detail-back, .skill-chip, .chart-tooltip, .toast { transition: none; } .status.running .dot { animation: none; } }
   </style>
 </head>
 <body>
   <div class="app" id="app">
     <aside class="app-sidebar" data-od-id="sidebar">
-      <div class="brand"><div class="brand-mark">M</div><div><div class="brand-name">Mega Agents</div><div class="brand-sub">控制台 · v0.2</div></div></div>
-      <nav class="nav" aria-label="主导航"></nav>
+      <div class="brand"><div class="brand-mark">D</div><div><div class="brand-name">DAgent</div><div class="brand-sub">控制台 · v0.2</div></div></div>
+      <nav class="nav" id="main-nav" aria-label="主导航"></nav>
       <div class="sidebar-footer"></div>
     </aside>
 
@@ -141,128 +208,442 @@
     </main>
   </div>
 
+  <div class="toast" id="toast"></div>
+
   <script>window.OD_NAV = { active: 'agents' };</script>
   <script src="js/workspace-data.js"></script>
   <script src="js/app.js"></script>
   <script src="js/agents-data.js"></script>
   <script>
     document.addEventListener('DOMContentLoaded', () => {
-      const S = window.OD.svg;
-      document.getElementById('ic').innerHTML = S.search;
-      document.getElementById('bell').innerHTML = S.bell;
-      document.querySelector('.mobile-menu-btn').innerHTML = S.menu;
+      const S = window.OD && window.OD.svg ? window.OD.svg : {};
+      const icEl = document.getElementById('ic');
+      const bellEl = document.getElementById('bell');
+      const menuEl = document.querySelector('.mobile-menu-btn');
+      if (S.search && icEl) icEl.innerHTML = S.search;
+      if (S.bell && bellEl) bellEl.innerHTML = S.bell;
+      if (S.menu && menuEl) menuEl.innerHTML = S.menu;
+
+      // ── Preset agents for ?id= parameter ──
+      function makeBuckets(spec) {
+        const out = [];
+        const lead = 30 - spec.length;
+        for (let i = 0; i < lead; i++) out.push({ total: 0, ok: 0, fail: 0 });
+        spec.forEach(([total, fail]) => out.push({ total, ok: total - fail, fail }));
+        return out;
+      }
+
+      const PRESET_AGENTS = {
+        'claude-code': {
+          id: 'agent_cc_01', name: 'Claude Code · 主力编辑器', kind: 'claude',
+          roles: ['coding', 'review'], status: 'running', availability: 'online',
+          region: 'ap-northeast', daemon: 'daemon-09', run: 'R-9001', flow: 'flow-code-edit',
+          load: 85, cost: '$267.40', progress: 47, elapsed: '3m28s',
+          inputSchema: '{file_uri, instruction}', outputSchema: '{patch, summary}',
+          summary: '基于 Claude Code 的主力代码编辑 agent，负责代码生成、重构与 PR review。',
+          instructions: '你是一名资深代码编辑 agent。role：阅读上下文，理解需求，生成高质量补丁。\n任务：对给定文件执行 instruction 描述的修改，保持代码风格一致。\n\n能力：\n- 支持多文件跨模块修改\n- 自动运行 lint 检查\n- 生成语义化 commit message\n\n模型配置：claude-sonnet-4，temperature=0.2\n输出 content 必须为 valid unified diff。',
+          skills: ['python', 'pytorch', 'git-diff', 'sandbox-exec', 'metrics-cmp'],
+          visibility: 'workspace', concurrency: 2, model: 'claude-sonnet-4',
+          runtime: 'claude-code · daemon-09', owner: '饶哲',
+          created: '2026-04-15T08:00:00Z', lastActiveDays: 0,
+          activity: makeBuckets([[8,0],[12,1],[10,0],[14,2],[9,0],[11,0],[13,1],[10,0],[8,0],[15,1],[12,0],[14,0],[11,1],[9,0]]),
+          logs: [
+            { t: '14:32', l: 'ok', m: 'patch applied · 23 lines' },
+            { t: '14:30', l: 'info', m: 'edit src/main.py · refactor' },
+            { t: '14:28', l: 'info', m: 'task claimed from queue' },
+          ],
+        },
+        'codex-runner': {
+          id: 'agent_cr_02', name: 'Codex Runner · 批量执行', kind: 'codex',
+          roles: ['coding', 'exec'], status: 'running', availability: 'online',
+          region: 'us-east-1', daemon: 'daemon-14', run: 'R-9002', flow: 'flow-batch-exec',
+          load: 92, cost: '$438.60', progress: 31, elapsed: '7m14s',
+          inputSchema: '{scripts[], env}', outputSchema: '{results[], errors[]}',
+          summary: '基于 Codex 的批量代码执行 agent，并行运行脚本并汇总结果。',
+          instructions: '你是一名批量执行 agent。role：并行执行多个脚本，汇总结果。\n任务：读取脚本列表，在沙箱中并行执行，收集输出和错误。\n\n能力：\n- 并行执行（最多 8 个）\n- 自动重试失败脚本\n- 超时检测与终止\n\n模型配置：qwen2.5-coder，temperature=0.1\n输出 content 必须包含每个脚本的 stdout/stderr/exit_code。',
+          skills: ['sandbox-exec', 'retry-3', 'rate-limit', 'multi-run-agg', 'na-safe', 'python'],
+          visibility: 'workspace', concurrency: 8, model: 'qwen2.5-coder',
+          runtime: 'codex · daemon-14', owner: '邓凯',
+          created: '2026-05-10T14:00:00Z', lastActiveDays: 0,
+          activity: makeBuckets([[5,1],[7,0],[6,1],[8,2],[4,0],[9,1],[7,0],[6,0],[5,1],[8,0],[10,1],[7,0],[6,1]]),
+          logs: [
+            { t: '14:33', l: 'warn', m: 'script-04 OOM · retrying' },
+            { t: '14:31', l: 'ok', m: 'batch 3/5 completed' },
+            { t: '14:28', l: 'info', m: 'started 6 parallel runs' },
+          ],
+        },
+        'paper-reader': {
+          id: 'agent_pr_03', name: 'Paper Reader · 论文精读', kind: 'reader',
+          roles: ['reader', 'analysis'], status: 'running', availability: 'online',
+          region: 'ap-northeast', daemon: 'daemon-09', run: 'R-9003', flow: 'flow-paper-read',
+          load: 62, cost: '$156.80', progress: 78, elapsed: '5m42s',
+          inputSchema: '{pdf_uri, focus?}', outputSchema: '{summary, claims[], refs[]}',
+          summary: '论文精读 agent，深度解析 PDF 并提取论点、方法与实验设计。',
+          instructions: '你是一名资深科研阅读 agent。role：深度精读论文，输出结构化分析。\n任务：阅读给定论文，抽取 (1) 核心论点 (2) 方法论 (3) 实验设计 (4) 可复现性评估 (5) 引用网络。\n\n能力：\n- arXiv 论文自动解析\n- 跨领域知识理解\n- 论点依赖图构建\n- 中英双语支持\n\n模型配置：claude-sonnet-4，temperature=0.3\n输出 content 为 JSON，含 summary, claims[], methods[], refs[]。',
+          skills: ['arxiv-parse', 'pdf-extract', 'claim-graph', 'zh/en-bilingual', 'citation-trace', 'evidence-retrieval'],
+          visibility: 'public', concurrency: 4, model: 'claude-sonnet-4',
+          runtime: 'claude-code · daemon-09', owner: '林敏',
+          created: '2026-03-20T10:00:00Z', lastActiveDays: 0,
+          activity: makeBuckets([[6,0],[8,0],[7,0],[10,1],[9,0],[11,0],[8,0],[7,1],[9,0],[12,0],[10,0],[8,0],[11,1]]),
+          logs: [
+            { t: '14:34', l: 'ok', m: 'claim extraction · 18 claims' },
+            { t: '14:32', l: 'info', m: 'parsing section 4 · experiments' },
+            { t: '14:28', l: 'info', m: 'parse arxiv 2507.01234' },
+          ],
+        },
+      };
 
       const params = new URLSearchParams(location.search);
-      const id = params.get('id') || 'agent_01HFK';
-      const agents = window.OD_AGENTS;
-      const a = agents.find(x => x.id === id);
+      const id = params.get('id');
 
-      const KIND_LABEL = { prompt:'提示词', claude:'Claude Code', codex:'Codex', remote:'Remote' };
-      const KIND_GLYPH = { prompt:'P', claude:'C', codex:'X', remote:'R' };
+      // Find agent: presets first, then fallback to agents-data
+      let a = null;
+      if (id && PRESET_AGENTS[id]) {
+        a = PRESET_AGENTS[id];
+      } else if (id && window.OD_AGENTS) {
+        a = window.OD_AGENTS.find(x => x.id === id);
+      } else if (window.OD_AGENTS && window.OD_AGENTS.length > 0) {
+        a = window.OD_AGENTS[0];
+      }
+
+      if (!a) {
+        renderNotFound();
+        return;
+      }
+
+      const KIND_LABEL = { prompt:'提示词', claude:'Claude Code', codex:'Codex', remote:'Remote', reader:'Reader', verify:'Verify' };
+      const KIND_GLYPH = { prompt:'P', claude:'C', codex:'X', remote:'R', reader:'R', verify:'V' };
       const STATUS_CN = { running:'运行', queued:'排队', idle:'空闲', failed:'失败', paused:'已暂停', done:'完成' };
       const AVAIL_CN = { online:'在线', unstable:'不稳定', offline:'离线' };
       function avClass(av) { return av === 'online' ? 'running' : av === 'unstable' ? 'queued' : 'idle'; }
-      function avatarClass(k) { return 'ins-avatar kind-' + (k === 'claude' ? 'claude' : k === 'codex' ? 'codex' : k === 'remote' ? 'verify' : 'reader'); }
+      function avatarClass(k) { return 'ins-avatar kind-' + k; }
       function esc(s) { return String(s).replace(/[&<>"']/g, c => ({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#39;'}[c])); }
 
       const ins = document.getElementById('inspector');
       const body = document.getElementById('tab-body');
       const crumb = document.getElementById('crumb-name');
+      const toastEl = document.getElementById('toast');
+      let toastTimer = null;
+      function showToast(msg) {
+        toastEl.textContent = msg;
+        toastEl.classList.add('show');
+        clearTimeout(toastTimer);
+        toastTimer = setTimeout(() => toastEl.classList.remove('show'), 2000);
+      }
+
+      // editable state
+      let isEditing = false;
+      let agentSkills = [...(a.skills || [])];
+      let activeTab = 'activity';
+
+      // ── Skeleton loading (200ms) ──
+      setTimeout(() => {
+        renderInspector(a);
+        renderTab(activeTab, a);
+      }, 200);
 
       function renderNotFound() {
-        document.querySelector('.detail-layout').innerHTML = `<div class="not-found" style="grid-column:1/-1">
-          <div class="h">找不到这个 agent</div>
-          <div class="d">id "${esc(id)}" 不存在，可能已被归档或删除。</div>
-          <a class="btn btn-secondary btn-sm" href="agents.html">返回 Agents 列表</a>
-        </div>`;
+        document.querySelector('.detail-layout').innerHTML = '<div class="not-found" style="grid-column:1/-1"><div class="h">找不到这个 agent</div><div class="d">id "' + esc(id || '') + '" 不存在，可能已被归档或删除。</div><a class="btn btn-secondary btn-sm" href="agents.html">返回 Agents 列表</a></div>';
         crumb.textContent = '未找到';
       }
 
       function renderInspector(a) {
         crumb.textContent = a.name;
-        document.title = a.name + ' · Mega Agents';
-        ins.innerHTML = `
-          <div class="ins-head">
-            <div class="${avatarClass(a.kind)}" aria-hidden="true">${KIND_GLYPH[a.kind]}</div>
-            <div style="min-width:0">
-              <div class="ins-name">${esc(a.name)}</div>
-              <div class="ins-desc">${esc(a.summary)}</div>
-              <div class="ins-presence"><span class="status ${avClass(a.availability)}"><span class="dot"></span>${AVAIL_CN[a.availability]}</span></div>
-            </div>
-          </div>
-          <div>
-            <div class="ins-section-label">属性</div>
-            <div class="prop-row"><div class="lbl">Agent ID</div><div class="val mono">${esc(a.id)}</div></div>
-            <div class="prop-row"><div class="lbl">类型</div><div class="val"><span class="pick">${KIND_LABEL[a.kind]}</span></div></div>
-            <div class="prop-row"><div class="lbl">模型</div><div class="val"><span class="pick">${esc(a.model)}</span></div></div>
-            <div class="prop-row"><div class="lbl">运行时</div><div class="val mono">${esc(a.runtime)}</div></div>
-            <div class="prop-row"><div class="lbl">并发</div><div class="val">${a.concurrency}</div></div>
-            <div class="prop-row"><div class="lbl">可见性</div><div class="val">${a.visibility === 'public' ? '公开' : '工作区'}</div></div>
-            <div class="prop-row"><div class="lbl">负责人</div><div class="val">${esc(a.owner)}</div></div>
-            <div class="prop-row"><div class="lbl">创建于</div><div class="val mono">${a.created.slice(0,10)}</div></div>
-          </div>
-          <div>
-            <div class="ins-section-label">Skills</div>
-            <div class="skill-chips">
-              ${a.skills.map(s => `<span class="skill-chip">${esc(s)}</span>`).join('')}
-            </div>
-          </div>
-          <div>
-            <div class="ins-section-label">当前任务</div>
-            <div class="prop-row" style="grid-template-columns:1fr"><div class="val mono">${a.run || '无活跃 run'}</div></div>
-            ${a.run ? `<div class="bar mb-2"><span style="width:${a.progress}%"></span></div>
-            <div class="row-between"><span class="meta" style="font-size:11px">已用 ${esc(a.elapsed)}</span><span class="mono" style="font-size:11px;color:var(--accent-hover)">${a.progress}%</span></div>` : ''}
-          </div>
-        `;
+        document.title = a.name + ' · DAgent';
+        agentSkills = [...(a.skills || [])];
+        ins.innerHTML = '<div class="ins-head">' +
+          '<div class="ins-head-left">' +
+            '<div class="' + avatarClass(a.kind) + '" aria-hidden="true">' + (KIND_GLYPH[a.kind] || '?') + '</div>' +
+            '<div style="min-width:0">' +
+              '<div class="ins-name">' + esc(a.name) + '</div>' +
+              '<div class="ins-desc">' + esc(a.summary) + '</div>' +
+              '<div class="ins-presence"><span class="status ' + avClass(a.availability) + '"><span class="dot"></span>' + (AVAIL_CN[a.availability] || '—') + '</span></div>' +
+            '</div>' +
+          '</div>' +
+          '<button class="btn btn-ghost btn-sm ins-edit-btn" id="edit-btn" title="编辑 Agent">编辑 Agent</button>' +
+        '</div>' +
+        '<div id="props-section">' + renderPropsReadOnly(a) + '</div>' +
+        '<div>' +
+          '<div class="ins-section-label">Skills</div>' +
+          '<div class="skill-chips" id="skill-chips">' + renderSkillChips() + '</div>' +
+        '</div>' +
+        '<div>' +
+          '<div class="ins-section-label">当前任务</div>' +
+          '<div class="prop-row" style="grid-template-columns:1fr"><div class="val mono">' + esc(a.run || '无活跃 run') + '</div></div>' +
+          (a.run ? '<div class="bar mb-2"><span style="width:' + a.progress + '%"></span></div><div class="row-between"><span class="meta" style="font-size:11px">已用 ' + esc(a.elapsed) + '</span><span class="mono" style="font-size:11px;color:var(--accent-hover)">' + a.progress + '%</span></div>' : '') +
+        '</div>';
+
+        isEditing = false;
+        bindInspectorEvents(a);
       }
 
+      function renderPropsReadOnly(a) {
+        let html = '<div class="ins-section-label">属性</div>';
+        html += propRow('Agent ID', '<span class="mono">' + esc(a.id) + '</span>');
+        html += propRow('类型', '<span class="pick clickable" title="查看同类型 Agents">' + (KIND_LABEL[a.kind] || a.kind) + '</span>');
+        html += propRow('模型', '<span class="pick">' + esc(a.model) + '</span>');
+        html += propRow('运行时', '<span class="mono">' + esc(a.runtime) + '</span>');
+        html += propRow('并发', String(a.concurrency));
+        html += propRow('可见性', a.visibility === 'public' ? '公开' : '工作区');
+        html += propRow('负责人', esc(a.owner));
+        html += propRow('创建于', '<span class="mono">' + a.created.slice(0,10) + '</span>');
+        return html;
+      }
+
+      function propRow(label, valueHtml) {
+        return '<div class="prop-row"><div class="lbl">' + label + '</div><div class="val">' + valueHtml + '</div></div>';
+      }
+
+      function renderSkillChips() {
+        return agentSkills.map((s, i) =>
+          '<span class="skill-chip" data-skill-index="' + i + '">' + esc(s) +
+          '<span class="chip-x" data-remove-skill="' + i + '" title="移除 ' + esc(s) + '">×</span></span>'
+        ).join('');
+      }
+
+      function bindInspectorEvents(a) {
+        const editBtn = document.getElementById('edit-btn');
+        if (!editBtn) return;
+        editBtn.addEventListener('click', () => {
+          if (isEditing) {
+            isEditing = false;
+            renderInspector(a);
+          } else {
+            isEditing = true;
+            renderEditMode(a);
+          }
+        });
+        bindChipRemoveEvents();
+      }
+
+      function bindChipRemoveEvents() {
+        document.querySelectorAll('[data-remove-skill]').forEach(btn => {
+          btn.addEventListener('click', (e) => {
+            e.stopPropagation();
+            const chip = btn.closest('.skill-chip');
+            chip.classList.add('fading');
+            setTimeout(() => {
+              const idx = parseInt(btn.dataset.removeSkill);
+              agentSkills = agentSkills.filter((_, i) => i !== idx);
+              renderSkillsChips();
+              showToast('已移除 skill');
+            }, 220);
+          });
+        });
+      }
+
+      function renderSkillsChips() {
+        const container = document.getElementById('skill-chips');
+        if (!container) return;
+        container.innerHTML = renderSkillChips();
+        bindChipRemoveEvents();
+      }
+
+      function renderEditMode(a) {
+        const propsSection = document.getElementById('props-section');
+        propsSection.innerHTML = '<div class="ins-section-label">属性（编辑中）</div>' +
+          propRow('Agent ID', '<span class="mono">' + esc(a.id) + '</span>') +
+          '<div class="prop-row"><div class="lbl">类型</div><div class="val"><select class="edit-select" data-field="kind">' +
+            '<option value="prompt"' + (a.kind==='prompt'?' selected':'') + '>提示词</option>' +
+            '<option value="claude"' + (a.kind==='claude'?' selected':'') + '>Claude Code</option>' +
+            '<option value="codex"' + (a.kind==='codex'?' selected':'') + '>Codex</option>' +
+            '<option value="reader"' + (a.kind==='reader'?' selected':'') + '>Reader</option>' +
+            '<option value="verify"' + (a.kind==='verify'?' selected':'') + '>Verify</option>' +
+            '<option value="remote"' + (a.kind==='remote'?' selected':'') + '>Remote</option>' +
+          '</select></div></div>' +
+          '<div class="prop-row"><div class="lbl">模型</div><div class="val"><input class="edit-input" data-field="model" value="' + esc(a.model) + '"/></div></div>' +
+          '<div class="prop-row"><div class="lbl">运行时</div><div class="val"><input class="edit-input" data-field="runtime" value="' + esc(a.runtime) + '"/></div></div>' +
+          '<div class="prop-row"><div class="lbl">并发</div><div class="val"><input class="edit-input" type="number" data-field="concurrency" value="' + a.concurrency + '" style="width:60px"/></div></div>' +
+          '<div class="prop-row"><div class="lbl">可见性</div><div class="val"><select class="edit-select" data-field="visibility">' +
+            '<option value="workspace"' + (a.visibility!=='public'?' selected':'') + '>工作区</option>' +
+            '<option value="public"' + (a.visibility==='public'?' selected':'') + '>公开</option>' +
+          '</select></div></div>' +
+          '<div class="prop-row"><div class="lbl">负责人</div><div class="val"><input class="edit-input" data-field="owner" value="' + esc(a.owner) + '"/></div></div>' +
+          propRow('创建于', '<span class="mono">' + a.created.slice(0,10) + '</span>');
+        document.getElementById('edit-btn').textContent = '完成';
+        document.getElementById('edit-btn').classList.remove('btn-ghost');
+        document.getElementById('edit-btn').classList.add('btn-accent');
+      }
+
+      // ── Tab switching ──
+      document.querySelectorAll('[data-tab]').forEach(tab => {
+        tab.addEventListener('click', () => {
+          document.querySelectorAll('[data-tab]').forEach(t => t.setAttribute('aria-selected', 'false'));
+          tab.setAttribute('aria-selected', 'true');
+          activeTab = tab.dataset.tab;
+          renderTab(activeTab, a);
+        });
+      });
+
+      function renderTab(tab, a) {
+        if (!body) return;
+        switch (tab) {
+          case 'activity': body.innerHTML = renderActivity(a); bindChartHover(); break;
+          case 'instructions': body.innerHTML = renderInstructions(a); bindCopyBtn(); break;
+          case 'skills': body.innerHTML = renderSkills(a); bindSkillEvents(a); break;
+          case 'logs': body.innerHTML = renderLogs(a); bindLogEvents(); break;
+          default: body.innerHTML = renderActivity(a); bindChartHover();
+        }
+      }
+
+      /* ── Activity Tab ── */
       function renderActivity(a) {
-        const total = a.activity.reduce((s,b) => s + b.total, 0);
-        const fail = a.activity.reduce((s,b) => s + b.fail, 0);
+        const act = a.activity || [];
+        const thisWeek = act.slice(-7);
+        const lastWeek = act.slice(-14, -7);
+        const tw = thisWeek.reduce((s, b) => s + b.total, 0);
+        const lw = lastWeek.reduce((s, b) => s + b.total, 0);
+        const twf = thisWeek.reduce((s, b) => s + b.fail, 0);
+        const lwf = lastWeek.reduce((s, b) => s + b.fail, 0);
+        const total = act.reduce((s, b) => s + b.total, 0);
+        const fail = act.reduce((s, b) => s + b.fail, 0);
         const ok = total - fail;
         const successRate = total > 0 ? ((ok / total) * 100).toFixed(1) : '—';
+
+        // Average duration simulation (last 7 days)
+        const avgDuration = total > 0 ? (Math.round((total > 10 ? 12.4 : 8.7) * 10) / 10) : '—';
+
+        function delta(cur, prev) {
+          if (prev === 0) return { cls: 'flat', text: '—', arrow: '' };
+          const pct = ((cur - prev) / prev * 100).toFixed(1);
+          const up = cur >= prev;
+          return { cls: up ? (cur === prev ? 'flat' : 'up') : 'down', text: (up ? '+' : '') + pct + '%', arrow: up ? '↑' : '↓' };
+        }
+        const dTotal = delta(tw, lw);
+        const rateCur = tw > 0 ? (((tw - twf) / tw) * 100).toFixed(1) : '—';
+        const ratePrev = lw > 0 ? (((lw - lwf) / lw) * 100).toFixed(1) : '—';
+        const dRate = delta(parseFloat(rateCur) || 0, parseFloat(ratePrev) || 0);
+        const avgCur = 12.4;
+        const avgPrev = 14.1;
+        const dAvg = delta(avgCur, avgPrev);
+
+        // SVG bar chart (last 7 days)
+        const days = act.slice(-7);
         const W = 600, H = 120, PAD = 8;
-        const max = Math.max(1, ...a.activity.map(b => b.total));
-        const bw = (W - PAD * 2) / a.activity.length;
-        const bars = a.activity.map((b, i) => {
+        const max = Math.max(1, ...days.map(b => b.total));
+        const bw = (W - PAD * 2) / days.length;
+        const dayLabels = ['周一', '周二', '周三', '周四', '周五', '周六', '周日'];
+        const bars = days.map((b, i) => {
           const h = (b.total / max) * (H - PAD * 2);
           const fh = b.fail > 0 ? (b.fail / b.total) * h : 0;
           const x = PAD + i * bw;
           const y = H - PAD - h;
           const fy = H - PAD - fh;
-          return `<rect class="act-chart-bar" x="${x.toFixed(1)}" y="${y.toFixed(1)}" width="${Math.max(0.8, bw - 0.5).toFixed(1)}" height="${Math.max(0.5, h).toFixed(1)}" rx="0.8"/>
-            ${b.fail > 0 ? `<rect class="act-chart-bar fail" x="${x.toFixed(1)}" y="${fy.toFixed(1)}" width="${Math.max(0.8, bw - 0.5).toFixed(1)}" height="${Math.max(0.5, fh).toFixed(1)}" rx="0.8"/>` : ''}`;
+          let s = '<rect class="act-chart-bar" x="' + x.toFixed(1) + '" y="' + y.toFixed(1) + '" width="' + Math.max(0.8, bw - 0.5).toFixed(1) + '" height="' + Math.max(0.5, h).toFixed(1) + '" rx="0.8" data-day-idx="' + i + '" data-total="' + b.total + '" data-fail="' + b.fail + '" data-day-label="' + dayLabels[i] + '"/>';
+          if (b.fail > 0) {
+            s += '<rect class="act-chart-bar fail" x="' + x.toFixed(1) + '" y="' + fy.toFixed(1) + '" width="' + Math.max(0.8, bw - 0.5).toFixed(1) + '" height="' + Math.max(0.5, fh).toFixed(1) + '" rx="0.8" data-day-idx="' + i + '" data-total="' + b.total + '" data-fail="' + b.fail + '" data-day-label="' + dayLabels[i] + '"/>';
+          }
+          return s;
         }).join('');
-        return `
-          <div class="act-kpi-row">
-            <div class="act-kpi"><div class="v">${total}</div><div class="l">30 天总运行</div></div>
-            <div class="act-kpi"><div class="v" style="color:var(--accent-hover)">${successRate}${successRate === '—' ? '' : '%'}</div><div class="l">成功率</div></div>
-            <div class="act-kpi"><div class="v" style="color:var(--danger)">${fail}</div><div class="l">失败次数</div></div>
-          </div>
-          <div class="ins-section-label">运行趋势（30 天）</div>
-          <svg class="act-chart" viewBox="0 0 ${W} ${H}" preserveAspectRatio="none" role="img" aria-label="30 天运行趋势，总 ${total} 次，失败 ${fail} 次">
-            ${bars}
-          </svg>
-          <div class="act-axis-row"><span>30 天前</span><span>今天</span></div>
-          <div class="act-recent">
-            <div class="ins-section-label">最近活动</div>
-            ${a.logs.map(l => `<div class="act-recent-item"><span class="mono meta" style="width:48px;font-size:11px">${l.t}</span><span class="log-lvl ${l.l}" style="width:40px">${l.l.toUpperCase()}</span><span style="color:var(--fg-2)">${esc(l.m)}</span></div>`).join('')}
-          </div>
-        `;
+
+        return '<div class="act-kpi-row">' +
+          '<div class="act-kpi"><div class="v">' + total + '</div><div class="l">30 天运行次数</div><div class="delta ' + dTotal.cls + '">' + dTotal.arrow + ' ' + dTotal.text + ' vs 上周</div></div>' +
+          '<div class="act-kpi"><div class="v" style="color:var(--accent-hover)">' + successRate + (successRate === '—' ? '' : '%') + '</div><div class="l">成功率</div><div class="delta ' + dRate.cls + '">' + dRate.arrow + ' ' + dRate.text + ' vs 上周</div></div>' +
+          '<div class="act-kpi"><div class="v" style="color:var(--info)">' + avgDuration + '</div><div class="l">平均耗时（秒）</div><div class="delta ' + dAvg.cls + '">' + dAvg.arrow + ' ' + dAvg.text + ' vs 上周</div></div>' +
+        '</div>' +
+        '<div class="ins-section-label">运行趋势（最近 7 天）</div>' +
+        '<div class="act-chart-wrap">' +
+          '<svg class="act-chart" viewBox="0 0 ' + W + ' ' + H + '" preserveAspectRatio="none" role="img" aria-label="最近 7 天运行趋势">' + bars + '</svg>' +
+          '<div class="chart-tooltip" id="chart-tooltip"></div>' +
+        '</div>' +
+        '<div class="act-axis-row"><span>' + dayLabels[0] + '</span><span>' + dayLabels[3] + '</span><span>' + dayLabels[6] + '</span></div>' +
+        '<div class="act-recent">' +
+          '<div class="ins-section-label">最近活动</div>' +
+          renderRecentItems(a.logs || []) +
+        '</div>';
+      }
+
+      function activityIcon(type) {
+        if (type === 'success' || type === 'ok') return '<span class="act-icon ok"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5" stroke-linecap="round" stroke-linejoin="round"><path d="M20 6L9 17l-5-5"/></svg></span>';
+        if (type === 'fail' || type === 'err') return '<span class="act-icon err"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5" stroke-linecap="round" stroke-linejoin="round"><circle cx="12" cy="12" r="9"/><path d="M15 9l-6 6M9 9l6 6"/></svg></span>';
+        if (type === 'config') return '<span class="act-icon warn"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M12.22 2h-.44a2 2 0 0 0-2 2v.18a2 2 0 0 1-1 1.73l-.43.25a2 2 0 0 1-2 0l-.15-.08a2 2 0 0 0-2.73.73l-.22.38a2 2 0 0 0 .73 2.73l.15.1a2 2 0 0 1 1 1.72v.51a2 2 0 0 1-1 1.74l-.15.09a2 2 0 0 0-.73 2.73l.22.38a2 2 0 0 0 2.73.73l.15-.08a2 2 0 0 1 2 0l.43.25a2 2 0 0 1 1 1.73V20a2 2 0 0 0 2 2h.44a2 2 0 0 0 2-2v-.18a2 2 0 0 1 1-1.73l.43-.25a2 2 0 0 1 2 0l.15.08a2 2 0 0 0 2.73-.73l.22-.39a2 2 0 0 0-.73-2.73l-.15-.08a2 2 0 0 1-1-1.74v-.5a2 2 0 0 1 1-1.74l.15-.09a2 2 0 0 0 .73-2.73l-.22-.38a2 2 0 0 0-2.73-.73l-.15.08a2 2 0 0 1-2 0l-.43-.25a2 2 0 0 1-1-1.73V4a2 2 0 0 0-2-2z"/><circle cx="12" cy="12" r="3"/></svg></span>';
+        if (type === 'register') return '<span class="act-icon info"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M16 21v-2a4 4 0 0 0-4-4H5a4 4 0 0 0-4-4v2"/><circle cx="8.5" cy="7" r="4"/><path d="M20 8v6M23 11h-6"/></svg></span>';
+        return '<span class="act-icon info"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><circle cx="12" cy="12" r="9"/><path d="M12 16v-4M12 8h.01"/></svg></span>';
+      }
+
+      function renderRecentItems(logs) {
+        const allLogs = [
+          { t: '14:35', m: '配置变更 · 并发 2→4', type: 'config' },
+          { t: '14:33', m: '运行成功 · R-9001 完成', type: 'success' },
+          { t: '14:20', m: '注册到 daemon-09', type: 'register' },
+          { t: '14:15', m: '运行失败 · OOM', type: 'fail' },
+          ...logs.map(l => ({ t: l.t, m: l.m, type: l.l })),
+        ];
+        return allLogs.map(l => {
+          return '<div class="act-recent-item">' +
+            activityIcon(l.type) +
+            '<span class="mono meta" style="width:48px;font-size:11px">' + l.t + '</span>' +
+            '<span style="color:var(--fg-2)">' + esc(l.m) + '</span>' +
+          '</div>';
+        }).join('');
+      }
+
+      function bindChartHover() {
+        const tooltip = document.getElementById('chart-tooltip');
+        if (!tooltip) return;
+        document.querySelectorAll('.act-chart-bar').forEach(bar => {
+          bar.addEventListener('mouseenter', (e) => {
+            const total = bar.dataset.total;
+            const fail = bar.dataset.fail;
+            const label = bar.dataset.dayLabel || '';
+            tooltip.textContent = label + ': ' + total + ' 次' + (parseInt(fail) > 0 ? '（失败 ' + fail + '）' : '');
+            tooltip.classList.add('visible');
+            const rect = bar.getBoundingClientRect();
+            const wrapRect = bar.closest('.act-chart-wrap').getBoundingClientRect();
+            tooltip.style.left = (rect.left - wrapRect.left + rect.width / 2 - tooltip.offsetWidth / 2) + 'px';
+            tooltip.style.top = (rect.top - wrapRect.top - tooltip.offsetHeight - 6) + 'px';
+          });
+          bar.addEventListener('mouseleave', () => {
+            tooltip.classList.remove('visible');
+          });
+        });
+      }
+
+      /* ── Instructions Tab ── */
+      function highlightSyntax(text) {
+        return esc(text)
+          .replace(/(role|角色)/g, '<span class="syn-role">$1</span>')
+          .replace(/(content|内容|任务)/g, '<span class="syn-content">$1</span>')
+          .replace(/(model|模型|claude|gpt|o1|llama|qwen)/gi, '<span class="syn-model">$1</span>')
+          .replace(/(temperature)/gi, '<span class="syn-temp">$1</span>')
+          .replace(/(\{|\}|"[^"]+"|\[[^\]]+\])/g, '<span class="syn-key">$1</span>');
       }
 
       function renderInstructions(a) {
-        return `
-          <div class="ins-section-label">系统提示词</div>
-          <div class="instr">${esc(a.instructions || '（未设置提示词）')}</div>
-          <div class="ins-section-label mt-6">能力描述符</div>
-          <div class="card-flat" style="padding:var(--space-4)">
-            <div class="prop-row"><div class="lbl">输入 schema</div><div class="val mono">${esc(a.inputSchema)}</div></div>
-            <div class="prop-row"><div class="lbl">输出 schema</div><div class="val mono">${esc(a.outputSchema)}</div></div>
-          </div>
-        `;
+        const text = a.instructions || '（未设置提示词）';
+        const lines = text.split('\n');
+        const numbered = lines.map((line, i) =>
+          '<div class="line"><span class="line-num">' + (i + 1) + '</span><span class="line-content">' + highlightSyntax(line) + '</span></div>'
+        ).join('');
+
+        return '<div class="ins-section-label">系统提示词</div>' +
+          '<div class="instr-wrap">' +
+            '<button class="btn btn-ghost btn-sm instr-copy-btn" id="copy-prompt-btn" title="复制提示词">' +
+              '<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" style="width:14px;height:14px"><rect x="9" y="9" width="13" height="13" rx="2"/><path d="M5 15H4a2 2 0 01-2-2V4a2 2 0 012-2h9a2 2 0 012 2v1"/></svg>' +
+              '复制' +
+            '</button>' +
+            '<div class="instr" id="prompt-content">' + numbered + '</div>' +
+          '</div>' +
+          '<div class="ins-section-label mt-6">能力描述符</div>' +
+          '<div class="card-flat" style="padding:var(--space-4)">' +
+            propRow('输入 schema', '<span class="mono">' + esc(a.inputSchema) + '</span>') +
+            propRow('输出 schema', '<span class="mono">' + esc(a.outputSchema) + '</span>') +
+          '</div>';
       }
 
+      function bindCopyBtn() {
+        const btn = document.getElementById('copy-prompt-btn');
+        if (!btn) return;
+        btn.addEventListener('click', () => {
+          const promptEl = document.getElementById('prompt-content');
+          if (!promptEl) return;
+          const lines = promptEl.querySelectorAll('.line-content');
+          const text = Array.from(lines).map(l => l.textContent).join('\n');
+          navigator.clipboard.writeText(text).then(() => showToast('已复制到剪贴板')).catch(() => showToast('复制失败'));
+        });
+      }
+
+      /* ── Skills Tab ── */
       function renderSkills(a) {
         const desc = {
           'arxiv-parse':'解析 arXiv 论文 PDF', 'pdf-extract':'提取 PDF 正文与图表',
@@ -280,74 +661,176 @@
           'http-fetch':'HTTP 抓取', 'readability':'正文提取', 'retry-3':'3 次重试', 'rate-limit':'限流',
           'multi-run-agg':'多 run 聚合', 'template-fill':'模板填充', 'na-safe':'N/A 安全',
         };
-        return `
-          <div class="ins-section-label">已挂载 Skills（${a.skills.length}）</div>
-          <div class="skills-grid">
-            ${a.skills.map(s => `<div class="skill-card"><div class="nm">${esc(s)}</div><div class="ds">${esc(desc[s] || '—')}</div></div>`).join('')}
-          </div>
-        `;
+        const TOTAL_SKILLS = 35;
+        const mounted = agentSkills.length;
+        const pct = Math.round((mounted / TOTAL_SKILLS) * 100);
+
+        const cards = agentSkills.map(s => '<div class="skill-card">' +
+          '<button class="btn btn-ghost btn-sm unload-btn" title="卸载 ' + esc(s) + '" data-unload="' + esc(s) + '">卸载</button>' +
+          '<div class="nm">' + esc(s) + '</div>' +
+          '<div class="ds">' + esc(desc[s] || '—') + '</div>' +
+          '<div class="progress-row">' +
+            '<div class="progress-bar"><span style="width:100%"></span></div>' +
+            '<span class="progress-text">已挂载</span>' +
+          '</div>' +
+        '</div>').join('');
+
+        return '<div class="row-between mb-3">' +
+          '<div class="ins-section-label" style="margin-bottom:0">已挂载 Skills（' + mounted + ' / 共 ' + TOTAL_SKILLS + '）</div>' +
+          '<div class="row gap-2">' +
+            '<div class="progress-bar" style="width:80px"><span style="width:' + pct + '%"></span></div>' +
+            '<span class="mono" style="font-size:11px;color:var(--accent-hover)">' + pct + '%</span>' +
+          '</div>' +
+        '</div>' +
+        '<div class="skills-grid">' +
+          cards +
+          '<div class="skill-add-card" id="add-skill-btn">+ 添加 Skill</div>' +
+        '</div>';
       }
+
+      function bindSkillEvents(a) {
+        document.querySelectorAll('[data-unload]').forEach(btn => {
+          btn.addEventListener('click', (e) => {
+            e.stopPropagation();
+            const name = btn.dataset.unload;
+            agentSkills = agentSkills.filter(s => s !== name);
+            body.innerHTML = renderSkills(a);
+            bindSkillEvents(a);
+            showToast('已卸载 ' + name);
+          });
+        });
+        const addBtn = document.getElementById('add-skill-btn');
+        if (addBtn) {
+          addBtn.addEventListener('click', () => showToast('添加 Skill 功能演示'));
+        }
+      }
+
+      /* ── Logs Tab ── */
+      const LOG_DATA = [
+        { t: '14:32:18', l: 'err', m: 'timeout · 3 retries exhausted', detail: { source: 'http-fetch', target: 'https://arxiv.org/abs/2407.1842', retries: 3, timeout: '60s', status: 'FAILED' } },
+        { t: '14:31:42', l: 'ok', m: 'claim extraction done · 14 claims', detail: { source: 'claim-graph', total: 14, supported: 12, partial: 2, confidence: '0.87' } },
+        { t: '14:30:15', l: 'info', m: 'parse arxiv 2407.1842', detail: { source: 'arxiv-parse', paper_id: '2407.1842', title: 'Attention Is All You Need (v2)', pages: 12 } },
+        { t: '14:28:03', l: 'warn', m: 'sandbox memory 88%', detail: { source: 'sandbox-exec', container: 'sb-4721', memory: '88%', threshold: '90%' } },
+        { t: '14:25:11', l: 'ok', m: 'env ready · cuda 12.2', detail: { source: 'cuda', version: '12.2', gpu: 'A100 40GB', available: true } },
+        { t: '14:22:07', l: 'info', m: 'clone repo · github.com/user/repo', detail: { source: 'git-diff', repo: 'github.com/user/repro-bench', branch: 'main', commit: 'a3f8c21' } },
+        { t: '14:20:33', l: 'ok', m: 'approval received from 林敏', detail: { source: 'approve/reject', reviewer: '林敏', decision: 'approved', note: 'LGTM' } },
+        { t: '14:18:45', l: 'info', m: 'task dispatched to worker-03', detail: { source: 'fan-out', worker: 'worker-03', task_id: 'T-0442', queue_depth: 2 } },
+        { t: '14:15:22', l: 'warn', m: 'rate limit approaching · 950/1000', detail: { source: 'rate-limit', current: 950, limit: 1000, window: '1min', reset_in: '12s' } },
+        { t: '14:12:10', l: 'err', m: 'dependency scan · 1 critical CVE', detail: { source: 'dep-scan', package: 'numpy==1.21.0', cve: 'CVE-2024-1234', severity: 'critical', fix: 'upgrade to numpy>=1.24.0' } },
+        { t: '14:10:55', l: 'ok', m: 'confidence score computed · 0.92', detail: { source: 'confidence-score', hypothesis: 'H2', score: 0.92, evidence_count: 8, contradict_count: 1 } },
+        { t: '14:08:30', l: 'info', m: 'retrieval 28 docs from index', detail: { source: 'evidence-retrieval', query: 'transformer attention mechanism', docs_found: 28, top_k: 10, latency: '340ms' } },
+        { t: '14:05:14', l: 'ok', m: 'multi-doc merge · 5 papers', detail: { source: 'multi-doc-merge', papers: 5, output_tokens: 2048, style: 'academic' } },
+        { t: '14:02:00', l: 'warn', m: 'prompt injection detected · blocked', detail: { source: 'prompt-injection-detect', pattern: 'ignore previous instructions', severity: 'high', action: 'blocked' } },
+      ];
+
+      let logFilter = 'all';
+      let logSearchQ = '';
 
       function renderLogs(a) {
-        return `
-          <div class="ins-section-label">最近日志</div>
-          <div class="log">
-            ${a.logs.map(l => `<div class="log-line"><span class="log-ts">${l.t}</span><span class="log-lvl ${l.l}">${l.l.toUpperCase()}</span><span class="log-msg">${esc(l.m)}</span></div>`).join('')}
-          </div>
-          <div class="ins-section-label mt-6">区域与资源</div>
-          <div class="card-flat" style="padding:var(--space-4)">
-            <div class="prop-row"><div class="lbl">区域</div><div class="val">${esc(a.region)}</div></div>
-            <div class="prop-row"><div class="lbl">所属 daemon</div><div class="val mono">${esc(a.daemon)}</div></div>
-            <div class="prop-row"><div class="lbl">负载</div><div class="val">${a.load}%</div></div>
-            <div class="prop-row"><div class="lbl">今日成本</div><div class="val mono">${esc(a.cost)}</div></div>
-          </div>
-        `;
-      }
-
-      function renderTab(tab, a) {
-        if (tab === 'activity') return renderActivity(a);
-        if (tab === 'instructions') return renderInstructions(a);
-        if (tab === 'skills') return renderSkills(a);
-        if (tab === 'logs') return renderLogs(a);
-        return '';
-      }
-
-      let activeTab = 'activity';
-
-      function render(a) {
-        renderInspector(a);
-        body.innerHTML = renderTab(activeTab, a);
-      }
-
-      // tab switching (click + keyboard arrows for tablist)
-      const tabs = Array.from(document.querySelectorAll('.tab'));
-      tabs.forEach((t, i) => {
-        t.setAttribute('tabindex', t.getAttribute('aria-selected') === 'true' ? '0' : '-1');
-        t.addEventListener('click', () => switchTab(t));
-        t.addEventListener('keydown', (e) => {
-          if (e.key === 'ArrowRight' || e.key === 'ArrowLeft') {
-            e.preventDefault();
-            const dir = e.key === 'ArrowRight' ? 1 : -1;
-            const next = tabs[(i + dir + tabs.length) % tabs.length];
-            switchTab(next);
-            next.focus();
-          } else if (e.key === 'Home') { e.preventDefault(); switchTab(tabs[0]); tabs[0].focus(); }
-          else if (e.key === 'End') { e.preventDefault(); switchTab(tabs[tabs.length-1]); tabs[tabs.length-1].focus(); }
+        const allLogs = LOG_DATA;
+        const filtered = allLogs.filter(log => {
+          if (logFilter !== 'all' && log.l !== logFilter) return false;
+          if (logSearchQ && !log.m.toLowerCase().includes(logSearchQ.toLowerCase())) return false;
+          return true;
         });
-      });
-      function switchTab(t) {
-        tabs.forEach(x => { x.setAttribute('aria-selected', 'false'); x.setAttribute('tabindex', '-1'); });
-        t.setAttribute('aria-selected', 'true');
-        t.setAttribute('tabindex', '0');
-        activeTab = t.dataset.tab;
-        if (a) body.innerHTML = renderTab(activeTab, a);
+
+        const lvlButtons = ['all', 'info', 'warn', 'err'].map(lvl =>
+          '<button' + (logFilter === lvl ? ' aria-pressed="true"' : ' aria-pressed="false"') +
+          ' data-log-filter="' + lvl + '">' +
+          (lvl === 'all' ? '全部' : lvl === 'info' ? '信息' : lvl === 'warn' ? '警告' : '错误') +
+          '</button>'
+        ).join('');
+
+        const rows = filtered.map((log, i) => {
+          const detailHtml = log.detail ? '<div class="log-detail" id="log-detail-' + i + '">' +
+            Object.entries(log.detail).map(([k, v]) =>
+              '<dt>' + esc(k) + '</dt><dd>' + esc(String(v)) + '</dd>'
+            ).join('') +
+          '</div>' : '';
+
+          return '<div class="log-line log-expandable" data-log-expand="' + i + '">' +
+            '<span class="log-ts">' + log.t + '</span>' +
+            '<span class="log-lvl ' + log.l + '">' + log.l.toUpperCase() + '</span>' +
+            '<span class="log-msg">' + esc(log.m) + '</span>' +
+          '</div>' + detailHtml;
+        }).join('');
+
+        if (filtered.length === 0) {
+          return '<div class="log-toolbar">' +
+            '<div class="log-filter-chips">' + lvlButtons + '</div>' +
+            '<div class="log-search"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><circle cx="11" cy="11" r="8"/><path d="m21 21-4.35-4.35"/></svg><input type="text" placeholder="搜索日志…" id="log-search-input" /></div>' +
+            '<button class="btn btn-ghost btn-sm log-export-btn" id="log-export-btn">导出日志</button>' +
+          '</div>' +
+          '<div style="text-align:center;padding:var(--space-12);color:var(--muted);font-size:var(--text-sm)">无匹配日志</div>';
+        }
+
+        return '<div class="log-toolbar">' +
+          '<div class="log-filter-chips" id="log-filter-chips">' + lvlButtons + '</div>' +
+          '<div class="log-search"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><circle cx="11" cy="11" r="8"/><path d="m21 21-4.35-4.35"/></svg><input type="text" placeholder="搜索日志…" id="log-search-input" value="' + esc(logSearchQ) + '" /></div>' +
+          '<button class="btn btn-ghost btn-sm log-export-btn" id="log-export-btn">导出日志</button>' +
+        '</div>' +
+        '<div class="log" id="log-container">' + rows + '</div>';
       }
 
-      // simulate loading
-      setTimeout(() => {
-        if (!a) { renderNotFound(); return; }
-        render(a);
-      }, 200);
+      function bindLogEvents() {
+        // Filter chips
+        document.querySelectorAll('[data-log-filter]').forEach(btn => {
+          btn.addEventListener('click', () => {
+            logFilter = btn.dataset.logFilter;
+            body.innerHTML = renderLogs(a);
+            bindLogEvents();
+          });
+        });
+
+        // Search
+        const searchInput = document.getElementById('log-search-input');
+        if (searchInput) {
+          searchInput.addEventListener('input', () => {
+            logSearchQ = searchInput.value;
+            const container = document.getElementById('log-container');
+            if (!container) return;
+            const filtered = LOG_DATA.filter(log => {
+              if (logFilter !== 'all' && log.l !== logFilter) return false;
+              if (logSearchQ && !log.m.toLowerCase().includes(logSearchQ.toLowerCase())) return false;
+              return true;
+            });
+            const rows = filtered.map((log, i) => {
+              const detailHtml = log.detail ? '<div class="log-detail" id="log-detail-' + i + '">' +
+                Object.entries(log.detail).map(([k, v]) => '<dt>' + esc(k) + '</dt><dd>' + esc(String(v)) + '</dd>').join('') +
+              '</div>' : '';
+              return '<div class="log-line log-expandable" data-log-expand="' + i + '">' +
+                '<span class="log-ts">' + log.t + '</span>' +
+                '<span class="log-lvl ' + log.l + '">' + log.l.toUpperCase() + '</span>' +
+                '<span class="log-msg">' + esc(log.m) + '</span>' +
+              '</div>' + detailHtml;
+            }).join('');
+            container.innerHTML = filtered.length > 0 ? rows : '<div style="text-align:center;padding:var(--space-8);color:var(--muted);font-size:var(--text-sm)">无匹配日志</div>';
+            bindLogExpandEvents();
+          });
+        }
+
+        // Export
+        const exportBtn = document.getElementById('log-export-btn');
+        if (exportBtn) {
+          exportBtn.addEventListener('click', () => showToast('日志已导出（演示）'));
+        }
+
+        // Expandable rows
+        bindLogExpandEvents();
+      }
+
+      function bindLogExpandEvents() {
+        document.querySelectorAll('[data-log-expand]').forEach(row => {
+          row.addEventListener('click', () => {
+            const idx = row.dataset.logExpand;
+            const detail = document.getElementById('log-detail-' + idx);
+            if (detail) {
+              detail.classList.toggle('expanded');
+            }
+          });
+        });
+      }
+
     });
   </script>
 </body>

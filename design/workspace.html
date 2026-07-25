@@ -3,19 +3,34 @@
 <head>
   <meta charset="utf-8" />
   <meta name="viewport" content="width=device-width, initial-scale=1" />
-  <title>Workspace · Mega Agents</title>
+  <title>Workspace · DAgent</title>
   <link rel="stylesheet" href="css/tokens.css" />
   <link rel="stylesheet" href="css/shell.css" />
   <style>
-    .ws-layout { display: grid; grid-template-columns: 1fr 320px; gap: var(--space-4); height: calc(100vh - var(--topbar-h) - var(--space-8) - var(--space-8) - 90px); min-height: 580px; }
+    /* ─── layout ──────────────────────────────────────────────── */
+    .ws-layout { display: grid; grid-template-columns: 1fr 340px; gap: var(--space-4); height: calc(100vh - var(--topbar-h) - var(--space-8) - var(--space-8) - 90px); min-height: 580px; }
 
-
+    /* ─── chat panel ───────────────────────────────────────────── */
     .ws-chat { background: var(--bg); border: 1px solid var(--border-soft); border-radius: var(--radius-md); display: flex; flex-direction: column; overflow: hidden; }
-    .ws-chat-head { padding: var(--space-4); border-bottom: 1px solid var(--border-soft); flex-shrink: 0; }
+    .ws-chat-head { padding: var(--space-4) var(--space-5); border-bottom: 1px solid var(--border-soft); flex-shrink: 0; }
+    .ws-chat-head .title-row { display: flex; align-items: center; gap: var(--space-2); }
     .ws-chat-head .title { font-size: var(--text-base); font-weight: 600; }
-    .ws-chat-head .sub { font-size: 11px; color: var(--muted); margin-top: 2px; }
+    .ws-chat-head .stats { display: inline-flex; align-items: center; gap: var(--space-3); margin-top: 4px; }
+    .ws-chat-head .stat-item { display: inline-flex; align-items: center; gap: 4px; font-size: 11px; color: var(--muted); }
+    .ws-chat-head .stat-item .stat-dot { width: 4px; height: 4px; border-radius: 50%; background: var(--meta); }
+    .ws-chat-head .desc { font-size: var(--text-xs); color: var(--muted); margin-top: var(--space-1); cursor: pointer; line-height: 1.5; padding: 2px 4px; border-radius: 4px; transition: background var(--motion-fast); }
+    .ws-chat-head .desc:hover { background: var(--surface); }
+    .ws-chat-head .desc-editor { display: none; margin-top: var(--space-1); }
+    .ws-chat-head .desc-editor textarea { width: 100%; min-height: 48px; padding: var(--space-2) var(--space-3); background: var(--surface-warm); border: 1px solid var(--accent); border-radius: 6px; font-size: var(--text-xs); line-height: 1.5; resize: vertical; outline: none; color: var(--fg-2); }
+    .ws-chat-head .desc-editor .desc-actions { display: flex; gap: var(--space-2); margin-top: var(--space-1); }
     .ws-chat-head .filters { display: flex; gap: var(--space-2); margin-top: var(--space-3); }
 
+    /* filter chip with badge */
+    .filter-chip { position: relative; }
+    .filter-chip .chip-badge { font-size: 9px; font-weight: 600; min-width: 14px; height: 14px; display: none; align-items: center; justify-content: center; background: var(--accent); color: var(--accent-on); border-radius: var(--radius-pill); padding: 0 4px; margin-left: 3px; font-family: var(--font-mono); }
+    .filter-chip[aria-pressed="true"] .chip-badge { display: inline-flex; }
+
+    /* ─── message stream ────────────────────────────────────────── */
     .ws-stream { flex: 1; overflow-y: auto; padding: var(--space-6); display: flex; flex-direction: column; gap: var(--space-4); }
     .day-sep { display: flex; align-items: center; gap: var(--space-3); color: var(--meta); font-size: 11px; font-family: var(--font-mono); margin: var(--space-2) 0; }
     .day-sep::before, .day-sep::after { content: ""; flex: 1; height: 1px; background: var(--border-soft); }
@@ -29,35 +44,147 @@
     .cmsg-head { font-size: 11px; color: var(--muted); margin-bottom: 4px; display: flex; gap: var(--space-2); align-items: baseline; }
     .cmsg.user .cmsg-head { justify-content: flex-end; }
     .cmsg-name { font-weight: 600; color: var(--fg-2); font-size: 12px; }
+    .cmsg-ts { font-size: 10px; color: var(--meta); font-family: var(--font-mono); }
     .cmsg-bubble { background: var(--surface-warm); border: 1px solid var(--border-soft); border-radius: 12px 12px 12px 2px; padding: var(--space-3) var(--space-4); font-size: var(--text-sm); color: var(--fg-2); line-height: 1.6; }
     .cmsg.user .cmsg-bubble { background: var(--fg); color: var(--bg); border-color: var(--fg); border-radius: 12px 12px 2px 12px; }
     .cmsg-bubble code { font-family: var(--font-mono); font-size: 12px; background: var(--surface); padding: 1px 5px; border-radius: 4px; }
     .cmsg.user .cmsg-bubble code { background: rgba(255,255,255,0.15); }
+
+    /* code block */
+    .cmsg-bubble .code-block { position: relative; margin: 8px 0 4px; background: #1e1e1e; border-radius: 8px; overflow: hidden; }
+    .cmsg.user .cmsg-bubble .code-block { background: rgba(0,0,0,0.35); }
+    .code-block-head { display: flex; justify-content: space-between; align-items: center; padding: 4px 10px; background: rgba(255,255,255,0.06); font-size: 10px; color: rgba(255,255,255,0.5); font-family: var(--font-mono); }
+    .code-block-head button { background: transparent; border: 0; color: rgba(255,255,255,0.5); font-size: 10px; cursor: pointer; display: flex; align-items: center; gap: 4px; font-family: var(--font-mono); padding: 2px 6px; border-radius: 4px; transition: background var(--motion-fast), color var(--motion-fast); }
+    .code-block-head button:hover { background: rgba(255,255,255,0.12); color: #fff; }
+    .code-block pre { margin: 0; padding: 10px 14px; overflow-x: auto; font-family: var(--font-mono); font-size: 12px; line-height: 1.6; color: #d4d4d4; }
+    .code-block pre code { background: none; padding: 0; font-size: inherit; }
+
+    /* reactions */
+    .cmsg-reactions { display: flex; gap: 4px; margin-top: 4px; }
+    .cmsg-reaction { display: inline-flex; align-items: center; gap: 3px; font-size: 11px; padding: 2px 6px; border-radius: var(--radius-pill); background: var(--surface-warm); border: 1px solid var(--border-soft); cursor: pointer; transition: background var(--motion-fast), border-color var(--motion-fast); }
+    .cmsg-reaction:hover { background: var(--surface); border-color: var(--border); }
+    .cmsg.user .cmsg-reaction { background: rgba(255,255,255,0.12); border-color: rgba(255,255,255,0.2); }
+    .cmsg.user .cmsg-reaction:hover { background: rgba(255,255,255,0.18); }
+    .cmsg-reaction .r-count { font-family: var(--font-mono); font-size: 10px; color: var(--muted); }
+    .cmsg.user .cmsg-reaction .r-count { color: rgba(255,255,255,0.6); }
+
+    /* more actions */
+    .cmsg-actions { position: relative; }
+    .cmsg-more { width: 24px; height: 24px; display: grid; place-items: center; background: transparent; border: 0; border-radius: 50%; cursor: pointer; color: var(--meta); font-size: 14px; opacity: 0; transition: opacity var(--motion-fast), background var(--motion-fast); }
+    .cmsg:hover > .cmsg-body > .cmsg-actions > .cmsg-more { opacity: 1; }
+    .cmsg-more:hover { background: var(--surface); color: var(--fg); }
+    .cmsg-dropdown { display: none; position: absolute; right: 0; top: 24px; background: var(--bg); border: 1px solid var(--border-soft); border-radius: 8px; box-shadow: var(--elev-overlay); min-width: 120px; z-index: 40; padding: 4px; }
+    .cmsg-dropdown.open { display: block; }
+    .cmsg-dropdown button { display: flex; align-items: center; gap: var(--space-2); width: 100%; padding: 6px 10px; border: 0; background: transparent; border-radius: 5px; font-size: var(--text-xs); color: var(--fg-2); cursor: pointer; text-align: left; transition: background var(--motion-fast); }
+    .cmsg-dropdown button:hover { background: var(--surface); }
+    .cmsg.user .cmsg-dropdown { right: auto; left: 0; }
+
+    /* typing indicator */
+    .typing-indicator { display: inline-flex; align-items: center; gap: 4px; padding: 4px 0; }
+    .typing-dot { width: 6px; height: 6px; border-radius: 50%; background: var(--meta); animation: typingBounce 1.2s infinite ease-in-out; }
+    .typing-dot:nth-child(2) { animation-delay: 0.15s; }
+    .typing-dot:nth-child(3) { animation-delay: 0.3s; }
+    @keyframes typingBounce {
+      0%, 60%, 100% { transform: translateY(0); opacity: 0.4; }
+      30% { transform: translateY(-6px); opacity: 1; }
+    }
+
     .cmsg-attach { margin-top: 6px; display: flex; gap: 6px; flex-wrap: wrap; }
     .attach-chip { display: inline-flex; align-items: center; gap: 4px; font-size: 11px; color: var(--muted); background: var(--bg); border: 1px solid var(--border-soft); border-radius: 6px; padding: 3px 7px; }
 
+    /* ─── input area ────────────────────────────────────────────── */
     .ws-input { border-top: 1px solid var(--border-soft); padding: var(--space-3) var(--space-4); flex-shrink: 0; }
+    .ws-input-tools { display: flex; gap: var(--space-1); margin-bottom: var(--space-1); }
+    .ws-input-tools button { width: 28px; height: 28px; display: grid; place-items: center; background: transparent; border: 0; border-radius: 6px; cursor: pointer; color: var(--meta); font-size: 14px; transition: background var(--motion-fast), color var(--motion-fast); }
+    .ws-input-tools button:hover { background: var(--surface); color: var(--fg); }
     .ws-input-box { display: flex; align-items: flex-end; gap: var(--space-2); background: var(--surface-warm); border: 1px solid var(--border); border-radius: var(--radius-sm); padding: var(--space-2); }
     .ws-input-box textarea { flex: 1; border: 0; background: transparent; resize: none; font-size: var(--text-sm); line-height: 1.5; max-height: 100px; outline: none; padding: 6px; }
     .ws-input-box textarea::placeholder { color: var(--meta); }
+    .ws-send-btn { position: relative; }
+    .ws-send-btn.sending .send-icon { animation: sendFly 0.4s ease-out; }
+    @keyframes sendFly {
+      0% { transform: translate(0, 0); opacity: 1; }
+      60% { transform: translate(4px, -4px); opacity: 0.6; }
+      100% { transform: translate(0, 0); opacity: 1; }
+    }
 
+    /* mention popover */
+    .mention-popover { display: none; position: absolute; bottom: 100%; left: 0; right: 0; background: var(--bg); border: 1px solid var(--border); border-radius: var(--radius-sm); box-shadow: var(--elev-overlay); max-height: 180px; overflow-y: auto; z-index: 50; padding: 4px; margin-bottom: 4px; }
+    .mention-popover.open { display: block; }
+    .mention-item { display: flex; align-items: center; gap: var(--space-2); padding: 6px 8px; border-radius: 6px; cursor: pointer; font-size: var(--text-xs); color: var(--fg-2); transition: background var(--motion-fast); }
+    .mention-item:hover, .mention-item.active { background: var(--surface); }
+    .mention-item .m-icon { width: 20px; height: 20px; border-radius: 5px; display: grid; place-items: center; font-size: 9px; font-weight: 600; flex-shrink: 0; }
+    .mention-item .m-type { font-size: 10px; color: var(--meta); }
+
+    /* ─── meta panel ────────────────────────────────────────────── */
     .ws-meta { background: var(--bg); border: 1px solid var(--border-soft); border-radius: var(--radius-md); display: flex; flex-direction: column; overflow: hidden; }
     .ws-meta-head { padding: var(--space-4); border-bottom: 1px solid var(--border-soft); }
     .ws-meta-head .t { font-size: var(--text-sm); font-weight: 600; }
     .ws-meta-body { flex: 1; overflow-y: auto; padding: var(--space-4); }
     .meta-section { margin-bottom: var(--space-5); }
     .meta-section .lbl { font-size: 11px; color: var(--meta); letter-spacing: var(--tracking-label); text-transform: uppercase; margin-bottom: var(--space-2); }
-    .member { display: flex; align-items: center; gap: var(--space-2); padding: 6px 0; font-size: var(--text-xs); }
+
+    /* members with status dot */
+    .member { display: flex; align-items: center; gap: var(--space-2); padding: 6px 8px; font-size: var(--text-xs); border-radius: 6px; transition: background var(--motion-fast); position: relative; }
+    .member:hover { background: var(--surface-warm); }
+    .member .av-wrap { position: relative; flex-shrink: 0; }
     .member .av { width: 24px; height: 24px; border-radius: 50%; background: var(--surface); display: grid; place-items: center; font-size: 10px; font-weight: 600; }
+    .member .status-dot { position: absolute; bottom: -1px; right: -1px; width: 8px; height: 8px; border-radius: 50%; border: 2px solid var(--bg); }
+    .member .status-dot.online { background: var(--success); }
+    .member .status-dot.offline { background: var(--meta); }
     .member .nm { color: var(--fg-2); flex: 1; }
     .member .role { color: var(--meta); font-size: 10px; }
+    .member .remove-btn { display: none; padding: 2px 6px; background: var(--danger-soft); border: 0; border-radius: 4px; color: var(--danger); font-size: 10px; cursor: pointer; white-space: nowrap; }
+    .member:hover .remove-btn { display: inline-block; }
 
+    /* flow links */
+    .flow-item { padding: var(--space-2) var(--space-3); background: var(--surface-warm); border: 1px solid var(--border-soft); border-radius: 8px; margin-bottom: var(--space-2); transition: background var(--motion-fast); }
+    .flow-item:hover { background: var(--surface); }
+    .flow-item .flow-top { display: flex; align-items: center; justify-content: space-between; gap: var(--space-2); }
+    .flow-item .flow-name { font-size: 12px; font-weight: 500; color: var(--fg-2); font-family: var(--font-mono); }
+    .flow-item .flow-desc { font-size: 11px; color: var(--muted); margin-top: 2px; }
+    .flow-item .flow-link { font-size: 11px; color: var(--accent-hover); text-decoration: none; margin-top: 4px; display: inline-block; }
+    .flow-item .flow-link:hover { text-decoration: underline; }
+
+    /* quota bars */
     .quota-row { padding: 8px 0; }
     .quota-row + .quota-row { border-top: 1px solid var(--border-soft); }
     .quota-row .top { display: flex; justify-content: space-between; font-size: 11px; margin-bottom: 4px; }
     .quota-row .top .nm { color: var(--fg-2); }
     .quota-row .top .v { font-family: var(--font-mono); color: var(--muted); }
+    .quota-expand { display: flex; justify-content: space-between; align-items: center; margin-top: var(--space-2); }
+    .quota-expand-btn { font-size: 11px; color: var(--accent-hover); background: var(--accent-soft); border: 0; border-radius: 6px; padding: 4px 10px; cursor: pointer; font-weight: 500; transition: background var(--motion-fast); }
+    .quota-expand-btn:hover { background: var(--accent); color: var(--accent-on); }
 
+    /* artifacts */
+    .artifact-group { margin-bottom: var(--space-3); }
+    .artifact-group:last-child { margin-bottom: 0; }
+    .artifact-group-title { font-size: 11px; color: var(--meta); margin-bottom: 6px; display: flex; align-items: center; gap: 4px; }
+    .artifact-group-title .ag-icon { font-size: 12px; }
+    .artifact-item { display: flex; align-items: center; gap: var(--space-2); padding: 5px 8px; border-radius: 6px; font-size: 11px; color: var(--fg-2); transition: background var(--motion-fast); position: relative; }
+    .artifact-item:hover { background: var(--surface-warm); }
+    .artifact-item .a-name { flex: 1; min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+    .artifact-item .a-meta { color: var(--meta); font-size: 10px; white-space: nowrap; }
+    .artifact-item .dl-btn { display: none; padding: 2px 6px; background: var(--accent-soft); border: 0; border-radius: 4px; color: var(--accent-hover); font-size: 10px; cursor: pointer; white-space: nowrap; }
+    .artifact-item:hover .dl-btn { display: inline-block; }
+
+    /* ─── skeleton / shimmer ───────────────────────────────────── */
+    .skeleton { background: var(--surface); border-radius: 6px; position: relative; overflow: hidden; }
+    .skeleton::after { content: ''; position: absolute; inset: 0; background: linear-gradient(90deg, transparent 0%, rgba(255,255,255,0.5) 40%, transparent 60%); animation: shimmer 1.6s infinite; }
+    @keyframes shimmer { 0% { transform: translateX(-100%); } 100% { transform: translateX(100%); } }
+    .skel-msg { height: 56px; margin-bottom: var(--space-3); border-radius: 12px; }
+    .skel-msg.user-skel { margin-left: 40%; }
+    .skel-row { height: 14px; margin-bottom: 6px; }
+    .skel-row:last-child { margin-bottom: 0; }
+    .skel-member { height: 32px; margin-bottom: 6px; }
+    .skel-section-title { width: 60px; height: 10px; margin-bottom: 8px; }
+
+    /* ─── toast ─────────────────────────────────────────────────── */
+    .toast-container { position: fixed; bottom: var(--space-8); right: var(--space-8); z-index: 200; display: flex; flex-direction: column; gap: var(--space-2); pointer-events: none; }
+    .toast { pointer-events: auto; background: var(--fg); color: var(--bg); font-size: var(--text-sm); font-weight: 500; padding: var(--space-3) var(--space-5); border-radius: var(--radius-sm); box-shadow: var(--elev-overlay); transform: translateY(16px); opacity: 0; transition: all var(--motion-base) var(--ease-standard); }
+    .toast.show { transform: translateY(0); opacity: 1; }
+
+    /* ─── responsive ───────────────────────────────────────────── */
     @media (max-width: 1280px) { .ws-layout { grid-template-columns: 1fr 280px; } }
     @media (max-width: 1024px) { .ws-layout { grid-template-columns: 1fr; height: auto; } .ws-meta { max-height: 320px; } .ws-chat { min-height: 520px; } }
   </style>
@@ -65,8 +192,8 @@
 <body>
   <div class="app" id="app">
     <aside class="app-sidebar" data-od-id="sidebar">
-      <div class="brand"><div class="brand-mark">M</div><div><div class="brand-name">Mega Agents</div><div class="brand-sub">控制台 · v0.2</div></div></div>
-      <nav class="nav" aria-label="主导航"></nav>
+      <div class="brand"><div class="brand-mark">D</div><div><div class="brand-name">DAgent</div><div class="brand-sub">控制台 · v0.2</div></div></div>
+      <nav class="nav" id="main-nav" aria-label="主导航"></nav>
       <div class="sidebar-footer"></div>
     </aside>
 
@@ -89,31 +216,51 @@
             <p class="page-subtitle">按项目隔离的人-agent 对话记录。成员、关联 flow、产物与配额一站式。对话经网关注入 run_id 全链路可追溯。</p>
           </div>
           <div class="page-actions">
-            <button class="btn btn-secondary btn-sm">归档</button>
-            <button class="btn btn-accent btn-sm">+ 新建项目</button>
+            <button class="btn btn-secondary btn-sm" id="btn-archive">归档</button>
+            <button class="btn btn-accent btn-sm" id="btn-new-project">+ 新建项目</button>
           </div>
         </div>
 
         <div class="ws-layout" data-od-id="ws-layout">
-          <!-- left project list removed: projects now live in the sidebar -->
-
           <!-- center: chat -->
           <div class="ws-chat" data-od-id="ws-chat">
             <div class="ws-chat-head">
-              <div class="title" id="ws-title">论文复现 · RL</div>
-              <div class="sub" id="ws-sub">24 成员 · 关联 flow flow_repro_01 · 今日 18 条消息</div>
+              <div class="title-row">
+                <div class="title" id="ws-title">论文复现 · RL</div>
+              </div>
+              <div class="stats" id="ws-stats">
+                <span class="stat-item"><span class="stat-dot"></span>24 成员</span>
+                <span class="stat-item"><span class="stat-dot"></span>1 flow</span>
+                <span class="stat-item"><span class="stat-dot"></span>今日 18 条</span>
+              </div>
+              <div class="desc" id="ws-desc" title="点击编辑项目描述">按计划复现 128 篇 RL 论文，重点验证 attention vs skip-connect 对照实验。</div>
+              <div class="desc-editor" id="ws-desc-editor">
+                <textarea id="ws-desc-textarea" rows="2"></textarea>
+                <div class="desc-actions">
+                  <button class="btn btn-primary btn-sm" id="desc-save" style="height:24px;font-size:11px">保存</button>
+                  <button class="btn btn-ghost btn-sm" id="desc-cancel" style="height:24px;font-size:11px">取消</button>
+                </div>
+              </div>
               <div class="filters">
-                <button class="filter-chip" aria-pressed="true" style="height:26px;font-size:11px">全部</button>
-                <button class="filter-chip" aria-pressed="false" style="height:26px;font-size:11px">@我</button>
-                <button class="filter-chip" aria-pressed="false" style="height:26px;font-size:11px">未读</button>
-                <button class="filter-chip" aria-pressed="false" style="height:26px;font-size:11px">含 run</button>
+                <button class="filter-chip" data-filter="all" aria-pressed="true" style="height:26px;font-size:11px">全部<span class="chip-badge">18</span></button>
+                <button class="filter-chip" data-filter="mention" aria-pressed="false" style="height:26px;font-size:11px">@我<span class="chip-badge">3</span></button>
+                <button class="filter-chip" data-filter="unread" aria-pressed="false" style="height:26px;font-size:11px">未读<span class="chip-badge">5</span></button>
+                <button class="filter-chip" data-filter="run" aria-pressed="false" style="height:26px;font-size:11px">含 run<span class="chip-badge">8</span></button>
               </div>
             </div>
             <div class="ws-stream" id="ws-stream"></div>
             <div class="ws-input">
-              <div class="ws-input-box">
+              <div class="ws-input-tools">
+                <button title="@ 提及 agent" id="btn-mention-agent">@</button>
+                <button title="# 关联 flow" id="btn-mention-flow">#</button>
+                <button title="上传附件" id="btn-attach">&#128206;</button>
+              </div>
+              <div class="ws-input-box" style="position:relative;">
+                <div class="mention-popover" id="mention-popover"></div>
                 <textarea id="ws-textarea" rows="1" placeholder="在项目频道发消息，@agent 可派发任务…" aria-label="项目消息"></textarea>
-                <button class="btn btn-primary btn-sm" id="ws-send">发送</button>
+                <button class="btn btn-primary btn-sm ws-send-btn" id="ws-send">
+                  <span class="send-icon" style="display:grid;place-items:center">&#10148;</span>
+                </button>
               </div>
             </div>
           </div>
@@ -121,150 +268,544 @@
           <!-- right: meta -->
           <div class="ws-meta" data-od-id="ws-meta">
             <div class="ws-meta-head"><div class="t" id="meta-title">项目信息</div></div>
-            <div class="ws-meta-body" id="meta-body">
-              <div class="meta-section">
-                <div class="lbl">成员</div>
-                <div class="member"><div class="av" style="background:var(--fg);color:var(--bg)">RZ</div><div class="nm">饶哲</div><div class="role">owner</div></div>
-                <div class="member"><div class="av" style="background:var(--accent-soft);color:var(--accent-hover)">LM</div><div class="nm">林敏</div><div class="role">editor</div></div>
-                <div class="member"><div class="av" style="background:#eef4ee;color:#1f6b3f">DK</div><div class="nm">邓凯</div><div class="role">editor</div></div>
-                <div class="member"><div class="av" style="background:var(--surface);color:var(--muted)">+21</div><div class="nm muted">其余成员</div><div class="role"></div></div>
-              </div>
-              <div class="meta-section">
-                <div class="lbl">关联 flow</div>
-                <div class="card-flat" style="padding:var(--space-3)">
-                  <div class="row-between"><span class="fg" style="font-size:12px;font-weight:500">flow_repro_01</span><span class="status running"><span class="dot"></span>running</span></div>
-                  <div class="muted mt-2" style="font-size:11px">论文批量复现流水线 · v2.3.1</div>
-                  <a href="agentflows.html" class="btn btn-ghost btn-sm mt-3" style="padding:0;height:24px">在 AgentFlows 打开 →</a>
-                </div>
-              </div>
-              <div class="meta-section">
-                <div class="lbl">配额（本月）</div>
-                <div class="quota-row"><div class="top"><span class="nm">成本</span><span class="v">$1,820 / $5,000</span></div><div class="bar"><span style="width:36%"></span></div></div>
-                <div class="quota-row"><div class="top"><span class="nm">runs</span><span class="v">412 / 2,000</span></div><div class="bar"><span style="width:21%"></span></div></div>
-                <div class="quota-row"><div class="top"><span class="nm">tokens</span><span class="v">18.4M / 80M</span></div><div class="bar"><span style="width:23%"></span></div></div>
-              </div>
-              <div class="meta-section">
-                <div class="lbl">产物</div>
-                <div class="card-flat" style="padding:var(--space-3);font-size:11px">
-                  <div class="row-between mb-2"><span class="muted">报告</span><span class="mono">3</span></div>
-                  <div class="row-between mb-2"><span class="muted">数据集</span><span class="mono">7</span></div>
-                  <div class="row-between"><span class="muted">代码 patch</span><span class="mono">12</span></div>
-                </div>
-              </div>
-            </div>
+            <div class="ws-meta-body" id="meta-body"></div>
           </div>
         </div>
       </div>
     </main>
   </div>
 
+  <!-- toast container -->
+  <div class="toast-container" id="toast-container"></div>
+
   <script>window.OD_NAV = { active: 'workspace' };</script>
   <script src="js/workspace-data.js"></script>
   <script src="js/app.js"></script>
   <script>
-    document.addEventListener('DOMContentLoaded', () => {
-      const S = window.OD.svg;
-      document.getElementById('ic').innerHTML = S.search;
-      document.getElementById('bell').innerHTML = S.bell;
-      document.querySelector('.mobile-menu-btn').innerHTML = S.menu;
+    /* ============================================================
+       workspace.js — enhanced interactions
+       ============================================================ */
+    (function () {
+      'use strict';
 
-      const projects = window.OD_WS_PROJECTS;
-      const threads = window.OD_WS_THREADS;
-      let initialIdx = 0;
+      // ─── helpers ──────────────────────────────────────────────
+      function qs(sel, root) { return (root || document).querySelector(sel); }
+      function qsa(sel, root) { return Array.from((root || document).querySelectorAll(sel)); }
+      function esc(s) { var d = document.createElement('div'); d.textContent = s; return d.innerHTML; }
 
-      // incoming new task from new-task.html — materialize a fresh project thread
-      const params = new URLSearchParams(location.search);
-      if (params.get('new') === '1') {
-        const task = params.get('task') || '（空任务）';
-        const dir = params.get('dir');
-        const flows = (params.get('flows') || '').split(',').filter(Boolean);
-        const agents = (params.get('agents') || '').split(',').filter(Boolean);
-        const key = 'new_' + Date.now();
-        const assocBits = [];
-        if (dir) assocBits.push('目录 ' + dir.split(/[\\/]/).pop());
-        if (flows.length) assocBits.push(flows.length + ' flow');
-        if (agents.length) assocBits.push(agents.length + ' agent');
-        const sub = '工作区 · ' + (assocBits.length ? assocBits.join(' · ') : '无关联');
-        projects.unshift({
-          key: key, glyph: 'T', name: task.slice(0, 24) + (task.length > 24 ? '…' : ''),
-          meta: sub, status: 'queued', unread: 0, sub: sub,
-        });
-        threads[key] = [
-          { day:'今天', role:'human', initial:'RZ', name:'饶哲', time:'刚刚',
-            body:'<p>' + task.replace(/</g,'&lt;') + '</p>' +
-                 (dir ? '<p class="muted" style="font-size:12px">📁 workspace: <code>' + dir.replace(/</g,'&lt;') + '</code></p>' : '') +
-                 (flows.length || agents.length ? '<p class="muted" style="font-size:12px">关联 ' + assocBits.join(' · ') + '</p>' : '') },
-          { role:'bot', initial:'O', name:'orchestrator-01', time:'刚刚',
-            body:'<p>已收到任务。' + (flows.length ? '将按关联 flow 派发；' : '') + (agents.length ? '已通知 ' + agents.length + ' 个 agent 待命。' : '') + '等待 dispatch 确认 run_id。</p>' },
-        ];
-        initialIdx = 0;
-        try { localStorage.setItem('od:ws-proj', key); } catch (_) {}
-      } else {
-        // project list now lives in the sidebar; read ?p= to pick project
-        const urlP = params.get('p');
-        if (urlP) { const found = projects.findIndex(p => p.key === urlP); if (found >= 0) initialIdx = found; }
+      function showToast(msg) {
+        var container = document.getElementById('toast-container');
+        var el = document.createElement('div');
+        el.className = 'toast';
+        el.textContent = msg;
+        container.appendChild(el);
+        requestAnimationFrame(function () { el.classList.add('show'); });
+        setTimeout(function () {
+          el.classList.remove('show');
+          setTimeout(function () { el.remove(); }, 250);
+        }, 2400);
       }
 
-      function renderThread(key) {
-        const msgs = threads[key] || [];
-        const stream = document.getElementById('ws-stream');
-        let html = '';
-        let lastDay = '';
-        msgs.forEach(m => {
-          if (m.day && m.day !== lastDay) { html += `<div class="day-sep">${m.day}</div>`; lastDay = m.day; }
-          const attach = m.attach ? `<div class="cmsg-attach">${m.attach.map(a => `<span class="attach-chip">📎 ${a}</span>`).join('')}</div>` : '';
-          html += `
-            <div class="cmsg ${m.role === 'human' ? 'user' : ''}">
-              <div class="cmsg-avatar ${m.role === 'human' ? 'human' : 'bot'}">${m.initial}</div>
-              <div class="cmsg-body">
-                <div class="cmsg-head"><span class="cmsg-name">${m.name}</span><span>${m.time}</span>${m.run ? `<span style="color:var(--accent-hover)">· ${m.run}</span>` : ''}</div>
-                <div class="cmsg-bubble">${m.body}</div>
-                ${attach}
-              </div>
-            </div>`;
+      // ─── code block renderer ─────────────────────────────────
+      function renderCodeBlocks(text) {
+        return text.replace(/```(\w*)\n([\s\S]*?)```/g, function (_, lang, code) {
+          var label = lang || 'code';
+          var id = 'cb_' + Math.random().toString(36).slice(2, 8);
+          return '<div class="code-block">' +
+            '<div class="code-block-head"><span>' + esc(label) + '</span><button onclick="copyCode(\'' + id + '\',this)" title="复制">复制</button></div>' +
+            '<pre id="' + id + '"><code>' + esc(code.trimEnd()) + '</code></pre></div>';
         });
+      }
+
+      window.copyCode = function (id, btn) {
+        var el = document.getElementById(id);
+        if (!el) return;
+        var text = el.textContent;
+        if (navigator.clipboard) { navigator.clipboard.writeText(text).then(function () { btn.textContent = '已复制'; setTimeout(function () { btn.textContent = '复制'; }, 1200); }); }
+        else { showToast('复制成功'); }
+      };
+
+      // ─── skeleton ────────────────────────────────────────────
+      function renderSkeletons() {
+        // chat stream skeleton
+        var stream = document.getElementById('ws-stream');
+        var sh = '';
+        for (var i = 0; i < 5; i++) {
+          var cls = i % 2 === 1 ? ' skel-msg user-skel' : ' skel-msg';
+          sh += '<div class="skeleton' + cls + '"></div>';
+        }
+        stream.innerHTML = sh;
+
+        // meta panel skeleton
+        var meta = document.getElementById('meta-body');
+        var mh = '';
+        mh += '<div class="skeleton skel-section-title"></div>';
+        for (var j = 0; j < 4; j++) mh += '<div class="skeleton skel-member"></div>';
+        mh += '<div class="skeleton skel-section-title" style="margin-top:16px"></div>';
+        mh += '<div class="skeleton skel-row" style="width:80%"></div>';
+        mh += '<div class="skeleton skel-row" style="width:60%"></div>';
+        mh += '<div class="skeleton skel-section-title" style="margin-top:16px"></div>';
+        mh += '<div class="skeleton skel-row" style="width:70%"></div>';
+        mh += '<div class="skeleton skel-row" style="width:50%"></div>';
+        mh += '<div class="skeleton skel-section-title" style="margin-top:16px"></div>';
+        mh += '<div class="skeleton skel-row" style="width:65%"></div>';
+        meta.innerHTML = mh;
+      }
+
+      // ─── render meta panel ───────────────────────────────────
+      function renderMetaPanel(project) {
+        var meta = document.getElementById('meta-body');
+
+        var members = [
+          { init: 'RZ', name: '饶哲', color: 'var(--fg);color:var(--bg)', role: 'owner', online: true },
+          { init: 'LM', name: '林敏', color: 'var(--accent-soft);color:var(--accent-hover)', role: 'editor', online: true },
+          { init: 'DK', name: '邓凯', color: '#eef4ee;color:#1f6b3f', role: 'editor', online: false },
+          { init: '+21', name: '其余成员', color: 'var(--surface);color:var(--muted)', role: '', online: false },
+        ];
+
+        var flows = [
+          { name: 'flow_repro_01', desc: '论文批量复现流水线 · v2.3.1', status: 'running' },
+        ];
+
+        var quotas = [
+          { label: '成本', used: 1820, total: 5000, fmt: '$1,820 / $5,000' },
+          { label: 'runs', used: 412, total: 2000, fmt: '412 / 2,000' },
+          { label: 'tokens', used: 18.4, total: 80, pct: 23, fmt: '18.4M / 80M' },
+        ];
+
+        var artifacts = {
+          '报告': [
+            { name: 'repro_summary_v2.md', size: '24 KB', time: '2 小时前' },
+            { name: 'ablation_analysis.pdf', size: '1.2 MB', time: '5 小时前' },
+            { name: 'experiment_log.md', size: '8 KB', time: '昨天' },
+          ],
+          '数据集': [
+            { name: 'results_skip.csv', size: '340 KB', time: '1 小时前' },
+            { name: 'results_baseline.csv', size: '286 KB', time: '1 小时前' },
+            { name: 'metrics_v3.parquet', size: '2.1 MB', time: '3 小时前' },
+          ],
+          '代码 patch': [
+            { name: 'fix_attention.patch', size: '12 KB', time: '30 分钟前' },
+            { name: 'skip_connect_v2.patch', size: '18 KB', time: '2 小时前' },
+          ],
+        };
+
+        var groupIcons = { '报告': '&#128196;', '数据集': '&#128202;', '代码 patch': '&#128736;' };
+
+        var html = '';
+
+        // members
+        html += '<div class="meta-section"><div class="lbl">成员</div>';
+        members.forEach(function (m) {
+          var statusCls = m.online ? 'online' : 'offline';
+          var removeHtml = m.role === 'owner' ? '' : '<button class="remove-btn" onclick="event.stopPropagation();showToast(\'已移除 ' + esc(m.name) + '\')">移除</button>';
+          html += '<div class="member"><div class="av-wrap"><div class="av" style="background:' + m.color + '">' + m.init + '</div><div class="status-dot ' + statusCls + '"></div></div><div class="nm">' + m.name + '</div><div class="role">' + m.role + '</div>' + removeHtml + '</div>';
+        });
+        html += '</div>';
+
+        // flows
+        html += '<div class="meta-section"><div class="lbl">关联 flow</div>';
+        flows.forEach(function (f) {
+          html += '<div class="flow-item">' +
+            '<div class="flow-top"><span class="flow-name">' + esc(f.name) + '</span><span class="status ' + f.status + '"><span class="dot"></span>' + f.status + '</span></div>' +
+            '<div class="flow-desc">' + esc(f.desc) + '</div>' +
+            '<a class="flow-link" href="agentflows.html#flow=' + esc(f.name) + '">在 AgentFlows 打开 &rarr;</a></div>';
+        });
+        html += '</div>';
+
+        // quotas
+        html += '<div class="meta-section"><div class="lbl">配额（本月）</div>';
+        quotas.forEach(function (q) {
+          var pct = q.pct || Math.round(q.used / q.total * 100);
+          var barCls = '';
+          if (pct >= 95) barCls = ' danger';
+          else if (pct >= 80) barCls = ' warn';
+          html += '<div class="quota-row"><div class="top"><span class="nm">' + q.label + '</span><span class="v">' + q.fmt + '</span></div><div class="bar' + barCls + '"><span style="width:' + pct + '%"></span></div></div>';
+        });
+        html += '<div class="quota-expand"><span></span><button class="quota-expand-btn" onclick="showToast(\'扩容申请已提交，预计 24 小时内审批\')">申请扩容</button></div>';
+        html += '</div>';
+
+        // artifacts
+        html += '<div class="meta-section"><div class="lbl">产物</div>';
+        for (var cat in artifacts) {
+          var items = artifacts[cat];
+          var icon = groupIcons[cat] || '&#128196;';
+          html += '<div class="artifact-group"><div class="artifact-group-title"><span class="ag-icon">' + icon + '</span> ' + cat + ' <span style="color:var(--meta)">' + items.length + '</span></div>';
+          items.forEach(function (a) {
+            html += '<div class="artifact-item"><span class="a-name">' + esc(a.name) + '</span><span class="a-meta">' + a.size + ' · ' + a.time + '</span><button class="dl-btn" onclick="event.stopPropagation();showToast(\'' + esc(a.name) + ' 开始下载\')">下载</button></div>';
+          });
+          html += '</div>';
+        }
+        html += '</div>';
+
+        meta.innerHTML = html;
+      }
+
+      // ─── render thread with enhanced messages ────────────────
+      var sampleReactions = [
+        { emoji: '&#128077;', count: 3 },
+        { emoji: '&#128640;', count: 1 },
+      ];
+
+      function renderThread(key) {
+        var msgs = (window.OD_WS_THREADS && window.OD_WS_THREADS[key]) || [];
+        var stream = document.getElementById('ws-stream');
+        var html = '';
+        var lastDay = '';
+        msgs.forEach(function (m, idx) {
+          if (m.day && m.day !== lastDay) { html += '<div class="day-sep">' + m.day + '</div>'; lastDay = m.day; }
+          var attach = m.attach ? '<div class="cmsg-attach">' + m.attach.map(function (a) { return '<span class="attach-chip">&#128206; ' + esc(a) + '</span>'; }).join('') + '</div>' : '';
+
+          // code block rendering in body
+          var body = renderCodeBlocks(m.body);
+
+          // reactions (only on bot messages)
+          var reactionHtml = '';
+          if (m.role === 'bot' && idx % 2 === 0) {
+            reactionHtml = '<div class="cmsg-reactions">';
+            sampleReactions.forEach(function (r) {
+              reactionHtml += '<span class="cmsg-reaction" onclick="toggleReaction(this)">' + r.emoji + '<span class="r-count">' + r.count + '</span></span>';
+            });
+            reactionHtml += '<span class="cmsg-reaction" onclick="toggleReaction(this)" style="opacity:0.5">+</span></div>';
+          }
+
+          // more actions dropdown
+          var moreId = 'more_' + idx;
+          html += '<div class="cmsg ' + (m.role === 'human' ? 'user' : '') + '">' +
+            '<div class="cmsg-avatar ' + (m.role === 'human' ? 'human' : 'bot') + '">' + m.initial + '</div>' +
+            '<div class="cmsg-body">' +
+              '<div class="cmsg-head"><span class="cmsg-name">' + esc(m.name) + '</span><span class="cmsg-ts">' + m.time + '</span>' + (m.run ? '<span style="color:var(--accent-hover)">· ' + m.run + '</span>' : '') + '</div>' +
+              '<div class="cmsg-bubble">' + body + '</div>' +
+              attach +
+              reactionHtml +
+              '<div class="cmsg-actions"><button class="cmsg-more" onclick="toggleDropdown(\'' + moreId + '\',event)">···</button>' +
+                '<div class="cmsg-dropdown" id="' + moreId + '">' +
+                  '<button onclick="copyMsg(this);closeDropdowns()">复制文本</button>' +
+                  '<button onclick="quoteMsg(this);closeDropdowns()">引用</button>' +
+                  (m.role === 'human' ? '<button onclick="deleteMsg(this);closeDropdowns()">删除</button>' : '') +
+                '</div>' +
+              '</div>' +
+            '</div></div>';
+        });
+
+        // add typing indicator at bottom for bot messages
+        html += '<div class="cmsg"><div class="cmsg-avatar bot" style="background:var(--accent-soft);color:var(--accent-hover)">O</div><div class="cmsg-body"><div class="cmsg-head"><span class="cmsg-name">orchestrator-01</span></div><div class="cmsg-bubble"><div class="typing-indicator"><span class="typing-dot"></span><span class="typing-dot"></span><span class="typing-dot"></span></div></div></div></div>';
+
         stream.innerHTML = html;
         stream.scrollTop = stream.scrollHeight;
       }
 
+      window.toggleReaction = function (el) {
+        var countEl = el.querySelector('.r-count');
+        if (!countEl) {
+          // "+" add reaction — just toggle like
+          el.innerHTML = '&#128077;<span class="r-count">1</span>';
+          el.style.opacity = '1';
+          return;
+        }
+        var n = parseInt(countEl.textContent) || 0;
+        if (n <= 1) {
+          countEl.textContent = '';
+          el.style.opacity = '0.5';
+        } else {
+          countEl.textContent = n - 1;
+        }
+      };
+
+      window.toggleDropdown = function (id, e) {
+        e.stopPropagation();
+        var dd = document.getElementById(id);
+        var wasOpen = dd.classList.contains('open');
+        closeDropdowns();
+        if (!wasOpen) dd.classList.add('open');
+      };
+
+      function closeDropdowns() {
+        qsa('.cmsg-dropdown.open').forEach(function (d) { d.classList.remove('open'); });
+      }
+      window.closeDropdowns = closeDropdowns;
+
+      window.copyMsg = function (btn) {
+        var bubble = btn.closest('.cmsg-body').querySelector('.cmsg-bubble');
+        if (bubble && navigator.clipboard) {
+          navigator.clipboard.writeText(bubble.textContent).then(function () { showToast('已复制到剪贴板'); });
+        } else { showToast('已复制'); }
+      };
+
+      window.quoteMsg = function (btn) {
+        var bubble = btn.closest('.cmsg-body').querySelector('.cmsg-bubble');
+        var ta = document.getElementById('ws-textarea');
+        if (bubble && ta) {
+          var quote = bubble.textContent.slice(0, 80).replace(/\n/g, ' ');
+          ta.value = '> ' + quote + (quote.length >= 80 ? '...' : '') + '\n';
+          ta.focus();
+        }
+      };
+
+      window.deleteMsg = function (btn) {
+        var cmsg = btn.closest('.cmsg');
+        cmsg.style.transition = 'opacity 0.2s, transform 0.2s';
+        cmsg.style.opacity = '0';
+        cmsg.style.transform = 'translateX(20px)';
+        setTimeout(function () { cmsg.remove(); }, 220);
+        showToast('消息已删除');
+      };
+
+      // ─── project selection ────────────────────────────────────
+      var currentProjectKey = '';
+
       function selectProject(i) {
-        const p = projects[i];
+        var p = window.OD_WS_PROJECTS[i];
+        if (!p) return;
+        currentProjectKey = p.key;
         document.getElementById('ws-title').textContent = p.name;
-        document.getElementById('ws-sub').textContent = p.sub;
-        document.getElementById('meta-title').textContent = p.name;
+        document.getElementById('ws-desc').textContent = '按计划复现 128 篇 RL 论文，重点验证 attention vs skip-connect 对照实验。';
+        document.getElementById('meta-title').textContent = p.name + ' · 项目信息';
         renderThread(p.key);
+        renderMetaPanel(p);
       }
 
-      // listen for sidebar task clicks (SPA-style switch, no reload)
-      window.addEventListener('od:ws-select', (e) => {
-        const key = e.detail.key;
-        const idx = projects.findIndex(p => p.key === key);
-        if (idx >= 0) selectProject(idx);
+      // ─── description editing ──────────────────────────────────
+      function initDescEditor() {
+        var descEl = document.getElementById('ws-desc');
+        var editorEl = document.getElementById('ws-desc-editor');
+        var ta = document.getElementById('ws-desc-textarea');
+        var saveBtn = document.getElementById('desc-save');
+        var cancelBtn = document.getElementById('desc-cancel');
+
+        descEl.addEventListener('click', function () {
+          ta.value = descEl.textContent;
+          descEl.style.display = 'none';
+          editorEl.style.display = 'block';
+          ta.focus();
+        });
+
+        function save() {
+          descEl.textContent = ta.value.trim() || '点击添加项目描述';
+          descEl.style.display = '';
+          editorEl.style.display = 'none';
+          showToast('描述已保存');
+        }
+
+        saveBtn.addEventListener('click', save);
+        cancelBtn.addEventListener('click', function () {
+          descEl.style.display = '';
+          editorEl.style.display = 'none';
+        });
+        ta.addEventListener('keydown', function (e) {
+          if (e.key === 'Enter' && !e.shiftKey) { e.preventDefault(); save(); }
+          if (e.key === 'Escape') { cancelBtn.click(); }
+        });
+      }
+
+      // ─── mention popover ────────────────────────────────────
+      function initMentionPopover() {
+        var ta = document.getElementById('ws-textarea');
+        var popover = document.getElementById('mention-popover');
+        var agentBtn = document.getElementById('btn-mention-agent');
+        var flowBtn = document.getElementById('btn-mention-flow');
+        var attachBtn = document.getElementById('btn-attach');
+
+        var agents = [
+          { initial: 'O', name: 'orchestrator-01', type: '调度器' },
+          { initial: 'V', name: 'verifier-07', type: '验证器' },
+          { initial: 'C', name: 'coder-12', type: '编码器' },
+          { initial: 'R', name: 'reader-04', type: '阅读器' },
+        ];
+
+        var flows = [
+          { name: 'flow_repro_01', desc: '论文批量复现流水线' },
+          { name: 'flow_hypo_02', desc: '假设验证流水线' },
+        ];
+
+        function showAgents() {
+          var html = agents.map(function (a) {
+            return '<div class="mention-item" data-insert="@' + a.name + ' "><div class="m-icon" style="background:var(--accent-soft);color:var(--accent-hover)">' + a.initial + '</div><div><div>' + esc(a.name) + '</div><div class="m-type">' + a.type + '</div></div></div>';
+          }).join('');
+          popover.innerHTML = html;
+          popover.classList.add('open');
+          bindMentionClicks();
+        }
+
+        function showFlows() {
+          var html = flows.map(function (f) {
+            return '<div class="mention-item" data-insert="#' + f.name + ' "><div class="m-icon" style="background:var(--surface);color:var(--muted)">#</div><div><div style="font-family:var(--font-mono)">' + esc(f.name) + '</div><div class="m-type">' + esc(f.desc) + '</div></div></div>';
+          }).join('');
+          popover.innerHTML = html;
+          popover.classList.add('open');
+          bindMentionClicks();
+        }
+
+        function bindMentionClicks() {
+          qsa('.mention-item', popover).forEach(function (item) {
+            item.addEventListener('click', function () {
+              var insert = item.getAttribute('data-insert') || '';
+              var pos = ta.selectionStart;
+              ta.value = ta.value.slice(0, pos) + insert + ta.value.slice(pos);
+              ta.focus();
+              ta.selectionStart = ta.selectionEnd = pos + insert.length;
+              popover.classList.remove('open');
+            });
+          });
+        }
+
+        agentBtn.addEventListener('click', function () { showAgents(); ta.focus(); });
+        flowBtn.addEventListener('click', function () { showFlows(); ta.focus(); });
+        attachBtn.addEventListener('click', function () { showToast('文件上传功能开发中'); });
+
+        // close popover on outside click
+        document.addEventListener('click', function (e) {
+          if (!popover.contains(e.target) && e.target !== agentBtn && e.target !== flowBtn) {
+            popover.classList.remove('open');
+          }
+        });
+      }
+
+      // ─── page actions ───────────────────────────────────────
+      function initPageActions() {
+        document.getElementById('btn-archive').addEventListener('click', function () {
+          showToast('项目已归档');
+        });
+        document.getElementById('btn-new-project').addEventListener('click', function () {
+          showToast('新建项目功能即将推出');
+        });
+      }
+
+      // ─── filter chips ────────────────────────────────────────
+      function initFilterChips() {
+        qsa('.filter-chip').forEach(function (chip) {
+          chip.addEventListener('click', function () {
+            qsa('.filter-chip').forEach(function (x) { x.setAttribute('aria-pressed', 'false'); });
+            chip.setAttribute('aria-pressed', 'true');
+            showToast('筛选：' + chip.textContent.replace(/\d+/g, '').trim());
+          });
+        });
+      }
+
+      // ─── send button animation ────────────────────────────────
+      function initSendButton() {
+        var sendBtn = document.getElementById('ws-send');
+        var ta = document.getElementById('ws-textarea');
+
+        ta.addEventListener('input', function () { ta.style.height = 'auto'; ta.style.height = Math.min(ta.scrollHeight, 100) + 'px'; });
+
+        function doSend() {
+          var text = ta.value.trim();
+          if (!text) return;
+
+          // send animation
+          sendBtn.classList.add('sending');
+          setTimeout(function () { sendBtn.classList.remove('sending'); }, 400);
+
+          // render code blocks in user message
+          var body = renderCodeBlocks(esc(text));
+          body = body.replace(/\n/g, '<br>');
+
+          var t = new Date();
+          var ts = String(t.getHours()).padStart(2, '0') + ':' + String(t.getMinutes()).padStart(2, '0');
+          var stream = document.getElementById('ws-stream');
+
+          // remove typing indicator, add message, re-add typing
+          var typingEl = stream.querySelector('.typing-indicator');
+          if (typingEl) typingEl.closest('.cmsg').remove();
+
+          var div = document.createElement('div');
+          div.className = 'cmsg user';
+          div.innerHTML = '<div class="cmsg-avatar human">RZ</div><div class="cmsg-body">' +
+            '<div class="cmsg-head"><span class="cmsg-name">你</span><span class="cmsg-ts">' + ts + '</span></div>' +
+            '<div class="cmsg-bubble">' + body + '</div>' +
+            '<div class="cmsg-actions"><button class="cmsg-more" onclick="toggleDropdown(\'more_u_\'+Date.now(),event)">···</button>' +
+            '<div class="cmsg-dropdown"><button onclick="copyMsg(this);closeDropdowns()">复制文本</button><button onclick="quoteMsg(this);closeDropdowns()">引用</button><button onclick="deleteMsg(this);closeDropdowns()">删除</button></div></div></div>';
+
+          stream.appendChild(div);
+
+          // re-add typing indicator
+          var typing = document.createElement('div');
+          typing.className = 'cmsg';
+          typing.innerHTML = '<div class="cmsg-avatar bot" style="background:var(--accent-soft);color:var(--accent-hover)">O</div><div class="cmsg-body"><div class="cmsg-head"><span class="cmsg-name">orchestrator-01</span></div><div class="cmsg-bubble"><div class="typing-indicator"><span class="typing-dot"></span><span class="typing-dot"></span><span class="typing-dot"></span></div></div></div>';
+          stream.appendChild(typing);
+
+          stream.scrollTop = stream.scrollHeight;
+          ta.value = '';
+          ta.style.height = 'auto';
+        }
+
+        sendBtn.addEventListener('click', doSend);
+        ta.addEventListener('keydown', function (e) {
+          if (e.key === 'Enter' && !e.shiftKey) { e.preventDefault(); doSend(); }
+        });
+      }
+
+      // ─── init ────────────────────────────────────────────────
+      document.addEventListener('DOMContentLoaded', function () {
+        var S = window.OD.svg;
+        document.getElementById('ic').innerHTML = S.search;
+        document.getElementById('bell').innerHTML = S.bell;
+        document.querySelector('.mobile-menu-btn').innerHTML = S.menu;
+
+        // show skeletons first
+        renderSkeletons();
+
+        // load real data after 200ms
+        setTimeout(function () {
+          var projects = window.OD_WS_PROJECTS;
+          var threads = window.OD_WS_THREADS;
+          var initialIdx = 0;
+
+          var params = new URLSearchParams(location.search);
+          if (params.get('new') === '1') {
+            var task = params.get('task') || '（空任务）';
+            var dir = params.get('dir');
+            var flows = (params.get('flows') || '').split(',').filter(Boolean);
+            var agents = (params.get('agents') || '').split(',').filter(Boolean);
+            var key = 'new_' + Date.now();
+            var assocBits = [];
+            if (dir) assocBits.push('目录 ' + dir.split(/[\\/]/).pop());
+            if (flows.length) assocBits.push(flows.length + ' flow');
+            if (agents.length) assocBits.push(agents.length + ' agent');
+            var sub = '工作区 · ' + (assocBits.length ? assocBits.join(' · ') : '无关联');
+            projects.unshift({
+              key: key, glyph: 'T', name: task.slice(0, 24) + (task.length > 24 ? '…' : ''),
+              meta: sub, status: 'queued', unread: 0, sub: sub,
+            });
+            threads[key] = [
+              { day: '今天', role: 'human', initial: 'RZ', name: '饶哲', time: '刚刚',
+                body: '<p>' + esc(task) + '</p>' +
+                (dir ? '<p class="muted" style="font-size:12px">workspace: <code>' + esc(dir) + '</code></p>' : '') +
+                (flows.length || agents.length ? '<p class="muted" style="font-size:12px">关联 ' + assocBits.join(' · ') + '</p>' : '') },
+              { role: 'bot', initial: 'O', name: 'orchestrator-01', time: '刚刚',
+                body: '<p>已收到任务。' + (flows.length ? '将按关联 flow 派发；' : '') + (agents.length ? '已通知 ' + agents.length + ' 个 agent 待命。' : '') + '等待 dispatch 确认 run_id。</p>' },
+            ];
+            initialIdx = 0;
+            try { localStorage.setItem('od:ws-proj', key); } catch (_) {}
+          } else {
+            var urlP = params.get('p');
+            if (urlP) { var found = projects.findIndex(function (p) { return p.key === urlP; }); if (found >= 0) initialIdx = found; }
+          }
+
+          selectProject(initialIdx);
+        }, 200);
+
+        // init interactions
+        initDescEditor();
+        initMentionPopover();
+        initPageActions();
+        initFilterChips();
+        initSendButton();
+
+        // SPA project switch from sidebar
+        window.addEventListener('od:ws-select', function (e) {
+          var key = e.detail.key;
+          var idx = window.OD_WS_PROJECTS.findIndex(function (p) { return p.key === key; });
+          if (idx >= 0) selectProject(idx);
+        });
+
+        // close dropdowns on outside click
+        document.addEventListener('click', function (e) {
+          if (!e.target.closest('.cmsg-more')) closeDropdowns();
+        });
       });
-
-      selectProject(initialIdx);
-
-      // input
-      const ta = document.getElementById('ws-textarea');
-      ta.addEventListener('input', () => { ta.style.height = 'auto'; ta.style.height = Math.min(ta.scrollHeight, 100) + 'px'; });
-      document.getElementById('ws-send').addEventListener('click', () => {
-        const text = ta.value.trim(); if (!text) return;
-        const t = new Date();
-        const ts = String(t.getHours()).padStart(2,'0') + ':' + String(t.getMinutes()).padStart(2,'0');
-        const stream = document.getElementById('ws-stream');
-        const div = document.createElement('div');
-        div.className = 'cmsg user';
-        div.innerHTML = `<div class="cmsg-avatar human">RZ</div><div class="cmsg-body"><div class="cmsg-head"><span class="cmsg-name">你</span><span>${ts}</span></div><div class="cmsg-bubble">${text.replace(/</g,'&lt;')}</div></div>`;
-        stream.appendChild(div); stream.scrollTop = stream.scrollHeight;
-        ta.value = ''; ta.style.height = 'auto';
-      });
-      ta.addEventListener('keydown', (e) => { if (e.key === 'Enter' && !e.shiftKey) { e.preventDefault(); document.getElementById('ws-send').click(); } });
-
-      document.querySelectorAll('.ws-chat-head .filter-chip').forEach(c => c.addEventListener('click', () => {
-        document.querySelectorAll('.ws-chat-head .filter-chip').forEach(x => x.setAttribute('aria-pressed','false'));
-        c.setAttribute('aria-pressed','true');
-      }));
-    });
+    })();
   </script>
 </body>
 </html>

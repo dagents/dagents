@@ -1,0 +1,2343 @@
+<!doctype html>
+<html lang="zh-CN">
+<head>
+  <meta charset="utf-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1" />
+  <title>工作流编辑器 · DAgents</title>
+  <style>
+/* ============================================================
+   tokens.css — inlined
+   ============================================================ */
+:root {
+  --bg:           #ffffff;
+  --surface:      #f5f5f5;
+  --surface-warm: #fafafa;
+  --fg:   #0d0d0d;
+  --fg-2: #1a1a1a;
+  --muted: #6e6e6e;
+  --meta:  #9b9b9b;
+  --border:      #e5e5e5;
+  --border-soft: #ededed;
+  --accent:        #10a37f;
+  --accent-on:     #ffffff;
+  --accent-hover:  #0a7a5e;
+  --accent-active: color-mix(in oklab, var(--accent), black 14%);
+  --accent-soft:   #e8f5f0;
+  --success: #10a37f;
+  --warn:    #f5a623;
+  --danger:  #ef4146;
+  --info:    #2563eb;
+  --success-soft: #e8f5f0;
+  --warn-soft:    #fdf3e2;
+  --danger-soft:  #fdecec;
+  --info-soft:    #eaf0fe;
+  --font-display: "Signifier", "Source Serif Pro", Georgia, ui-serif, serif;
+  --font-body:    "Söhne", "Inter", system-ui, -apple-system, "Segoe UI", sans-serif;
+  --font-mono:    "Söhne Mono", ui-monospace, "JetBrains Mono", Menlo, Consolas, monospace;
+  --text-xs:   12px;
+  --text-sm:   13px;
+  --text-base: 16px;
+  --text-lg:   18px;
+  --text-xl:   20px;
+  --text-2xl:  28px;
+  --text-3xl:  40px;
+  --leading-body:     1.65;
+  --leading-tight:    1.08;
+  --tracking-display: -0.02em;
+  --tracking-label:   0.04em;
+  --space-1:  4px;
+  --space-2:  8px;
+  --space-3:  12px;
+  --space-4:  16px;
+  --space-5:  20px;
+  --space-6:  24px;
+  --space-8:  32px;
+  --space-12: 48px;
+  --space-16: 64px;
+  --radius-sm:   12px;
+  --radius-md:   16px;
+  --radius-lg:   16px;
+  --radius-pill: 9999px;
+  --elev-flat:   none;
+  --elev-ring:   0 0 0 1px var(--border);
+  --elev-raised: 0 4px 16px rgba(13, 13, 13, 0.06);
+  --elev-overlay: 0 12px 40px rgba(13, 13, 13, 0.10);
+  --focus-ring: 0 0 0 3px rgba(16, 163, 127, 0.18);
+  --motion-fast:   150ms;
+  --motion-base:   220ms;
+  --ease-standard: cubic-bezier(0.16, 1, 0.3, 1);
+  --container-max: 1200px;
+  --sidebar-w: 248px;
+  --sidebar-w-collapsed: 72px;
+  --topbar-h: 60px;
+}
+
+/* ============================================================
+   shell.css — inlined
+   ============================================================ */
+*, *::before, *::after { box-sizing: border-box; }
+* { margin: 0; padding: 0; }
+html, body { height: 100%; }
+html { -webkit-text-size-adjust: 100%; }
+body {
+  background: var(--bg);
+  color: var(--fg);
+  font-family: var(--font-body);
+  font-size: var(--text-base);
+  line-height: var(--leading-body);
+  -webkit-font-smoothing: antialiased;
+  -moz-osx-font-smoothing: grayscale;
+  text-rendering: optimizeLegibility;
+}
+img, svg, canvas { display: block; max-width: 100%; }
+button, input, textarea, select { font: inherit; color: inherit; }
+a { color: inherit; text-decoration: none; }
+:focus-visible { outline: none; box-shadow: var(--focus-ring); border-radius: 6px; }
+::selection { background: var(--accent-soft); color: var(--fg); }
+.mono { font-family: var(--font-mono); font-variant-numeric: tabular-nums; }
+.tnum { font-variant-numeric: tabular-nums; }
+.serif { font-family: var(--font-display); }
+
+/* ─── app shell grid ─────────────────────────────────────────── */
+.app {
+  display: grid;
+  grid-template-columns: var(--sidebar-w) 1fr;
+  grid-template-rows: var(--topbar-h) 1fr;
+  grid-template-areas:
+    "sidebar topbar"
+    "sidebar main";
+  height: 100vh;
+  height: 100dvh;
+  overflow: hidden;
+  transition: grid-template-columns var(--motion-base) var(--ease-standard);
+}
+.app[data-collapsed="true"] { grid-template-columns: var(--sidebar-w-collapsed) 1fr; }
+.app-sidebar { grid-area: sidebar; }
+.app-topbar  { grid-area: topbar; }
+.app-main    { grid-area: main; overflow: auto; }
+
+/* ─── sidebar ────────────────────────────────────────────────── */
+.app-sidebar {
+  background: var(--surface-warm);
+  border-right: 1px solid var(--border);
+  display: flex;
+  flex-direction: column;
+  overflow: hidden;
+}
+.brand {
+  display: flex;
+  align-items: center;
+  gap: var(--space-3);
+  height: var(--topbar-h);
+  padding: 0 var(--space-6);
+  border-bottom: 1px solid var(--border-soft);
+  flex-shrink: 0;
+}
+.brand-mark {
+  width: 30px; height: 30px;
+  border-radius: 8px;
+  background: var(--fg);
+  color: var(--bg);
+  display: grid; place-items: center;
+  font-family: var(--font-display);
+  font-size: 17px;
+  font-weight: 600;
+  letter-spacing: -0.02em;
+  flex-shrink: 0;
+}
+.brand-name { font-size: 15px; font-weight: 600; letter-spacing: -0.01em; white-space: nowrap; }
+.brand-sub { font-size: 11px; color: var(--muted); font-weight: 500; letter-spacing: 0.02em; }
+.app[data-collapsed="true"] .brand-name,
+.app[data-collapsed="true"] .brand-sub { display: none; }
+
+.nav { padding: var(--space-4); display: flex; flex-direction: column; gap: 2px; overflow-y: auto; flex: 1; }
+.nav-section-label {
+  font-size: 11px; font-weight: 500; color: var(--meta);
+  letter-spacing: var(--tracking-label); text-transform: uppercase;
+  padding: var(--space-4) var(--space-3) var(--space-2);
+}
+.nav-section-label:first-child { padding-top: 0; }
+.app[data-collapsed="true"] .nav-section-label { visibility: hidden; height: var(--space-2); padding: 0; }
+
+.collapse-btn.collapse-top { margin-bottom: var(--space-3); border: 1px solid var(--border-soft); border-radius: var(--radius-sm); }
+.app[data-collapsed="true"] .collapse-btn.collapse-top #collapse-tx { display: none; }
+.app[data-collapsed="true"] .collapse-btn.collapse-top { justify-content: center; }
+
+.nav-link {
+  display: flex; align-items: center; gap: var(--space-3);
+  padding: var(--space-3); border-radius: var(--radius-sm);
+  color: var(--muted); font-size: var(--text-sm); font-weight: 500;
+  cursor: pointer; transition: background var(--motion-fast), color var(--motion-fast);
+  position: relative; white-space: nowrap; text-decoration: none;
+}
+.nav-link:hover { background: var(--surface); color: var(--fg); }
+.nav-link[aria-current="page"] { background: var(--bg); color: var(--fg); box-shadow: var(--elev-ring); }
+.nav-link[aria-current="page"] .nav-icon { color: var(--accent); }
+.nav-icon { width: 18px; height: 18px; flex-shrink: 0; color: var(--meta); transition: color var(--motion-fast); }
+.nav-link:hover .nav-icon { color: var(--fg); }
+.nav-label { flex: 1; }
+.nav-badge {
+  font-family: var(--font-mono); font-size: 10px; font-weight: 500;
+  color: var(--muted); background: var(--surface); padding: 1px 6px;
+  border-radius: var(--radius-pill); letter-spacing: 0.02em;
+}
+.app[data-collapsed="true"] .nav-label,
+.app[data-collapsed="true"] .nav-badge { display: none; }
+.app[data-collapsed="true"] .nav-link { justify-content: center; }
+
+.collapse-btn {
+  width: 100%; display: flex; align-items: center; justify-content: center;
+  gap: var(--space-2); background: transparent; border: 0;
+  color: var(--meta); font-size: var(--text-xs); font-weight: 500;
+  letter-spacing: var(--tracking-label); text-transform: uppercase;
+  padding: var(--space-2); border-radius: 8px; cursor: pointer;
+}
+.collapse-btn:hover { background: var(--surface); color: var(--fg); }
+.sidebar-footer { border-top: 1px solid var(--border-soft); padding: var(--space-3); flex-shrink: 0; }
+.nav-spacer { flex: 1; }
+
+/* ─── topbar ─────────────────────────────────────────────────── */
+.app-topbar {
+  background: var(--bg); border-bottom: 1px solid var(--border);
+  display: flex; align-items: center; gap: var(--space-4);
+  padding: 0 var(--space-6); flex-shrink: 0;
+}
+.crumbs { display: flex; align-items: center; gap: var(--space-2); font-size: var(--text-sm); color: var(--muted); min-width: 0; }
+.crumbs .crumb { white-space: nowrap; }
+.crumbs .crumb-current { color: var(--fg); font-weight: 500; }
+.crumbs .sep { color: var(--meta); font-size: 11px; }
+.topbar-spacer { flex: 1; }
+.topbar-actions { display: flex; align-items: center; gap: var(--space-2); }
+.icon-btn {
+  width: 36px; height: 36px; display: grid; place-items: center;
+  background: transparent; border: 0; border-radius: var(--radius-sm);
+  color: var(--muted); cursor: pointer;
+  transition: background var(--motion-fast), color var(--motion-fast); position: relative;
+}
+.icon-btn:hover { background: var(--surface); color: var(--fg); }
+.icon-btn svg { width: 17px; height: 17px; }
+.icon-btn .dot {
+  position: absolute; top: 8px; right: 8px;
+  width: 7px; height: 7px; background: var(--accent);
+  border: 2px solid var(--bg); border-radius: 50%;
+}
+.avatar {
+  width: 32px; height: 32px; border-radius: 50%;
+  background: linear-gradient(135deg, var(--fg) 0%, var(--accent) 120%);
+  color: var(--bg); display: grid; place-items: center;
+  font-size: 12px; font-weight: 600; cursor: pointer; border: 1px solid var(--border);
+}
+
+/* ─── buttons ────────────────────────────────────────────────── */
+.btn {
+  display: inline-flex; align-items: center; gap: var(--space-2);
+  height: 36px; padding: 0 var(--space-4); border-radius: var(--radius-sm);
+  border: 1px solid transparent; background: transparent;
+  font-size: var(--text-sm); font-weight: 500; cursor: pointer;
+  transition: background var(--motion-fast), border-color var(--motion-fast), color var(--motion-fast);
+  white-space: nowrap;
+}
+.btn svg { width: 15px; height: 15px; }
+.btn-primary { background: var(--fg); color: var(--bg); }
+.btn-primary:hover { background: var(--fg-2); }
+.btn-secondary { background: var(--bg); color: var(--fg); border-color: var(--border); }
+.btn-secondary:hover { background: var(--surface-warm); border-color: #d4d4d4; }
+.btn-accent { background: var(--accent); color: var(--accent-on); }
+.btn-accent:hover { background: var(--accent-hover); }
+.btn-ghost { color: var(--muted); }
+.btn-ghost:hover { background: var(--surface); color: var(--fg); }
+.btn-danger { color: var(--danger); }
+.btn-danger:hover { background: var(--danger-soft); }
+.btn-sm { height: 30px; padding: 0 var(--space-3); font-size: var(--text-xs); }
+.btn:disabled { opacity: 0.5; cursor: not-allowed; }
+
+/* ─── chips / badges / status ────────────────────────────────── */
+.chip {
+  display: inline-flex; align-items: center; gap: 5px;
+  height: 22px; padding: 0 9px; border-radius: var(--radius-pill);
+  background: var(--surface); color: var(--fg-2);
+  font-size: var(--text-xs); font-weight: 500; line-height: 1; white-space: nowrap;
+}
+.chip-teal { background: var(--accent-soft); color: var(--accent-hover); }
+.chip-outline { background: transparent; border: 1px solid var(--border); color: var(--muted); }
+.chip-tag { font-family: var(--font-mono); font-size: 11px; height: 20px; padding: 0 7px; }
+
+.status {
+  display: inline-flex; align-items: center; gap: 6px;
+  font-size: var(--text-xs); font-weight: 500; color: var(--muted);
+}
+.status .dot { width: 7px; height: 7px; border-radius: 50%; background: var(--meta); flex-shrink: 0; }
+.status.running .dot { background: var(--accent); box-shadow: 0 0 0 3px var(--accent-soft); }
+.status.idle .dot { background: var(--meta); }
+.status.queued .dot { background: var(--warn); }
+.status.failed .dot { background: var(--danger); }
+.status.paused .dot { background: var(--info); }
+.status.done .dot { background: var(--success); }
+
+.status-text.running { color: var(--accent-hover); }
+.status-text.done { color: var(--success); }
+.status-text.queued { color: #b9791a; }
+.status-text.paused { color: var(--info); }
+.status-text.failed { color: var(--danger); }
+
+/* ─── io box (from shell) ─────────────────────────────────────── */
+.io-box {
+  background: var(--surface-warm); border: 1px solid var(--border-soft);
+  border-radius: var(--radius-sm); padding: var(--space-3);
+  font-family: var(--font-mono); font-size: 11px; color: var(--fg-2);
+  white-space: pre-wrap; word-break: break-all; line-height: 1.6;
+}
+
+/* ─── log lines ──────────────────────────────────────────────── */
+.log {
+  font-family: var(--font-mono); font-size: 12px; line-height: 1.6;
+  background: var(--surface-warm); border: 1px solid var(--border-soft);
+  border-radius: var(--radius-sm); padding: var(--space-3) var(--space-4);
+  color: var(--fg-2); max-height: 320px; overflow-y: auto;
+}
+.log-line { display: flex; gap: var(--space-3); }
+.log-ts { color: var(--meta); flex-shrink: 0; }
+.log-lvl { font-weight: 500; flex-shrink: 0; width: 48px; }
+.log-lvl.info { color: var(--info); }
+.log-lvl.ok { color: var(--accent-hover); }
+.log-lvl.warn { color: #b9791a; }
+.log-lvl.err { color: var(--danger); }
+.log-msg { color: var(--fg-2); }
+
+/* ─── helpers ────────────────────────────────────────────────── */
+.row { display: flex; align-items: center; gap: var(--space-3); }
+.grow { flex: 1; }
+.hidden { display: none !important; }
+.mobile-menu-btn { display: none; }
+
+/* ============================================================
+   workflow-editor page styles
+   ============================================================ */
+
+/* ─── main layout: 3-column ────────────────────────────────── */
+.wfe-main {
+  display: flex;
+  height: calc(100vh - var(--topbar-h));
+  overflow: hidden;
+  background: var(--surface);
+}
+
+/* ─── left panel — node palette ─────────────────────────────── */
+.wfe-palette {
+  width: 260px;
+  flex-shrink: 0;
+  background: var(--bg);
+  border-right: 1px solid var(--border-soft);
+  display: flex;
+  flex-direction: column;
+  overflow: hidden;
+}
+.wfe-palette-head {
+  display: flex;
+  align-items: center;
+  gap: var(--space-3);
+  padding: var(--space-4) var(--space-5);
+  border-bottom: 1px solid var(--border-soft);
+  flex-shrink: 0;
+}
+.wfe-palette-head .title {
+  font-size: var(--text-sm);
+  font-weight: 600;
+  color: var(--fg);
+  flex: 1;
+}
+.wfe-palette-search {
+  padding: var(--space-3) var(--space-4);
+  border-bottom: 1px solid var(--border-soft);
+  flex-shrink: 0;
+}
+.wfe-palette-search input {
+  width: 100%;
+  height: 32px;
+  padding: 0 var(--space-3) 0 30px;
+  background: var(--surface-warm);
+  border: 1px solid var(--border-soft);
+  border-radius: var(--radius-sm);
+  font-size: var(--text-xs);
+  color: var(--fg);
+  outline: none;
+  transition: border-color var(--motion-fast), box-shadow var(--motion-fast);
+}
+.wfe-palette-search input::placeholder { color: var(--meta); }
+.wfe-palette-search input:focus { border-color: var(--accent); box-shadow: var(--focus-ring); }
+.wfe-palette-search .search-ic {
+  position: absolute; left: 22px; top: 50%; transform: translateY(-50%);
+  width: 14px; height: 14px; color: var(--meta); pointer-events: none;
+}
+.wfe-palette-body {
+  flex: 1;
+  overflow-y: auto;
+  padding: var(--space-3) var(--space-3);
+}
+
+.palette-category {
+  margin-bottom: var(--space-3);
+}
+.palette-cat-label {
+  font-size: 10px;
+  font-weight: 600;
+  color: var(--meta);
+  letter-spacing: var(--tracking-label);
+  text-transform: uppercase;
+  padding: var(--space-2) var(--space-2) var(--space-1);
+}
+
+.palette-node {
+  display: flex;
+  align-items: center;
+  gap: var(--space-3);
+  padding: var(--space-2) var(--space-3);
+  border-radius: var(--radius-sm);
+  cursor: grab;
+  transition: background var(--motion-fast), box-shadow var(--motion-fast), transform var(--motion-fast);
+  border: 1px solid transparent;
+  margin-bottom: 2px;
+}
+.palette-node:hover {
+  background: var(--surface-warm);
+  border-color: var(--border-soft);
+  box-shadow: var(--elev-raised);
+  transform: translateY(-1px);
+}
+.palette-node:active { cursor: grabbing; transform: scale(0.98); }
+.palette-node:focus-visible { outline: none; box-shadow: var(--focus-ring); border-color: var(--accent); }
+
+.palette-glyph {
+  width: 32px; height: 32px;
+  border-radius: 8px;
+  background: var(--surface);
+  border: 1px solid var(--border-soft);
+  display: grid; place-items: center;
+  flex-shrink: 0;
+  transition: background var(--motion-fast), color var(--motion-fast);
+  overflow: hidden;
+}
+.palette-glyph svg {
+  width: 16px;
+  height: 16px;
+  color: var(--fg);
+}
+.palette-node:hover .palette-glyph {
+  background: var(--accent-soft);
+  border-color: var(--accent);
+}
+.palette-node:hover .palette-glyph svg {
+  color: var(--accent-hover);
+}
+.palette-node-info {
+  min-width: 0;
+  flex: 1;
+  overflow: hidden;
+}
+.palette-node-name {
+  font-size: var(--text-xs);
+  font-weight: 600;
+  color: var(--fg);
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+.palette-node-desc {
+  font-size: 10px;
+  color: var(--meta);
+  margin-top: 1px;
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+
+/* ─── center — canvas area ──────────────────────────────────── */
+.wfe-canvas-area {
+  flex: 1;
+  display: flex;
+  flex-direction: column;
+  overflow: hidden;
+  min-width: 0;
+}
+
+/* top toolbar */
+.wfe-toolbar {
+  display: flex;
+  align-items: center;
+  gap: var(--space-3);
+  padding: var(--space-3) var(--space-5);
+  background: var(--bg);
+  border-bottom: 1px solid var(--border-soft);
+  flex-shrink: 0;
+}
+.wfe-toolbar-name {
+  font-size: var(--text-sm);
+  font-weight: 600;
+  color: var(--fg);
+  white-space: nowrap;
+  cursor: pointer;
+  padding: 2px 6px;
+  border-radius: 6px;
+  border: 1px solid transparent;
+  transition: border-color var(--motion-fast), background var(--motion-fast);
+}
+.wfe-toolbar-name:hover {
+  border-color: var(--border-soft);
+  background: var(--surface-warm);
+}
+.wfe-toolbar-name-input {
+  font-size: var(--text-sm);
+  font-weight: 600;
+  color: var(--fg);
+  border: 1px solid var(--accent);
+  border-radius: 6px;
+  padding: 2px 6px;
+  background: var(--bg);
+  outline: none;
+  box-shadow: var(--focus-ring);
+  width: 180px;
+}
+.wfe-toolbar-ver {
+  font-family: var(--font-mono);
+  font-size: 11px;
+  color: var(--meta);
+}
+.wfe-toolbar-sep {
+  width: 1px;
+  height: 20px;
+  background: var(--border-soft);
+  margin: 0 var(--space-1);
+}
+.wfe-toolbar-crumbs {
+  display: flex;
+  align-items: center;
+  gap: var(--space-1);
+  font-size: var(--text-xs);
+  color: var(--muted);
+}
+.wfe-toolbar-crumbs .sep { color: var(--meta); }
+.wfe-toolbar-crumbs .current { color: var(--fg); font-weight: 500; }
+.wfe-toolbar-spacer { flex: 1; }
+.wfe-toolbar-actions {
+  display: flex;
+  align-items: center;
+  gap: var(--space-2);
+}
+.wfe-toolbar-actions .shortcut-hint {
+  font-size: 10px;
+  color: var(--meta);
+  font-family: var(--font-mono);
+  margin-left: -2px;
+}
+
+/* zoom controls */
+.wfe-zoom {
+  display: inline-flex;
+  align-items: center;
+  gap: var(--space-1);
+  background: var(--surface);
+  border: 1px solid var(--border-soft);
+  border-radius: var(--radius-sm);
+  padding: 2px;
+}
+.wfe-zoom button {
+  width: 28px; height: 28px;
+  display: grid; place-items: center;
+  background: transparent; border: 0;
+  border-radius: 6px; cursor: pointer;
+  color: var(--muted);
+  transition: background var(--motion-fast), color var(--motion-fast);
+}
+.wfe-zoom button:hover { background: var(--bg); color: var(--fg); }
+.wfe-zoom button:focus-visible { outline: none; box-shadow: var(--focus-ring); }
+.wfe-zoom button svg { width: 14px; height: 14px; }
+.wfe-zoom-label {
+  font-family: var(--font-mono);
+  font-size: 11px;
+  color: var(--muted);
+  min-width: 36px;
+  text-align: center;
+}
+
+/* canvas stage */
+.wfe-canvas-stage {
+  flex: 1;
+  position: relative;
+  overflow: hidden;
+  background:
+    radial-gradient(circle, var(--border-soft) 1px, transparent 1px);
+  background-size: 20px 20px;
+  background-position: 10px 10px;
+  transition: border-color var(--motion-fast);
+}
+.wfe-canvas-stage.drag-over {
+  border: 2px dashed var(--accent);
+}
+.wfe-canvas-inner {
+  position: absolute;
+  top: 0; left: 0;
+  width: 100%; height: 100%;
+  transform-origin: 0 0;
+}
+.wfe-canvas-stage svg {
+  width: 100%;
+  height: 100%;
+  display: block;
+  min-width: 1200px;
+  min-height: 600px;
+}
+
+/* SVG DAG nodes */
+.dag-node { cursor: pointer; }
+.dag-node rect.node-bg {
+  transition: filter var(--motion-fast), stroke var(--motion-fast);
+  rx: 10;
+  ry: 10;
+}
+.dag-node:hover rect.node-bg {
+  filter: drop-shadow(0 2px 8px rgba(13,13,13,0.12));
+}
+.dag-node:focus-visible { outline: none; }
+.dag-node:focus-visible rect.node-bg {
+  stroke: var(--accent);
+  stroke-width: 2;
+}
+.dag-node.selected rect.node-bg {
+  stroke: var(--accent);
+  stroke-width: 2;
+  filter: drop-shadow(0 2px 8px rgba(16,163,127,0.18));
+}
+.node-pill {
+  width: 5px;
+  rx: 3;
+  ry: 3;
+}
+.node-pill-done    { fill: var(--success); }
+.node-pill-running { fill: var(--accent); }
+.node-pill-queued  { fill: var(--warn); }
+.node-pill-failed  { fill: var(--danger); }
+.node-pill-paused  { fill: var(--info); }
+.node-pill-idle    { fill: var(--meta); }
+
+.node-icon-text {
+  font-size: 14px;
+  font-weight: 600;
+  font-family: var(--font-mono);
+  fill: var(--fg);
+}
+.node-label-text {
+  font-size: 12px;
+  font-weight: 500;
+  fill: var(--fg);
+  font-family: var(--font-body);
+}
+.node-sub-text {
+  font-size: 10px;
+  fill: var(--muted);
+  font-family: var(--font-mono);
+}
+.node-status-dot { }
+.node-status-dot.done    { fill: var(--success); }
+.node-status-dot.running { fill: var(--accent); }
+.node-status-dot.queued  { fill: var(--warn); }
+.node-status-dot.idle    { fill: var(--meta); }
+.node-status-dot.running-anim {
+  animation: pulse-dot 1.8s ease-in-out infinite;
+}
+@keyframes pulse-dot {
+  0%, 100% { r: 4; opacity: 1; }
+  50% { r: 6; opacity: 0.6; }
+}
+
+/* node ports */
+.node-port {
+  cursor: crosshair;
+  transition: r var(--motion-fast), fill var(--motion-fast);
+}
+.node-port:hover {
+  fill: var(--accent) !important;
+  r: 6;
+}
+
+.dag-edge {
+  fill: none;
+  stroke: var(--border);
+  stroke-width: 1.5;
+  transition: stroke var(--motion-fast), stroke-width var(--motion-fast);
+  cursor: pointer;
+}
+.dag-edge:hover {
+  stroke: var(--accent);
+  stroke-width: 2;
+}
+.dag-edge.active {
+  stroke: var(--accent);
+  stroke-width: 2;
+}
+.dag-edge.done {
+  stroke: var(--success);
+  stroke-width: 1.5;
+  stroke-dasharray: 4 3;
+}
+.dag-edge.selected {
+  stroke: var(--danger);
+  stroke-width: 2.5;
+  stroke-dasharray: 6 3;
+}
+.dag-edge-label {
+  font-size: 9px;
+  fill: var(--meta);
+  font-family: var(--font-mono);
+}
+
+/* minimap */
+.wfe-minimap {
+  position: absolute;
+  right: var(--space-4);
+  bottom: var(--space-4);
+  width: 180px;
+  height: 120px;
+  background: var(--bg);
+  border: 1px solid var(--border);
+  border-radius: var(--radius-sm);
+  overflow: hidden;
+  box-shadow: var(--elev-raised);
+  z-index: 10;
+}
+.wfe-minimap svg {
+  width: 100%;
+  height: 100%;
+}
+.wfe-minimap-viewport {
+  fill: rgba(16, 163, 127, 0.08);
+  stroke: var(--accent);
+  stroke-width: 1.5;
+  rx: 2;
+}
+
+/* context menu */
+.wfe-ctx-menu {
+  position: fixed;
+  z-index: 100;
+  background: var(--bg);
+  border: 1px solid var(--border);
+  border-radius: var(--radius-sm);
+  box-shadow: var(--elev-overlay);
+  padding: var(--space-1) 0;
+  min-width: 160px;
+  display: none;
+}
+.wfe-ctx-menu.visible { display: block; }
+.wfe-ctx-menu-item {
+  display: flex;
+  align-items: center;
+  gap: var(--space-3);
+  padding: var(--space-2) var(--space-4);
+  font-size: var(--text-xs);
+  font-weight: 500;
+  color: var(--fg);
+  cursor: pointer;
+  transition: background var(--motion-fast);
+}
+.wfe-ctx-menu-item:hover {
+  background: var(--surface-warm);
+}
+.wfe-ctx-menu-item svg {
+  width: 14px;
+  height: 14px;
+  color: var(--muted);
+}
+.wfe-ctx-menu-item.danger {
+  color: var(--danger);
+}
+.wfe-ctx-menu-item.danger svg {
+  color: var(--danger);
+}
+.wfe-ctx-menu-sep {
+  height: 1px;
+  background: var(--border-soft);
+  margin: var(--space-1) 0;
+}
+
+/* canvas legend */
+.wfe-canvas-legend {
+  display: flex;
+  gap: var(--space-4);
+  padding: var(--space-2) var(--space-5);
+  background: var(--bg);
+  border-top: 1px solid var(--border-soft);
+  flex-shrink: 0;
+}
+.wfe-canvas-legend .li {
+  display: inline-flex;
+  align-items: center;
+  gap: 5px;
+  font-size: 11px;
+  color: var(--muted);
+}
+.wfe-canvas-legend .sw {
+  width: 10px; height: 10px; border-radius: 3px;
+}
+
+/* ─── right panel — inspector ─────────────────────────────────── */
+.wfe-inspector {
+  width: 360px;
+  flex-shrink: 0;
+  background: var(--bg);
+  border-left: 1px solid var(--border-soft);
+  display: flex;
+  flex-direction: column;
+  overflow: hidden;
+}
+.wfe-insp-head {
+  padding: var(--space-4) var(--space-5);
+  border-bottom: 1px solid var(--border-soft);
+  flex-shrink: 0;
+}
+.wfe-insp-head .type-badge {
+  display: inline-flex;
+  align-items: center;
+  gap: var(--space-2);
+  padding: 3px 8px;
+  background: var(--accent-soft);
+  color: var(--accent-hover);
+  border-radius: var(--radius-pill);
+  font-size: 10px;
+  font-weight: 600;
+  letter-spacing: var(--tracking-label);
+  text-transform: uppercase;
+}
+.wfe-insp-head .nm {
+  font-size: var(--text-base);
+  font-weight: 600;
+  margin-top: var(--space-3);
+  color: var(--fg);
+}
+.wfe-insp-body {
+  flex: 1;
+  overflow-y: auto;
+  padding: var(--space-4) var(--space-5);
+  scroll-behavior: smooth;
+}
+.insp-section {
+  margin-bottom: var(--space-5);
+}
+.insp-section .lbl {
+  font-size: 11px;
+  color: var(--meta);
+  letter-spacing: var(--tracking-label);
+  text-transform: uppercase;
+  margin-bottom: var(--space-2);
+}
+.insp-kv {
+  display: grid;
+  grid-template-columns: auto 1fr;
+  gap: var(--space-2) var(--space-4);
+  font-size: var(--text-xs);
+}
+.insp-kv dt { color: var(--muted); }
+.insp-kv dd {
+  font-family: var(--font-mono);
+  color: var(--fg);
+  text-align: right;
+  font-variant-numeric: tabular-nums;
+}
+.insp-status-row {
+  display: flex;
+  align-items: center;
+  gap: var(--space-3);
+  padding: var(--space-3);
+  background: var(--surface-warm);
+  border: 1px solid var(--border-soft);
+  border-radius: var(--radius-sm);
+  margin-bottom: var(--space-3);
+}
+
+/* ─── inspector form fields ────────────────────────────────── */
+.insp-field {
+  margin-bottom: var(--space-3);
+}
+.insp-field label {
+  display: block;
+  font-size: 11px;
+  font-weight: 500;
+  color: var(--muted);
+  margin-bottom: var(--space-1);
+  letter-spacing: 0.01em;
+}
+.insp-field input[type="text"],
+.insp-field input[type="number"],
+.insp-field select,
+.insp-field textarea {
+  width: 100%;
+  padding: var(--space-2) var(--space-3);
+  background: var(--surface-warm);
+  border: 1px solid var(--border-soft);
+  border-radius: 8px;
+  font-size: var(--text-xs);
+  color: var(--fg);
+  outline: none;
+  transition: border-color var(--motion-fast), box-shadow var(--motion-fast);
+}
+.insp-field input:focus,
+.insp-field select:focus,
+.insp-field textarea:focus {
+  border-color: var(--accent);
+  box-shadow: var(--focus-ring);
+}
+.insp-field textarea {
+  resize: vertical;
+  min-height: 60px;
+  font-family: var(--font-mono);
+  line-height: 1.5;
+}
+.insp-field select {
+  cursor: pointer;
+  appearance: auto;
+}
+.insp-field input[type="range"] {
+  width: 100%;
+  accent-color: var(--accent);
+  cursor: pointer;
+}
+.insp-range-row {
+  display: flex;
+  align-items: center;
+  gap: var(--space-3);
+}
+.insp-range-row input[type="range"] { flex: 1; }
+.insp-range-val {
+  font-family: var(--font-mono);
+  font-size: var(--text-xs);
+  color: var(--fg);
+  min-width: 32px;
+  text-align: right;
+}
+
+/* kv editor */
+.insp-kv-editor {
+  border: 1px solid var(--border-soft);
+  border-radius: 8px;
+  overflow: hidden;
+}
+.insp-kv-row {
+  display: flex;
+  align-items: center;
+  gap: 0;
+  border-bottom: 1px solid var(--border-soft);
+}
+.insp-kv-row:last-child { border-bottom: 0; }
+.insp-kv-row input {
+  flex: 1;
+  padding: var(--space-2) var(--space-3);
+  border: 0;
+  background: var(--surface-warm);
+  font-size: var(--text-xs);
+  font-family: var(--font-mono);
+  color: var(--fg);
+  outline: none;
+}
+.insp-kv-row input:first-child {
+  border-right: 1px solid var(--border-soft);
+  font-weight: 500;
+  max-width: 40%;
+}
+.insp-kv-row input:focus {
+  background: var(--bg);
+}
+.insp-kv-row .kv-del {
+  width: 28px;
+  height: 28px;
+  display: grid;
+  place-items: center;
+  background: transparent;
+  border: 0;
+  color: var(--meta);
+  cursor: pointer;
+  flex-shrink: 0;
+  transition: color var(--motion-fast), background var(--motion-fast);
+}
+.insp-kv-row .kv-del:hover {
+  color: var(--danger);
+  background: var(--danger-soft);
+}
+.insp-kv-add {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  gap: var(--space-1);
+  width: 100%;
+  padding: var(--space-2);
+  background: transparent;
+  border: 0;
+  color: var(--accent);
+  font-size: var(--text-xs);
+  font-weight: 500;
+  cursor: pointer;
+  transition: background var(--motion-fast);
+}
+.insp-kv-add:hover {
+  background: var(--accent-soft);
+}
+.insp-kv-add svg {
+  width: 12px;
+  height: 12px;
+}
+
+/* code editor area */
+.insp-code-area {
+  width: 100%;
+  min-height: 100px;
+  padding: var(--space-3);
+  background: var(--fg);
+  color: var(--bg);
+  border: 1px solid var(--border);
+  border-radius: 8px;
+  font-family: var(--font-mono);
+  font-size: 12px;
+  line-height: 1.6;
+  resize: vertical;
+  outline: none;
+}
+.insp-code-area:focus {
+  border-color: var(--accent);
+  box-shadow: var(--focus-ring);
+}
+
+/* spinner for run button */
+.btn-spinner {
+  width: 14px;
+  height: 14px;
+  border: 2px solid transparent;
+  border-top-color: currentColor;
+  border-radius: 50%;
+  animation: spin 0.6s linear infinite;
+  display: inline-block;
+}
+@keyframes spin {
+  to { transform: rotate(360deg); }
+}
+
+/* ─── responsive ─────────────────────────────────────────────── */
+@media (max-width: 1100px) {
+  .wfe-palette { width: 200px; }
+  .wfe-inspector { width: 300px; }
+}
+@media (max-width: 900px) {
+  .wfe-main { flex-direction: column; }
+  .wfe-palette {
+    width: 100%; max-height: 200px;
+    border-right: 0; border-bottom: 1px solid var(--border-soft);
+  }
+  .wfe-inspector {
+    width: 100%; max-height: 300px;
+    border-left: 0; border-top: 1px solid var(--border-soft);
+  }
+}
+@media (max-width: 640px) {
+  :root { --sidebar-w: 0px; }
+  .app {
+    grid-template-columns: 1fr;
+    grid-template-areas: "topbar" "main";
+  }
+  .app-sidebar {
+    position: fixed; z-index: 100; top: 0; left: 0; bottom: 0;
+    width: var(--sidebar-w, 248px);
+    transform: translateX(-100%);
+    transition: transform var(--motion-base) var(--ease-standard);
+    box-shadow: var(--elev-overlay);
+  }
+  .app[data-mobile-nav="open"] .app-sidebar { transform: translateX(0); }
+  .mobile-menu-btn { display: grid !important; }
+  .wfe-palette { display: none; }
+  .wfe-inspector { display: none; }
+  .wfe-toolbar-crumbs { display: none; }
+}
+@media (prefers-reduced-motion: reduce) {
+  *, *::before, *::after {
+    animation-duration: 0.01ms !important;
+    transition-duration: 0.01ms !important;
+  }
+}
+  </style>
+</head>
+<body>
+  <div class="app" id="app">
+    <!-- ===== SIDEBAR ===== -->
+    <aside class="app-sidebar" id="app-sidebar">
+      <div class="brand">
+        <div class="brand-mark">D</div>
+        <div>
+          <div class="brand-name">DAgent</div>
+          <div class="brand-sub">控制台 · v0.2</div>
+        </div>
+      </div>
+      <nav class="nav" id="main-nav" aria-label="主导航">
+      </nav>
+      <div class="sidebar-footer">
+        <button class="collapse-btn collapse-top" id="collapse-btn" aria-label="折叠侧边栏">
+          <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M11 17l-5-5 5-5"/><path d="M18 17l-5-5 5-5"/></svg>
+          <span id="collapse-tx">收起面板</span>
+        </button>
+      </div>
+    </aside>
+
+    <!-- ===== TOPBAR ===== -->
+    <header class="app-topbar">
+      <button class="icon-btn mobile-menu-btn" id="mobile-menu-btn" aria-label="菜单">
+        <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round"><path d="M3 12h18M3 6h18M3 18h18"/></svg>
+      </button>
+      <div class="crumbs">
+        <span class="crumb">编排</span>
+        <span class="sep">/</span>
+        <span class="crumb">工作流</span>
+        <span class="sep">/</span>
+        <span class="crumb-current">论文复现流水线</span>
+      </div>
+      <div class="topbar-spacer"></div>
+      <div class="topbar-actions">
+        <button class="icon-btn" aria-label="通知" title="通知">
+          <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M18 8A6 6 0 0 0 6 8c0 7-3 9-3 9h18s-3-2-3-9"/><path d="M13.73 21a2 2 0 0 1-3.46 0"/></svg>
+          <span class="dot"></span>
+        </button>
+        <button class="avatar" aria-label="账户" title="RZ">RZ</button>
+      </div>
+    </header>
+
+    <!-- ===== MAIN CONTENT ===== -->
+    <main class="app-main" style="padding:0;overflow:hidden">
+      <div class="wfe-main">
+
+        <!-- ── LEFT: Node Palette ── -->
+        <aside class="wfe-palette">
+          <div class="wfe-palette-head">
+            <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="var(--accent)" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><rect x="3" y="3" width="7" height="7" rx="1"/><rect x="14" y="3" width="7" height="7" rx="1"/><rect x="3" y="14" width="7" height="7" rx="1"/><rect x="14" y="14" width="7" height="7" rx="1"/></svg>
+            <span class="title">节点面板</span>
+            <span class="chip chip-tag">14 类型</span>
+          </div>
+          <div class="wfe-palette-search" style="position:relative">
+            <svg class="search-ic" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round"><circle cx="11" cy="11" r="7"/><path d="m20 20-3.5-3.5"/></svg>
+            <input type="search" id="palette-search" placeholder="搜索节点类型…" aria-label="搜索节点" />
+          </div>
+          <div class="wfe-palette-body" id="palette-body">
+            <!-- populated by JS -->
+          </div>
+        </aside>
+
+        <!-- ── CENTER: Canvas ── -->
+        <section class="wfe-canvas-area">
+          <div class="wfe-toolbar">
+            <span class="wfe-toolbar-name" id="wf-name-display" title="点击编辑名称">论文复现流水线</span>
+            <span class="wfe-toolbar-ver">v3.1.2</span>
+            <span class="wfe-toolbar-sep"></span>
+            <div class="wfe-toolbar-crumbs">
+              <span>工作流</span>
+              <span class="sep">/</span>
+              <span>论文复现流水线</span>
+              <span class="sep">/</span>
+              <span class="current">编辑</span>
+            </div>
+            <div class="wfe-toolbar-spacer"></div>
+            <div class="wfe-toolbar-actions">
+              <button class="btn btn-secondary btn-sm" title="自动布局" id="btn-autolayout">
+                <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><rect x="3" y="3" width="7" height="7" rx="1"/><rect x="14" y="3" width="7" height="7" rx="1"/><rect x="3" y="14" width="7" height="7" rx="1"/><rect x="14" y="14" width="7" height="7" rx="1"/></svg>
+                自动布局
+              </button>
+              <button class="btn btn-secondary btn-sm" title="导出 JSON" id="btn-export">
+                <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M21 15v4a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2v-4"/><polyline points="7 10 12 15 17 10"/><line x1="12" y1="15" x2="12" y2="3"/></svg>
+                导出 JSON
+              </button>
+              <span class="wfe-toolbar-sep"></span>
+              <button class="btn btn-secondary btn-sm" title="撤销">
+                <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M3 7v6h6"/><path d="M3 13a9 9 0 1 0 2.636-6.364L3 9"/></svg>
+                撤销
+              </button>
+              <button class="btn btn-secondary btn-sm" title="重做">
+                <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M21 7v6h-6"/><path d="M21 13a9 9 0 1 1-2.636-6.364L21 9"/></svg>
+                重做
+              </button>
+              <span class="wfe-toolbar-sep"></span>
+              <button class="btn btn-secondary btn-sm" id="btn-save" title="保存">
+                <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M19 21H5a2 2 0 0 1-2-2V5a2 2 0 0 1 2-2h11l5 5v11a2 2 0 0 1-2 2z"/><polyline points="17 21 17 13 7 13 7 21"/><polyline points="7 3 7 8 15 8"/></svg>
+                保存
+                <span class="shortcut-hint">⌘S</span>
+              </button>
+              <button class="btn btn-accent btn-sm" id="btn-run" title="运行工作流">
+                <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" class="run-icon"><polygon points="5 3 19 12 5 21 5 3"/></svg>
+                <span class="run-label">运行</span>
+              </button>
+              <span class="wfe-toolbar-sep"></span>
+              <div class="wfe-zoom">
+                <button id="zoom-out" title="缩小">
+                  <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round"><path d="M5 12h14"/></svg>
+                </button>
+                <span class="wfe-zoom-label" id="zoom-label">100%</span>
+                <button id="zoom-in" title="放大">
+                  <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round"><path d="M12 5v14M5 12h14"/></svg>
+                </button>
+                <button id="zoom-fit" title="适应画布">
+                  <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M15 3h6v6"/><path d="M9 21H3v-6"/><path d="M21 3l-7 7"/><path d="M3 21l7-7"/></svg>
+                </button>
+              </div>
+            </div>
+          </div>
+
+          <div class="wfe-canvas-stage" id="canvas-stage">
+            <div class="wfe-canvas-inner" id="canvas-inner">
+              <svg id="dag-svg" viewBox="0 0 1200 600" preserveAspectRatio="xMidYMid meet" role="img" aria-label="工作流 DAG 图">
+                <defs>
+                  <marker id="arrowhead" markerWidth="8" markerHeight="6" refX="8" refY="3" orient="auto">
+                    <polygon points="0 0, 8 3, 0 6" fill="var(--border)"/>
+                  </marker>
+                  <marker id="arrowhead-active" markerWidth="8" markerHeight="6" refX="8" refY="3" orient="auto">
+                    <polygon points="0 0, 8 3, 0 6" fill="var(--accent)"/>
+                  </marker>
+                  <marker id="arrowhead-done" markerWidth="8" markerHeight="6" refX="8" refY="3" orient="auto">
+                    <polygon points="0 0, 8 3, 0 6" fill="var(--success)"/>
+                  </marker>
+                </defs>
+                <!-- edges and nodes rendered by JS -->
+              </svg>
+            </div>
+
+            <!-- minimap -->
+            <div class="wfe-minimap" id="minimap">
+              <svg id="minimap-svg" viewBox="0 0 1200 600" preserveAspectRatio="xMidYMid meet">
+                <!-- rendered by JS -->
+              </svg>
+            </div>
+          </div>
+
+          <div class="wfe-canvas-legend">
+            <span class="li"><span class="sw node-pill-done"></span>完成</span>
+            <span class="li"><span class="sw node-pill-running"></span>运行中</span>
+            <span class="li"><span class="sw node-pill-queued"></span>排队中</span>
+            <span class="li"><span class="sw node-pill-idle"></span>未触发</span>
+            <span class="li"><span class="sw node-pill-failed"></span>失败</span>
+          </div>
+        </section>
+
+        <!-- ── RIGHT: Inspector ── -->
+        <aside class="wfe-inspector">
+          <div class="wfe-insp-head">
+            <span class="type-badge" id="insp-type-badge">LLM 节点</span>
+            <div class="nm" id="insp-nm">理解论文结构</div>
+          </div>
+          <div class="wfe-insp-body" id="insp-body">
+            <!-- populated by JS -->
+          </div>
+        </aside>
+
+      </div>
+    </main>
+  </div>
+
+  <!-- Context menu -->
+  <div class="wfe-ctx-menu" id="ctx-menu">
+    <div class="wfe-ctx-menu-item" data-action="inspect">
+      <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><circle cx="12" cy="12" r="3"/><path d="M19.4 15a1.65 1.65 0 0 0 .33 1.82l.06.06a2 2 0 0 1-2.83 2.83l-.06-.06a1.65 1.65 0 0 0-1.82-.33 1.65 1.65 0 0 0-1 1.51V21a2 2 0 0 1-4 0v-.09A1.65 1.65 0 0 0 9 19.4a1.65 1.65 0 0 0-1.82.33l-.06.06a2 2 0 0 1-2.83-2.83l.06-.06A1.65 1.65 0 0 0 4.68 15a1.65 1.65 0 0 0-1.51-1H3a2 2 0 0 1 0-4h.09A1.65 1.65 0 0 0 4.6 9a1.65 1.65 0 0 0-.33-1.82l-.06-.06a2 2 0 0 1 2.83-2.83l.06.06A1.65 1.65 0 0 0 9 4.68a1.65 1.65 0 0 0 1-1.51V3a2 2 0 0 1 4 0v.09a1.65 1.65 0 0 0 1 1.51 1.65 1.65 0 0 0 1.82-.33l.06-.06a2 2 0 0 1 2.83 2.83l-.06.06A1.65 1.65 0 0 0 19.4 9a1.65 1.65 0 0 0 1.51 1H21a2 2 0 0 1 0 4h-.09a1.65 1.65 0 0 0-1.51 1z"/></svg>
+      查看属性
+    </div>
+    <div class="wfe-ctx-menu-item" data-action="copy">
+      <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><rect x="9" y="9" width="13" height="13" rx="2" ry="2"/><path d="M5 15H4a2 2 0 0 1-2-2V4a2 2 0 0 1 2-2h9a2 2 0 0 1 2 2v1"/></svg>
+      复制节点
+    </div>
+    <div class="wfe-ctx-menu-sep"></div>
+    <div class="wfe-ctx-menu-item danger" data-action="delete">
+      <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><polyline points="3 6 5 6 21 6"/><path d="M19 6v14a2 2 0 0 1-2 2H7a2 2 0 0 1-2-2V6m3 0V4a2 2 0 0 1 2-2h4a2 2 0 0 1 2 2v2"/></svg>
+      删除节点
+    </div>
+  </div>
+
+  <script>
+  document.addEventListener('DOMContentLoaded', () => {
+
+    // ── sidebar collapse ─────────────────────────────────────
+    const app = document.getElementById('app');
+    const collapseBtn = document.getElementById('collapse-btn');
+    collapseBtn.addEventListener('click', () => {
+      app.toggleAttribute('data-collapsed');
+      const collapsed = app.hasAttribute('data-collapsed');
+      app.setAttribute('data-collapsed', collapsed ? 'true' : 'false');
+    });
+
+    // mobile menu
+    const mobileBtn = document.getElementById('mobile-menu-btn');
+    if (mobileBtn) {
+      mobileBtn.addEventListener('click', () => {
+        app.toggleAttribute('data-mobile-nav');
+      });
+    }
+
+    // ── NODE PALETTE SVG ICONS ────────────────────────────────
+    const NODE_ICONS = {
+      'start': '<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5" stroke-linecap="round" stroke-linejoin="round"><polygon points="5 3 19 12 5 21 5 3"/></svg>',
+      'condition': '<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M16 3h5v5"/><path d="M4 20L21 3"/><path d="M21 16v5h-5"/><path d="M15 15l6 6"/><path d="M4 4l5 5"/></svg>',
+      'condition-agent': '<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M16 3h5v5"/><path d="M4 20L21 3"/><path d="M21 16v5h-5"/><path d="M15 15l6 6"/><path d="M4 4l5 5"/></svg>',
+      'iteration': '<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><polyline points="23 4 23 10 17 10"/><path d="M20.49 15a9 9 0 1 1-2.12-9.36L23 10"/></svg>',
+      'loop': '<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M17 2l4 4-4 4"/><path d="M3 11V9a4 4 0 0 1 4-4h14"/><path d="M7 22l-4-4 4-4"/><path d="M21 13v2a4 4 0 0 1-4 4H3"/></svg>',
+      'direct-reply': '<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><rect x="2" y="3" width="20" height="14" rx="2"/><line x1="8" y1="21" x2="16" y2="21"/><line x1="12" y1="17" x2="12" y2="21"/></svg>',
+      'agent': '<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M12 2a4 4 0 0 1 4 4v2a4 4 0 0 1-8 0V6a4 4 0 0 1 4-4z"/><path d="M16 14H8"/><path d="M12 14v6"/><path d="M8 20h8"/><circle cx="12" cy="6" r="1"/></svg>',
+      'llm': '<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M21 15a2 2 0 0 1-2 2H7l-4 4V5a2 2 0 0 1 2-2h14a2 2 0 0 1 2 2z"/><line x1="8" y1="8" x2="16" y2="8"/><line x1="8" y1="12" x2="13" y2="12"/></svg>',
+      'tool': '<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M14.7 6.3a1 1 0 0 0 0 1.4l1.6 1.6a1 1 0 0 0 1.4 0l3.77-3.77a6 6 0 0 1-7.94 7.94l-6.91 6.91a2.12 2.12 0 0 1-3-3l6.91-6.91a6 6 0 0 1 7.94-7.94l-3.76 3.76z"/></svg>',
+      'retriever': '<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><circle cx="11" cy="11" r="8"/><path d="m21 21-4.35-4.35"/><path d="M11 8v6"/><path d="M8 11h6"/></svg>',
+      'http': '<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><circle cx="12" cy="12" r="10"/><path d="M2 12h20"/><path d="M12 2a15.3 15.3 0 0 1 4 10 15.3 15.3 0 0 1-4 10 15.3 15.3 0 0 1-4-10 15.3 15.3 0 0 1 4-10z"/></svg>',
+      'human-input': '<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M18 8A6 6 0 1 0 6 8c0 7-3 9-3 9h18s-3-2-3-9"/><path d="M13.73 21a2 2 0 0 1-3.46 0"/></svg>',
+      'execute-flow': '<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M10 13a5 5 0 0 0 7.54.54l3-3a5 5 0 0 0-7.07-7.07l-1.72 1.71"/><path d="M14 11a5 5 0 0 0-7.54-.54l-3 3a5 5 0 0 0 7.07 7.07l1.71-1.71"/></svg>',
+      'custom-function': '<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><polyline points="16 18 22 12 16 6"/><polyline points="8 6 2 12 8 18"/><line x1="14" y1="4" x2="10" y2="20"/></svg>',
+    };
+
+    // ── NODE PALETTE DATA ──────────────────────────────────────
+    const NODE_TYPES = [
+      { id: 'start',           name: 'Start',           desc: '流程起始入口',         cat: 'flow' },
+      { id: 'condition',       name: 'Condition',       desc: '条件分支判断',         cat: 'flow' },
+      { id: 'condition-agent', name: 'Condition Agent', desc: 'Agent 条件路由',       cat: 'flow' },
+      { id: 'iteration',      name: 'Iteration',       desc: '迭代循环控制',         cat: 'flow' },
+      { id: 'loop',           name: 'Loop',            desc: '固定次数循环',         cat: 'flow' },
+      { id: 'direct-reply',   name: 'Direct Reply',    desc: '直接返回响应',         cat: 'flow' },
+      { id: 'agent',          name: 'Agent',           desc: '调用 Agent 节点',      cat: 'ai' },
+      { id: 'llm',            name: 'LLM',             desc: '大语言模型调用',       cat: 'ai' },
+      { id: 'tool',           name: 'Tool',            desc: '执行工具/函数',        cat: 'ai' },
+      { id: 'retriever',      name: 'Retriever',       desc: '检索知识库/向量',      cat: 'ai' },
+      { id: 'http',           name: 'HTTP',            desc: 'HTTP 请求调用',        cat: 'integ' },
+      { id: 'human-input',    name: 'Human Input',     desc: '人工介入审核',         cat: 'integ' },
+      { id: 'execute-flow',   name: 'Execute Flow',   desc: '嵌套执行子流程',       cat: 'integ' },
+      { id: 'custom-function',name: 'Custom Function', desc: '自定义函数节点',       cat: 'integ' },
+    ];
+
+    const CATEGORIES = [
+      { id: 'flow',  label: '流程控制' },
+      { id: 'ai',    label: 'AI 与逻辑' },
+      { id: 'integ', label: '集成' },
+    ];
+
+    function renderPalette(filter) {
+      const body = document.getElementById('palette-body');
+      const ql = (filter || '').trim().toLowerCase();
+      let html = '';
+
+      CATEGORIES.forEach(cat => {
+        const nodes = NODE_TYPES.filter(n => {
+          if (n.cat !== cat.id) return false;
+          if (ql && !n.name.toLowerCase().includes(ql) && !n.desc.includes(ql)) return false;
+          return true;
+        });
+        if (!nodes.length) return;
+        html += '<div class="palette-category">';
+        html += '<div class="palette-cat-label">' + cat.label + '</div>';
+        nodes.forEach(n => {
+          const iconSvg = NODE_ICONS[n.id] || '';
+          html += '<div class="palette-node" draggable="true" data-node-type="' + n.id + '" tabindex="0" role="button" aria-label="拖拽或点击添加 ' + n.name + ' 节点">';
+          html += '  <span class="palette-glyph">' + iconSvg + '</span>';
+          html += '  <span class="palette-node-info">';
+          html += '    <span class="palette-node-name">' + n.name + '</span>';
+          html += '    <span class="palette-node-desc">' + n.desc + '</span>';
+          html += '  </span>';
+          html += '</div>';
+        });
+        html += '</div>';
+      });
+
+      if (!html) {
+        html = '<div style="padding:32px;text-align:center;color:var(--meta);font-size:var(--text-sm)">无匹配节点</div>';
+      }
+      body.innerHTML = html;
+
+      // drag events
+      body.querySelectorAll('.palette-node').forEach(el => {
+        el.addEventListener('dragstart', (e) => {
+          e.dataTransfer.setData('text/plain', el.dataset.nodeType);
+          e.dataTransfer.effectAllowed = 'copy';
+        });
+
+        // click to add node at center of canvas
+        el.addEventListener('click', (e) => {
+          if (e.detail === 1) {
+            addNodeToCenter(el.dataset.nodeType);
+          }
+        });
+      });
+    }
+
+    function addNodeToCenter(nodeType) {
+      const typeDef = NODE_TYPES.find(t => t.id === nodeType);
+      if (!typeDef) return;
+
+      const svg = document.getElementById('dag-svg');
+      const stage = document.getElementById('canvas-stage');
+      const stageRect = stage.getBoundingClientRect();
+      const svgW = 1200, svgH = 600;
+      const cx = svgW / 2 - 80;
+      const cy = svgH / 2 - 24;
+
+      const newId = nodeType + '-' + Date.now().toString(36);
+      const newNode = {
+        id: newId,
+        type: typeDef.name,
+        label: typeDef.name,
+        sub: typeDef.desc,
+        x: cx, y: cy, w: 160, h: 48,
+        status: 'idle',
+        agent: '\u2014',
+        daemon: 'd-' + newId.substring(0, 10),
+        duration: '\u2014', tokens: '\u2014', cost: '\u2014', timeout: '30s'
+      };
+
+      // store config
+      newNode.config = getDefaultNodeConfig(nodeType);
+
+      dagNodes.push(newNode);
+      renderDAG();
+      selectNode(newId);
+      showToast('已在画布中央添加: ' + typeDef.name);
+    }
+
+    function getDefaultNodeConfig(nodeType) {
+      switch (nodeType) {
+        case 'start': return { trigger: 'manual', params: [{ key: '', value: '' }] };
+        case 'llm': return { model: 'gpt-4o', temperature: 0.7, maxTokens: 4096, systemPrompt: '' };
+        case 'condition': return { expression: '', trueBranch: '', falseBranch: '' };
+        case 'agent': return { agentId: '', taskDesc: '', workDir: '' };
+        case 'http': return { method: 'GET', url: '', headers: [{ key: '', value: '' }] };
+        case 'retriever': return { queryTemplate: '', topK: 5, indexName: '' };
+        case 'tool': return { toolName: '', params: [{ key: '', value: '' }] };
+        case 'human-input': return { prompt: '', timeout: 300 };
+        case 'execute-flow': return { subFlow: '', paramMapping: '' };
+        case 'custom-function': return { code: '', timeout: 60 };
+        case 'iteration': return { variable: 'item', maxLoops: 10 };
+        case 'loop': return { variable: 'i', maxLoops: 10 };
+        case 'direct-reply': return { template: '', format: 'text' };
+        case 'condition-agent': return { expression: '', trueBranch: '', falseBranch: '' };
+        default: return {};
+      }
+    }
+
+    // drop on canvas with visual feedback
+    const stage = document.getElementById('canvas-stage');
+    stage.addEventListener('dragover', (e) => {
+      e.preventDefault();
+      e.dataTransfer.dropEffect = 'copy';
+      stage.classList.add('drag-over');
+    });
+    stage.addEventListener('dragleave', () => {
+      stage.classList.remove('drag-over');
+    });
+    stage.addEventListener('drop', (e) => {
+      e.preventDefault();
+      stage.classList.remove('drag-over');
+      const nodeType = e.dataTransfer.getData('text/plain');
+      if (nodeType) {
+        const svg = document.getElementById('dag-svg');
+        const stageRect = stage.getBoundingClientRect();
+        const x = ((e.clientX - stageRect.left) / stageRect.width) * 1200;
+        const y = ((e.clientY - stageRect.top) / stageRect.height) * 600;
+        addNodeAtPosition(nodeType, x, y);
+      }
+    });
+
+    function addNodeAtPosition(nodeType, x, y) {
+      const typeDef = NODE_TYPES.find(t => t.id === nodeType);
+      if (!typeDef) return;
+
+      const newId = nodeType + '-' + Date.now().toString(36);
+      const newNode = {
+        id: newId,
+        type: typeDef.name,
+        label: typeDef.name,
+        sub: typeDef.desc,
+        x: Math.max(0, x - 80), y: Math.max(0, y - 24), w: 160, h: 48,
+        status: 'idle',
+        agent: '\u2014',
+        daemon: 'd-' + newId.substring(0, 10),
+        duration: '\u2014', tokens: '\u2014', cost: '\u2014', timeout: '30s'
+      };
+      newNode.config = getDefaultNodeConfig(nodeType);
+      dagNodes.push(newNode);
+      renderDAG();
+      selectNode(newId);
+      showToast('已添加节点: ' + typeDef.name + ' (' + Math.round(x) + ', ' + Math.round(y) + ')');
+    }
+
+    document.getElementById('palette-search').addEventListener('input', (e) => {
+      renderPalette(e.target.value);
+    });
+    renderPalette();
+
+    // ── DAG DATA ───────────────────────────────────────────────
+    const STATUS_CN = { running:'运行中', done:'已完成', queued:'排队中', failed:'失败', paused:'暂停', idle:'未触发' };
+
+    const dagNodes = [
+      { id:'start',   type:'Start',        label:'开始',           sub:'Start',           x:40,  y:80,  w:140, h:48, status:'done',     agent:'\u2014', daemon:'d-start-001', duration:'0.3s', tokens:'0',      cost:'$0.00', timeout:'30s' },
+      { id:'http',    type:'HTTP',         label:'获取论文数据',    sub:'HTTP',            x:240, y:60,  w:160, h:48, status:'done',     agent:'\u2014', daemon:'d-http-012', duration:'12.4s',tokens:'0',      cost:'$0.02', timeout:'60s' },
+      { id:'retriever',type:'Retriever',   label:'检索相关方法',   sub:'Retriever',       x:460, y:60,  w:160, h:48, status:'done',     agent:'\u2014', daemon:'d-ret-008',  duration:'3.8s', tokens:'1,240',  cost:'$0.04', timeout:'30s' },
+      { id:'llm',     type:'LLM',          label:'理解论文结构',    sub:'LLM',             x:680, y:60,  w:160, h:48, status:'running',  agent:'\u2014', daemon:'d-llm-042',  duration:'进行中', tokens:'8,412',  cost:'$1.23', timeout:'120s' },
+      { id:'condition',type:'Condition',  label:'判断方法类型',   sub:'Condition',       x:900, y:60,  w:160, h:48, status:'queued',   agent:'\u2014', daemon:'d-cond-003', duration:'\u2014',     tokens:'\u2014',      cost:'\u2014',     timeout:'10s' },
+      { id:'agent-bl',type:'Agent',        label:'Baseline Agent',  sub:'Agent \u00B7 复现基线方法', x:240, y:200, w:190, h:48, status:'idle', agent:'bl-agent', daemon:'d-agt-017', duration:'\u2014', tokens:'\u2014', cost:'\u2014', timeout:'600s' },
+      { id:'agent-ab',type:'Agent',        label:'Ablation Agent',  sub:'Agent \u00B7 执行消融实验', x:500, y:200, w:190, h:48, status:'idle', agent:'ab-agent', daemon:'d-agt-022', duration:'\u2014', tokens:'\u2014', cost:'\u2014', timeout:'600s' },
+      { id:'human',   type:'Human Input',   label:'人工审核结果',    sub:'Human Input',      x:780, y:320, w:170, h:48, status:'idle',     agent:'\u2014', daemon:'d-hum-001',  duration:'\u2014',     tokens:'\u2014',      cost:'\u2014',     timeout:'\u2014' },
+      { id:'reply',   type:'Direct Reply',  label:'输出报告',        sub:'Direct Reply',     x:1000,y:460, w:160, h:48, status:'idle',     agent:'\u2014', daemon:'d-reply-001',duration:'\u2014',     tokens:'\u2014',      cost:'\u2014',     timeout:'30s' },
+    ];
+
+    // init config for existing nodes
+    dagNodes.forEach(n => {
+      const typeId = n.type.toLowerCase().replace(/ /g, '-');
+      n.config = n.config || getDefaultNodeConfig(typeId);
+      // set some sample configs for existing nodes
+      if (n.id === 'start') {
+        n.config = { trigger: 'manual', params: [{ key: 'paper_id', value: '2401.00001' }] };
+      } else if (n.id === 'llm') {
+        n.config = { model: 'gpt-4o', temperature: 0.2, maxTokens: 8192, systemPrompt: '你是一个论文分析助手，请解析论文的结构、方法和实验设计。' };
+      } else if (n.id === 'condition') {
+        n.config = { expression: "{{llm.output.method_type}} === 'baseline'", trueBranch: 'agent-bl', falseBranch: 'agent-ab' };
+      } else if (n.id === 'agent-bl') {
+        n.config = { agentId: 'bl-agent', taskDesc: '基于论文方法复现基线模型', workDir: '/data/papers/{{paper_id}}/baseline' };
+      } else if (n.id === 'agent-ab') {
+        n.config = { agentId: 'ab-agent', taskDesc: '执行消融实验，移除关键组件', workDir: '/data/papers/{{paper_id}}/ablation' };
+      } else if (n.id === 'http') {
+        n.config = { method: 'GET', url: 'https://arxiv.org/abs/{{paper_id}}', headers: [{ key: 'Accept', value: 'application/json' }] };
+      } else if (n.id === 'retriever') {
+        n.config = { queryTemplate: '{{http.output.body.title}}', topK: 10, indexName: 'papers_v2' };
+      } else if (n.id === 'human') {
+        n.config = { prompt: '请审核以下实验结果并决定是否通过', timeout: 3600 };
+      } else if (n.id === 'reply') {
+        n.config = { template: '实验报告：\n{{human.output}}', format: 'markdown' };
+      }
+    });
+
+    const dagEdges = [
+      { from:'start',     to:'http',       label:'',        status:'done' },
+      { from:'http',      to:'retriever',  label:'',        status:'done' },
+      { from:'retriever', to:'llm',        label:'',        status:'done' },
+      { from:'llm',       to:'condition',  label:'',        status:'active' },
+      { from:'condition', to:'agent-bl',   label:'基线',    status:'idle' },
+      { from:'condition', to:'agent-ab',   label:'消融',    status:'idle' },
+      { from:'agent-bl',  to:'human',      label:'',        status:'idle' },
+      { from:'agent-ab',  to:'human',      label:'',        status:'idle' },
+      { from:'human',     to:'reply',      label:'',        status:'idle' },
+    ];
+
+    // ── RENDER DAG ─────────────────────────────────────────────
+    const svg = document.getElementById('dag-svg');
+
+    function getPortPos(nodeId, isOutput) {
+      const n = dagNodes.find(nn => nn.id === nodeId);
+      if (!n) return {x:0,y:0};
+      if (isOutput) return { x: n.x + n.w, y: n.y + n.h / 2 };
+      return { x: n.x, y: n.y + n.h / 2 };
+    }
+
+    let selectedNodeId = 'llm';
+    let selectedEdgeIdx = -1;
+
+    function renderDAG() {
+      // edges
+      let edgesHtml = '';
+      dagEdges.forEach((e, idx) => {
+        const from = getPortPos(e.from, true);
+        const to = getPortPos(e.to, false);
+        const dx = Math.abs(to.x - from.x) * 0.45;
+        const d = `M ${from.x} ${from.y} C ${from.x + dx} ${from.y}, ${to.x - dx} ${to.y}, ${to.x} ${to.y}`;
+        let cls = 'dag-edge';
+        if (idx === selectedEdgeIdx) cls += ' selected';
+        let marker = 'url(#arrowhead)';
+        if (e.status === 'done') { cls += ' done'; marker = 'url(#arrowhead-done)'; }
+        else if (e.status === 'active') { cls += ' active'; marker = 'url(#arrowhead-active)'; }
+        edgesHtml += `<path class="${cls}" d="${d}" marker-end="${marker}" data-edge-idx="${idx}"/>`;
+        if (e.label) {
+          const mx = (from.x + to.x) / 2;
+          const my = (from.y + to.y) / 2 - 8;
+          edgesHtml += `<text class="dag-edge-label" x="${mx}" y="${my}" text-anchor="middle">${e.label}</text>`;
+        }
+      });
+
+      // nodes
+      let nodesHtml = '';
+      dagNodes.forEach(n => {
+        const isSelected = n.id === selectedNodeId;
+        nodesHtml += `<g class="dag-node${isSelected ? ' selected' : ''}" data-id="${n.id}" transform="translate(${n.x},${n.y})" tabindex="0" role="button" aria-label="${n.type} 节点 ${n.label}，状态 ${STATUS_CN[n.status]}">`;
+        nodesHtml += `  <rect class="node-bg" width="${n.w}" height="${n.h}" rx="10" ry="10" fill="var(--bg)" stroke="var(--border)" stroke-width="1"/>`;
+        nodesHtml += `  <rect class="node-pill node-pill-${n.status}" x="0" y="8" width="5" height="${n.h - 16}" rx="3"/>`;
+        // input port
+        nodesHtml += `  <circle class="node-port" cx="0" cy="${n.h / 2}" r="4" fill="var(--border)" stroke="var(--bg)" stroke-width="2"/>`;
+        // output port
+        nodesHtml += `  <circle class="node-port" cx="${n.w}" cy="${n.h / 2}" r="4" fill="var(--border)" stroke="var(--bg)" stroke-width="2"/>`;
+        nodesHtml += `  <text x="16" y="${n.h/2 - 2}" class="node-label-text">${n.label}</text>`;
+        nodesHtml += `  <text x="16" y="${n.h/2 + 12}" class="node-sub-text">${n.sub}</text>`;
+        nodesHtml += `  <circle class="node-status-dot node-status-dot-${n.status}${n.status === 'running' ? ' running-anim' : ''}" cx="${n.w - 14}" cy="14" r="4"/>`;
+        nodesHtml += `</g>`;
+      });
+
+      svg.innerHTML = '<defs>' +
+        '<marker id="arrowhead" markerWidth="8" markerHeight="6" refX="8" refY="3" orient="auto"><polygon points="0 0, 8 3, 0 6" fill="var(--border)"/></marker>' +
+        '<marker id="arrowhead-active" markerWidth="8" markerHeight="6" refX="8" refY="3" orient="auto"><polygon points="0 0, 8 3, 0 6" fill="var(--accent)"/></marker>' +
+        '<marker id="arrowhead-done" markerWidth="8" markerHeight="6" refX="8" refY="3" orient="auto"><polygon points="0 0, 8 3, 0 6" fill="var(--success)"/></marker>' +
+        '</defs>' + edgesHtml + nodesHtml;
+
+      // node click / drag handling
+      svg.querySelectorAll('.dag-node').forEach(g => {
+        g.addEventListener('mousedown', (e) => {
+          if (e.target.classList.contains('node-port')) return;
+          e.stopPropagation();
+          selectNode(g.dataset.id);
+          startNodeDrag(e, g.dataset.id);
+        });
+        g.addEventListener('click', (e) => {
+          if (e.target.classList.contains('node-port')) return;
+          selectNode(g.dataset.id);
+        });
+        g.addEventListener('keydown', (e) => {
+          if (e.key === 'Enter' || e.key === ' ') { e.preventDefault(); selectNode(g.dataset.id); }
+        });
+      });
+
+      // edge click handling
+      svg.querySelectorAll('.dag-edge').forEach(path => {
+        path.addEventListener('click', (e) => {
+          e.stopPropagation();
+          const idx = parseInt(path.dataset.edgeIdx);
+          selectedEdgeIdx = (selectedEdgeIdx === idx) ? -1 : idx;
+          selectedNodeId = null;
+          renderDAG();
+          renderEmptyInspector();
+        });
+      });
+
+      // render minimap
+      renderMinimap();
+    }
+
+    // ── NODE DRAG ──────────────────────────────────────────────
+    let dragState = null;
+
+    function startNodeDrag(e, nodeId) {
+      const n = dagNodes.find(nn => nn.id === nodeId);
+      if (!n) return;
+
+      dragState = {
+        nodeId: nodeId,
+        startX: e.clientX,
+        startY: e.clientY,
+        origX: n.x,
+        origY: n.y
+      };
+
+      const onMove = (ev) => {
+        if (!dragState) return;
+        const dx = (ev.clientX - dragState.startX) / (zoomLevel / 100);
+        const dy = (ev.clientY - dragState.startY) / (zoomLevel / 100);
+        const n = dagNodes.find(nn => nn.id === dragState.nodeId);
+        if (n) {
+          n.x = Math.max(0, dragState.origX + dx);
+          n.y = Math.max(0, dragState.origY + dy);
+          renderDAG();
+        }
+      };
+
+      const onUp = () => {
+        dragState = null;
+        document.removeEventListener('mousemove', onMove);
+        document.removeEventListener('mouseup', onUp);
+      };
+
+      document.addEventListener('mousemove', onMove);
+      document.addEventListener('mouseup', onUp);
+    }
+
+    // ── MINIMAP ────────────────────────────────────────────────
+    function renderMinimap() {
+      const minimapSvg = document.getElementById('minimap-svg');
+      let html = '';
+
+      // edges
+      dagEdges.forEach(e => {
+        const from = getPortPos(e.from, true);
+        const to = getPortPos(e.to, false);
+        html += `<line x1="${from.x}" y1="${from.y}" x2="${to.x}" y2="${to.y}" stroke="var(--border)" stroke-width="1"/>`;
+      });
+
+      // nodes
+      dagNodes.forEach(n => {
+        const color = n.status === 'done' ? 'var(--success)' :
+                      n.status === 'running' ? 'var(--accent)' :
+                      n.status === 'queued' ? 'var(--warn)' :
+                      n.status === 'failed' ? 'var(--danger)' : 'var(--meta)';
+        html += `<rect x="${n.x}" y="${n.y}" width="${n.w}" height="${n.h}" rx="3" fill="${color}" opacity="0.6"/>`;
+      });
+
+      // viewport rect
+      html += '<rect class="wfe-minimap-viewport" x="0" y="0" width="1200" height="600"/>';
+
+      minimapSvg.innerHTML = html;
+    }
+
+    // ── INSPECTOR ─────────────────────────────────────────────
+
+    function selectNode(nodeId) {
+      selectedNodeId = nodeId;
+      selectedEdgeIdx = -1;
+      const n = dagNodes.find(nn => nn.id === nodeId);
+      if (!n) return;
+      renderDAG();
+      renderInspector(n);
+      // scroll inspector to top
+      document.getElementById('insp-body').scrollTop = 0;
+    }
+
+    function renderEmptyInspector() {
+      document.getElementById('insp-type-badge').textContent = '\u2014';
+      document.getElementById('insp-nm').textContent = '未选中节点';
+      document.getElementById('insp-body').innerHTML =
+        '<div style="padding:32px 0;text-align:center;color:var(--meta);font-size:var(--text-sm)">点击节点或连线查看详情</div>';
+    }
+
+    function renderInspector(n) {
+      document.getElementById('insp-type-badge').textContent = n.type + ' 节点';
+      document.getElementById('insp-nm').textContent = n.label;
+
+      const typeId = n.type.toLowerCase().replace(/ /g, '-');
+      const cfg = n.config || {};
+
+      let html = '';
+
+      // ── CONFIG FORM SECTION ──
+      html += '<div class="insp-section"><div class="lbl">节点配置</div>';
+
+      if (typeId === 'start') {
+        html += renderSelectField('触发方式', 'cfg-trigger', cfg.trigger || 'manual', [
+          { value: 'manual', label: '手动触发' },
+          { value: 'api', label: 'API 调用' },
+          { value: 'cron', label: '定时任务' },
+          { value: 'event', label: '事件驱动' },
+        ]);
+        html += renderKvEditor('输入参数', cfg.params || [], 'cfg-params');
+      }
+      else if (typeId === 'llm') {
+        html += renderSelectField('模型', 'cfg-model', cfg.model || 'gpt-4o', [
+          { value: 'gpt-4o', label: 'GPT-4o' },
+          { value: 'gpt-4o-mini', label: 'GPT-4o Mini' },
+          { value: 'claude-3.5-sonnet', label: 'Claude 3.5 Sonnet' },
+          { value: 'claude-3-opus', label: 'Claude 3 Opus' },
+          { value: 'qwen-2.5-72b', label: 'Qwen 2.5 (72B)' },
+          { value: 'qwen-2.5-coder', label: 'Qwen 2.5 Coder' },
+          { value: 'deepseek-v3', label: 'DeepSeek V3' },
+          { value: 'glm-4-plus', label: 'GLM-4 Plus' },
+        ]);
+        html += renderRangeField('Temperature', 'cfg-temperature', cfg.temperature || 0.7, 0, 2, 0.1);
+        html += renderNumberField('Max Tokens', 'cfg-maxTokens', cfg.maxTokens || 4096);
+        html += renderTextareaField('System Prompt', 'cfg-systemPrompt', cfg.systemPrompt || '');
+      }
+      else if (typeId === 'condition' || typeId === 'condition-agent') {
+        html += renderTextField('条件表达式', 'cfg-expression', cfg.expression || '', '支持模板变量，如 {{node_id.output}}');
+        html += renderSelectField('True 分支目标', 'cfg-trueBranch', cfg.trueBranch || '', getNodeOptions());
+        html += renderSelectField('False 分支目标', 'cfg-falseBranch', cfg.falseBranch || '', getNodeOptions());
+      }
+      else if (typeId === 'agent') {
+        html += renderSelectField('Agent ID', 'cfg-agentId', cfg.agentId || '', [
+          { value: '', label: '\u2014 选择 Agent \u2014' },
+          { value: 'bl-agent', label: 'bl-agent (Baseline)' },
+          { value: 'ab-agent', label: 'ab-agent (Ablation)' },
+          { value: 'eval-agent', label: 'eval-agent (Evaluation)' },
+          { value: 'code-agent', label: 'code-agent (Code Gen)' },
+          { value: 'data-agent', label: 'data-agent (Data Prep)' },
+        ]);
+        html += renderTextareaField('任务描述', 'cfg-taskDesc', cfg.taskDesc || '');
+        html += renderTextField('工作目录', 'cfg-workDir', cfg.workDir || '', '支持模板变量');
+      }
+      else if (typeId === 'http') {
+        html += renderSelectField('Method', 'cfg-method', cfg.method || 'GET', [
+          { value: 'GET', label: 'GET' },
+          { value: 'POST', label: 'POST' },
+          { value: 'PUT', label: 'PUT' },
+          { value: 'DELETE', label: 'DELETE' },
+        ]);
+        html += renderTextField('URL', 'cfg-url', cfg.url || '', '支持模板变量');
+        html += renderKvEditor('Headers', cfg.headers || [], 'cfg-headers');
+      }
+      else if (typeId === 'retriever') {
+        html += renderTextField('查询模板', 'cfg-queryTemplate', cfg.queryTemplate || '', '支持模板变量');
+        html += renderNumberField('Top K', 'cfg-topK', cfg.topK || 5);
+        html += renderSelectField('索引名称', 'cfg-indexName', cfg.indexName || '', [
+          { value: '', label: '\u2014 选择索引 \u2014' },
+          { value: 'papers_v2', label: 'papers_v2' },
+          { value: 'methods_v1', label: 'methods_v1' },
+          { value: 'code_snippets', label: 'code_snippets' },
+          { value: 'dataset_meta', label: 'dataset_meta' },
+        ]);
+      }
+      else if (typeId === 'tool') {
+        html += renderSelectField('工具名称', 'cfg-toolName', cfg.toolName || '', [
+          { value: '', label: '\u2014 选择工具 \u2014' },
+          { value: 'code_executor', label: 'code_executor' },
+          { value: 'file_reader', label: 'file_reader' },
+          { value: 'web_search', label: 'web_search' },
+          { value: 'git_clone', label: 'git_clone' },
+          { value: 'docker_run', label: 'docker_run' },
+          { value: 'data_loader', label: 'data_loader' },
+        ]);
+        html += renderKvEditor('参数', cfg.params || [], 'cfg-params');
+      }
+      else if (typeId === 'human-input') {
+        html += renderTextareaField('提示语', 'cfg-prompt', cfg.prompt || '');
+        html += renderNumberField('超时 (秒)', 'cfg-timeout', cfg.timeout || 300);
+      }
+      else if (typeId === 'execute-flow') {
+        html += renderSelectField('子流程', 'cfg-subFlow', cfg.subFlow || '', [
+          { value: '', label: '\u2014 选择子流程 \u2014' },
+          { value: 'preprocess', label: '数据预处理流程' },
+          { value: 'train', label: '模型训练流程' },
+          { value: 'evaluate', label: '评估流程' },
+          { value: 'report', label: '报告生成流程' },
+        ]);
+        html += renderTextareaField('参数映射', 'cfg-paramMapping', cfg.paramMapping || '', 'JSON 格式的参数映射');
+      }
+      else if (typeId === 'custom-function') {
+        html += '<div class="insp-field"><label>函数代码</label><textarea class="insp-code-area" id="cfg-code" placeholder="def handler(input):\n  # your code here\n  return result">' + escapeHtml(cfg.code || '') + '</textarea></div>';
+        html += renderNumberField('超时 (秒)', 'cfg-timeout', cfg.timeout || 60);
+      }
+      else if (typeId === 'iteration' || typeId === 'loop') {
+        html += renderTextField('迭代变量名', 'cfg-variable', cfg.variable || 'item', '');
+        html += renderNumberField('最大循环次数', 'cfg-maxLoops', cfg.maxLoops || 10);
+      }
+      else if (typeId === 'direct-reply') {
+        html += renderTextareaField('输出模板', 'cfg-template', cfg.template || '', '支持模板变量');
+        html += renderSelectField('格式', 'cfg-format', cfg.format || 'text', [
+          { value: 'text', label: '纯文本' },
+          { value: 'markdown', label: 'Markdown' },
+          { value: 'json', label: 'JSON' },
+          { value: 'html', label: 'HTML' },
+        ]);
+      }
+
+      html += '</div>';
+
+      // ── STATUS SECTION ──
+      const inputJson = generateInputJson(n);
+      const outputJson = generateOutputJson(n);
+      const logs = generateLogs(n);
+
+      const logsHtml = logs.map(l =>
+        '<div class="log-line"><span class="log-ts">' + l.t + '</span><span class="log-lvl ' + l.l + '">' + l.l.toUpperCase() + '</span><span class="log-msg">' + l.m + '</span></div>'
+      ).join('');
+
+      const statusTextClass = 'status-text ' + n.status;
+
+      html +=
+        '<div class="insp-section">' +
+        '  <div class="lbl">状态</div>' +
+        '  <div class="insp-status-row">' +
+        '    <span class="status ' + n.status + '"><span class="dot"></span></span>' +
+        '    <span class="' + statusTextClass + '" style="font-size:var(--text-xs);font-weight:500">' + STATUS_CN[n.status] + '</span>' +
+        '  </div>' +
+        '  <dl class="insp-kv">' +
+        '    <dt>节点 ID</dt><dd>' + n.id + '</dd>' +
+        '    <dt>节点类型</dt><dd>' + n.type + '</dd>' +
+        '    <dt>Agent</dt><dd>' + n.agent + '</dd>' +
+        '    <dt>Daemon</dt><dd>' + n.daemon + '</dd>' +
+        '  </dl>' +
+        '</div>' +
+
+        '<div class="insp-section">' +
+        '  <div class="lbl">运行信息</div>' +
+        '  <dl class="insp-kv mb-3">' +
+        '    <dt>耗时</dt><dd>' + n.duration + '</dd>' +
+        '    <dt>Token 消耗</dt><dd>' + n.tokens + '</dd>' +
+        '    <dt>成本</dt><dd>' + n.cost + '</dd>' +
+        '    <dt>超时</dt><dd>' + n.timeout + '</dd>' +
+        '  </dl>' +
+        '</div>' +
+
+        '<div class="insp-section">' +
+        '  <div class="lbl">输入</div>' +
+        '  <div class="io-box">' + escapeHtml(inputJson) + '</div>' +
+        '</div>' +
+
+        '<div class="insp-section">' +
+        '  <div class="lbl">输出</div>' +
+        '  <div class="io-box">' + escapeHtml(outputJson) + '</div>' +
+        '</div>' +
+
+        '<div class="insp-section">' +
+        '  <div class="lbl">日志</div>' +
+        '  <div class="log" style="max-height:200px">' + logsHtml + '</div>' +
+        '</div>';
+
+      document.getElementById('insp-body').innerHTML = html;
+
+      // attach change listeners to save config back
+      attachConfigListeners(n);
+    }
+
+    // ── INSPECTOR FORM HELPERS ────────────────────────────────
+    function renderSelectField(label, id, value, options) {
+      let html = '<div class="insp-field"><label>' + label + '</label><select id="' + id + '">';
+      options.forEach(o => {
+        html += '<option value="' + o.value + '"' + (o.value === value ? ' selected' : '') + '>' + o.label + '</option>';
+      });
+      html += '</select></div>';
+      return html;
+    }
+
+    function renderTextField(label, id, value, placeholder) {
+      return '<div class="insp-field"><label>' + label + '</label><input type="text" id="' + id + '" value="' + escapeAttr(value) + '" placeholder="' + escapeAttr(placeholder || '') + '"/></div>';
+    }
+
+    function renderNumberField(label, id, value) {
+      return '<div class="insp-field"><label>' + label + '</label><input type="number" id="' + id + '" value="' + value + '" min="0"/></div>';
+    }
+
+    function renderTextareaField(label, id, value, placeholder) {
+      return '<div class="insp-field"><label>' + label + (placeholder ? ' <span style="color:var(--meta);font-weight:400;text-transform:none;letter-spacing:0">(' + placeholder + ')</span>' : '') + '</label><textarea id="' + id + '" placeholder="' + escapeAttr(placeholder || '') + '">' + escapeHtml(value) + '</textarea></div>';
+    }
+
+    function renderRangeField(label, id, value, min, max, step) {
+      return '<div class="insp-field"><label>' + label + '</label><div class="insp-range-row"><input type="range" id="' + id + '" value="' + value + '" min="' + min + '" max="' + max + '" step="' + step + '"/><span class="insp-range-val" id="' + id + '-val">' + value + '</span></div></div>';
+    }
+
+    function renderKvEditor(label, pairs, prefix) {
+      let html = '<div class="insp-field"><label>' + label + '</label><div class="insp-kv-editor" id="' + prefix + '-editor">';
+      pairs.forEach((p, i) => {
+        html += '<div class="insp-kv-row">' +
+          '<input type="text" value="' + escapeAttr(p.key) + '" placeholder="Key" data-kv-key="' + i + '"/>' +
+          '<input type="text" value="' + escapeAttr(p.value) + '" placeholder="Value" data-kv-val="' + i + '"/>' +
+          '<button class="kv-del" data-kv-del="' + i + '" title="删除"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round"><line x1="18" y1="6" x2="6" y2="18"/><line x1="6" y1="6" x2="18" y2="18"/></svg></button>' +
+          '</div>';
+      });
+      html += '<button class="insp-kv-add" id="' + prefix + '-add"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5" stroke-linecap="round"><line x1="12" y1="5" x2="12" y2="19"/><line x1="5" y1="12" x2="19" y2="12"/></svg> 添加</button>';
+      html += '</div></div>';
+      return html;
+    }
+
+    function getNodeOptions() {
+      let opts = [{ value: '', label: '\u2014 选择目标节点 \u2014' }];
+      dagNodes.forEach(n => {
+        opts.push({ value: n.id, label: n.label + ' (' + n.id + ')' });
+      });
+      return opts;
+    }
+
+    function escapeAttr(s) {
+      return String(s).replace(/&/g,'&amp;').replace(/"/g,'&quot;').replace(/</g,'&lt;').replace(/>/g,'&gt;');
+    }
+
+    function attachConfigListeners(n) {
+      const typeId = n.type.toLowerCase().replace(/ /g, '-');
+
+      // generic select/input/textarea listeners
+      ['cfg-trigger','cfg-model','cfg-expression','cfg-trueBranch','cfg-falseBranch','cfg-agentId',
+       'cfg-method','cfg-indexName','cfg-toolName','cfg-subFlow','cfg-format'].forEach(id => {
+        const el = document.getElementById(id);
+        if (el) el.addEventListener('change', (e) => {
+          const key = id.replace('cfg-', '');
+          n.config[key] = e.target.value;
+        });
+      });
+
+      ['cfg-url','cfg-taskDesc','cfg-workDir','cfg-queryTemplate','cfg-prompt','cfg-paramMapping',
+       'cfg-template','cfg-variable','cfg-systemPrompt','cfg-code'].forEach(id => {
+        const el = document.getElementById(id);
+        if (el) el.addEventListener('input', (e) => {
+          const key = id.replace('cfg-', '');
+          n.config[key] = e.target.value;
+        });
+      });
+
+      // number fields
+      ['cfg-maxTokens','cfg-topK','cfg-timeout','cfg-maxLoops'].forEach(id => {
+        const el = document.getElementById(id);
+        if (el) el.addEventListener('input', (e) => {
+          const key = id.replace('cfg-', '');
+          n.config[key] = parseFloat(e.target.value) || 0;
+        });
+      });
+
+      // range field
+      const tempEl = document.getElementById('cfg-temperature');
+      if (tempEl) {
+        tempEl.addEventListener('input', (e) => {
+          n.config.temperature = parseFloat(e.target.value);
+          document.getElementById('cfg-temperature-val').textContent = e.target.value;
+        });
+      }
+
+      // kv editors
+      attachKvEditor(n, 'cfg-params', 'params');
+      attachKvEditor(n, 'cfg-headers', 'headers');
+    }
+
+    function attachKvEditor(n, prefix, configKey) {
+      const editor = document.getElementById(prefix + '-editor');
+      if (!editor) return;
+
+      // delete buttons
+      editor.querySelectorAll('.kv-del').forEach(btn => {
+        btn.addEventListener('click', () => {
+          const idx = parseInt(btn.dataset.kvDel);
+          if (n.config[configKey]) {
+            n.config[configKey].splice(idx, 1);
+            renderInspector(n);
+          }
+        });
+      });
+
+      // add button
+      const addBtn = document.getElementById(prefix + '-add');
+      if (addBtn) {
+        addBtn.addEventListener('click', () => {
+          if (!n.config[configKey]) n.config[configKey] = [];
+          n.config[configKey].push({ key: '', value: '' });
+          renderInspector(n);
+        });
+      }
+
+      // input changes
+      editor.querySelectorAll('input[data-kv-key]').forEach(inp => {
+        inp.addEventListener('input', () => {
+          const idx = parseInt(inp.dataset.kvKey);
+          if (n.config[configKey] && n.config[configKey][idx]) {
+            n.config[configKey][idx].key = inp.value;
+          }
+        });
+      });
+      editor.querySelectorAll('input[data-kv-val]').forEach(inp => {
+        inp.addEventListener('input', () => {
+          const idx = parseInt(inp.dataset.kvVal);
+          if (n.config[configKey] && n.config[configKey][idx]) {
+            n.config[configKey][idx].value = inp.value;
+          }
+        });
+      });
+    }
+
+    // ── DATA GENERATORS ────────────────────────────────────────
+    function generateInputJson(n) {
+      const typeId = n.type.toLowerCase().replace(/ /g, '-');
+      const cfg = n.config || {};
+      if (typeId === 'llm') {
+        return '{\n  "model": "' + (cfg.model || 'gpt-4o') + '",\n  "temperature": ' + (cfg.temperature || 0.7) + ',\n  "max_tokens": ' + (cfg.maxTokens || 4096) + ',\n  "messages": [\n    {"role":"system","content":"' + (cfg.systemPrompt || '').substring(0, 40) + '..."},\n    {"role":"user","content":"{{retriever.output}}"}\n  ]\n}';
+      } else if (typeId === 'http') {
+        return '{\n  "method": "' + (cfg.method || 'GET') + '",\n  "url": "' + (cfg.url || '') + '",\n  "headers": ' + JSON.stringify(cfg.headers || []) + '\n}';
+      } else if (typeId === 'retriever') {
+        return '{\n  "query": "' + (cfg.queryTemplate || '') + '",\n  "top_k": ' + (cfg.topK || 5) + ',\n  "index": "' + (cfg.indexName || '') + '"\n}';
+      } else if (typeId === 'condition') {
+        return '{\n  "expression": "' + (cfg.expression || '') + '",\n  "true_branch": "' + (cfg.trueBranch || '') + '",\n  "false_branch": "' + (cfg.falseBranch || '') + '"\n}';
+      } else if (typeId === 'agent') {
+        return '{\n  "agent_id": "' + (cfg.agentId || '') + '",\n  "task": "' + (cfg.taskDesc || '') + '",\n  "workspace": "' + (cfg.workDir || '') + '"\n}';
+      } else if (typeId === 'start') {
+        return '{\n  "trigger": "' + (cfg.trigger || 'manual') + '",\n  "params": ' + JSON.stringify(cfg.params || []) + '\n}';
+      }
+      return '{\n  "config": "default"\n}';
+    }
+
+    function generateOutputJson(n) {
+      if (n.status === 'done') {
+        return '{\n  "status": "success",\n  "result": "处理完成"\n}';
+      } else if (n.status === 'running') {
+        return '{\n  "status": "processing\u2026",\n  "progress": 62\n}';
+      }
+      return '\u2014';
+    }
+
+    function generateLogs(n) {
+      const logs = [
+        { t: '14:20:01', l: 'info', m: '节点初始化完成' },
+        { t: '14:20:01', l: 'ok',   m: 'daemon ' + n.daemon + ' 已连接' },
+        { t: '14:20:02', l: 'info', m: '开始执行 ' + n.type + ' 节点' },
+      ];
+      if (n.status === 'done') {
+        logs.push({ t: '14:20:12', l: 'ok', m: '执行完成，耗时 ' + n.duration });
+        logs.push({ t: '14:20:12', l: 'info', m: '输出已传递到下游节点' });
+      } else if (n.status === 'running') {
+        logs.push({ t: '14:21:08', l: 'info', m: '处理中\u2026 进度 62%' });
+        logs.push({ t: '14:21:09', l: 'warn', m: 'token 用量接近预算 80%' });
+      }
+      if (n.tokens && n.tokens !== '\u2014' && n.tokens !== '0') {
+        logs.push({ t: '14:20:11', l: 'info', m: 'token 消耗: ' + n.tokens });
+      }
+      return logs;
+    }
+
+    function escapeHtml(s) {
+      return String(s).replace(/&/g,'&amp;').replace(/</g,'&lt;').replace(/>/g,'&gt;').replace(/"/g,'&quot;');
+    }
+
+    // ── ZOOM ───────────────────────────────────────────────────
+    let zoomLevel = 100;
+    const zoomLabel = document.getElementById('zoom-label');
+    const zoomIn = document.getElementById('zoom-in');
+    const zoomOut = document.getElementById('zoom-out');
+    const zoomFit = document.getElementById('zoom-fit');
+    const canvasInner = document.getElementById('canvas-inner');
+
+    function setZoom(level) {
+      zoomLevel = Math.max(25, Math.min(200, level));
+      zoomLabel.textContent = zoomLevel + '%';
+      canvasInner.style.transform = 'scale(' + (zoomLevel / 100) + ')';
+    }
+    zoomIn.addEventListener('click', () => setZoom(zoomLevel + 10));
+    zoomOut.addEventListener('click', () => setZoom(zoomLevel - 10));
+    zoomFit.addEventListener('click', () => setZoom(100));
+
+    // mouse wheel zoom
+    document.getElementById('canvas-stage').addEventListener('wheel', (e) => {
+      if (e.ctrlKey || e.metaKey) {
+        e.preventDefault();
+        const delta = e.deltaY > 0 ? -5 : 5;
+        setZoom(zoomLevel + delta);
+      }
+    }, { passive: false });
+
+    // ── TOAST ──────────────────────────────────────────────────
+    function showToast(msg) {
+      let toast = document.getElementById('toast');
+      if (!toast) {
+        toast = document.createElement('div');
+        toast.id = 'toast';
+        toast.style.cssText = 'position:fixed;bottom:24px;left:50%;transform:translateX(-50%);' +
+          'background:var(--fg);color:var(--bg);padding:10px 20px;border-radius:var(--radius-sm);' +
+          'font-size:var(--text-sm);font-weight:500;z-index:200;opacity:0;transition:opacity var(--motion-base);pointer-events:none;';
+        document.body.appendChild(toast);
+      }
+      toast.textContent = msg;
+      toast.style.opacity = '1';
+      clearTimeout(toast._timer);
+      toast._timer = setTimeout(() => { toast.style.opacity = '0'; }, 2000);
+    }
+
+    // ── CONTEXT MENU ───────────────────────────────────────────
+    const ctxMenu = document.getElementById('ctx-menu');
+    let ctxMenuNodeId = null;
+
+    function showContextMenu(x, y, nodeId) {
+      ctxMenuNodeId = nodeId;
+      ctxMenu.style.left = x + 'px';
+      ctxMenu.style.top = y + 'px';
+      ctxMenu.classList.add('visible');
+    }
+
+    function hideContextMenu() {
+      ctxMenu.classList.remove('visible');
+      ctxMenuNodeId = null;
+    }
+
+    document.addEventListener('click', (e) => {
+      if (!ctxMenu.contains(e.target)) hideContextMenu();
+    });
+
+    ctxMenu.querySelectorAll('.wfe-ctx-menu-item').forEach(item => {
+      item.addEventListener('click', () => {
+        if (!ctxMenuNodeId) return;
+        const action = item.dataset.action;
+        if (action === 'inspect') {
+          selectNode(ctxMenuNodeId);
+        } else if (action === 'copy') {
+          const n = dagNodes.find(nn => nn.id === ctxMenuNodeId);
+          if (n) {
+            const copy = JSON.parse(JSON.stringify(n));
+            copy.id = n.id + '-copy-' + Date.now().toString(36);
+            copy.x += 30;
+            copy.y += 30;
+            copy.label = n.label + ' (副本)';
+            dagNodes.push(copy);
+            renderDAG();
+            selectNode(copy.id);
+            showToast('已复制节点: ' + n.label);
+          }
+        } else if (action === 'delete') {
+          deleteNode(ctxMenuNodeId);
+        }
+        hideContextMenu();
+      });
+    });
+
+    // add right-click to nodes
+    svg.addEventListener('contextmenu', (e) => {
+      e.preventDefault();
+      const nodeG = e.target.closest('.dag-node');
+      if (nodeG) {
+        showContextMenu(e.clientX, e.clientY, nodeG.dataset.id);
+      }
+    });
+
+    function deleteNode(nodeId) {
+      const idx = dagNodes.findIndex(n => n.id === nodeId);
+      if (idx === -1) return;
+      const label = dagNodes[idx].label;
+      dagNodes.splice(idx, 1);
+      // remove connected edges
+      for (let i = dagEdges.length - 1; i >= 0; i--) {
+        if (dagEdges[i].from === nodeId || dagEdges[i].to === nodeId) {
+          dagEdges.splice(i, 1);
+        }
+      }
+      if (selectedNodeId === nodeId) {
+        selectedNodeId = null;
+        renderEmptyInspector();
+      }
+      renderDAG();
+      showToast('已删除节点: ' + label);
+    }
+
+    // ── WORKFLOW NAME EDITING ──────────────────────────────────
+    const wfNameDisplay = document.getElementById('wf-name-display');
+
+    wfNameDisplay.addEventListener('click', () => {
+      const input = document.createElement('input');
+      input.type = 'text';
+      input.className = 'wfe-toolbar-name-input';
+      input.value = wfNameDisplay.textContent;
+
+      wfNameDisplay.replaceWith(input);
+      input.focus();
+      input.select();
+
+      const finish = () => {
+        const val = input.value.trim();
+        if (val) {
+          wfNameDisplay.textContent = val;
+          document.querySelectorAll('.crumb-current, .wfe-toolbar-crumbs span:not(.sep):nth-child(2)').forEach(el => {
+            el.textContent = val;
+          });
+        }
+        input.replaceWith(wfNameDisplay);
+      };
+
+      input.addEventListener('blur', finish);
+      input.addEventListener('keydown', (e) => {
+        if (e.key === 'Enter') { e.preventDefault(); finish(); }
+        if (e.key === 'Escape') { input.replaceWith(wfNameDisplay); }
+      });
+    });
+
+    // ── TOOLBAR BUTTONS ────────────────────────────────────────
+    document.getElementById('btn-save').addEventListener('click', () => showToast('工作流已保存'));
+    document.getElementById('btn-run').addEventListener('click', function() {
+      const btn = this;
+      const icon = btn.querySelector('.run-icon');
+      const label = btn.querySelector('.run-label');
+      if (btn.disabled) return;
+      btn.disabled = true;
+      icon.outerHTML = '<span class="btn-spinner"></span>';
+      label.textContent = '运行中...';
+      setTimeout(() => {
+        btn.disabled = false;
+        const spinner = btn.querySelector('.btn-spinner');
+        if (spinner) {
+          spinner.outerHTML = '<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" class="run-icon"><polygon points="5 3 19 12 5 21 5 3"/></svg>';
+        }
+        label.textContent = '运行';
+        showToast('工作流运行已触发');
+      }, 1500);
+    });
+
+    document.getElementById('btn-autolayout').addEventListener('click', () => {
+      // simple auto-layout: arrange nodes in rows
+      const levels = {};
+      // BFS from start node
+      const visited = new Set();
+      const queue = [{ id: 'start', level: 0 }];
+      visited.add('start');
+      while (queue.length) {
+        const { id, level } = queue.shift();
+        if (!levels[level]) levels[level] = [];
+        levels[level].push(id);
+        dagEdges.filter(e => e.from === id).forEach(e => {
+          if (!visited.has(e.to)) {
+            visited.add(e.to);
+            queue.push({ id: e.to, level: level + 1 });
+          }
+        });
+      }
+      // nodes not in BFS
+      dagNodes.forEach(n => {
+        if (!visited.has(n.id)) {
+          const maxLvl = Math.max(...Object.keys(levels).map(Number), -1) + 1;
+          if (!levels[maxLvl]) levels[maxLvl] = [];
+          levels[maxLvl].push(n.id);
+        }
+      });
+
+      Object.entries(levels).forEach(([lvl, ids]) => {
+        ids.forEach((id, col) => {
+          const n = dagNodes.find(nn => nn.id === id);
+          if (n) {
+            n.x = parseInt(lvl) * 220 + 40;
+            n.y = col * 80 + 60;
+          }
+        });
+      });
+
+      renderDAG();
+      selectNode(selectedNodeId);
+      showToast('自动布局已完成');
+    });
+
+    document.getElementById('btn-export').addEventListener('click', () => {
+      showToast('工作流已导出');
+    });
+
+    // ── KEYBOARD SHORTCUTS ─────────────────────────────────────
+    document.addEventListener('keydown', (e) => {
+      // Don't handle shortcuts when typing in inputs
+      const tag = e.target.tagName.toLowerCase();
+      if (tag === 'input' || tag === 'textarea' || tag === 'select') {
+        if (e.key === 'Escape') {
+          e.target.blur();
+        }
+        // Cmd+S / Ctrl+S in input should still save
+        if ((e.metaKey || e.ctrlKey) && e.key === 's') {
+          e.preventDefault();
+          showToast('工作流已保存');
+        }
+        return;
+      }
+
+      // Delete selected node or edge
+      if (e.key === 'Delete' || e.key === 'Backspace') {
+        if (selectedNodeId) {
+          deleteNode(selectedNodeId);
+        } else if (selectedEdgeIdx >= 0) {
+          const label = dagEdges[selectedEdgeIdx].label || '连线';
+          dagEdges.splice(selectedEdgeIdx, 1);
+          selectedEdgeIdx = -1;
+          renderDAG();
+          renderEmptyInspector();
+          showToast('已删除' + (label ? ': ' + label : '连线'));
+        }
+      }
+
+      // Escape deselect
+      if (e.key === 'Escape') {
+        selectedNodeId = null;
+        selectedEdgeIdx = -1;
+        renderDAG();
+        renderEmptyInspector();
+        hideContextMenu();
+      }
+
+      // Cmd+S save
+      if ((e.metaKey || e.ctrlKey) && e.key === 's') {
+        e.preventDefault();
+        showToast('工作流已保存');
+      }
+    });
+
+    // click on empty canvas to deselect
+    document.getElementById('canvas-stage').addEventListener('click', (e) => {
+      if (e.target.closest('.dag-node') || e.target.closest('.dag-edge')) return;
+      if (e.target.closest('.wfe-minimap')) return;
+      selectedNodeId = null;
+      selectedEdgeIdx = -1;
+      renderDAG();
+      renderEmptyInspector();
+    });
+
+    // ── INIT ──────────────────────────────────────────────────
+    renderDAG();
+    const initNode = dagNodes.find(n => n.id === selectedNodeId);
+    if (initNode) renderInspector(initNode);
+
+  });
+  </script>
+  <script src="js/app.js"></script>
+</body>
+</html>

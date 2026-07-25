@@ -28,10 +28,8 @@
   };
 
   const NAV = [
-    { id: 'dashboard', label: '资源看板', href: 'dashboard.html', badge: '1.04M' },
     { id: 'agents',    label: 'Agents',   href: 'agents.html',    badge: '1.04M' },
     { id: 'flows',     label: 'AgentFlows', href: 'agentflows.html', badge: '328' },
-    { id: 'lab',       label: 'Lab',      href: 'lab.html' },
     { id: 'workspace', label: 'Workspace', href: null, isSection: true },
     { id: 'settings',  label: '设置',      href: 'settings.html' },
   ];

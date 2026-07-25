@@ -4,7 +4,7 @@ import '@/styles/tokens.css'
 import '@/styles/shell.css'
 
 export const metadata: Metadata = {
-  title: 'Mega Agents 控制台',
+  title: 'DAgent 控制台',
   description: '百万智能体编排平台 — 控制台',
 }
 

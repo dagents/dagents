@@ -3,7 +3,7 @@
 <head>
   <meta charset="utf-8" />
   <meta name="viewport" content="width=device-width, initial-scale=1" />
-  <title>AgentFlows · Mega Agents</title>
+  <title>AgentFlows · DAgent</title>
   <link rel="stylesheet" href="css/tokens.css" />
   <link rel="stylesheet" href="css/shell.css" />
   <style>
@@ -35,6 +35,11 @@
     .flow-card-head:hover { background: var(--surface-warm); }
     .flow-chev { width: 16px; height: 16px; color: var(--meta); flex-shrink: 0; transition: transform var(--motion-fast); }
     .flow-card.expanded .flow-chev { transform: rotate(90deg); }
+
+    /* mini DAG thumbnail */
+    .flow-dag-thumb { width: 56px; height: 40px; flex-shrink: 0; border-radius: 6px; background: var(--surface); border: 1px solid var(--border-soft); overflow: hidden; }
+    .flow-dag-thumb svg { width: 100%; height: 100%; }
+
     .flow-glyph { width: 36px; height: 36px; border-radius: 9px; background: var(--surface); border: 1px solid var(--border-soft); display: grid; place-items: center; font-family: var(--font-mono); font-size: 14px; font-weight: 600; color: var(--fg); flex-shrink: 0; }
     .flow-info { flex: 1; min-width: 0; }
     .flow-info .nm { font-size: var(--text-base); font-weight: 600; color: var(--fg); }
@@ -45,18 +50,58 @@
     .flow-card-actions .btn { white-space: nowrap; }
     .flow-card-actions .btn-sm { height: 28px; padding: 0 var(--space-3); font-size: 11px; }
 
+    /* flow status — pulse for running */
+    .flow-status-running { color: var(--success); }
+    .flow-status-done { color: var(--success); }
+    .flow-status-paused { color: var(--info); }
+    .flow-status-failed { color: var(--danger); }
+    .flow-status-running .dot { background: var(--success); animation: status-pulse 1.6s ease-in-out infinite; }
+    .flow-status-done .dot { background: var(--success); }
+    .flow-status-paused .dot { background: var(--info); }
+    .flow-status-failed .dot { background: var(--danger); }
+    @keyframes status-pulse {
+      0%, 100% { box-shadow: 0 0 0 0 rgba(16,163,127,0.45); }
+      50% { box-shadow: 0 0 0 5px rgba(16,163,127,0); }
+    }
+
     .flow-runs { display: none; border-top: 1px solid var(--border-soft); }
     .flow-card.expanded .flow-runs { display: block; }
-    .run-row { display: grid; grid-template-columns: 90px 1fr 80px 80px 100px 80px 34px; gap: var(--space-3); align-items: center; padding: var(--space-3) var(--space-5); font-size: var(--text-sm); border-bottom: 1px solid var(--border-soft); cursor: pointer; transition: background var(--motion-fast); text-decoration: none; color: inherit; }
+
+    /* run status filter row */
+    .run-filter-row { display: flex; gap: var(--space-2); padding: var(--space-2) var(--space-5); background: var(--surface-warm); border-bottom: 1px solid var(--border-soft); }
+    .run-filter-chip { display: inline-flex; align-items: center; gap: 4px; height: 24px; padding: 0 var(--space-2); background: transparent; border: 1px solid var(--border); border-radius: var(--radius-pill); font-size: 11px; color: var(--muted); font-weight: 500; cursor: pointer; transition: all var(--motion-fast); }
+    .run-filter-chip:hover { border-color: #d4d4d4; color: var(--fg-2); }
+    .run-filter-chip[aria-pressed="true"] { background: var(--fg); color: var(--bg); border-color: var(--fg); }
+    .run-filter-chip .chip-dot { width: 6px; height: 6px; border-radius: 50%; flex-shrink: 0; }
+
+    .run-row { display: grid; grid-template-columns: 90px 32px 1fr 100px 80px 80px 100px 80px 34px; gap: var(--space-3); align-items: center; padding: var(--space-3) var(--space-5); font-size: var(--text-sm); border-bottom: 1px solid var(--border-soft); cursor: pointer; transition: background var(--motion-fast); text-decoration: none; color: inherit; }
     .run-row:last-child { border-bottom: 0; }
     .run-row:focus-visible { outline: none; box-shadow: inset var(--focus-ring); }
     .run-row:hover { background: var(--surface-warm); }
     .run-id { font-family: var(--font-mono); font-size: 12px; color: var(--accent-hover); font-weight: 500; }
+
+    /* trigger icon */
+    .run-trigger-icon { width: 18px; height: 18px; color: var(--meta); flex-shrink: 0; }
+    .run-trigger-icon svg { width: 14px; height: 14px; }
+
     .run-trigger { color: var(--fg-2); overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
     .run-cell { font-family: var(--font-mono); font-size: 12px; color: var(--muted); }
     .run-cell.num { color: var(--fg); text-align: right; font-variant-numeric: tabular-nums; }
     .run-time { font-family: var(--font-mono); font-size: 11px; color: var(--meta); }
     .run-arrow { color: var(--meta); text-align: right; }
+
+    /* micro progress bar inside run row */
+    .run-progress { width: 100%; height: 4px; background: var(--surface); border-radius: var(--radius-pill); overflow: hidden; }
+    .run-progress > span { display: block; height: 100%; border-radius: var(--radius-pill); transition: width var(--motion-base) var(--ease-standard); }
+    .run-progress.progress-running > span { background: var(--success); width: 60%; animation: progress-indeterminate 2s ease-in-out infinite; }
+    .run-progress.progress-done > span { background: var(--success); }
+    .run-progress.progress-paused > span { background: var(--info); }
+    .run-progress.progress-failed > span { background: var(--danger); }
+    @keyframes progress-indeterminate {
+      0% { width: 20%; margin-left: 0; }
+      50% { width: 60%; margin-left: 20%; }
+      100% { width: 20%; margin-left: 80%; }
+    }
 
     /* ── detail page (DAG + inspector) ── */
     .flow-detail-page { display: none; }
@@ -87,7 +132,8 @@
     .node-label { font-size: 11px; font-weight: 500; fill: var(--fg); font-family: var(--font-body); }
     .node-sub { font-size: 9px; fill: var(--muted); font-family: var(--font-mono); }
     .edge { fill: none; stroke: var(--border); stroke-width: 1.5; }
-    .edge.active { stroke: var(--accent); stroke-width: 2; }
+    .edge.active { stroke: var(--success); stroke-width: 2.5; }
+    .edge.completed { stroke: var(--success); stroke-width: 1.5; stroke-dasharray: 6 4; }
     .edge-label { font-size: 9px; fill: var(--meta); font-family: var(--font-mono); }
     .node-pill-running { fill: var(--accent); }
     .node-pill-done { fill: var(--success); }
@@ -100,6 +146,22 @@
     .legend-flow .li { display: inline-flex; align-items: center; gap: 5px; font-size: 11px; color: var(--muted); }
     .legend-flow .sw { width: 10px; height: 10px; border-radius: 3px; }
 
+    /* node status bar — 4px left color bar */
+    .node-status-bar { rx: 2; }
+
+    /* node status dot — top right */
+    .node-status-dot { r: 4; }
+    .node-status-dot.running { fill: var(--accent); animation: node-dot-pulse 1.6s ease-in-out infinite; }
+    .node-status-dot.done { fill: var(--success); }
+    .node-status-dot.queued { fill: var(--warn); }
+    .node-status-dot.failed { fill: var(--danger); }
+    .node-status-dot.paused { fill: var(--info); }
+    .node-status-dot.idle { fill: var(--meta); }
+    @keyframes node-dot-pulse {
+      0%, 100% { opacity: 1; }
+      50% { opacity: 0.4; }
+    }
+
     .inspector { background: var(--bg); border: 1px solid var(--border-soft); border-radius: var(--radius-md); display: flex; flex-direction: column; overflow: hidden; }
     .insp-head { padding: var(--space-4); border-bottom: 1px solid var(--border-soft); }
     .insp-head .type { font-size: 11px; color: var(--accent-hover); font-weight: 500; letter-spacing: var(--tracking-label); text-transform: uppercase; }
@@ -107,7 +169,17 @@
     .insp-body { flex: 1; overflow-y: auto; padding: var(--space-4); }
     .insp-section { margin-bottom: var(--space-5); }
     .insp-section .lbl { font-size: 11px; color: var(--meta); letter-spacing: var(--tracking-label); text-transform: uppercase; margin-bottom: var(--space-2); }
-    .io-box { background: var(--surface-warm); border: 1px solid var(--border-soft); border-radius: var(--radius-sm); padding: var(--space-3); font-family: var(--font-mono); font-size: 11px; color: var(--fg-2); white-space: pre-wrap; word-break: break-all; line-height: 1.6; }
+
+    /* collapsible IO regions */
+    .io-collapse { border: 1px solid var(--border-soft); border-radius: var(--radius-sm); overflow: hidden; }
+    .io-collapse-head { display: flex; align-items: center; gap: var(--space-2); padding: var(--space-2) var(--space-3); background: var(--surface-warm); border-bottom: 1px solid var(--border-soft); cursor: pointer; font-size: 12px; font-weight: 500; color: var(--fg-2); transition: background var(--motion-fast); user-select: none; }
+    .io-collapse-head:hover { background: var(--surface); }
+    .io-collapse-head .io-chev { width: 12px; height: 12px; color: var(--meta); transition: transform var(--motion-fast); }
+    .io-collapse.open .io-chev { transform: rotate(90deg); }
+    .io-collapse-body { display: none; }
+    .io-collapse.open .io-collapse-body { display: block; }
+    .io-box { background: var(--surface-warm); border: none; padding: var(--space-3); font-family: var(--font-mono); font-size: 11px; color: var(--fg-2); white-space: pre-wrap; word-break: break-all; line-height: 1.6; max-height: 200px; overflow-y: auto; }
+
     .run-meta { display: grid; grid-template-columns: auto 1fr; gap: var(--space-2) var(--space-4); font-size: var(--text-xs); }
     .run-meta dt { color: var(--muted); }
     .run-meta dd { font-family: var(--font-mono); color: var(--fg); text-align: right; }
@@ -116,15 +188,21 @@
     .empty-state .h { font-size: var(--text-base); font-weight: 600; color: var(--fg); margin-bottom: var(--space-2); }
     .empty-state .d { font-size: var(--text-sm); color: var(--muted); }
 
+    /* toast notification */
+    .toast-container { position: fixed; bottom: var(--space-6); right: var(--space-6); z-index: 200; display: flex; flex-direction: column; gap: var(--space-2); pointer-events: none; }
+    .toast { background: var(--fg); color: var(--bg); padding: var(--space-3) var(--space-4); border-radius: var(--radius-sm); font-size: var(--text-sm); font-weight: 500; box-shadow: var(--elev-overlay); pointer-events: auto; animation: toast-in 0.3s var(--ease-standard), toast-out 0.3s var(--ease-standard) 2.7s forwards; }
+    @keyframes toast-in { from { opacity: 0; transform: translateY(12px); } to { opacity: 1; transform: translateY(0); } }
+    @keyframes toast-out { from { opacity: 1; transform: translateY(0); } to { opacity: 0; transform: translateY(12px); } }
+
     @media (max-width: 1024px) { .flow-layout { grid-template-columns: 1fr; height: auto; } .inspector { max-height: 360px; } .flow-canvas-stage { min-height: 360px; } .run-row { grid-template-columns: 1fr; gap: 2px; } .flow-card-actions .btn { display: none; } .flow-card-actions .btn:first-child { display: inline-flex; } }
-    @media (max-width: 640px) { .flow-card-actions { display: none; } .flow-card-meta .chip { display: none; } }
-    @media (prefers-reduced-motion: reduce) { .node rect, .flow-card, .flow-chev { transition: none; } }
+    @media (max-width: 640px) { .flow-card-actions { display: none; } .flow-card-meta .chip { display: none; } .flow-dag-thumb { display: none; } }
+    @media (prefers-reduced-motion: reduce) { .node rect, .flow-card, .flow-chev { transition: none; } .flow-status-running .dot, .node-status-dot.running, .run-progress.progress-running > span { animation: none; } }
   </style>
 </head>
 <body>
   <div class="app" id="app">
     <aside class="app-sidebar" data-od-id="sidebar">
-      <div class="brand"><div class="brand-mark">M</div><div><div class="brand-name">Mega Agents</div><div class="brand-sub">控制台 · v0.2</div></div></div>
+      <div class="brand"><div class="brand-mark">D</div><div><div class="brand-name">DAgent</div><div class="brand-sub">控制台 · v0.2</div></div></div>
       <nav class="nav" aria-label="主导航"></nav>
       <div class="sidebar-footer"></div>
     </aside>
@@ -194,12 +272,11 @@
                 <svg id="dag" viewBox="0 0 1300 440" preserveAspectRatio="xMidYMid meet" role="img" aria-label="Agentflow DAG"></svg>
               </div>
               <div class="legend-flow">
-                <span class="li"><span class="sw node-pill-running"></span>运行</span>
                 <span class="li"><span class="sw node-pill-done"></span>完成</span>
+                <span class="li"><span class="sw node-pill-running"></span>运行中</span>
                 <span class="li"><span class="sw node-pill-queued"></span>排队</span>
                 <span class="li"><span class="sw node-pill-failed"></span>失败</span>
                 <span class="li"><span class="sw node-pill-paused"></span>暂停</span>
-                <span class="li"><span class="sw node-pill-idle"></span>未触发</span>
               </div>
             </div>
 
@@ -216,6 +293,9 @@
     </main>
   </div>
 
+  <!-- Toast container -->
+  <div class="toast-container" id="toast-container"></div>
+
   <script>window.OD_NAV = { active: 'flows' };</script>
   <script src="js/workspace-data.js"></script>
   <script src="js/app.js"></script>
@@ -230,6 +310,37 @@
       const flows = window.OD_FLOWS;
       const STATUS_CN = { running:'运行', done:'完成', queued:'排队', failed:'失败', paused:'暂停', idle:'未触发' };
       const CHEV = '<svg class="flow-chev" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="m9 18 6-6-6-6"/></svg>';
+
+      /* ── SVG icon snippets for trigger types ── */
+      const TRIGGER_ICONS = {
+        manual: '<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"><path d="M18 11V6a2 2 0 0 0-2-2v0a2 2 0 0 0-2 2"/><path d="M14 10V4a2 2 0 0 0-2-2v0a2 2 0 0 0-2 2v2"/><path d="M10 10.5V6a2 2 0 0 0-2-2v0a2 2 0 0 0-2 2v8"/><path d="M18 8a2 2 0 1 1 4 0v6a8 8 0 0 1-8 8h-2c-2.8 0-4.5-.86-5.99-2.34l-3.6-3.6a2 2 0 0 1 2.83-2.82L7 15"/></svg>',
+        api: '<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"><path d="M10 13a5 5 0 0 0 7.54.54l3-3a5 5 0 0 0-7.07-7.07l-1.72 1.71"/><path d="M14 11a5 5 0 0 0-7.54-.54l-3 3a5 5 0 0 0 7.07 7.07l1.71-1.71"/></svg>',
+        schedule: '<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"><circle cx="12" cy="12" r="10"/><polyline points="12 6 12 12 16 14"/></svg>'
+      };
+
+      function detectTrigger(trigger) {
+        if (!trigger) return 'manual';
+        const t = trigger.toLowerCase();
+        if (t.includes('手动') || t.includes('manual')) return 'manual';
+        if (t.includes('api') || t.includes('webhook') || t.includes('外部')) return 'api';
+        if (t.includes('定时') || t.includes('cron') || t.includes('schedule')) return 'schedule';
+        return 'manual';
+      }
+
+      /* ── Toast ── */
+      function showToast(msg) {
+        const container = document.getElementById('toast-container');
+        const el = document.createElement('div');
+        el.className = 'toast';
+        el.textContent = msg;
+        container.appendChild(el);
+        setTimeout(() => { if (el.parentNode) el.parentNode.removeChild(el); }, 3200);
+      }
+
+      /* ── New Flow button ── */
+      document.getElementById('new-flow').addEventListener('click', () => {
+        showToast('Flow 创建向导即将推出');
+      });
 
       // assign owner + archived flag to flows (for scope filtering)
       const OWNERS = ['饶哲', '林敏', '邓凯'];
@@ -247,7 +358,7 @@
         const runs = [];
         // current run
         if (f.run) {
-          runs.push({ id: f.run, flowIdx: fi, status: f.status, trigger: '手动触发 · 饶哲', duration: f.status === 'running' ? '进行中' : '6m12s', cost: '$8.40', nodes: f.nodes, edges: f.edges, time: '14:20 今日', version: f.version, hash: f.hash });
+          runs.push({ id: f.run, flowIdx: fi, status: f.status, trigger: '手动触发 · 饶哲', duration: f.status === 'running' ? '进行中' : '6m12s', cost: '$8.40', progress: f.status === 'running' ? 62 : 100, nodes: f.nodes, edges: f.edges, time: '14:20 今日', version: f.version, hash: f.hash });
         }
         // historical runs (synthetic)
         const histCount = 2 + fi;
@@ -256,11 +367,13 @@
           const statuses = ['done', 'done', 'failed', 'done'];
           const st = statuses[i % statuses.length];
           const trigger = ['定时触发', 'webhook · workspace', '手动触发 · 林敏', 'API · 外部系统'][i % 4];
+          const progressMap = { done: 100, failed: 78, paused: 45, running: 62, queued: 0 };
           runs.push({
             id: rid, flowIdx: fi, status: st,
             trigger: trigger,
             duration: (4 + i * 2) + 'm' + (10 + i * 7) + 's',
             cost: '$' + (3.2 + i * 1.8).toFixed(2),
+            progress: progressMap[st] || 0,
             nodes: f.nodes.map(n => Object.assign({}, n, { status: st === 'failed' && n.id === (f.nodes[f.nodes.length-2]||{}).id ? 'failed' : 'done', runId: rid, logs: n.logs ? [{t:'13:'+(40-i*5),l:st==='failed'?'err':'ok',m:st==='failed'?'node failed':'completed'}] : [] })),
             edges: f.edges,
             time: (i + 1) + ' 天前',
@@ -271,6 +384,58 @@
         RUN_HISTORY[f.id] = runs;
       });
 
+      /* ── Mini DAG Thumbnail Generator ── */
+      function miniDAG(flow) {
+        const nodes = flow.nodes;
+        const edges = flow.edges;
+        // pick up to 4 representative nodes
+        const pick = nodes.slice(0, Math.min(4, nodes.length));
+        // normalize positions into 56x40 viewBox
+        let minX = Infinity, maxX = -Infinity, minY = Infinity, maxY = -Infinity;
+        pick.forEach(n => {
+          if (n.x < minX) minX = n.x;
+          if (n.x + (n.w||40) > maxX) maxX = n.x + (n.w||40);
+          if (n.y < minY) minY = n.y;
+          if (n.y + (n.h||24) > maxY) maxY = n.y + (n.h||24);
+        });
+        const rangeX = maxX - minX || 1;
+        const rangeY = maxY - minY || 1;
+        const pad = 4;
+        const w = 56, h = 40;
+        const sx = (w - pad*2) / rangeX;
+        const sy = (h - pad*2) / rangeY;
+        const scale = Math.min(sx, sy);
+
+        function tx(x) { return pad + (x - minX) * scale; }
+        function ty(y) { return pad + (y - minY) * scale; }
+        const nw = Math.max(8, (pick[0] && pick[0].w || 40) * scale * 0.7);
+        const nh = Math.max(6, (pick[0] && pick[0].h || 24) * scale * 0.7);
+
+        const nodeMap = {};
+        pick.forEach(n => { nodeMap[n.id] = n; });
+
+        let svg = '';
+        // edges first (behind nodes)
+        edges.forEach(e => {
+          if (!nodeMap[e.from] || !nodeMap[e.to]) return;
+          const from = nodeMap[e.from], to = nodeMap[e.to];
+          const x1 = tx(from.x) + nw, y1 = ty(from.y) + nh/2;
+          const x2 = tx(to.x), y2 = ty(to.y) + nh/2;
+          svg += `<line x1="${x1}" y1="${y1}" x2="${x2}" y2="${y2}" stroke="var(--border)" stroke-width="1"/>`;
+        });
+        // nodes
+        pick.forEach(n => {
+          const nx = tx(n.x), ny = ty(n.y);
+          const statusColor = n.status === 'running' || n.status === 'done' ? 'var(--success)' :
+                              n.status === 'failed' ? 'var(--danger)' :
+                              n.status === 'paused' ? 'var(--info)' :
+                              n.status === 'queued' ? 'var(--warn)' : 'var(--meta)';
+          svg += `<rect x="${nx}" y="${ny}" width="${nw}" height="${nh}" rx="2" fill="var(--bg)" stroke="var(--border)" stroke-width="0.8"/>`;
+          svg += `<rect x="${nx}" y="${ny}" width="2" height="${nh}" rx="1" fill="${statusColor}"/>`;
+        });
+        return `<svg viewBox="0 0 ${w} ${h}" preserveAspectRatio="xMidYMid meet">${svg}</svg>`;
+      }
+
       // ── list page ──
       const listPage = document.getElementById('flow-list-page');
       const detailPage = document.getElementById('flow-detail-page');
@@ -278,18 +443,18 @@
       let q = '';
       const statusFilter = new Set();
 
+      // Per-card run status filter (flowId -> Set)
+      const runStatusFilters = {};
+
       function visibleFlows() {
         const ql = q.trim().toLowerCase();
         return flows.filter(f => {
-          // scope filter
           if (scope === 'archived') { if (!f.archived) return false; }
           else {
             if (f.archived) return false;
             if (scope === 'mine' && f.owner !== '饶哲') return false;
           }
-          // status filter
           if (statusFilter.size && !statusFilter.has(f.status)) return false;
-          // search
           if (ql && !(f.name.toLowerCase().includes(ql) || f.id.toLowerCase().includes(ql))) return false;
           return true;
         });
@@ -329,10 +494,20 @@
         cardsEl.innerHTML = list.map(f => {
           const runs = RUN_HISTORY[f.id] || [];
           const glyph = f.name.charAt(0);
+          const thumb = miniDAG(f);
+
+          // run status filter state
+          const rsf = runStatusFilters[f.id] || new Set();
+
+          // filter runs by per-card status filter
+          const filteredRuns = rsf.size
+            ? runs.filter(r => rsf.has(r.status))
+            : runs;
+
           return `<div class="flow-card" data-flow-id="${f.id}">
             <div class="flow-card-head" data-toggle="${f.id}" role="button" tabindex="0" aria-expanded="false" aria-label="展开 flow ${f.name} 的运行记录">
               ${CHEV}
-              <div class="flow-glyph">${glyph}</div>
+              ${thumb ? `<div class="flow-dag-thumb">${thumb}</div>` : ''}
               <div class="flow-info">
                 <div class="nm">${f.name}</div>
                 <div class="sub">
@@ -343,7 +518,7 @@
                 </div>
               </div>
               <div class="flow-card-meta">
-                <span class="status ${f.status}"><span class="dot"></span>${STATUS_CN[f.status]}</span>
+                <span class="status flow-status-${f.status}"><span class="dot"></span>${STATUS_CN[f.status]}</span>
                 ${f.run ? `<span class="chip chip-outline mono" style="font-size:10px">${f.run}</span>` : ''}
               </div>
               <div class="flow-card-actions">
@@ -352,32 +527,47 @@
               </div>
             </div>
             <div class="flow-runs">
-              <div class="lg-head" style="display:grid;grid-template-columns:90px 1fr 80px 80px 100px 80px 34px;gap:12px;align-items:center;padding:8px 20px;font-size:11px;font-weight:500;color:var(--meta);letter-spacing:0.04em;text-transform:uppercase;border-bottom:1px solid var(--border-soft);background:var(--surface-warm)">
-                <span>Run ID</span><span>触发</span><span>状态</span><span>耗时</span><span>成本</span><span>时间</span><span></span>
+              <div class="run-filter-row" data-flow-id="${f.id}">
+                <button class="run-filter-chip" data-run-status="running" data-flow-id="${f.id}" aria-pressed="false"><span class="chip-dot" style="background:var(--success)"></span>运行中</button>
+                <button class="run-filter-chip" data-run-status="done" data-flow-id="${f.id}" aria-pressed="false"><span class="chip-dot" style="background:var(--success)"></span>已完成</button>
+                <button class="run-filter-chip" data-run-status="paused" data-flow-id="${f.id}" aria-pressed="false"><span class="chip-dot" style="background:var(--info)"></span>已暂停</button>
+                <button class="run-filter-chip" data-run-status="failed" data-flow-id="${f.id}" aria-pressed="false"><span class="chip-dot" style="background:var(--danger)"></span>失败</button>
               </div>
-              ${runs.map(r => `<a class="run-row" href="#flow=${f.id}&run=${r.id}" role="button" tabindex="0" aria-label="查看 ${r.id} 的 DAG 详情">
-                <span class="run-id">${r.id}</span>
-                <span class="run-trigger">${r.trigger}</span>
-                <span><span class="status ${r.status}"><span class="dot"></span>${STATUS_CN[r.status]}</span></span>
-                <span class="run-cell">${r.duration}</span>
-                <span class="run-cell num">${r.cost}</span>
-                <span class="run-time">${r.time}</span>
-                <span class="run-arrow">›</span>
-              </a>`).join('')}
+              <div class="run-list-body" data-flow-id="${f.id}">
+                <div class="lg-head" style="display:grid;grid-template-columns:90px 32px 1fr 100px 80px 80px 100px 80px 34px;gap:12px;align-items:center;padding:8px 20px;font-size:11px;font-weight:500;color:var(--meta);letter-spacing:0.04em;text-transform:uppercase;border-bottom:1px solid var(--border-soft);background:var(--surface-warm)">
+                  <span>Run ID</span><span></span><span>触发</span><span>状态</span><span>耗时</span><span>成本</span><span>进度</span><span>时间</span><span></span>
+                </div>
+                ${(filteredRuns.length ? filteredRuns : runs).map(r => {
+                  const trigType = detectTrigger(r.trigger);
+                  const progressClass = 'progress-' + r.status;
+                  const progressWidth = r.progress || 0;
+                  return `<a class="run-row" href="#flow=${f.id}&run=${r.id}" role="button" tabindex="0" aria-label="查看 ${r.id} 的 DAG 详情">
+                    <span class="run-id">${r.id}</span>
+                    <span class="run-trigger-icon">${TRIGGER_ICONS[trigType] || TRIGGER_ICONS.manual}</span>
+                    <span class="run-trigger">${r.trigger}</span>
+                    <span><span class="status ${r.status}"><span class="dot"></span>${STATUS_CN[r.status]}</span></span>
+                    <span class="run-cell">${r.duration}</span>
+                    <span class="run-cell num">${r.cost}</span>
+                    <span class="run-progress ${progressClass}"><span style="width:${progressWidth}%"></span></span>
+                    <span class="run-time">${r.time}</span>
+                    <span class="run-arrow">›</span>
+                  </a>`;
+                }).join('')}
+              </div>
             </div>
           </div>`;
         }).join('');
 
-        // bind card toggle + action buttons (delegated click + keyboard)
+        // bind card toggle + action buttons + run-filter-chips (delegated click + keyboard)
         cardsEl.onclick = (e) => {
-          // action buttons (edit / run) — don't toggle the card
+          // action buttons (edit / run)
           const actionBtn = e.target.closest('[data-action]');
           if (actionBtn) {
             e.stopPropagation();
             const fid = actionBtn.dataset.flowId;
             const act = actionBtn.dataset.action;
             if (act === 'edit') {
-              alert('打开 Flowise 编辑画布：' + fid + '（演示）');
+              showToast('打开 Flowise 编辑画布：' + fid + '（演示）');
             } else if (act === 'run') {
               const f = flows.find(x => x.id === fid);
               if (f) {
@@ -386,6 +576,20 @@
                 if (firstRun) showDetail(fid, firstRun.id);
               }
             }
+            return;
+          }
+          // run-filter-chip toggle
+          const runChip = e.target.closest('.run-filter-chip');
+          if (runChip) {
+            e.stopPropagation();
+            const fid = runChip.dataset.flowId;
+            const sv = runChip.dataset.runStatus;
+            if (!runStatusFilters[fid]) runStatusFilters[fid] = new Set();
+            const s = runStatusFilters[fid];
+            if (s.has(sv)) { s.delete(sv); runChip.setAttribute('aria-pressed','false'); }
+            else { s.add(sv); runChip.setAttribute('aria-pressed','true'); }
+            // re-render the run list body only
+            renderRunList(fid);
             return;
           }
           const head = e.target.closest('[data-toggle]');
@@ -404,7 +608,6 @@
             return;
           }
         };
-        // keyboard activation for flow-card-head and run-row
         cardsEl.onkeydown = (e) => {
           if (e.key !== 'Enter' && e.key !== ' ') return;
           const head = e.target.closest('[data-toggle]');
@@ -412,6 +615,36 @@
           const runRow = e.target.closest('.run-row');
           if (runRow) { e.preventDefault(); runRow.click(); return; }
         };
+      }
+
+      /* ── Re-render a single flow's run list body ── */
+      function renderRunList(flowId) {
+        const runs = RUN_HISTORY[flowId] || [];
+        const rsf = runStatusFilters[flowId] || new Set();
+        const filteredRuns = rsf.size ? runs.filter(r => rsf.has(r.status)) : runs;
+        const body = cardsEl.querySelector(`.run-list-body[data-flow-id="${flowId}"]`);
+        if (!body) return;
+        const f = flows.find(x => x.id === flowId);
+        const headerHtml = `<div class="lg-head" style="display:grid;grid-template-columns:90px 32px 1fr 100px 80px 80px 100px 80px 34px;gap:12px;align-items:center;padding:8px 20px;font-size:11px;font-weight:500;color:var(--meta);letter-spacing:0.04em;text-transform:uppercase;border-bottom:1px solid var(--border-soft);background:var(--surface-warm)">
+          <span>Run ID</span><span></span><span>触发</span><span>状态</span><span>耗时</span><span>成本</span><span>进度</span><span>时间</span><span></span>
+        </div>`;
+        const rowsHtml = (filteredRuns.length ? filteredRuns : runs).map(r => {
+          const trigType = detectTrigger(r.trigger);
+          const progressClass = 'progress-' + r.status;
+          const progressWidth = r.progress || 0;
+          return `<a class="run-row" href="#flow=${flowId}&run=${r.id}" role="button" tabindex="0" aria-label="查看 ${r.id} 的 DAG 详情">
+            <span class="run-id">${r.id}</span>
+            <span class="run-trigger-icon">${TRIGGER_ICONS[trigType] || TRIGGER_ICONS.manual}</span>
+            <span class="run-trigger">${r.trigger}</span>
+            <span><span class="status ${r.status}"><span class="dot"></span>${STATUS_CN[r.status]}</span></span>
+            <span class="run-cell">${r.duration}</span>
+            <span class="run-cell num">${r.cost}</span>
+            <span class="run-progress ${progressClass}"><span style="width:${progressWidth}%"></span></span>
+            <span class="run-time">${r.time}</span>
+            <span class="run-arrow">›</span>
+          </a>`;
+        }).join('');
+        body.innerHTML = headerHtml + rowsHtml;
       }
 
       // search + filters
@@ -426,8 +659,7 @@
       });
 
       // ── detail page ──
-      const svg = document.getElementById('dag');
-      const NODE_ICONS = { 'Agent':'A','LLM':'L','Tool':'T','Condition':'?','Iteration':'↻','HITL':'⚑','HTTP':'⇄','Subflow':'⛓','Start':'▶','Retriever':'🔍','Direct Reply':'■','Human Input':'✋' };
+      const svgEl = document.getElementById('dag');
 
       function showDetail(flowId, runId) {
         const f = flows.find(x => x.id === flowId);
@@ -439,7 +671,7 @@
         listPage.style.display = 'none';
         detailPage.classList.add('active');
         document.getElementById('crumb-current').textContent = f.name + ' · ' + run.id;
-        document.title = f.name + ' · ' + run.id + ' · Mega Agents';
+        document.title = f.name + ' · ' + run.id + ' · DAgent';
 
         // canvas header
         document.getElementById('canvas-title').textContent = f.name + ' — ' + run.id;
@@ -449,10 +681,10 @@
         cs.innerHTML = '<span class="dot"></span>' + STATUS_CN[run.status] + ' · ' + run.trigger;
 
         // render DAG
-        renderDAG(run);
+        renderDAG(run, f);
 
         // select first node
-        const first = svg.querySelector('.node');
+        const first = svgEl.querySelector('.node');
         if (first) {
           first.classList.add('selected');
           const firstId = first.getAttribute('data-id');
@@ -465,12 +697,12 @@
         listPage.style.display = '';
         detailPage.classList.remove('active');
         document.getElementById('crumb-current').textContent = 'AgentFlows';
-        document.title = 'AgentFlows · Mega Agents';
+        document.title = 'AgentFlows · DAgent';
       }
 
       document.getElementById('flow-back').addEventListener('click', (e) => { e.preventDefault(); hideDetail(); });
 
-      function renderDAG(run) {
+      function renderDAG(run, flow) {
         let edgesHtml = '';
         run.edges.forEach(e => {
           const from = run.nodes.find(n => n.id === e.from);
@@ -480,7 +712,15 @@
           const x2 = to.x, y2 = to.y + to.h / 2;
           const mx = (x1 + x2) / 2;
           const d = `M ${x1} ${y1} C ${mx} ${y1}, ${mx} ${y2}, ${x2} ${y2}`;
-          const cls = (from.status === 'running' || from.status === 'done') && (to.status === 'running' || to.status === 'queued') ? 'edge active' : 'edge';
+          // Edge status logic:
+          // active = both from and (to) are running
+          // completed = from is done and to is done or running
+          const fromDone = from.status === 'done';
+          const toRunning = to.status === 'running' || to.status === 'queued';
+          const toDone = to.status === 'done';
+          let cls = 'edge';
+          if (from.status === 'running' && toRunning) cls = 'edge active';
+          else if (fromDone && (toDone || toRunning)) cls = 'edge completed';
           edgesHtml += `<path class="${cls}" d="${d}"/>`;
           if (e.label) edgesHtml += `<text class="edge-label" x="${mx}" y="${(y1 + y2) / 2 - 4}" text-anchor="middle">${e.label}</text>`;
         });
@@ -489,30 +729,39 @@
         run.nodes.forEach(n => {
           nodesHtml += `<g class="node" data-id="${n.id}" transform="translate(${n.x},${n.y})" tabindex="0" role="button" aria-label="${n.type} 节点 ${n.label}，状态 ${STATUS_CN[n.status]||n.status}">
             <rect width="${n.w}" height="${n.h}" rx="10" fill="var(--bg)" stroke="var(--border)" stroke-width="1"/>
-            <rect x="0" y="0" width="4" height="${n.h}" rx="2" class="node-pill-${n.status}"/>
+            <!-- 4px left status bar -->
+            <rect x="0" y="0" width="4" height="${n.h}" rx="2" class="node-status-bar node-pill-${n.status}"/>
             <text x="14" y="20" class="node-label">${n.label}</text>
             <text x="14" y="34" class="node-sub">${n.sub || ''}</text>
-            <circle cx="${n.w - 14}" cy="14" r="4" class="node-pill-${n.status}"/>
+            <!-- top-right status dot -->
+            <circle cx="${n.w - 14}" cy="14" r="4" class="node-status-dot ${n.status}"/>
           </g>`;
         });
-        svg.innerHTML = edgesHtml + nodesHtml;
+        svgEl.innerHTML = edgesHtml + nodesHtml;
 
         // bind node clicks (delegated on svg)
-        svg.onclick = (e) => {
+        svgEl.onclick = (e) => {
           const g = e.target.closest('.node');
           if (!g) return;
-          svg.querySelectorAll('.node').forEach(x => x.classList.remove('selected'));
+          svgEl.querySelectorAll('.node').forEach(x => x.classList.remove('selected'));
           g.classList.add('selected');
           const id = g.getAttribute('data-id');
           const node = run.nodes.find(n => n.id === id);
-          if (node) renderInspector(node, run, flows.find(f => f.id === run.flowId || RUN_HISTORY[f.id] && RUN_HISTORY[f.id].includes(run)));
+          if (node) renderInspector(node, run, flow);
         };
       }
+
+      /* ── IO Chev SVG ── */
+      const IO_CHEV = '<svg class="io-chev" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="m9 18 6-6-6-6"/></svg>';
 
       function renderInspector(n, run, f) {
         document.getElementById('insp-type').textContent = n.type + ' 节点';
         document.getElementById('insp-name').textContent = n.label;
         const logs = (n.logs || []).map(l => `<div class="log-line"><span class="log-ts">${l.t}</span><span class="log-lvl ${l.l}">${l.l.toUpperCase()}</span><span class="log-msg">${l.m}</span></div>`).join('') || '<div class="muted" style="font-size:12px">暂无日志</div>';
+
+        const inputJson = (n.input || '—');
+        const outputJson = (n.output || '—');
+
         document.getElementById('insp-body').innerHTML = `
           <div class="insp-section">
             <div class="lbl">状态</div>
@@ -524,12 +773,16 @@
             </dl>
           </div>
           <div class="insp-section">
-            <div class="lbl">输入</div>
-            <div class="io-box">${n.input || '—'}</div>
+            <div class="io-collapse open" data-io="input">
+              <div class="io-collapse-head" data-io-toggle="input">${IO_CHEV}输入 JSON</div>
+              <div class="io-collapse-body"><div class="io-box">${typeof inputJson === 'object' ? JSON.stringify(inputJson, null, 2) : inputJson}</div></div>
+            </div>
           </div>
           <div class="insp-section">
-            <div class="lbl">输出</div>
-            <div class="io-box">${n.output || '—'}</div>
+            <div class="io-collapse" data-io="output">
+              <div class="io-collapse-head" data-io-toggle="output">${IO_CHEV}输出 JSON</div>
+              <div class="io-collapse-body"><div class="io-box">${typeof outputJson === 'object' ? JSON.stringify(outputJson, null, 2) : outputJson}</div></div>
+            </div>
           </div>
           <div class="insp-section">
             <div class="lbl">预算与计量</div>
@@ -541,10 +794,18 @@
             </dl>
           </div>
           <div class="insp-section">
-            <div class="lbl">日志</div>
+            <div class="lbl">节点日志</div>
             <div class="log" style="max-height:180px">${logs}</div>
           </div>
         `;
+
+        // bind IO collapse toggles
+        document.getElementById('insp-body').addEventListener('click', (e) => {
+          const head = e.target.closest('.io-collapse-head');
+          if (!head) return;
+          const collapse = head.closest('.io-collapse');
+          if (collapse) collapse.classList.toggle('open');
+        });
       }
 
       // check URL hash for deep link
