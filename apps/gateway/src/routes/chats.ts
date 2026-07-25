@@ -1,3 +1,4 @@
+import { randomUUID } from 'node:crypto'
 import { Hono, type Context } from 'hono'
 import type { ContentfulStatusCode } from 'hono/utils/http-status'
 import { z } from 'zod'
@@ -447,4 +448,75 @@ chatRoutes.post('/:id/messages', async (c) => {
     error: route.error,
     systemMessageId: route.systemMessageId ?? null,
   })
+})
+
+/**
+ * GET /api/v1/chats/:id/stream — SSE stream of the chat's active run.
+ *
+ * This is a thin pass-through to Flowise prediction. The chat-execute route
+ * marked the chat as 'running' and the caller (console) subscribes here to
+ * receive the assistant's token stream.
+ *
+ * The chat's flow_id (or agent_id → resolved flow) is used as the upstream
+ * prediction target. sessionId = chatId so Flowise's Flow State resumes the
+ * correct memory.
+ */
+chatRoutes.get('/:id/stream', async (c) => {
+  const id = c.req.param('id')
+  if (!UUID_RE.test(id)) {
+    return fail(c, 400, 'invalid chat id', { id })
+  }
+
+  // Resolve chat → flowId
+  let chat: { flow_id: string | null; agent_id: string | null } | null
+  try {
+    const { records } = await runQuery<{ flow_id: string | null; agent_id: string | null }>(
+      `SELECT flow_id, agent_id FROM chats WHERE id = $1::uuid`,
+      [id],
+    )
+    chat = records[0] ?? null
+  } catch (err) {
+    log.error('chat stream lookup failed', { id, error: String(err) })
+    return fail(c, 502, 'chat stream failed')
+  }
+  if (!chat) return fail(c, 404, 'chat not found', { id })
+  if (!chat.flow_id) {
+    return fail(c, 400, 'chat has no flow_id — bind a flow via PATCH /chats/:id first', { id })
+  }
+
+  // Build the upstream prediction URL — same shape as /api/chat/route.ts used.
+  const runId = c.req.header('x-run-id')?.trim() || randomUUID()
+  const upstreamUrl = `${process.env.FLOWISE_URL ?? 'http://localhost:3101'}/api/v1/prediction/${encodeURIComponent(chat.flow_id)}`
+
+  let upstream: Response
+  try {
+    upstream = await fetch(upstreamUrl, {
+      method: 'POST',
+      headers: {
+        'content-type': 'application/json',
+        'x-run-id': runId,
+      },
+      body: JSON.stringify({
+        question: '', // stream continuation — no new question, just subscribe
+        streaming: true,
+        overrideConfig: { sessionId: id },
+      }),
+    })
+  } catch (err) {
+    log.error('chat stream upstream failed', { id, flowId: chat.flow_id, error: String(err) })
+    return fail(c, 502, 'upstream unavailable')
+  }
+
+  if (!upstream.ok || !upstream.body) {
+    const detail = await upstream.text().catch(() => '')
+    return fail(c, 502, 'prediction failed', { status: upstream.status, detail: detail.slice(0, 500) })
+  }
+
+  // Pipe the SSE body through. Preserve content-type so the browser sees text/event-stream.
+  const respHeaders = new Headers()
+  const ct = upstream.headers.get('content-type')
+  if (ct) respHeaders.set('content-type', ct)
+  respHeaders.set('x-run-id', runId)
+  respHeaders.set('cache-control', 'no-cache')
+  return new Response(upstream.body, { status: 200, headers: respHeaders })
 })
