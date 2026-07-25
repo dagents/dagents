@@ -1,21 +1,19 @@
 import { PageShell } from '@/components/page-shell'
+import { DaemonsView } from '@/components/daemons-view'
 
 /**
  * Daemons route — task queue + execution timeline + stats.
  *
- * Placeholder page; full implementation will use design/daemon-execution.html
- * three-column layout (task queue / execution timeline / statistics).
+ * Three-column layout ported from design/daemon-execution.html.
  */
-
 export default function DaemonsPage(): React.ReactElement {
   return (
     <PageShell
       title="Daemons"
       subtitle="任务队列 · 执行时间线 · 统计"
+      fullBleed
     >
-      <div style={{ padding: 'var(--space-8)', textAlign: 'center', color: 'var(--muted)' }}>
-        Daemons 模块开发中
-      </div>
+      <DaemonsView />
     </PageShell>
   )
 }
