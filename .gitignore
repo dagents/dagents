@@ -8,3 +8,6 @@ coverage/
 vendor/flowise/node_modules/
 vendor/flowise/dist/
 vendor/flowise/.turbo/
+
+# superpowers brainstorming temp dir (pid files, server state, scratch HTML)
+.superpowers/
