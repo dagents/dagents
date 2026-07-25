@@ -1,0 +1,48 @@
+import type { INode, INodeData, INodeOutput, IExecutionContext } from '../../types/index.js'
+
+/**
+ * DirectReply node — directly reply to the user with a message.
+ *
+ * Migrated from vendor/flowise/packages/components/nodes/agentflow/DirectReply/DirectReply.ts
+ * (67 lines). Behavior preserved: take `directReplyMessage` input, output as
+ * `content`, and stream when last node + SSE present.
+ *
+ * Flowise dependencies removed:
+ *   - `ICommonObject` → `IExecutionContext` (typed)
+ *   - `IServerSideEventStreamer` → our `IServerSideEventStreamer` (same shape)
+ *   - `options.agentflowRuntime?.state` → `options.state`
+ */
+export class DirectReplyNode implements INode {
+  label = 'Direct Reply'
+  name = 'directReplyAgentflow'
+  version = 1
+  type = 'DirectReply'
+  category = 'Agent Flows'
+  color = '#4DDBBB'
+  inputs = [
+    {
+      label: 'Message',
+      name: 'directReplyMessage',
+      type: 'string' as const,
+      rows: 4,
+      acceptVariable: true,
+    },
+  ]
+
+  async run(nodeData: INodeData, _input: unknown, options: IExecutionContext): Promise<INodeOutput> {
+    const directReplyMessage = (nodeData.inputs?.directReplyMessage as string) ?? ''
+    const isStreamable = options.isLastNode && options.sseStreamer !== undefined
+
+    if (isStreamable) {
+      options.sseStreamer!.streamTokenEvent(options.chatId, directReplyMessage)
+    }
+
+    return {
+      id: nodeData.id,
+      name: this.name,
+      input: {},
+      output: { content: directReplyMessage },
+      state: options.state,
+    }
+  }
+}
