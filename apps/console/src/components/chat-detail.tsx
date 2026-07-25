@@ -22,7 +22,9 @@ import {
   fetchChat,
   fetchMessages,
   createMessage,
+  updateChat,
 } from '@/lib/chats'
+import { sendChatMessage } from '@/lib/chat-stream'
 import { fetchDirectory, type Directory } from '@/lib/directories'
 import '@/styles/chat-detail.css'
 
@@ -93,6 +95,7 @@ export function ChatDetail({ chatId }: ChatDetailProps): React.ReactElement {
     setSending(true)
     setError(null)
 
+    // Optimistic user message
     const optimisticId = `opt-${Date.now()}`
     const optimisticMsg: ChatMessage = {
       id: optimisticId,
@@ -105,12 +108,84 @@ export function ChatDetail({ chatId }: ChatDetailProps): React.ReactElement {
     }
     setMessages((prev) => [...prev, optimisticMsg])
 
+    // Mark chat running immediately for breadcrumb + context panel
+    setChat((prev) => (prev ? { ...prev, status: 'running' } : prev))
+
     try {
-      const message = await createMessage(chatId, { content: text, role: 'user' })
-      setMessages((prev) => prev.map((m) => (m.id === optimisticId ? message : m)))
+      const result = await sendChatMessage(chatId, text)
+
+      // Replace optimistic with persisted user message
+      setMessages((prev) =>
+        prev.map((m) =>
+          m.id === optimisticId
+            ? {
+                ...result.userMessage,
+                chatId,
+                role: 'user',
+                runId: null,
+                metadata: {},
+              }
+            : m,
+        ),
+      )
+
+      if (result.mode === 'stream' && result.events) {
+        // Append an empty assistant message we'll fill token-by-token.
+        const assistantId = `ast-${Date.now()}`
+        setMessages((prev) => [
+          ...prev,
+          {
+            id: assistantId,
+            chatId,
+            role: 'assistant',
+            content: '',
+            runId: null,
+            metadata: {},
+            createdAt: new Date().toISOString(),
+          },
+        ])
+
+        let accumulated = ''
+        for await (const ev of result.events) {
+          if (ev.event === 'token') {
+            accumulated += ev.data
+            setMessages((prev) =>
+              prev.map((m) => (m.id === assistantId ? { ...m, content: accumulated } : m)),
+            )
+          } else if (ev.event === 'error') {
+            setError(ev.data)
+          }
+        }
+
+        // Stream ended — mark chat done and persist assistant message
+        setChat((prev) => (prev ? { ...prev, status: 'done' } : prev))
+        // Persist the assistant message via the existing createMessage API
+        // (role='assistant'); the gateway writes it into chat_messages.
+        try {
+          const persisted = await createMessage(chatId, {
+            role: 'assistant',
+            content: accumulated,
+          })
+          setMessages((prev) => prev.map((m) => (m.id === assistantId ? persisted : m)))
+        } catch (err) {
+          // Persist failed — leave the optimistic assistant message in place.
+          console.warn('assistant message persist failed', err)
+        }
+      } else if (result.mode === 'json') {
+        // @-command ack or routing error — system message already written by gateway
+        if (result.error) setError(result.error)
+        // Refresh chat to reflect any system message + status change
+        try {
+          const refreshed = await fetchChat(chatId)
+          setChat(refreshed)
+          const msgs = await fetchMessages(chatId)
+          setMessages(msgs)
+        } catch {}
+      }
     } catch (err) {
       setError(err instanceof Error ? err.message : String(err))
       setMessages((prev) => prev.filter((m) => m.id !== optimisticId))
+      setChat((prev) => (prev ? { ...prev, status: 'failed' } : prev))
     } finally {
       setSending(false)
     }
@@ -153,8 +228,15 @@ export function ChatDetail({ chatId }: ChatDetailProps): React.ReactElement {
             ) : (
               messages.map((m) => (
                 <div key={m.id} className={`chat-msg chat-msg-${m.role}`}>
+                  {m.role === 'system' && (
+                    <div className="chat-msg-system-icon">
+                      <Icon name="zap" style={{ width: 12, height: 12 }} />
+                    </div>
+                  )}
                   <div className="chat-msg-content">{m.content}</div>
-                  <div className="chat-msg-meta">{formatTime(m.createdAt)}</div>
+                  {m.role !== 'system' && (
+                    <div className="chat-msg-meta">{formatTime(m.createdAt)}</div>
+                  )}
                 </div>
               ))
             )}
