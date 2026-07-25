@@ -1,0 +1,82 @@
+/* Chat-First layout: sidebar + main (OpenWebUI paradigm).
+   Replaces the old 3-grid AppShell (sidebar + topbar + main). */
+
+.chat-layout {
+  display: flex;
+  height: 100vh;
+  height: 100dvh;
+  overflow: hidden;
+}
+
+.chat-layout-sidebar {
+  width: 260px;
+  min-width: 260px;
+  display: flex;
+  flex-direction: column;
+  background: var(--surface-warm);
+  border-right: 1px solid var(--border-soft);
+  transition: width var(--motion-base) var(--ease-standard),
+              min-width var(--motion-base) var(--ease-standard);
+}
+
+.chat-layout-sidebar.collapsed {
+  width: 60px;
+  min-width: 60px;
+}
+
+.chat-layout-main {
+  flex: 1;
+  display: flex;
+  flex-direction: column;
+  min-width: 0;
+  background: var(--bg);
+}
+
+/* Topbar replaced by a slim navbar inside main */
+.chat-layout-navbar {
+  height: 56px;
+  min-height: 56px;
+  display: flex;
+  align-items: center;
+  padding: 0 var(--space-4);
+  background: linear-gradient(to bottom, rgba(255,255,255,0.92), rgba(255,255,255,0.5), transparent);
+  z-index: 10;
+}
+
+.chat-layout-navbar-left {
+  display: flex;
+  align-items: center;
+  gap: var(--space-2);
+}
+
+.chat-layout-navbar-right {
+  margin-left: auto;
+  display: flex;
+  align-items: center;
+  gap: var(--space-1);
+}
+
+.chat-layout-toggle {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  width: 32px;
+  height: 32px;
+  border-radius: var(--radius-sm);
+  border: none;
+  background: transparent;
+  color: var(--muted);
+  cursor: pointer;
+  transition: background var(--motion-fast) var(--ease-standard);
+}
+
+.chat-layout-toggle:hover {
+  background: var(--surface);
+}
+
+.chat-layout-content {
+  flex: 1;
+  overflow: hidden;
+  display: flex;
+  flex-direction: column;
+}

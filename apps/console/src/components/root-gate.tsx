@@ -11,9 +11,9 @@
  *     (avoids a flash of the app or a premature redirect).
  *
  * This is a client component (`'use client'`) so it can use the session
- * context + `usePathname`. It replaces the bare `<AppShell>` wrap the layout
- * used pre-M5b.4; the layout now wraps children in this gate, which in turn
- * wraps `AppShell` so the shell (sidebar/topbar) only renders for authed users.
+ * context + `usePathname`. It provides the SessionProvider + login gate only;
+ * the layout shell is rendered by `ChatLayout` (wrapped around the gate's
+ * children in `app/layout.tsx`), so the shell only renders for authed users.
  *
  * `REQUIRE_LOGIN` is read from `NEXT_PUBLIC_REQUIRE_LOGIN` (a client-visible
  * env) so the gate can run client-side without a round-trip. Default off →
@@ -32,7 +32,6 @@
 
 import { useEffect, type ReactNode } from 'react'
 import { usePathname, useRouter } from 'next/navigation'
-import { AppShell } from '@/components/app-shell'
 import { SessionProvider, useSession } from '@/lib/auth-client'
 
 /** Client-visible: when '1', the app requires a session (redirects to /login). */
@@ -60,13 +59,14 @@ function Gate({ children }: { children: ReactNode }): React.ReactElement {
   // trigger data fetches before the session is known) or a flash of /login.
   if (status === 'loading') return <></>
 
-  // The login page renders its own (non-shell) layout; everything else gets
-  // the AppShell. Unauthed users hitting a non-/login page see nothing until
+  // The login page renders its own (non-shell) layout; everything else is
+  // rendered as-is so the wrapping `ChatLayout` (in app/layout.tsx) becomes
+  // the layout. Unauthed users hitting a non-/login page see nothing until
   // the redirect fires (above).
   if (pathname === '/login') return <>{children}</>
   if (REQUIRE_LOGIN && status !== 'authed') return <></>
 
-  return <AppShell>{children}</AppShell>
+  return <>{children}</>
 }
 
 export function RootGate({ children }: { children: ReactNode }): React.ReactElement {

@@ -31,20 +31,15 @@ export interface NavSection {
 
 export const NAV: readonly NavSection[] = [
   {
-    section: '运维',
-    items: [{ id: 'dashboard', label: '资源看板', href: '/dashboard', icon: 'dashboard', badge: '1.04M' }],
-  },
-  {
-    section: '编排',
+    section: '',
     items: [
-      { id: 'chat', label: '对话', href: '/chat', icon: 'agents' },
-      { id: 'agents', label: 'Agents', href: '/agents', icon: 'agents', badge: '1.04M' },
-      { id: 'flows', label: 'AgentFlows', href: '/flows', icon: 'flows', badge: '328' },
-      { id: 'lab', label: 'Lab', href: '/lab', icon: 'lab' },
+      { id: 'chat', label: 'Chat', href: '/', icon: 'chat' },
+      { id: 'agents', label: 'Agents', href: '/agents', icon: 'agents' },
+      { id: 'flows', label: 'AgentFlows', href: '/flows', icon: 'flows' },
+      { id: 'daemons', label: 'Daemons', href: '/daemons', icon: 'daemons' },
+      { id: 'settings', label: 'Settings', href: '/settings', icon: 'settings' },
     ],
   },
-  { section: '协作', items: [{ id: 'workspace', label: 'Workspace', href: '/workspace', icon: 'workspace' }] },
-  { section: '系统', items: [{ id: 'settings', label: '设置', href: '/settings', icon: 'settings' }] },
 ] as const
 
 /** A single breadcrumb segment. `href` (optional) renders a link, otherwise plain text. */
@@ -60,24 +55,14 @@ export interface CrumbSegment {
  * `编排 / Agents / 详情`. Resolve via `crumbsFor(pathname)`.
  */
 const CRUMBS: readonly { match: string; segments: readonly CrumbSegment[] }[] = [
-  { match: '/dashboard', segments: [{ label: '运维' }, { label: '资源看板' }] },
-  { match: '/agents/', segments: [{ label: '编排' }, { label: 'Agents', href: '/agents' }, { label: '详情' }] },
-  { match: '/agents', segments: [{ label: '编排' }, { label: 'Agents' }] },
-  { match: '/flows', segments: [{ label: '编排' }, { label: 'AgentFlows' }] },
-  { match: '/lab', segments: [{ label: '编排' }, { label: 'Lab' }] },
-  // new-task lives under 协作 (the sidebar's 「新增 Task」plus button is in
-  // the Workspace section head, design app.js:69-76). The design's
-  // new-task.html crumbs read `协作 / Workspace / 新增 Task` (the leaf links
-  // back to workspace). Listed BEFORE `/workspace` so crumbsFor's longest-
-  // prefix match picks it for `/tasks/new` over the bare `/workspace` trail.
-  { match: '/tasks/new', segments: [{ label: '协作' }, { label: 'Workspace', href: '/workspace' }, { label: '新增 Task' }] },
-  { match: '/workspace', segments: [{ label: '协作' }, { label: 'Workspace' }] },
-  { match: '/settings', segments: [{ label: '系统' }, { label: '设置' }] },
-  // The chat moved to /chat (M6.1); the root is now the design launcher, so
-  // the launcher root crumbs read `概览` (design index.html:93 `.crumb-current`
-  // is 「概览」), and /chat keeps the编排/对话 trail.
-  { match: '/chat', segments: [{ label: '编排' }, { label: '对话' }] },
-  { match: '/', segments: [{ label: '概览' }] },
+  { match: '/chats/', segments: [{ label: 'Chat' }] },
+  { match: '/agents/', segments: [{ label: 'Agents', href: '/agents' }, { label: '详情' }] },
+  { match: '/agents', segments: [{ label: 'Agents' }] },
+  { match: '/flows', segments: [{ label: 'AgentFlows' }] },
+  { match: '/daemons', segments: [{ label: 'Daemons' }] },
+  { match: '/directories', segments: [{ label: '项目目录' }] },
+  { match: '/settings', segments: [{ label: 'Settings' }] },
+  { match: '/', segments: [] },
 ]
 
 /**
