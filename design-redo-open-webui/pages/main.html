@@ -1,0 +1,466 @@
+<!DOCTYPE html>
+<html lang="zh-CN" class="light">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>DAgent Console</title>
+    <style id="theme-vars">
+/* ============================================================
+   colors_and_type.css — DAgent Console redesign
+   References Open WebUI layout patterns with original design tokens
+   ============================================================ */
+
+:root {
+  /* ─── Brand prefix: dagent ───────────────────────────────── */
+
+  /* Surface */
+  --dagent-background: #ffffff;
+  --dagent-foreground: #0d0d0d;
+  --dagent-card: #f5f5f5;
+  --dagent-card-foreground: #0d0d0d;
+  --dagent-popover: #ffffff;
+  --dagent-popover-foreground: #0d0d0d;
+
+  /* Primary (accent green from original tokens) */
+  --dagent-primary: #10a37f;
+  --dagent-primary-foreground: #ffffff;
+
+  /* Muted */
+  --dagent-muted: #f5f5f5;
+  --dagent-muted-foreground: #6e6e6e;
+
+  /* Border / Input / Ring */
+  --dagent-border: #e5e5e5;
+  --dagent-input: #e5e5e5;
+  --dagent-ring: rgba(16, 163, 127, 0.18);
+
+  /* Radius */
+  --dagent-radius-sm: 12px;
+  --dagent-radius-md: 16px;
+  --dagent-radius-lg: 20px;
+
+  /* ─── Extended design tokens ──────────────────────────────── */
+  --sidebar-bg: #fafafa;
+  --sidebar-hover: #f0f0f0;
+  --sidebar-width: 260px;
+  --topbar-height: 60px;
+  --input-bg: #f5f5f5;
+  --input-border: #e5e5e5;
+  --message-max-width: 768px;
+  --font-display: "Signifier", "Source Serif Pro", Georgia, ui-serif, serif;
+  --font-body: "Söhne", "Inter", system-ui, -apple-system, sans-serif;
+  --font-mono: "Söhne Mono", ui-monospace, monospace;
+  --text-xs: 12px;
+  --text-sm: 13px;
+  --text-base: 16px;
+  --text-lg: 18px;
+  --text-xl: 20px;
+  --space-1: 4px;
+  --space-2: 8px;
+  --space-3: 12px;
+  --space-4: 16px;
+  --space-5: 20px;
+  --space-6: 24px;
+  --space-8: 32px;
+  --motion-fast: 150ms;
+  --motion-base: 220ms;
+  --ease-standard: cubic-bezier(0.16, 1, 0.3, 1);
+  --accent: #10a37f;
+  --accent-hover: #0a7a5e;
+  --accent-soft: #e8f5f0;
+  --fg: #0d0d0d;
+  --fg-2: #1a1a1a;
+  --muted: #6e6e6e;
+  --meta: #9b9b9b;
+  --border: #e5e5e5;
+  --border-soft: #ededed;
+  --bg: #ffffff;
+  --surface: #f5f5f5;
+  --surface-warm: #fafafa;
+  --focus-ring: 0 0 0 3px rgba(16, 163, 127, 0.18);
+  --success: #10a37f;
+  --warn: #f5a623;
+  --danger: #ef4146;
+}
+
+html {
+  -webkit-text-size-adjust: 100%;
+}
+
+body {
+  font-family: var(--font-body);
+  font-size: var(--text-base);
+  color: var(--fg);
+  background: var(--bg);
+  line-height: 1.65;
+  -webkit-font-smoothing: antialiased;
+  margin: 0;
+  padding: 0;
+}
+
+*, *::before, *::after {
+  box-sizing: border-box;
+}
+
+::selection {
+  background: var(--accent-soft);
+  color: var(--fg);
+}
+
+:focus-visible {
+  outline: none;
+  box-shadow: var(--focus-ring);
+  border-radius: 8px;
+}
+
+    </style>
+    <script src="https://cdn.jsdelivr.net/npm/@tailwindcss/browser@4.3.1/dist/index.global.js"></script>
+    <script src="https://unpkg.com/lucide@1.8.0/dist/umd/lucide.min.js"></script>
+    <style type="text/tailwindcss">
+  @theme inline {
+    --color-background: var(--dagent-background);
+    --color-foreground: var(--dagent-foreground);
+    --color-card: var(--dagent-card);
+    --color-card-foreground: var(--dagent-card-foreground);
+    --color-popover: var(--dagent-popover);
+    --color-popover-foreground: var(--dagent-popover-foreground);
+    --color-primary: var(--dagent-primary);
+    --color-primary-foreground: var(--dagent-primary-foreground);
+    --color-muted: var(--dagent-muted);
+    --color-muted-foreground: var(--dagent-muted-foreground);
+    --color-border: var(--dagent-border);
+    --color-input: var(--dagent-input);
+    --color-ring: var(--dagent-ring);
+    --color-accent: var(--accent);
+    --radius-sm: var(--dagent-radius-sm);
+    --radius-md: var(--dagent-radius-md);
+    --radius-lg: var(--dagent-radius-lg);
+  }
+  @layer base {
+    body { background: var(--dagent-background); color: var(--dagent-foreground); }
+    td, th { @apply break-words; word-break: break-all; word-break: auto-phrase; }
+    th { @apply whitespace-nowrap; }
+  }
+    </style>
+    <style id="semantic-token-fallback">
+      .bg-background { background-color: var(--dagent-background); }
+      .text-background { color: var(--dagent-background); }
+      .border-background { border-color: var(--dagent-background); }
+      .ring-background { --tw-ring-color: var(--dagent-background); }
+      .bg-foreground { background-color: var(--dagent-foreground); }
+      .text-foreground { color: var(--dagent-foreground); }
+      .border-foreground { border-color: var(--dagent-foreground); }
+      .ring-foreground { --tw-ring-color: var(--dagent-foreground); }
+      .bg-card { background-color: var(--dagent-card); }
+      .text-card { color: var(--dagent-card); }
+      .border-card { border-color: var(--dagent-card); }
+      .ring-card { --tw-ring-color: var(--dagent-card); }
+      .bg-card-foreground { background-color: var(--dagent-card-foreground); }
+      .text-card-foreground { color: var(--dagent-card-foreground); }
+      .border-card-foreground { border-color: var(--dagent-card-foreground); }
+      .ring-card-foreground { --tw-ring-color: var(--dagent-card-foreground); }
+      .bg-popover { background-color: var(--dagent-popover); }
+      .text-popover { color: var(--dagent-popover); }
+      .border-popover { border-color: var(--dagent-popover); }
+      .ring-popover { --tw-ring-color: var(--dagent-popover); }
+      .bg-popover-foreground { background-color: var(--dagent-popover-foreground); }
+      .text-popover-foreground { color: var(--dagent-popover-foreground); }
+      .border-popover-foreground { border-color: var(--dagent-popover-foreground); }
+      .ring-popover-foreground { --tw-ring-color: var(--dagent-popover-foreground); }
+      .bg-primary { background-color: var(--dagent-primary); }
+      .text-primary { color: var(--dagent-primary); }
+      .border-primary { border-color: var(--dagent-primary); }
+      .ring-primary { --tw-ring-color: var(--dagent-primary); }
+      .bg-primary-foreground { background-color: var(--dagent-primary-foreground); }
+      .text-primary-foreground { color: var(--dagent-primary-foreground); }
+      .border-primary-foreground { border-color: var(--dagent-primary-foreground); }
+      .ring-primary-foreground { --tw-ring-color: var(--dagent-primary-foreground); }
+      .bg-muted { background-color: var(--dagent-muted); }
+      .text-muted { color: var(--dagent-muted); }
+      .border-muted { border-color: var(--dagent-muted); }
+      .ring-muted { --tw-ring-color: var(--dagent-muted); }
+      .bg-muted-foreground { background-color: var(--dagent-muted-foreground); }
+      .text-muted-foreground { color: var(--dagent-muted-foreground); }
+      .border-muted-foreground { border-color: var(--dagent-muted-foreground); }
+      .ring-muted-foreground { --tw-ring-color: var(--dagent-muted-foreground); }
+      .bg-border { background-color: var(--dagent-border); }
+      .text-border { color: var(--dagent-border); }
+      .border-border { border-color: var(--dagent-border); }
+      .ring-border { --tw-ring-color: var(--dagent-border); }
+      .bg-input { background-color: var(--dagent-input); }
+      .text-input { color: var(--dagent-input); }
+      .border-input { border-color: var(--dagent-input); }
+      .ring-input { --tw-ring-color: var(--dagent-input); }
+      .bg-ring { background-color: var(--dagent-ring); }
+      .text-ring { color: var(--dagent-ring); }
+      .border-ring { border-color: var(--dagent-ring); }
+      .ring-ring { --tw-ring-color: var(--dagent-ring); }
+      .bg-accent { background-color: var(--accent); }
+      .text-accent { color: var(--accent); }
+      .border-accent { border-color: var(--accent); }
+      .ring-accent { --tw-ring-color: var(--accent); }
+    </style>
+    <style>
+      .no-scrollbar::-webkit-scrollbar { display: none; }
+      .no-scrollbar { -ms-overflow-style: none; scrollbar-width: none; }
+      [data-icon] {
+        display: inline-flex;
+        align-items: center;
+        justify-content: center;
+        -webkit-mask-size: contain;
+        mask-size: contain;
+        -webkit-mask-repeat: no-repeat;
+        mask-repeat: no-repeat;
+        -webkit-mask-position: center;
+        mask-position: center;
+        background-color: currentColor;
+      }
+    </style>
+</head>
+<body class="h-screen overflow-hidden flex font-sans antialiased">
+
+  <!-- ═══ Critical Layout ═══ -->
+  <style id="critical-layout">
+    /* App shell: sidebar + main content */
+    .app-shell { display: flex; height: 100vh; height: 100dvh; overflow: hidden; }
+    .sidebar-panel { width: var(--sidebar-width); min-width: var(--sidebar-width); transition: width var(--motion-base) var(--ease-standard), min-width var(--motion-base) var(--ease-standard); }
+    .sidebar-panel.collapsed { width: 60px; min-width: 60px; }
+    .main-panel { flex: 1; display: flex; flex-direction: column; min-width: 0; }
+    .chat-body { flex: 1; overflow-y: auto; display: flex; flex-direction: column; }
+    .no-scrollbar::-webkit-scrollbar { display: none; }
+    .no-scrollbar { -ms-overflow-style: none; scrollbar-width: none; }
+  </style>
+
+  <div class="app-shell w-full">
+
+    <!-- ═══════════════════════════════════════════════════════════
+         SIDEBAR
+         ═══════════════════════════════════════════════════════════ -->
+    <aside class="sidebar-panel flex flex-col h-full" style="background:var(--surface-warm);border-right:1px solid var(--border-soft)">
+
+      <!-- Sidebar Header: Brand + Collapse -->
+      <div class="flex items-center justify-between px-4 py-3" style="min-height:56px">
+        <div class="flex items-center gap-2.5 overflow-hidden">
+          <div class="w-8 h-8 rounded-xl flex items-center justify-center flex-shrink-0" style="background:var(--accent)">
+            <i data-lucide="bot" class="w-4 h-4 text-white"></i>
+          </div>
+          <span class="font-semibold text-sm truncate" style="color:var(--fg)">DAgent Console</span>
+        </div>
+        <button id="btn-toggle-sidebar" data-dom-id="btn-toggle-sidebar" class="p-1.5 rounded-xl transition-all duration-200 hover:bg-[var(--sidebar-hover)] cursor-pointer flex-shrink-0" title="Collapse sidebar">
+          <i data-lucide="panel-left-close" class="w-4 h-4" style="color:var(--muted)"></i>
+        </button>
+      </div>
+
+      <!-- Sidebar Actions: New Chat + Search -->
+      <div class="px-3 pb-2 flex flex-col gap-1">
+        <button id="btn-new-chat" data-dom-id="btn-new-chat" class="flex items-center gap-2.5 w-full px-3 py-2.5 rounded-2xl text-sm font-medium transition-all duration-200 cursor-pointer" style="background:var(--bg);border:1px solid var(--border-soft);color:var(--fg)" onmouseover="this.style.background='var(--sidebar-hover)'" onmouseout="this.style.background='var(--bg)'">
+          <i data-lucide="pencil-square" class="w-4 h-4" style="color:var(--fg)"></i>
+          <span>New Chat</span>
+        </button>
+        <button id="btn-sidebar-search" data-dom-id="btn-sidebar-search" class="flex items-center gap-2.5 w-full px-3 py-2.5 rounded-2xl text-sm transition-all duration-200 cursor-pointer" style="color:var(--muted)" onmouseover="this.style.background='var(--sidebar-hover)'" onmouseout="this.style.background='transparent'">
+          <i data-lucide="search" class="w-4 h-4"></i>
+          <span>Search</span>
+        </button>
+      </div>
+
+      <!-- Sidebar Navigation -->
+      <nav class="px-3 pb-2">
+        <div class="flex flex-col gap-0.5">
+          <a id="nav-item-chat" data-dom-id="nav-item-chat" href="#" class="flex items-center gap-2.5 px-3 py-2 rounded-2xl text-sm font-medium transition-all duration-200" style="background:var(--bg);color:var(--fg)">
+            <i data-lucide="message-square" class="w-4 h-4" style="color:var(--accent)"></i>
+            <span>Chat</span>
+          </a>
+          <a href="#" class="flex items-center gap-2.5 px-3 py-2 rounded-2xl text-sm transition-all duration-200" style="color:var(--muted)" onmouseover="this.style.background='var(--sidebar-hover)'" onmouseout="this.style.background='transparent'">
+            <i data-lucide="cpu" class="w-4 h-4"></i>
+            <span>Agents</span>
+          </a>
+          <a href="#" class="flex items-center gap-2.5 px-3 py-2 rounded-2xl text-sm transition-all duration-200" style="color:var(--muted)" onmouseover="this.style.background='var(--sidebar-hover)'" onmouseout="this.style.background='transparent'">
+            <i data-lucide="git-branch" class="w-4 h-4"></i>
+            <span>AgentFlows</span>
+          </a>
+          <a id="nav-item-dashboard" data-dom-id="nav-item-dashboard" href="#" class="flex items-center gap-2.5 px-3 py-2 rounded-2xl text-sm transition-all duration-200" style="color:var(--muted)" onmouseover="this.style.background='var(--sidebar-hover)'" onmouseout="this.style.background='transparent'">
+            <i data-lucide="layout-dashboard" class="w-4 h-4"></i>
+            <span>Workspace</span>
+          </a>
+        </div>
+      </nav>
+
+      <!-- Chat History (scrollable with gradient masks) -->
+      <div class="flex-1 overflow-hidden relative">
+        <!-- Top gradient mask -->
+        <div class="absolute top-0 left-0 right-0 h-6 z-10 pointer-events-none" style="background:linear-gradient(to bottom, var(--surface-warm), transparent)"></div>
+        <!-- Scrollable list -->
+        <div class="h-full overflow-y-auto no-scrollbar px-3 py-1">
+          <!-- Group: Today -->
+          <div class="mb-3">
+            <p class="px-3 pt-2 pb-1 text-xs font-medium uppercase tracking-wide" style="color:var(--meta)">Today</p>
+            <a id="chat-history-item" data-dom-id="chat-history-item" href="#" class="flex items-center gap-0 rounded-2xl px-1 py-2 transition-all duration-200 group/item" style="background:var(--bg)">
+              <div class="w-1 h-6 rounded-r flex-shrink-0" style="background:var(--accent)"></div>
+              <span class="pl-2.5 pr-3 text-sm truncate" style="color:var(--fg)">调试 AgentFlow 的并行分支</span>
+            </a>
+            <a href="#" class="flex items-center gap-0 rounded-2xl px-1 py-2 transition-all duration-200" onmouseover="this.style.background='var(--sidebar-hover)'" onmouseout="this.style.background='transparent'">
+              <div class="w-1 h-6 rounded-r flex-shrink-0"></div>
+              <span class="pl-2.5 pr-3 text-sm truncate" style="color:var(--muted)">批量推理性能基准测试</span>
+            </a>
+          </div>
+          <!-- Group: Yesterday -->
+          <div class="mb-3">
+            <p class="px-3 pt-2 pb-1 text-xs font-medium uppercase tracking-wide" style="color:var(--meta)">Yesterday</p>
+            <a href="#" class="flex items-center gap-0 rounded-2xl px-1 py-2 transition-all duration-200" onmouseover="this.style.background='var(--sidebar-hover)'" onmouseout="this.style.background='transparent'">
+              <div class="w-1 h-6 rounded-r flex-shrink-0"></div>
+              <span class="pl-2.5 pr-3 text-sm truncate" style="color:var(--muted)">Workspace 任务分配策略</span>
+            </a>
+            <a href="#" class="flex items-center gap-0 rounded-2xl px-1 py-2 transition-all duration-200" onmouseover="this.style.background='var(--sidebar-hover)'" onmouseout="this.style.background='transparent'">
+              <div class="w-1 h-6 rounded-r flex-shrink-0"></div>
+              <span class="pl-2.5 pr-3 text-sm truncate" style="color:var(--muted)">Lab 环境配置问题排查</span>
+            </a>
+          </div>
+          <!-- Group: Previous 7 days -->
+          <div class="mb-3">
+            <p class="px-3 pt-2 pb-1 text-xs font-medium uppercase tracking-wide" style="color:var(--meta)">Previous 7 days</p>
+            <a href="#" class="flex items-center gap-0 rounded-2xl px-1 py-2 transition-all duration-200" onmouseover="this.style.background='var(--sidebar-hover)'" onmouseout="this.style.background='transparent'">
+              <div class="w-1 h-6 rounded-r flex-shrink-0"></div>
+              <span class="pl-2.5 pr-3 text-sm truncate" style="color:var(--muted)">智能体版本管理方案讨论</span>
+            </a>
+          </div>
+        </div>
+        <!-- Bottom gradient mask -->
+        <div class="absolute bottom-0 left-0 right-0 h-6 z-10 pointer-events-none" style="background:linear-gradient(to top, var(--surface-warm), transparent)"></div>
+      </div>
+
+      <!-- Sidebar Footer: User -->
+      <div class="px-3 pb-3 pt-2" style="border-top:1px solid var(--border-soft)">
+        <button id="btn-user-menu" data-dom-id="btn-user-menu" class="flex items-center gap-3 w-full px-3 py-2 rounded-2xl transition-all duration-200 cursor-pointer" onmouseover="this.style.background='var(--sidebar-hover)'" onmouseout="this.style.background='transparent'">
+          <div class="relative flex-shrink-0">
+            <div class="w-8 h-8 rounded-full flex items-center justify-center text-xs font-semibold text-white" style="background:linear-gradient(135deg, var(--fg), var(--accent))">R</div>
+            <div class="absolute -bottom-0.5 -right-0.5 w-3 h-3 rounded-full border-2" style="background:var(--accent);border-color:var(--surface-warm)"></div>
+          </div>
+          <div class="flex flex-col items-start overflow-hidden">
+            <span class="text-sm font-medium truncate" style="color:var(--fg)">Rowan</span>
+            <span class="text-xs truncate" style="color:var(--meta)">Pro Plan</span>
+          </div>
+          <i data-lucide="settings" class="w-4 h-4 ml-auto flex-shrink-0" style="color:var(--meta)"></i>
+        </button>
+      </div>
+
+    </aside>
+
+    <!-- ═══════════════════════════════════════════════════════════
+         MAIN CONTENT
+         ═══════════════════════════════════════════════════════════ -->
+    <div class="main-panel">
+
+      <!-- ─── Navbar ─── -->
+      <header class="flex items-center px-4 shrink-0" style="height:var(--topbar-height);background:linear-gradient(to bottom, rgba(255,255,255,0.92), rgba(255,255,255,0.5), transparent);z-index:10">
+        <!-- Left: sidebar toggle (visible when sidebar collapsed) -->
+        <div class="flex items-center">
+          <button class="p-2 rounded-xl transition-all duration-200 cursor-pointer lg:hidden" style="color:var(--muted)" onmouseover="this.style.background='var(--surface)'" onmouseout="this.style.background='transparent'">
+            <i data-lucide="menu" class="w-5 h-5"></i>
+          </button>
+        </div>
+        <!-- Center: spacer -->
+        <div class="flex-1"></div>
+        <!-- Right: controls -->
+        <div class="flex items-center gap-1.5">
+          <!-- Temp chat toggle -->
+          <button class="p-2 rounded-xl transition-all duration-200 cursor-pointer" style="color:var(--meta)" onmouseover="this.style.background='var(--surface)'" onmouseout="this.style.background='transparent'" title="Temporary chat">
+            <i data-lucide="timer" class="w-4 h-4"></i>
+          </button>
+          <!-- Settings -->
+          <button class="p-2 rounded-xl transition-all duration-200 cursor-pointer" style="color:var(--meta)" onmouseover="this.style.background='var(--surface)'" onmouseout="this.style.background='transparent'" title="Settings">
+            <i data-lucide="sliders-horizontal" class="w-4 h-4"></i>
+          </button>
+          <!-- User avatar -->
+          <button class="w-8 h-8 rounded-full flex items-center justify-center text-xs font-semibold text-white ml-1 transition-all duration-200 cursor-pointer" style="background:linear-gradient(135deg, var(--fg), var(--accent))" title="Profile">R</button>
+        </div>
+      </header>
+
+      <!-- ─── Chat Body ─── -->
+      <div class="chat-body">
+
+        <!-- Placeholder state (centered content when no messages) -->
+        <div class="flex-1 flex flex-col items-center justify-center px-4">
+          <div class="flex flex-col items-center w-full" style="max-width:640px">
+            <!-- Model avatar -->
+            <div class="w-10 h-10 rounded-full flex items-center justify-center mb-4" style="background:var(--accent-soft)">
+              <i data-lucide="bot" class="w-5 h-5" style="color:var(--accent)"></i>
+            </div>
+            <!-- Welcome text -->
+            <h1 class="text-2xl font-semibold mb-1.5" style="color:var(--fg);font-family:var(--font-display)">DAgent Console</h1>
+            <!-- Description -->
+            <p class="text-sm mb-8 text-center leading-relaxed" style="color:var(--muted)">Multi-agent orchestration with reasoning, tool use, and parallel execution support.</p>
+
+            <!-- Suggestion grid: 2x2 -->
+            <div class="grid grid-cols-2 gap-2.5 w-full">
+              <!-- Card 1 -->
+              <button class="flex items-start gap-2.5 p-3.5 rounded-2xl text-left transition-all duration-200 cursor-pointer group/sug" style="background:var(--bg);border:1px solid var(--border-soft)" onmouseover="this.style.background='var(--surface-warm)';this.style.borderColor='var(--border)'" onmouseout="this.style.background='var(--bg)';this.style.borderColor='var(--border-soft)'">
+                <div class="w-7 h-7 rounded-lg flex items-center justify-center flex-shrink-0 mt-0.5" style="background:var(--accent-soft)">
+                  <i data-lucide="zap" class="w-3.5 h-3.5" style="color:var(--accent)"></i>
+                </div>
+                <span class="text-sm leading-snug" style="color:var(--fg)">帮我创建一个批量推理的 AgentFlow</span>
+              </button>
+              <!-- Card 2 -->
+              <button class="flex items-start gap-2.5 p-3.5 rounded-2xl text-left transition-all duration-200 cursor-pointer" style="background:var(--bg);border:1px solid var(--border-soft)" onmouseover="this.style.background='var(--surface-warm)';this.style.borderColor='var(--border)'" onmouseout="this.style.background='var(--bg)';this.style.borderColor='var(--border-soft)'">
+                <div class="w-7 h-7 rounded-lg flex items-center justify-center flex-shrink-0 mt-0.5" style="background:var(--accent-soft)">
+                  <i data-lucide="bar-chart-3" class="w-3.5 h-3.5" style="color:var(--accent)"></i>
+                </div>
+                <span class="text-sm leading-snug" style="color:var(--fg)">查看当前资源看板的 agent 状态</span>
+              </button>
+              <!-- Card 3 -->
+              <button class="flex items-start gap-2.5 p-3.5 rounded-2xl text-left transition-all duration-200 cursor-pointer" style="background:var(--bg);border:1px solid var(--border-soft)" onmouseover="this.style.background='var(--surface-warm)';this.style.borderColor='var(--border)'" onmouseout="this.style.background='var(--bg)';this.style.borderColor='var(--border-soft)'">
+                <div class="w-7 h-7 rounded-lg flex items-center justify-center flex-shrink-0 mt-0.5" style="background:var(--accent-soft)">
+                  <i data-lucide="layers" class="w-3.5 h-3.5" style="color:var(--accent)"></i>
+                </div>
+                <span class="text-sm leading-snug" style="color:var(--fg)">设计一个多步骤的 Workspace 任务</span>
+              </button>
+              <!-- Card 4 -->
+              <button class="flex items-start gap-2.5 p-3.5 rounded-2xl text-left transition-all duration-200 cursor-pointer" style="background:var(--bg);border:1px solid var(--border-soft)" onmouseover="this.style.background='var(--surface-warm)';this.style.borderColor='var(--border)'" onmouseout="this.style.background='var(--bg)';this.style.borderColor='var(--border-soft)'">
+                <div class="w-7 h-7 rounded-lg flex items-center justify-center flex-shrink-0 mt-0.5" style="background:var(--accent-soft)">
+                  <i data-lucide="flask-conical" class="w-3.5 h-3.5" style="color:var(--accent)"></i>
+                </div>
+                <span class="text-sm leading-snug" style="color:var(--fg)">测试新的 Agent prompt 模板</span>
+              </button>
+            </div>
+          </div>
+        </div>
+
+        <!-- Messages area (hidden in placeholder state) -->
+        <div class="hidden flex-1 overflow-y-auto">
+          <div class="mx-auto px-4" style="max-width:var(--message-max-width)">
+            <!-- Messages will be rendered here dynamically -->
+          </div>
+        </div>
+
+      </div>
+
+      <!-- ─── Input Area ─── -->
+      <div class="shrink-0 px-4 pb-4">
+        <div class="mx-auto w-full flex flex-col rounded-3xl border transition-all duration-200" style="max-width:768px;border-color:var(--border-soft);background:rgba(255,255,255,0.8);backdrop-filter:blur(8px);box-shadow:0 1px 2px 0 rgba(0,0,0,0.04)">
+          <!-- Top row: attach + textarea -->
+          <div class="flex items-start gap-2 px-3 pt-3">
+            <button id="btn-attach-file" data-dom-id="btn-attach-file" class="p-2 rounded-xl transition-all duration-200 cursor-pointer flex-shrink-0 mt-0.5" style="color:var(--meta)" onmouseover="this.style.background='var(--surface)'" onmouseout="this.style.background='transparent'" title="Attach file">
+              <i data-lucide="plus" class="w-5 h-5"></i>
+            </button>
+            <textarea rows="1" placeholder="Send a message..." class="flex-1 resize-none text-sm leading-relaxed outline-none" style="min-height:44px;max-height:200px;background:transparent;color:var(--fg);font-family:var(--font-body)"></textarea>
+          </div>
+          <!-- Bottom row: hints + send -->
+          <div class="flex items-center justify-between px-3 pb-2.5">
+            <button id="agent-selector" data-dom-id="agent-selector" class="flex items-center gap-1.5 px-2.5 py-1 rounded-xl text-xs font-medium transition-all duration-200 cursor-pointer" style="color:var(--muted)" onmouseover="this.style.background='var(--surface)';this.style.color='var(--fg)'" onmouseout="this.style.background='transparent';this.style.color='var(--muted)'">
+              <i data-lucide="bot" class="w-3.5 h-3.5" style="color:var(--accent)"></i>
+              <span>Agent</span>
+              <i data-lucide="chevron-up" class="w-3 h-3"></i>
+            </button>
+            <button id="btn-send-message" data-dom-id="btn-send-message" class="w-8 h-8 rounded-full flex items-center justify-center transition-all duration-200 cursor-pointer" style="background:var(--surface);color:var(--meta)" onmouseover="this.style.background='var(--accent)';this.style.color='#fff'" onmouseout="this.style.background='var(--surface)';this.style.color='var(--meta)'" title="Send message">
+              <i data-lucide="send" class="w-4 h-4"></i>
+            </button>
+          </div>
+        </div>
+      </div>
+
+    </div><!-- /main-panel -->
+
+  </div><!-- /app-shell -->
+
+  <script>lucide.createIcons();</script>
+</body>
+</html>

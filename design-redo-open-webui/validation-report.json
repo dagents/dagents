@@ -1,0 +1,107 @@
+{
+  "success": true,
+  "outcome": "passed",
+  "repairable": true,
+  "terminalViolations": [],
+  "terminalBlockingSummary": null,
+  "skillProvenance": {
+    "name": "solo-design",
+    "version": "2026.07.06.8",
+    "version_source": "skill-release-manifest.json",
+    "runtime_skill_dir": null,
+    "recorded_at": null,
+    "expected_version": "2026.07.22.00.00.00",
+    "status": "mismatch",
+    "read_status": "ok"
+  },
+  "operatingMode": "free-explore",
+  "renderBlockingErrorCount": 0,
+  "softWarningCount": 7,
+  "renderBlockingErrors": [],
+  "errorSignatures": [],
+  "softWarnings": [
+    "[repair-ledger] validationRepairLedger[0].repairActions[0].preEditFileHashes[] is missing (legacy optional evidence)",
+    "[repair-ledger] validationRepairLedger[0].repairActions[0].postEditFileHashes[] is missing (legacy optional evidence)",
+    "[repair-ledger] validationRepairLedger[0].failedReportHash does not reference a failed validationHistory record",
+    "[repair-ledger] ledger[0].revalidationReportHash does not match validation-report.json",
+    "[html-quality] colors_and_type.css: free-explore brand CSS must use one primary hue only; forbidden secondary/accent brand variables found (--accent, --accent-hover, --accent-soft). Use --state-success/warning/error/info only for semantic states.",
+    "[html-quality] colors_and_type.css: free-explore radius tokens must stay within the restrained 2/4/8/12/16px scale; oversized or forbidden radius tokens found (--dagent-radius-lg: 20px). Do not use 20px+ radii unless the user explicitly requested large rounded shapes.",
+    "[html-quality] main.html: free-explore pages must not use secondary/accent brand variables. Use the single primary hue, neutral tints, or --state-success/warning/error/info for real semantic states."
+  ],
+  "repairPlanHints": [],
+  "repairActionTable": [],
+  "errorCount": 0,
+  "warningCount": 7,
+  "errors": [],
+  "warnings": [
+    "[repair-ledger] validationRepairLedger[0].repairActions[0].preEditFileHashes[] is missing (legacy optional evidence)",
+    "[repair-ledger] validationRepairLedger[0].repairActions[0].postEditFileHashes[] is missing (legacy optional evidence)",
+    "[repair-ledger] validationRepairLedger[0].failedReportHash does not reference a failed validationHistory record",
+    "[repair-ledger] ledger[0].revalidationReportHash does not match validation-report.json",
+    "[html-quality] colors_and_type.css: free-explore brand CSS must use one primary hue only; forbidden secondary/accent brand variables found (--accent, --accent-hover, --accent-soft). Use --state-success/warning/error/info only for semantic states.",
+    "[html-quality] colors_and_type.css: free-explore radius tokens must stay within the restrained 2/4/8/12/16px scale; oversized or forbidden radius tokens found (--dagent-radius-lg: 20px). Do not use 20px+ radii unless the user explicitly requested large rounded shapes.",
+    "[html-quality] main.html: free-explore pages must not use secondary/accent brand variables. Use the single primary hue, neutral tints, or --state-success/warning/error/info for real semantic states."
+  ],
+  "validationRunDisciplineStatus": {
+    "declared": true,
+    "restoreMode": false,
+    "maxFullValidationRuns": 2,
+    "validationHistoryCount": 1,
+    "repairLedgerCount": 1,
+    "softWarningsTriggerRepair": false,
+    "terminalState": null,
+    "nextAction": null,
+    "violations": [],
+    "success": true
+  },
+  "terminalState": null,
+  "nextCheck": {
+    "type": "finish-readiness",
+    "command": "node '/Users/rowan/.trae-cn/builtin/design/hebe/skills/solo-design/shared-runtime/deterministic-tooling/validate-finish-readiness.mjs' '/Users/rowan/Projects/mil-agents-main/design-redo-open-webui' --check=all",
+    "fullValidationAllowed": false,
+    "reason": "workspace validation passed; run complete finish readiness before final delivery"
+  },
+  "repairBatch": [],
+  "repairContextPacket": {
+    "schema_version": "1.0",
+    "purpose": "small-context repair packet; read this before full validation-report.json",
+    "success": true,
+    "terminalState": null,
+    "skillProvenance": {
+      "name": "solo-design",
+      "version": "2026.07.06.8",
+      "version_source": "skill-release-manifest.json",
+      "runtime_skill_dir": null,
+      "recorded_at": null,
+      "expected_version": "2026.07.22.00.00.00",
+      "status": "mismatch",
+      "read_status": "ok"
+    },
+    "renderBlockingErrorCount": 0,
+    "softWarningCount": 7,
+    "renderBlockingErrors": [],
+    "repairActionTable": [],
+    "nextCheck": {
+      "type": "finish-readiness",
+      "command": "node '/Users/rowan/.trae-cn/builtin/design/hebe/skills/solo-design/shared-runtime/deterministic-tooling/validate-finish-readiness.mjs' '/Users/rowan/Projects/mil-agents-main/design-redo-open-webui' --check=all",
+      "fullValidationAllowed": false,
+      "reason": "workspace validation passed; run complete finish readiness before final delivery"
+    },
+    "forbidden": [
+      "do not read validator source",
+      "do not rerun full validation when nextCheck.fullValidationAllowed=false",
+      "do not start preview/browser unless user explicitly asks",
+      "do not hand-edit repair ledger fields"
+    ]
+  },
+  "projectFileHashes": {
+    "design-redo-open-webui.design": "0172fb903523b9b7e86b2d043bb43de63d7d123c06d52272fcd1c3418c79e5f6",
+    "colors_and_type.css": "d92553d810e49f885386833afbcdac27ef6e738bf8ffc5f3095056c47eb5be5e",
+    "runtime-orchestration-summary.json": "704f272ebde838d183425b14459da37d87d0e2ad6e723432cec3ececc1624513",
+    "pages/main.html": "5ae2ee8e4a129ece2e8cdf86bc58da6d425d110a17878486f73557eb05fce08b"
+  },
+  "designDir": "/Users/rowan/Projects/mil-agents-main/design-redo-open-webui",
+  "expectedPages": 1,
+  "requireInteractions": "btn-new-chat:pages/main.html,btn-toggle-sidebar:pages/main.html,nav-item-chat:pages/main.html,nav-item-dashboard:pages/main.html,chat-history-item:pages/main.html,btn-send-message:pages/main.html,btn-attach-file:pages/main.html,model-selector:pages/main.html,btn-user-menu:pages/main.html,btn-sidebar-search:pages/main.html",
+  "checkedAt": "2026-07-25T07:23:12.930Z"
+}

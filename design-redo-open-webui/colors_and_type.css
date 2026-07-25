@@ -1,0 +1,107 @@
+/* ============================================================
+   colors_and_type.css — DAgent Console redesign
+   References Open WebUI layout patterns with original design tokens
+   ============================================================ */
+
+:root {
+  /* ─── Brand prefix: dagent ───────────────────────────────── */
+
+  /* Surface */
+  --dagent-background: #ffffff;
+  --dagent-foreground: #0d0d0d;
+  --dagent-card: #f5f5f5;
+  --dagent-card-foreground: #0d0d0d;
+  --dagent-popover: #ffffff;
+  --dagent-popover-foreground: #0d0d0d;
+
+  /* Primary (accent green from original tokens) */
+  --dagent-primary: #10a37f;
+  --dagent-primary-foreground: #ffffff;
+
+  /* Muted */
+  --dagent-muted: #f5f5f5;
+  --dagent-muted-foreground: #6e6e6e;
+
+  /* Border / Input / Ring */
+  --dagent-border: #e5e5e5;
+  --dagent-input: #e5e5e5;
+  --dagent-ring: rgba(16, 163, 127, 0.18);
+
+  /* Radius */
+  --dagent-radius-sm: 12px;
+  --dagent-radius-md: 16px;
+  --dagent-radius-lg: 20px;
+
+  /* ─── Extended design tokens ──────────────────────────────── */
+  --sidebar-bg: #fafafa;
+  --sidebar-hover: #f0f0f0;
+  --sidebar-width: 260px;
+  --topbar-height: 60px;
+  --input-bg: #f5f5f5;
+  --input-border: #e5e5e5;
+  --message-max-width: 768px;
+  --font-display: "Signifier", "Source Serif Pro", Georgia, ui-serif, serif;
+  --font-body: "Söhne", "Inter", system-ui, -apple-system, sans-serif;
+  --font-mono: "Söhne Mono", ui-monospace, monospace;
+  --text-xs: 12px;
+  --text-sm: 13px;
+  --text-base: 16px;
+  --text-lg: 18px;
+  --text-xl: 20px;
+  --space-1: 4px;
+  --space-2: 8px;
+  --space-3: 12px;
+  --space-4: 16px;
+  --space-5: 20px;
+  --space-6: 24px;
+  --space-8: 32px;
+  --motion-fast: 150ms;
+  --motion-base: 220ms;
+  --ease-standard: cubic-bezier(0.16, 1, 0.3, 1);
+  --accent: #10a37f;
+  --accent-hover: #0a7a5e;
+  --accent-soft: #e8f5f0;
+  --fg: #0d0d0d;
+  --fg-2: #1a1a1a;
+  --muted: #6e6e6e;
+  --meta: #9b9b9b;
+  --border: #e5e5e5;
+  --border-soft: #ededed;
+  --bg: #ffffff;
+  --surface: #f5f5f5;
+  --surface-warm: #fafafa;
+  --focus-ring: 0 0 0 3px rgba(16, 163, 127, 0.18);
+  --success: #10a37f;
+  --warn: #f5a623;
+  --danger: #ef4146;
+}
+
+html {
+  -webkit-text-size-adjust: 100%;
+}
+
+body {
+  font-family: var(--font-body);
+  font-size: var(--text-base);
+  color: var(--fg);
+  background: var(--bg);
+  line-height: 1.65;
+  -webkit-font-smoothing: antialiased;
+  margin: 0;
+  padding: 0;
+}
+
+*, *::before, *::after {
+  box-sizing: border-box;
+}
+
+::selection {
+  background: var(--accent-soft);
+  color: var(--fg);
+}
+
+:focus-visible {
+  outline: none;
+  box-shadow: var(--focus-ring);
+  border-radius: 8px;
+}

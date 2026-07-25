@@ -1,6 +1,6 @@
 /* ============================================================
-   tokens.css — OpenAI design system (active design system)
-   Paste verbatim into :root. Do not invent tokens outside.
+   tokens.css — DAgent Console design tokens
+   Matches the Open WebUI-inspired redesign
    ============================================================ */
 :root {
   /* ─── Surface ──────────────────────────────────────────────────── */
@@ -70,7 +70,7 @@
   /* ─── Radius ───────────────────────────────────────────────────── */
   --radius-sm:   12px;
   --radius-md:   16px;
-  --radius-lg:   16px;
+  --radius-lg:   20px;
   --radius-pill: 9999px;
 
   /* ─── Elevation ────────────────────────────────────────────────── */
@@ -93,8 +93,8 @@
   --container-gutter-tablet:  24px;
   --container-gutter-phone:   24px;
 
-  /* ─── App shell ────────────────────────────────────────────────── */
-  --sidebar-w: 248px;
-  --sidebar-w-collapsed: 72px;
-  --topbar-h: 60px;
+  /* ─── App shell (Open WebUI-inspired) ────────────────────────── */
+  --sidebar-w: 260px;
+  --sidebar-w-collapsed: 60px;
+  --topbar-h: 56px;
 }

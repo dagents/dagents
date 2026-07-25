@@ -1,0 +1,125 @@
+{
+  "data": [
+    {
+      "id": "page-main",
+      "title": "主界面 — 对话视图",
+      "type": "page",
+      "version": 1,
+      "createdAt": 1753430400000,
+      "canvasData": {
+        "x": 200,
+        "y": 0,
+        "group": 0
+      },
+      "devMetadata": {
+        "htmlSrc": "pages/main.html",
+        "interactions": [
+          {
+            "domId": "btn-new-chat",
+            "label": "新建对话",
+            "event": "click",
+            "action": "navigate",
+            "targetPageId": "page-main",
+            "description": "点击新建对话按钮",
+            "edge": "visible"
+          },
+          {
+            "domId": "btn-toggle-sidebar",
+            "label": "切换侧边栏",
+            "event": "click",
+            "action": "toggle",
+            "targetPageId": "page-main",
+            "description": "展开/折叠侧边栏",
+            "edge": "visible"
+          },
+          {
+            "domId": "nav-item-chat",
+            "label": "导航到对话",
+            "event": "click",
+            "action": "navigate",
+            "targetPageId": "page-main",
+            "description": "侧边栏对话导航",
+            "edge": "visible"
+          },
+          {
+            "domId": "nav-item-dashboard",
+            "label": "导航到资源看板",
+            "event": "click",
+            "action": "navigate",
+            "targetPageId": "page-main",
+            "description": "侧边栏资源看板导航",
+            "edge": "visible"
+          },
+          {
+            "domId": "chat-history-item",
+            "label": "切换历史对话",
+            "event": "click",
+            "action": "select",
+            "targetPageId": "page-main",
+            "description": "点击历史对话列表项",
+            "edge": "visible"
+          },
+          {
+            "domId": "btn-send-message",
+            "label": "发送消息",
+            "event": "click",
+            "action": "submit",
+            "targetPageId": "page-main",
+            "description": "发送聊天消息",
+            "edge": "visible"
+          },
+          {
+            "domId": "btn-attach-file",
+            "label": "附加文件",
+            "event": "click",
+            "action": "open-picker",
+            "targetPageId": "page-main",
+            "description": "打开文件选择器",
+            "edge": "visible"
+          },
+          {
+            "domId": "btn-user-menu",
+            "label": "用户菜单",
+            "event": "click",
+            "action": "open-dropdown",
+            "targetPageId": "page-main",
+            "description": "打开用户头像下拉菜单",
+            "edge": "visible"
+          },
+          {
+            "domId": "btn-sidebar-search",
+            "label": "搜索",
+            "event": "click",
+            "action": "open-modal",
+            "targetPageId": "page-main",
+            "description": "打开全局搜索弹窗",
+            "edge": "visible"
+          },
+          {
+            "domId": "agent-selector",
+            "label": "选择 Agent",
+            "event": "click",
+            "action": "open-dropdown",
+            "targetPageId": "page-main",
+            "description": "打开 Agent 选择下拉菜单",
+            "edge": "visible"
+          },
+          {
+            "domId": "model-selector",
+            "label": "选择模型",
+            "event": "click",
+            "action": "open-dropdown",
+            "targetPageId": "page-main",
+            "description": "打开模型选择下拉菜单",
+            "edge": "visible"
+          }
+        ]
+      }
+    }
+  ],
+  "config": {
+    "autoLayout": true,
+    "deviceType": "desktop",
+    "projectName": "DAgent 主界面重设计"
+  }
+}

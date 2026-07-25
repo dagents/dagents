@@ -1,215 +1,188 @@
 /* ============================================================
-   app.js — shared shell interactions
-   - sidebar render + collapse
-   - topbar (search ⌘K, mobile menu, avatar)
+   app.js — shared shell interactions (Open WebUI-inspired)
+   - sidebar: brand, actions, nav, chat history, collapse
+   - topbar: breadcrumbs, search, avatar, icon buttons
    - drawer open/close
-   - tiny helpers (qs, qsa)
-   Each screen page sets window.OD_NAV = { active: 'dashboard' }
+   - mobile menu
+   Each screen page sets window.OD_NAV = { active: 'agents' }
    before loading this script.
    ============================================================ */
 (function () {
   'use strict';
 
-  const SVG = {
-    dashboard: '<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"><rect x="3" y="3" width="7" height="9" rx="1.5"/><rect x="14" y="3" width="7" height="5" rx="1.5"/><rect x="14" y="12" width="7" height="9" rx="1.5"/><rect x="3" y="16" width="7" height="5" rx="1.5"/></svg>',
-    agents: '<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"><circle cx="12" cy="8" r="3.2"/><path d="M5 20c0-3.3 3.1-5.5 7-5.5s7 2.2 7 5.5"/><circle cx="5" cy="9" r="2"/><circle cx="19" cy="9" r="2"/></svg>',
-    flows: '<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"><rect x="3" y="4" width="6" height="5" rx="1.5"/><rect x="15" y="4" width="6" height="5" rx="1.5"/><rect x="9" y="15" width="6" height="5" rx="1.5"/><path d="M6 9v2a2 2 0 0 0 2 2h8a2 2 0 0 0 2-2V9"/><path d="M12 13v2"/></svg>',
-    lab: '<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"><path d="M9 3h6"/><path d="M10 3v6.5L5.5 17a2 2 0 0 0 1.8 3h9.4a2 2 0 0 0 1.8-3L14 9.5V3"/><path d="M8 14h8"/></svg>',
-    workspace: '<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"><path d="M3 7a2 2 0 0 1 2-2h4l2 2h8a2 2 0 0 1 2 2v8a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2V7Z"/></svg>',
-    settings: '<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"><circle cx="12" cy="12" r="3"/><path d="M19.4 15a1.6 1.6 0 0 0 .3 1.8l.1.1a2 2 0 1 1-2.8 2.8l-.1-.1a1.6 1.6 0 0 0-1.8-.3 1.6 1.6 0 0 0-1 1.5V21a2 2 0 1 1-4 0v-.1a1.6 1.6 0 0 0-1-1.5 1.6 1.6 0 0 0-1.8.3l-.1.1a2 2 0 1 1-2.8-2.8l.1-.1a1.6 1.6 0 0 0 .3-1.8 1.6 1.6 0 0 0-1.5-1H3a2 2 0 1 1 0-4h.1a1.6 1.6 0 0 0 1.5-1 1.6 1.6 0 0 0-.3-1.8l-.1-.1a2 2 0 1 1 2.8-2.8l.1.1a1.6 1.6 0 0 0 1.8.3H9a1.6 1.6 0 0 0 1-1.5V3a2 2 0 1 1 4 0v.1a1.6 1.6 0 0 0 1 1.5 1.6 1.6 0 0 0 1.8-.3l.1-.1a2 2 0 1 1 2.8 2.8l-.1.1a1.6 1.6 0 0 0-.3 1.8V9a1.6 1.6 0 0 0 1.5 1H21a2 2 0 1 1 0 4h-.1a1.6 1.6 0 0 0-1.5 1Z"/></svg>',
+  var SVG = {
+    bot: '<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"><path d="M12 8V4H8"/><rect width="16" height="12" x="4" y="8" rx="2"/><path d="M2 14h2"/><path d="M20 14h2"/><path d="M15 13v2"/><path d="M9 13v2"/></svg>',
+    'panel-left-close': '<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"><rect width="18" height="18" x="3" y="3" rx="2"/><path d="M9 3v18"/></svg>',
+    pencil: '<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"><path d="M17 3a2.83 2.83 0 1 1 4 4L7.5 20.5 2 22l1.5-5.5Z"/><path d="m15 5 4 4"/></svg>',
     search: '<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><circle cx="11" cy="11" r="7"/><path d="m20 20-3.5-3.5"/></svg>',
+    'message-square': '<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"><path d="M21 15a2 2 0 0 1-2 2H7l-4 4V5a2 2 0 0 1 2-2h14a2 2 0 0 1 2 2z"/></svg>',
+    cpu: '<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"><rect x="4" y="4" width="16" height="16" rx="2"/><rect x="9" y="9" width="6" height="6"/><path d="M15 2v2"/><path d="M15 20v2"/><path d="M2 15h2"/><path d="M2 9h2"/><path d="M20 15h2"/><path d="M20 9h2"/><path d="M9 2v2"/><path d="M9 20v2"/></svg>',
+    'git-branch': '<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"><line x1="6" x2="6" y1="3" y2="15"/><circle cx="18" cy="6" r="3"/><circle cx="6" cy="18" r="3"/><path d="M18 9a9 9 0 0 1-9 9"/></svg>',
+    'layout-dashboard': '<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"><rect width="7" height="9" x="3" y="3" rx="1"/><rect width="7" height="5" x="14" y="3" rx="1"/><rect width="7" height="9" x="14" y="12" rx="1"/><rect width="7" height="5" x="3" y="16" rx="1"/></svg>',
+    settings: '<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"><path d="M12.22 2h-.44a2 2 0 0 0-2 2v.18a2 2 0 0 1-1 1.73l-.43.25a2 2 0 0 1-2 0l-.15-.08a2 2 0 0 0-2.73.73l-.22.38a2 2 0 0 0 .73 2.73l.15.1a2 2 0 0 1 1 1.72v.51a2 2 0 0 1-1 1.74l-.15.09a2 2 0 0 0-.73 2.73l.22.38a2 2 0 0 0 2.73.73l.15-.08a2 2 0 0 1 2 0l.43.25a2 2 0 0 1 1 1.73V20a2 2 0 0 0 2 2h.44a2 2 0 0 0 2-2v-.18a2 2 0 0 1 1-1.73l.43-.25a2 2 0 0 1 2 0l.15.08a2 2 0 0 0 2.73-.73l.22-.39a2 2 0 0 0-.73-2.73l-.15-.08a2 2 0 0 1-1-1.74v-.5a2 2 0 0 1 1-1.74l.15-.09a2 2 0 0 0 .73-2.73l-.22-.38a2 2 0 0 0-2.73-.73l-.15.08a2 2 0 0 1-2 0l-.43-.25a2 2 0 0 1-1-1.73V4a2 2 0 0 0-2-2z"/><circle cx="12" cy="12" r="3"/></svg>',
     bell: '<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"><path d="M18 8a6 6 0 1 0-12 0c0 7-3 9-3 9h18s-3-2-3-9"/><path d="M13.7 21a2 2 0 0 1-3.4 0"/></svg>',
     menu: '<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round"><path d="M3 6h18M3 12h18M3 18h18"/></svg>',
-    collapse: '<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"><path d="M11 5 4 12l7 7"/><path d="M20 12H4"/></svg>',
     chevron: '<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="m9 18 6-6-6-6"/></svg>',
     plus: '<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.2" stroke-linecap="round" stroke-linejoin="round"><path d="M12 5v14M5 12h14"/></svg>',
     close: '<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.4" stroke-linecap="round"><path d="M6 6l12 12M18 6 6 18"/></svg>',
-    folder: '<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"><path d="M3 7a2 2 0 0 1 2-2h4l2 2h8a2 2 0 0 1 2 2v8a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2V7Z"/></svg>',
+    trash: '<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"><path d="M3 6h18"/><path d="M19 6v14c0 1-1 2-2 2H7c-1 0-2-1-2-2V6"/><path d="M8 6V4c0-1 1-2 2-2h4c1 0 2 1 2 2v2"/></svg>',
+    'sliders-horizontal': '<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"><line x1="4" x2="4" y1="21" y2="14"/><line x1="4" x2="4" y1="10" y2="3"/><line x1="12" x2="12" y1="21" y2="12"/><line x1="12" x2="12" y1="8" y2="3"/><line x1="20" x2="20" y1="21" y2="16"/><line x1="20" x2="20" y1="12" y2="3"/><line x1="2" x2="6" y1="14" y2="14"/><line x1="10" x2="14" y1="8" y2="8"/><line x1="18" x2="22" y1="16" y2="16"/></svg>',
+    timer: '<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"><circle cx="12" cy="12" r="10"/><polyline points="12 6 12 12 16 14"/></svg>',
+    folder: '<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"><path d="M20 20a2 2 0 0 0 2-2V8a2 2 0 0 0-2-2h-7.9a2 2 0 0 1-1.69-.9L9.6 3.9A2 2 0 0 0 7.93 3H4a2 2 0 0 0-2 2v13a2 2 0 0 0 2 2Z"/></svg>',
+    'chevron-down': '<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="m6 9 6 6 6-6"/></svg>',
   };
 
-  const NAV = [
-    { id: 'agents',    label: 'Agents',   href: 'agents.html',    badge: '1.04M' },
-    { id: 'flows',     label: 'AgentFlows', href: 'agentflows.html', badge: '328' },
-    { id: 'workspace', label: 'Workspace', href: null, isSection: true },
-    { id: 'settings',  label: '设置',      href: 'settings.html' },
+  var NAV = [
+    { id: 'chat',       label: 'Chat',        href: '../design-redo-open-webui/pages/main.html', icon: 'message-square' },
+    { id: 'agents',     label: 'Agents',      href: 'agents.html',     icon: 'cpu' },
+    { id: 'flows',      label: 'AgentFlows',  href: 'agentflows.html', icon: 'git-branch' },
+    { id: 'workspace',  label: 'Workspace',   href: 'workspace.html',  icon: 'layout-dashboard' },
   ];
 
   function qs(sel, root) { return (root || document).querySelector(sel); }
   function qsa(sel, root) { return Array.prototype.slice.call((root || document).querySelectorAll(sel)); }
-  function escapeHtml(s) { return String(s).replace(/[&<>"']/g, c => ({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#39;'}[c])); }
-
-  var _navBound = false; // guard: only bind delegation once per .nav element
+  function escapeHtml(s) { return String(s).replace(/[&<>"']/g, function(c) { return ({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#39;'})[c]; }); }
 
   function getActive() {
-    return (window.OD_NAV && window.OD_NAV.active) || 'dashboard';
+    return (window.OD_NAV && window.OD_NAV.active) || 'chat';
   }
 
   function renderSidebar() {
-    var nav = qs('.nav');
-    if (!nav) return;
+    var sidebar = qs('.app-sidebar');
+    if (!sidebar) return;
     var active = getActive();
 
-    var html = '<button class="collapse-btn collapse-top" id="collapse-btn" type="button" aria-label="折叠侧栏" title="折叠侧栏">' +
-      '<span id="collapse-ic">' + SVG.collapse + '</span>' +
-      '<span id="collapse-tx">折叠</span>' +
-    '</button>';
+    var html = '';
 
-    // main nav links
-    NAV.filter(function(it) { return !it.isSection && it.id !== 'settings'; }).forEach(function(it) {
+    // ─── Sidebar header: brand + collapse ───
+    html += '<div class="sidebar-header">';
+    html += '  <div class="sidebar-brand">';
+    html += '    <div class="sidebar-logo">' + SVG.bot + '</div>';
+    html += '    <span class="sidebar-brand-text">DAgent Console</span>';
+    html += '  </div>';
+    html += '  <button class="sidebar-collapse-btn" id="btn-toggle-sidebar" title="Collapse sidebar" aria-label="折叠侧栏">' + SVG['panel-left-close'] + '</button>';
+    html += '</div>';
+
+    // ─── Sidebar actions: New Chat + Search ───
+    html += '<div class="sidebar-actions">';
+    html += '  <a href="../design-redo-open-webui/pages/main.html" class="sidebar-action sidebar-action-primary">' + SVG.pencil + '<span>New Chat</span></a>';
+    html += '  <button class="sidebar-action sidebar-action-ghost" id="btn-sidebar-search">' + SVG.search + '<span>Search</span></button>';
+    html += '</div>';
+
+    // ─── Sidebar navigation ───
+    html += '<nav class="sidebar-nav">';
+    NAV.forEach(function(it) {
       var cur = it.id === active ? ' aria-current="page"' : '';
-      var badge = it.badge ? '<span class="nav-badge">' + it.badge + '</span>' : '';
-      html += '<a class="nav-link" href="' + it.href + '"' + cur + ' data-nav="' + it.id + '">' +
-        '<span class="nav-icon">' + (SVG[it.id] || '') + '</span>' +
-        '<span class="nav-label">' + it.label + '</span>' +
-        badge + '</a>';
+      var iconSvg = SVG[it.icon] || '';
+      html += '<a class="sidebar-nav-link" href="' + it.href + '"' + cur + ' data-nav="' + it.id + '">' + iconSvg + '<span>' + it.label + '</span></a>';
     });
+    html += '</nav>';
 
-    // workspace section label + 新增 Task action
-    var addTaskActive = active === 'new-task' ? ' is-active' : '';
-    html += '<div class="nav-section-head">' +
-      '<span class="nav-section-label nav-section-label--workspace">Workspace</span>' +
-      '<a class="nav-add-task' + addTaskActive + '" href="new-task.html" data-nav="new-task" title="新增 Task" aria-label="新增 Task">' +
-        SVG.plus +
-      '</a>' +
-    '</div>';
-
-    // project list
+    // ─── Chat history ───
+    html += '<div class="sidebar-history">';
+    html += '  <div class="sidebar-history-mask"></div>';
+    html += '  <div class="sidebar-history-scroll no-scrollbar">';
+    html += '    <div class="sidebar-history-label">Today</div>';
+    // Render workspace projects as chat history items
     if (window.OD_WS_PROJECTS) {
-      var openProj = '';
-      try { openProj = localStorage.getItem('od:ws-proj') || ''; } catch(e) {}
-      if (!openProj && active === 'workspace' && window.OD_WS_PROJECTS[0]) {
-        openProj = window.OD_WS_PROJECTS[0].key;
-      }
-      window.OD_WS_PROJECTS.forEach(function(p) {
-        var expanded = p.key === openProj;
-        var tasks = (window.OD_WS_THREADS && window.OD_WS_THREADS[p.key]) || [];
-        var taskRows = '';
-        if (expanded) {
-          taskRows = tasks.map(function(t) {
-            var preview = t.body.replace(/<[^>]*>/g, '').slice(0, 36);
-            return '<a class="nav-task" href="workspace.html?p=' + p.key + '" title="' + escapeHtml(preview) + '">' +
-              '<span class="nav-task-dot"></span>' +
-              '<span class="nav-task-text">' + escapeHtml(t.name) + ': ' + escapeHtml(preview) + (t.body.length > 80 ? '…' : '') + '</span>' +
-            '</a>';
-          }).join('');
-        }
-        html += '<div class="nav-project' + (expanded ? ' expanded' : '') + '" data-proj="' + p.key + '">' +
-          '<button class="nav-project-head" type="button" aria-expanded="' + expanded + '" data-proj-toggle="' + p.key + '">' +
-            '<span class="nav-chev">' + SVG.chevron + '</span>' +
-            '<span class="nav-proj-glyph">' + p.glyph + '</span>' +
-            '<span class="nav-proj-name">' + escapeHtml(p.name) + '</span>' +
-            (p.unread ? '<span class="nav-badge nav-badge-unread">' + p.unread + '</span>' : '') +
-          '</button>' +
-          '<div class="nav-project-body">' + taskRows + '</div>' +
-        '</div>';
+      var tasks = window.OD_WS_THREADS || {};
+      var allThreads = [];
+      Object.keys(tasks).forEach(function(key) {
+        (tasks[key] || []).forEach(function(t) {
+          allThreads.push({ name: t.name, preview: t.body.replace(/<[^>]*>/g, '').slice(0, 40) });
+        });
       });
+      allThreads.slice(0, 8).forEach(function(t, i) {
+        html += '<a class="sidebar-history-item" href="workspace.html">' + SVG['message-square'] + '<span class="history-title">' + escapeHtml(t.name) + '</span><button class="history-delete" title="Delete" aria-label="Delete">' + SVG.trash + '</button></a>';
+      });
+      if (allThreads.length === 0) {
+        html += '<div style="padding:var(--space-4) var(--space-3);font-size:var(--text-sm);color:var(--meta)">No conversations yet</div>';
+      }
+    } else {
+      html += '<a class="sidebar-history-item" href="#">' + SVG['message-square'] + '<span class="history-title">Multi-agent routing design</span><button class="history-delete" title="Delete" aria-label="Delete">' + SVG.trash + '</button></a>';
+      html += '<a class="sidebar-history-item" href="#">' + SVG['message-square'] + '<span class="history-title">Token budget analysis</span><button class="history-delete" title="Delete" aria-label="Delete">' + SVG.trash + '</button></a>';
+      html += '<a class="sidebar-history-item" href="#">' + SVG['message-square'] + '<span class="history-title">Agent performance review</span><button class="history-delete" title="Delete" aria-label="Delete">' + SVG.trash + '</button></a>';
     }
+    html += '  </div>';
+    html += '</div>';
 
-    // spacer + settings at bottom
-    html += '<div class="nav-spacer"></div>';
-    var settingsItem = NAV.find(function(it) { return it.id === 'settings'; });
-    if (settingsItem) {
-      var cur = settingsItem.id === active ? ' aria-current="page"' : '';
-      html += '<a class="nav-link" href="' + settingsItem.href + '"' + cur + ' data-nav="' + settingsItem.id + '">' +
-        '<span class="nav-icon">' + (SVG[settingsItem.id] || '') + '</span>' +
-        '<span class="nav-label">' + settingsItem.label + '</span>' +
-      '</a>';
-    }
-
-    nav.innerHTML = html;
-
-    // bind delegated click handler (only once per .nav element)
-    if (!_navBound) {
-      bindNavDelegation(nav);
-      _navBound = true;
-    }
+    sidebar.innerHTML = html;
+    bindSidebarEvents(sidebar);
   }
 
-  function bindNavDelegation(nav) {
-    nav.addEventListener('click', function(e) {
-      // collapse button
-      var collapseEl = e.target.closest('#collapse-btn');
-      if (collapseEl) {
+  function renderTopbar() {
+    var topbar = qs('.app-topbar');
+    if (!topbar || topbar.getAttribute('data-rendered') === 'true') return;
+    topbar.setAttribute('data-rendered', 'true');
+
+    var active = getActive();
+    var navItem = NAV.find(function(n) { return n.id === active; });
+    var pageName = navItem ? navItem.label : 'DAgent';
+
+    var html = '';
+    // Left: mobile menu
+    html += '<div class="topbar-left">';
+    html += '  <button class="topbar-icon-btn mobile-menu-btn" id="mobile-menu-btn" aria-label="Menu">' + SVG.menu + '</button>';
+    html += '</div>';
+    // Center: breadcrumbs
+    html += '<div class="topbar-center">';
+    html += '  <div class="crumbs"><span class="crumb">DAgent</span><span class="sep">/</span><span class="crumb-current">' + pageName + '</span></div>';
+    html += '</div>';
+    // Right: actions
+    html += '<div class="topbar-right">';
+    html += '  <button class="topbar-icon-btn" title="Settings" aria-label="Settings">' + SVG.settings + '</button>';
+    html += '  <button class="topbar-icon-btn" title="Notifications" aria-label="Notifications">' + SVG.bell + '</button>';
+    html += '  <button class="topbar-avatar" title="Profile">R</button>';
+    html += '</div>';
+
+    topbar.innerHTML = html;
+  }
+
+  function bindSidebarEvents(sidebar) {
+    // Collapse toggle
+    var collapseBtn = qs('#btn-toggle-sidebar', sidebar);
+    if (collapseBtn) {
+      collapseBtn.addEventListener('click', function(e) {
+        e.preventDefault();
         var app = qs('.app');
         if (app) {
           var isCollapsed = app.getAttribute('data-collapsed') === 'true';
           app.setAttribute('data-collapsed', isCollapsed ? 'false' : 'true');
-          var tx = qs('#collapse-tx'); var ic = qs('#collapse-ic');
-          if (tx) tx.textContent = isCollapsed ? '折叠' : '展开';
-          if (ic) ic.style.transform = isCollapsed ? '' : 'rotate(180deg)';
         }
-        e.preventDefault();
-        return;
-      }
+      });
+    }
 
-      // project toggle
-      var projBtn = e.target.closest('[data-proj-toggle]');
-      if (projBtn) {
-        e.preventDefault();
-        e.stopPropagation();
-        var key = projBtn.dataset.projToggle;
-        var current = '';
-        try { current = localStorage.getItem('od:ws-proj') || ''; } catch(err) {}
-        var willOpen = current !== key;
-        try { localStorage.setItem('od:ws-proj', willOpen ? key : ''); } catch(err) {}
-        var proj = projBtn.closest('.nav-project');
-        var body = proj ? proj.querySelector('.nav-project-body') : null;
-        if (proj && body) {
-          if (willOpen) {
-            qsa('.nav-project.expanded').forEach(function(p) {
-              p.classList.remove('expanded');
-              var h = p.querySelector('.nav-project-head');
-              if (h) h.setAttribute('aria-expanded', 'false');
-            });
-            var tasks = (window.OD_WS_THREADS && window.OD_WS_THREADS[key]) || [];
-            body.innerHTML = tasks.map(function(t) {
-              var preview = t.body.replace(/<[^>]*>/g, '').slice(0, 36);
-              return '<a class="nav-task" href="workspace.html?p=' + key + '" title="' + escapeHtml(preview) + '">' +
-                '<span class="nav-task-dot"></span>' +
-                '<span class="nav-task-text">' + escapeHtml(t.name) + ': ' + escapeHtml(preview) + (t.body.length > 80 ? '…' : '') + '</span>' +
-              '</a>';
-            }).join('');
-            proj.classList.add('expanded');
-            projBtn.setAttribute('aria-expanded', 'true');
-          } else {
-            proj.classList.remove('expanded');
-            projBtn.setAttribute('aria-expanded', 'false');
-          }
-        }
-        return;
-      }
-
-      // task click — SPA switch on workspace page
-      var taskLink = e.target.closest('.nav-task');
-      if (taskLink) {
-        var path = location.pathname;
-        if (path.endsWith('workspace.html') || path.endsWith('/')) {
+    // History delete buttons (delegated)
+    var historyScroll = qs('.sidebar-history-scroll', sidebar);
+    if (historyScroll) {
+      historyScroll.addEventListener('click', function(e) {
+        var delBtn = e.target.closest('.history-delete');
+        if (delBtn) {
           e.preventDefault();
-          var href = taskLink.getAttribute('href') || '';
-          var match = href.match(/p=([^&]+)/);
-          if (match) {
-            var taskKey = match[1];
-            var url = new URL(location.href);
-            url.searchParams.set('p', taskKey);
-            history.replaceState(null, '', url);
-            window.dispatchEvent(new CustomEvent('od:ws-select', { detail: { key: taskKey } }));
+          e.stopPropagation();
+          var item = delBtn.closest('.sidebar-history-item');
+          if (item) {
+            item.style.opacity = '0';
+            item.style.transform = 'translateX(-10px)';
+            setTimeout(function() { item.remove(); }, 150);
           }
         }
-        return;
-      }
+      });
+    }
 
-      // mobile menu close on nav-link click
-      var navLink = e.target.closest('.nav-link');
+    // Nav link click — close mobile menu
+    sidebar.addEventListener('click', function(e) {
+      var navLink = e.target.closest('.sidebar-nav-link');
       if (navLink) {
-        var appEl = qs('.app');
-        if (appEl) appEl.setAttribute('data-mobile-nav', 'closed');
+        var app = qs('.app');
+        if (app) app.setAttribute('data-mobile-nav', 'closed');
       }
     });
   }
 
   function bindMobileMenu() {
     var app = qs('.app');
-    var menuBtn = qs('.mobile-menu-btn');
+    var menuBtn = qs('#mobile-menu-btn');
     if (!app || !menuBtn) return;
     menuBtn.addEventListener('click', function() {
       var open = app.getAttribute('data-mobile-nav') === 'open';
@@ -256,9 +229,12 @@
     qs: qs,
     qsa: qsa,
     svg: SVG,
+    NAV: NAV,
     initSidebar: function() {
-      _navBound = false; // reset so delegation re-binds to new .nav
       renderSidebar();
+    },
+    initTopbar: function() {
+      renderTopbar();
     },
     fmt: function(n) {
       if (n == null) return '—';
@@ -277,6 +253,7 @@
 
   function init() {
     renderSidebar();
+    renderTopbar();
     bindMobileMenu();
     bindSearch();
     bindDrawer();

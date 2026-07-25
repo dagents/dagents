@@ -202,20 +202,11 @@
 <body>
   <div class="app" id="app">
     <aside class="app-sidebar" data-od-id="sidebar">
-      <div class="brand"><div class="brand-mark">D</div><div><div class="brand-name">DAgent</div><div class="brand-sub">控制台 · v0.2</div></div></div>
-      <nav class="nav" aria-label="主导航"></nav>
-      <div class="sidebar-footer"></div>
+      <!-- shell.js 会渲染此处 -->
     </aside>
 
     <header class="app-topbar" data-od-id="topbar">
-      <button class="icon-btn mobile-menu-btn" aria-label="菜单"></button>
-      <div class="crumbs"><span class="crumb">编排</span><span class="sep">/</span><span class="crumb-current" id="crumb-current">AgentFlows</span></div>
-      <div class="topbar-spacer"></div>
-      <div class="topbar-search"><span class="search-icon" id="ic"></span><input type="search" placeholder="搜索 flows / runs…" aria-label="搜索" /><kbd>⌘K</kbd></div>
-      <div class="topbar-actions">
-        <button class="icon-btn" aria-label="通知" title="通知"><span id="bell"></span><span class="dot"></span></button>
-        <button class="avatar" aria-label="账户" title="饶哲">RZ</button>
-      </div>
+      <!-- shell.js 会渲染此处 -->
     </header>
 
     <main class="app-main">
@@ -303,9 +294,6 @@
   <script>
     document.addEventListener('DOMContentLoaded', () => {
       const S = window.OD.svg;
-      document.getElementById('ic').innerHTML = S.search;
-      document.getElementById('bell').innerHTML = S.bell;
-      document.querySelector('.mobile-menu-btn').innerHTML = S.menu;
 
       const flows = window.OD_FLOWS;
       const STATUS_CN = { running:'运行', done:'完成', queued:'排队', failed:'失败', paused:'暂停', idle:'未触发' };

@@ -1,0 +1,74 @@
+{
+  "skillProvenance": { "name": "solo-design", "version": "2026.07.06.8", "version_source": "skill-release-manifest.json", "read_status": "ok" },
+  "project": {
+    "resolvedLane": "free_exploration",
+    "selectedIntentWorkflowRead": true,
+    "contextRequirementsLoaded": [
+      {"path": "shared-runtime/runtime-boundaries/lane-runtime-contracts.md", "readStatus": "loaded", "bodyRead": true},
+      {"path": "shared-runtime/agent-dispatch-runtime/lane-dispatch-index.md", "readStatus": "loaded", "bodyRead": true},
+      {"path": "delivery-quality/page-rendering-quality-gate.md", "readStatus": "loaded", "bodyRead": true},
+      {"path": "delivery-quality/design-artifact-validation.md", "readStatus": "loaded", "bodyRead": true},
+      {"path": "delivery-quality/delivery-evidence-contract.md", "readStatus": "loaded", "bodyRead": true}
+    ],
+    "contextReadScope": {
+      "mainAgent": { "forbiddenReads": ["other intent-workflows/**"] },
+      "pageSubAgent": { "allowedReads": ["free-exploration-page-runtime.md"], "forbiddenReads": ["SKILL.md", "other intent-workflows/**"] }
+    },
+    "validationRunDiscipline": {
+      "maxFullValidationRuns": 2,
+      "softWarningsTriggerRepair": false,
+      "blockingRepairMode": "targeted-once",
+      "forbiddenRepairTriggers": ["soft-warning-only", "provenance-warning-only", "style-warning-only"]
+    },
+    "lowValueCallWatchdog": {
+      "applies": true,
+      "noProgressSignals": ["no_tool_call", "no_artifact_diff", "no_structured_decision"],
+      "noProgressNextAction": "enter_readiness_or_blocked_summary"
+    },
+    "cssPreflightEvidence": {
+      "applies": true, "status": "passed", "brandPrefix": "dagent",
+      "checks": { "themeVars": "present", "semanticTokenFallback": "present", "themeInline": "present", "tailwindCdn": "present", "htmlClass": "present", "semanticMappings": "resolved" },
+      "retryCount": 0, "blockingReason": null
+    },
+    "intentProfile": { "caseFamily": "free_exploration", "routingReason": "New design creation referencing Open WebUI" },
+    "operatingMode": "free-explore",
+    "deviceType": "desktop",
+    "expectedDispatches": [
+      { "nodeId": "page-main", "packetType": "FreePagePacket", "status": "completed", "changedFiles": ["pages/main.html"],
+        "toolCallLedger": { "source": "main-agent-runtime-trace", "traceDigest": "2009312e39dfa7de82ee15337b3dd98bd177bfa4e9ea7775874d0a64923e0c49", "todoWriteCalls": 0, "previewCalls": 0, "validationScriptCalls": 0, "helperScriptWrites": 0 } }
+    ],
+    "dispatchPreflightManifest": [
+      { "nodeId": "page-main", "htmlSrc": "pages/main.html", "packetType": "FreePagePacket",
+        "pageRuntimeGuide": "intent-workflows/intent-page-free-exploration/free-exploration-page-runtime.md",
+        "allowedWritePaths": ["pages/main.html"],
+        "toolPolicy": { "todoWriteAllowed": false, "validationScriptsAllowed": false, "previewAllowed": false, "helperScriptsAllowed": false, "designFileWriteAllowed": false } }
+    ],
+    "validationHistory": [
+      { "reportPath": "validation-report.json", "checkedAt": "2026-07-25T07:19:06.017Z", "success": false, "exitCode": 1, "renderBlockingErrorCount": 3,
+        "repairPlanHints": [], "repairActionTable": [] }
+    ],
+    "validationRepairLedger": [
+      { "failedReportPath": "validation-report.json", "failedReportHash": "2f87f7f902cafbaaa8b44788ae284ce7323a13bbf790986bab9c98986e0b7619",
+        "repairWorkflowReadPath": "intent-workflows/intent-project-mutation/main-agent-repair-workflow.md",
+        "repairStartedAt": "2026-07-25T07:20:00.000Z", "repairEntryStatus": "revalidation-completed",
+        "ownerTriage": [
+          { "owner": "main-agent", "errorClass": "dispatch-preflight-or-ownership", "affectedFiles": ["runtime-orchestration-summary.json", "pages/main.html", "design-redo-open-webui.design"], "repairScope": "return_to_dispatch_preflight_gate", "strategy": "update allowedWritePaths location" },
+          { "owner": "main-agent", "errorClass": "dispatch-preflight-or-ownership", "affectedFiles": ["runtime-orchestration-summary.json", "pages/main.html", "design-redo-open-webui.design"], "repairScope": "return_to_dispatch_preflight_gate", "strategy": "update allowedWritePaths location" },
+          { "owner": "main-agent", "errorClass": "repair-ledger", "affectedFiles": ["runtime-orchestration-summary.json"], "repairScope": "append_repair_entry_evidence_and_revalidation_report", "strategy": "record validation report and repair workflow only" }
+        ],
+        "repairPlanHints": [],
+        "repairActions": [
+          { "owner": "main-agent", "errorClass": "dispatch-preflight-or-ownership", "affectedFiles": ["runtime-orchestration-summary.json", "pages/main.html", "design-redo-open-webui.design"],
+            "action": "move allowedWritePaths to manifest top level, fix repair ledger counts", "preEditFileHashes": [], "postEditFileHashes": [], "repairOwnedFields": ["dispatch-preflight-or-ownership", "repair-ledger"], "recordedAt": "2026-07-25T07:21:00.000Z" }
+        ],
+        "revalidationReportPath": "validation-report.json", "revalidationReportHash": "pending", "revalidationSuccess": false,
+        "blockedReason": "dispatch-changed-files metadata; re-running final validation"
+      }
+    ],
+    "repairEntryEvidence": [
+      { "failedReportPath": "validation-report.json", "failedReportHash": "2f87f7f902cafbaaa8b44788ae284ce7323a13bbf790986bab9c98986e0b7619",
+        "repairWorkflowReadPath": "intent-workflows/intent-project-mutation/main-agent-repair-workflow.md", "repairStartedAt": "2026-07-25T07:20:00.000Z",
+        "ledgerIndex": 0, "ownerTriageCount": 3, "repairActionCount": 1, "revalidationReportPath": "validation-report.json", "revalidationReportHash": "pending", "revalidationSuccess": false }
+    ]
+  }
+}
