@@ -26,9 +26,23 @@
 
 ### 1.3 非目标
 
-- 不重写现有 `agents` / `flows` / `daemons` 后端逻辑
 - 不更换 UI 框架（保留 Next.js + 现有样式系统）
 - 不引入新的数据库（继续使用现有 PostgreSQL）
+
+### 1.4 新目标：工作流引擎内聚
+
+**目标**: 将 Flowise v2 Agentflow 核心执行引擎从 `vendor/flowise/` 迁移到项目内部 `packages/workflow/`，不再依赖外部 Flowise 服务。
+
+**迁移范围**:
+- 14 个 Agentflow 节点（Start / Agent / LLM / Tool / HTTP / Condition / ConditionAgent / Iteration / Loop / HumanInput / DirectReply / CustomFunction / ExecuteFlow / Retriever）
+- DAG 执行引擎（节点遍历、状态管理、流式输出）
+- 运行时状态管理（flow state、memory、变量解析）
+- SSE 流式输出（token 流、工具调用、思考过程）
+
+**移除依赖**:
+- `FLOWISE_URL` / `FLOWISE_API_KEY` 环境变量
+- gateway 中的 Flowise proxy 代码（`/api/v1/flows/*`、`/api/v1/chatflows/*`、`/api/v1/executions/*`）
+- `vendor/flowise/`（保留一段时间后删除）
 
 ---
 
@@ -551,7 +565,138 @@ export class ChatMessage {
 
 ---
 
-## 9. 相关文件
+## 9. 工作流引擎内聚设计
+
+### 9.1 新包结构：packages/workflow/
+
+```
+packages/workflow/src/
+├── index.ts                    # 公共导出
+├── engine/
+│   ├── executor.ts             # DAG 执行引擎（核心）
+│   ├── node-registry.ts        # 节点注册与查找
+│   ├── runtime.ts              # 运行时状态管理
+│   └── sse-streamer.ts         # SSE 流式输出
+├── nodes/                      # 14 个节点实现
+│   ├── index.ts
+│   ├── start/start.node.ts     # Start 节点（chat/form/webhook/schedule）
+│   ├── llm/llm.node.ts         # LLM 节点（模型调用、memory、流式）
+│   ├── agent/agent.node.ts     # Agent 节点（代理编排）
+│   ├── tool/tool.node.ts       # Tool 节点（工具调用）
+│   ├── http/http.node.ts       # HTTP 节点
+│   ├── condition/condition.node.ts
+│   ├── condition-agent/condition-agent.node.ts
+│   ├── iteration/iteration.node.ts
+│   ├── loop/loop.node.ts
+│   ├── human-input/human-input.node.ts
+│   ├── direct-reply/direct-reply.node.ts
+│   ├── custom-function/custom-function.node.ts
+│   ├── execute-flow/execute-flow.node.ts
+│   └── retriever/retriever.node.ts
+├── types/                      # 类型定义
+│   ├── flow.ts                 # FlowNode / FlowEdge / FlowData
+│   ├── node.ts                 # INode / INodeData / NodeOutput
+│   └── execution.ts            # ExecutionStatus / IExecutedNode
+└── utils/                      # 工具函数
+    ├── prompt.ts               # 提示词模板
+    ├── variables.ts            # 变量解析 {{var}}
+    └── memory.ts               # 对话记忆管理
+```
+
+### 9.2 节点接口定义
+
+所有节点实现统一接口：
+
+```typescript
+export interface INode {
+  label: string
+  name: string
+  version: number
+  type: string
+  category: string
+  color: string
+  baseClasses: string[]
+  inputs: INodeParams[]
+  credential?: INodeParams
+  async run(nodeData: INodeData, input: string | Record<string, any>, options: ICommonObject): Promise<INodeOutput>
+}
+
+export interface INodeOutput {
+  id: string
+  name: string
+  input: Record<string, any>
+  output: Record<string, any>
+  state?: Record<string, any>
+  chatHistory?: any[]
+}
+```
+
+### 9.3 DAG 执行引擎
+
+执行引擎核心逻辑：
+
+1. **拓扑排序**: 根据 edges 计算节点执行顺序
+2. **状态传递**: 每个节点的 output 作为下游节点的 input
+3. **分支处理**: Condition/ConditionAgent 节点根据条件选择路径
+4. **循环处理**: Iteration/Loop 节点重复执行子路径
+5. **流式输出**: 通过 SSE 实时推送 token、工具调用、思考过程
+
+### 9.4 数据库表调整
+
+新增 `flows` 表存储工作流定义：
+
+```sql
+CREATE TABLE "flows" (
+  "id"             UUID PRIMARY KEY DEFAULT gen_random_uuid(),
+  "name"           TEXT NOT NULL,
+  "flow_data"      JSONB NOT NULL,
+  "type"           TEXT NOT NULL DEFAULT 'workflow',
+  "status"         TEXT NOT NULL DEFAULT 'draft',
+  "agent_id"       UUID REFERENCES "agents"("id"),
+  "directory_id"   UUID REFERENCES "directories"("id"),
+  "created_at"     TIMESTAMPTZ NOT NULL DEFAULT NOW(),
+  "updated_at"     TIMESTAMPTZ NOT NULL DEFAULT NOW()
+);
+CREATE INDEX idx_flows_directory ON ("directory_id");
+CREATE INDEX idx_flows_status ON ("status");
+```
+
+### 9.5 API 变化
+
+| 旧 API（Flowise 代理） | 新 API（内聚引擎） | 说明 |
+|----------------------|-------------------|------|
+| `POST /api/v1/flows/:id/prediction` | `POST /api/v1/workflows/:id/run` | 执行工作流，SSE 流式输出 |
+| `GET /api/v1/chatflows/:id` | `GET /api/v1/workflows/:id` | 获取工作流定义 |
+| `GET /api/v1/chatflows` | `GET /api/v1/workflows` | 列出工作流 |
+| `GET /api/v1/executions` | `GET /api/v1/workflows/:id/executions` | 执行历史 |
+| — | `POST /api/v1/workflows` | 创建工作流 |
+| — | `PUT /api/v1/workflows/:id` | 更新工作流定义 |
+| — | `DELETE /api/v1/workflows/:id` | 删除工作流 |
+
+### 9.6 迁移阶段
+
+| 阶段 | 内容 |
+|------|------|
+| **阶段 1：新包基础** | 创建 `packages/workflow`，定义类型、节点接口、执行引擎骨架 |
+| **阶段 2：核心节点迁移** | 迁移 Start、LLM、Agent、Tool、HTTP 五个核心节点 |
+| **阶段 3：控制流节点** | 迁移 Condition、Iteration、Loop、HumanInput、DirectReply |
+| **阶段 4：高级节点** | 迁移 ConditionAgent、CustomFunction、ExecuteFlow、Retriever |
+| **阶段 5：API 集成** | 在 gateway 中新增 `/api/v1/workflows` 路由，连接执行引擎 |
+| **阶段 6：前端适配** | 更新 console 的 flows 页面和 chat 调用 |
+| **阶段 7：清理** | 移除 Flowise 代理代码，废弃 `FLOWISE_URL`/`FLOWISE_API_KEY` |
+
+### 9.7 依赖关系
+
+```
+@mil/workflow ← @mil/contracts ← @mil/db ← @mil/shared
+```
+
+- `@mil/workflow` 依赖 `@mil/contracts`（类型定义）、`@mil/db`（数据访问）、`@mil/shared`（工具函数）
+- gateway 和 console 通过 API 调用 workflow 引擎，不直接依赖包
+
+---
+
+## 10. 相关文件
 
 ### 现有关键文件（参考）
 
@@ -586,3 +731,39 @@ export class ChatMessage {
 - `apps/console/src/app/(chat)/chats/[id]/page.tsx`
 - `apps/console/src/app/directories/page.tsx`
 - `apps/console/src/app/daemons/page.tsx`
+
+### 工作流引擎待新增文件
+
+- `packages/workflow/package.json`
+- `packages/workflow/src/index.ts`
+- `packages/workflow/src/types/flow.ts`
+- `packages/workflow/src/types/node.ts`
+- `packages/workflow/src/types/execution.ts`
+- `packages/workflow/src/engine/executor.ts`
+- `packages/workflow/src/engine/node-registry.ts`
+- `packages/workflow/src/engine/runtime.ts`
+- `packages/workflow/src/engine/sse-streamer.ts`
+- `packages/workflow/src/nodes/index.ts`
+- `packages/workflow/src/nodes/start/start.node.ts`
+- `packages/workflow/src/nodes/llm/llm.node.ts`
+- `packages/workflow/src/nodes/agent/agent.node.ts`
+- `packages/workflow/src/nodes/tool/tool.node.ts`
+- `packages/workflow/src/nodes/http/http.node.ts`
+- `packages/workflow/src/nodes/condition/condition.node.ts`
+- `packages/workflow/src/nodes/condition-agent/condition-agent.node.ts`
+- `packages/workflow/src/nodes/iteration/iteration.node.ts`
+- `packages/workflow/src/nodes/loop/loop.node.ts`
+- `packages/workflow/src/nodes/human-input/human-input.node.ts`
+- `packages/workflow/src/nodes/direct-reply/direct-reply.node.ts`
+- `packages/workflow/src/nodes/custom-function/custom-function.node.ts`
+- `packages/workflow/src/nodes/execute-flow/execute-flow.node.ts`
+- `packages/workflow/src/nodes/retriever/retriever.node.ts`
+- `packages/workflow/src/utils/prompt.ts`
+- `packages/workflow/src/utils/variables.ts`
+- `packages/workflow/src/utils/memory.ts`
+- `packages/db/src/migrations/1720000009002-create-flows-table.ts`
+- `packages/db/src/entities/flow.entity.ts`
+- `apps/gateway/src/routes/workflows.ts`
+- `apps/console/src/app/api/workflows/route.ts`
+- `apps/console/src/app/api/workflows/[id]/route.ts`
+- `apps/console/src/app/api/workflows/[id]/run/route.ts`
