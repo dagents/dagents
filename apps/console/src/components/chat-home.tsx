@@ -1,51 +1,50 @@
 'use client'
 
-import { useEffect, useRef, useState } from 'react'
+/**
+ * Chat Home (/) — Chat-First landing page.
+ *
+ * Layout (design-redo paradigm):
+ *   - Centered placeholder: bot avatar + welcome + 2×2 suggestion cards
+ *   - Bottom: unified composer (agent selector + @ hints + send)
+ *
+ * No sidebar here — the sidebar is global (ChatNavSidebar in ChatLayout).
+ */
+
+import { useEffect, useState, useCallback } from 'react'
 import { useRouter } from 'next/navigation'
-import '@/styles/chat-home.css'
-import { ChatSidebar } from '@/components/chat-sidebar'
+import { Icon } from '@/components/icon'
+import { SuggestionCards } from '@/components/suggestion-cards'
+import { ChatComposer } from '@/components/chat-composer'
 import { fetchDirectories, type Directory } from '@/lib/directories'
 import { createChat, createMessage } from '@/lib/chats'
+import '@/styles/chat-home.css'
 
 export function ChatHome(): React.ReactElement {
   const router = useRouter()
-  const textareaRef = useRef<HTMLTextAreaElement>(null)
-  const [input, setInput] = useState('')
-  const [selectedDirId, setSelectedDirId] = useState<string | null>(null)
   const [directories, setDirectories] = useState<Directory[]>([])
-  const [loadingDirs, setLoadingDirs] = useState(true)
+  const [selectedDirId, setSelectedDirId] = useState<string | null>(null)
   const [sending, setSending] = useState(false)
   const [error, setError] = useState<string | null>(null)
 
   useEffect(() => {
     let cancelled = false
     void (async () => {
-      setLoadingDirs(true)
       try {
-        const items = await fetchDirectories()
+        const dirs = await fetchDirectories()
         if (cancelled) return
-        setDirectories(items)
-        if (items.length > 0) setSelectedDirId(items[0]!.id)
+        setDirectories(dirs)
+        if (dirs.length > 0) setSelectedDirId(dirs[0]!.id)
       } catch (err) {
         if (!cancelled) setError(err instanceof Error ? err.message : String(err))
-      } finally {
-        if (!cancelled) setLoadingDirs(false)
       }
     })()
-    return () => {
-      cancelled = true
-    }
+    return () => { cancelled = true }
   }, [])
 
-  const focusComposer = () => {
-    textareaRef.current?.focus()
-  }
-
-  const handleSend = async () => {
-    if (!input.trim()) return
-    const directoryId = selectedDirId
+  const handleSend = useCallback(async (text: string) => {
+    const directoryId = selectedDirId ?? directories[0]?.id
     if (!directoryId) {
-      setError('No directory selected')
+      setError('请先添加项目目录')
       return
     }
     setSending(true)
@@ -53,83 +52,39 @@ export function ChatHome(): React.ReactElement {
     try {
       const chat = await createChat({
         directoryId,
-        title: input.slice(0, 50),
+        title: text.slice(0, 50),
       })
-      await createMessage(chat.id, {
-        content: input.trim(),
-        role: 'user',
-      })
+      await createMessage(chat.id, { content: text, role: 'user' })
       router.push(`/chats/${chat.id}`)
     } catch (err) {
       setError(err instanceof Error ? err.message : String(err))
       setSending(false)
     }
-  }
-
-  const handleKeyDown = (e: React.KeyboardEvent<HTMLTextAreaElement>) => {
-    if (e.key === 'Enter' && !e.shiftKey) {
-      e.preventDefault()
-      void handleSend()
-    }
-  }
+  }, [selectedDirId, directories, router])
 
   return (
-    <div className="chat-home-layout">
-      <div className="chat-home-sidebar">
-        <ChatSidebar
-          onSelectChat={(id) => router.push(`/chats/${id}`)}
-          onNewChat={focusComposer}
-        />
-      </div>
-      <div className="chat-home-main">
-        <div className="chat-home-welcome">
-          <h1 className="chat-home-title">开始新对话</h1>
-          <p className="chat-home-subtitle">选择项目目录并输入你的问题</p>
-
-          <div className="chat-home-dir-select">
-            {loadingDirs ? (
-              <div className="muted">Loading directories…</div>
-            ) : directories.length === 0 ? (
-              <div className="muted">No directories available</div>
-            ) : (
-              <select
-                value={selectedDirId ?? ''}
-                onChange={(e) => setSelectedDirId(e.target.value || null)}
-                className="select"
-              >
-                {directories.map((dir) => (
-                  <option key={dir.id} value={dir.id}>
-                    {dir.name}
-                  </option>
-                ))}
-              </select>
-            )}
+    <div className="chat-home-body">
+      {/* Placeholder (centered when no active chat) */}
+      <div className="chat-home-placeholder">
+        <div className="chat-home-placeholder-inner">
+          <div className="chat-home-bot-avatar">
+            <Icon name="bot" style={{ width: 20, height: 20, color: 'var(--accent)' }} />
           </div>
-
-          <div className="chat-home-composer">
-            <textarea
-              ref={textareaRef}
-              value={input}
-              onChange={(e) => setInput(e.target.value)}
-              onKeyDown={handleKeyDown}
-              placeholder="输入你的问题…"
-              className="chat-home-textarea textarea"
-              disabled={sending || !selectedDirId}
-            />
-            <div className="chat-home-actions">
-              {error && <span className="muted" style={{ color: 'var(--danger)' }}>{error}</span>}
-              <button
-                type="button"
-                className="btn btn-primary"
-                onClick={handleSend}
-                disabled={sending || !input.trim() || !selectedDirId}
-              >
-                {sending ? '发送中…' : '发送'}
-              </button>
-            </div>
-          </div>
+          <h1 className="chat-home-welcome-title">DAgent Console</h1>
+          <p className="chat-home-welcome-desc">
+            Multi-agent orchestration with reasoning, tool use, and parallel execution support.
+          </p>
+          <SuggestionCards onPick={(text) => void handleSend(text)} />
         </div>
       </div>
+
+      {/* Composer */}
+      <ChatComposer onSend={handleSend} disabled={sending} />
+      {error && (
+        <div style={{ textAlign: 'center', color: 'var(--danger)', fontSize: 'var(--text-sm)', paddingBottom: 'var(--space-4)' }}>
+          {error}
+        </div>
+      )}
     </div>
   )
 }
