@@ -81,7 +81,7 @@ export async function createChat(body: {
 
 export async function updateChat(
   id: string,
-  body: { title?: string; status?: ChatStatus },
+  body: { title?: string; status?: ChatStatus; agentId?: string | null; flowId?: string | null },
 ): Promise<Chat> {
   const data = await unwrap<{ chat: Chat }>(
     await fetch(`/api/chats/${encodeURIComponent(id)}`, {
