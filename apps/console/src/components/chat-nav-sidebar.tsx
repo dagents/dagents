@@ -40,6 +40,7 @@ export function ChatNavSidebar({ collapsed }: ChatNavSidebarProps): React.ReactE
   const [expandedDirs, setExpandedDirs] = useState<Set<string>>(new Set())
   const [activeChatId, setActiveChatId] = useState<string | null>(null)
   const [loading, setLoading] = useState(true)
+  const [search, setSearch] = useState('')
 
   // Extract active chat id from pathname /chats/:id
   useEffect(() => {
@@ -123,6 +124,18 @@ export function ChatNavSidebar({ collapsed }: ChatNavSidebarProps): React.ReactE
           <Icon name="pencil" className="nav-icon" style={{ width: 16, height: 16 }} />
           <span>New Chat</span>
         </button>
+        {!collapsed && (
+          <div className="chat-nav-search">
+            <Icon name="search" style={{ width: 12, height: 12, color: 'var(--meta)' }} />
+            <input
+              type="text"
+              value={search}
+              onChange={(e) => setSearch(e.target.value)}
+              placeholder="搜索对话…"
+              className="chat-nav-search-input"
+            />
+          </div>
+        )}
       </div>
 
       {/* Primary nav */}
@@ -151,7 +164,9 @@ export function ChatNavSidebar({ collapsed }: ChatNavSidebarProps): React.ReactE
           </Link>
         ) : (
           directories.map((dir) => {
-            const chats = chatsByDir[dir.id] ?? []
+            const chats = (chatsByDir[dir.id] ?? []).filter((chat) =>
+              chat.title.toLowerCase().includes(search.toLowerCase()),
+            )
             const expanded = expandedDirs.has(dir.id)
             return (
               <div key={dir.id} className="chat-nav-dir-group">
@@ -176,6 +191,10 @@ export function ChatNavSidebar({ collapsed }: ChatNavSidebarProps): React.ReactE
                       >
                         <span className={`chat-nav-chat-status ${chat.status}`} />
                         <span className="chat-nav-chat-item-title">{chat.title}</span>
+                        <span className="chat-nav-chat-item-meta">
+                          <span className="chat-nav-chat-item-count">{chat.messageCount}</span>
+                          <span className="chat-nav-chat-item-status">{chat.status}</span>
+                        </span>
                       </Link>
                     ))}
                   </div>

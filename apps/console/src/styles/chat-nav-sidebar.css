@@ -327,3 +327,41 @@
 .chat-layout-sidebar.collapsed .chat-nav-user {
   justify-content: center;
 }
+
+/* Search input */
+.chat-nav-search {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  padding: 6px 10px;
+  background: var(--surface-warm);
+  border: 1px solid var(--border-soft);
+  border-radius: var(--radius-sm);
+  margin-top: 4px;
+}
+.chat-nav-search-input {
+  flex: 1;
+  background: transparent;
+  border: 0;
+  outline: none;
+  font-size: var(--text-xs);
+  color: var(--fg);
+}
+.chat-nav-search-input::placeholder { color: var(--meta); }
+
+/* Chat item meta — message count + status text */
+.chat-nav-chat-item-meta {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  margin-left: auto;
+  font-size: 10px;
+  color: var(--meta);
+}
+.chat-nav-chat-item-count {
+  font-family: var(--font-mono);
+  background: var(--surface);
+  padding: 1px 5px;
+  border-radius: var(--radius-pill);
+}
+.chat-nav-chat-item-status { text-transform: uppercase; letter-spacing: 0.02em; }
