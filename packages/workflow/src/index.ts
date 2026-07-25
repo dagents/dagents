@@ -15,14 +15,14 @@ export type { FlowNode, FlowEdge, FlowData } from './types/flow.js'
 export type { ExecutionStatus, IExecutedNode, IExecutionContext } from './types/execution.js'
 export type { IServerSideEventStreamer, StreamEvent } from './types/stream.js'
 
-// Engine
-export { NodeRegistry } from './engine/node-registry.js'
-export { RuntimeState } from './engine/runtime.js'
-export { DagExecutor } from './engine/executor.js'
-export { SseStreamer } from './engine/sse-streamer.js'
+// Engine (Task 3+ — uncomment when modules land)
+// export { NodeRegistry } from './engine/node-registry.js'
+// export { RuntimeState } from './engine/runtime.js'
+// export { DagExecutor } from './engine/executor.js'
+// export { SseStreamer } from './engine/sse-streamer.js'
 
-// Utils
-export { resolveVariables } from './utils/variables.js'
+// Utils (Task 3+ — uncomment when modules land)
+// export { resolveVariables } from './utils/variables.js'
 
-// Nodes (barrel)
-export * from './nodes/index.js'
+// Nodes (barrel) (Task 3+ — uncomment when modules land)
+// export * from './nodes/index.js'
