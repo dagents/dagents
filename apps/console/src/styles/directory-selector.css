@@ -1,0 +1,68 @@
+.directory-selector { position: relative; display: inline-block; }
+
+.directory-selector-trigger {
+  display: inline-flex;
+  align-items: center;
+  gap: 8px;
+  padding: 6px 14px;
+  background: var(--bg);
+  border: 1px solid var(--border);
+  border-radius: var(--radius-pill);
+  color: var(--fg);
+  font-size: var(--text-sm);
+  font-weight: 500;
+  cursor: pointer;
+  transition: background var(--motion-fast), border-color var(--motion-fast);
+}
+.directory-selector-trigger:hover { background: var(--surface-warm); border-color: var(--accent); }
+
+.directory-selector-dropdown {
+  position: absolute;
+  top: calc(100% + 4px);
+  left: 50%;
+  transform: translateX(-50%);
+  min-width: 320px;
+  background: var(--bg);
+  border: 1px solid var(--border);
+  border-radius: var(--radius-sm);
+  box-shadow: var(--elev-ring);
+  z-index: 50;
+  padding: 4px;
+}
+
+.directory-selector-option {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  width: 100%;
+  padding: 8px 10px;
+  background: transparent;
+  border: 0;
+  border-radius: var(--radius-sm);
+  color: var(--fg);
+  font-size: var(--text-sm);
+  text-align: left;
+  cursor: pointer;
+}
+.directory-selector-option:hover { background: var(--surface-warm); }
+.directory-selector-option.selected { background: var(--accent-soft); color: var(--accent-hover); }
+.directory-selector-option-path {
+  margin-left: auto;
+  font-family: var(--font-mono);
+  font-size: var(--text-xs);
+  color: var(--meta);
+  max-width: 160px;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.directory-selector-empty {
+  display: block;
+  padding: 12px;
+  color: var(--muted);
+  font-size: var(--text-sm);
+  text-align: center;
+  text-decoration: none;
+}
+.directory-selector-empty:hover { color: var(--accent); }

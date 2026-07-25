@@ -48,3 +48,9 @@
   line-height: 1.6;
   margin-bottom: var(--space-8);
 }
+
+.chat-home-topbar {
+  display: flex;
+  justify-content: center;
+  padding: var(--space-4) 0;
+}

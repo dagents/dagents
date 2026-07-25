@@ -15,6 +15,7 @@ import { useRouter } from 'next/navigation'
 import { Icon } from '@/components/icon'
 import { SuggestionCards } from '@/components/suggestion-cards'
 import { ChatComposer } from '@/components/chat-composer'
+import { DirectorySelector } from '@/components/directory-selector'
 import { fetchDirectories, type Directory } from '@/lib/directories'
 import { createChat, createMessage } from '@/lib/chats'
 import '@/styles/chat-home.css'
@@ -64,6 +65,9 @@ export function ChatHome(): React.ReactElement {
 
   return (
     <div className="chat-home-body">
+      <div className="chat-home-topbar">
+        <DirectorySelector value={selectedDirId} onChange={setSelectedDirId} />
+      </div>
       {/* Placeholder (centered when no active chat) */}
       <div className="chat-home-placeholder">
         <div className="chat-home-placeholder-inner">
