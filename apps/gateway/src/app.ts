@@ -6,6 +6,7 @@ import { tokensRoutes } from './routes/tokens.js'
 import { llmRoutes } from './routes/llm.js'
 import { auditRoutes } from './routes/audit.js'
 import { workspaceRoutes } from './routes/workspaces.js'
+import { directoryRoutes } from './routes/directories.js'
 import { labRoutes } from './routes/lab.js'
 import { agentsRoutes } from './routes/agents.js'
 import { tasksRoutes } from './routes/tasks.js'
@@ -484,6 +485,14 @@ app.route('/api/v1/audit', auditRoutes)
  * console proxy forwards the session cookie so logged-in users reach it.
  */
 app.route('/api/v1/workspaces', workspaceRoutes)
+
+/**
+ * Directory CRUD API: directories list + detail + create + update + delete
+ * with chat_count subquery. Parameterised raw SQL via `runQuery`.
+ * Gated by the SSO session middleware (M5b.4) under `REQUIRE_LOGIN=1`,
+ * same posture as the other gateway-owned routes.
+ */
+app.route('/api/v1/directories', directoryRoutes)
 
 /**
  * Lab multi-agent chat room API (M5b.2 / P1.10.T7): the experiment session
