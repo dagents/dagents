@@ -53,7 +53,7 @@ cd infra && docker compose up -d && docker compose ps
 # Acceptance: curl -s http://localhost:3000/api/status   (new-api, root/123456)
 curl -s http://localhost:3000/api/status
 ```
-Flowise is **vendored separately** at `vendor/flowise/` and run from source (`pnpm --filter flowise start`, port 3100) — it is deliberately **not** in the compose stack.
+Flowise is **vendored separately** at `vendor/flowise/` and run from source (`pnpm --filter flowise start`, port 3101) — it is deliberately **not** in the compose stack. Migration to the in-repo `packages/workflow` engine is in progress (Plan A complete; see `docs/superpowers/specs/2026-07-25-system-architecture-redesign.md`); Flowise stays vendored until Plan C removes it.
 
 ## Ports & env (defaults)
 
@@ -63,7 +63,7 @@ Flowise is **vendored separately** at `vendor/flowise/` and run from source (`pn
 | dispatch | 8081 | `DISPATCH_PORT` |
 | scheduler | 8082 | `SCHEDULER_URL` |
 | console (Next) | 3000 | `apps/console` |
-| Flowise | 3100 | vendored, own `.env` at `vendor/flowise/packages/server/.env` |
+| Flowise | 3101 | vendored, own `.env` at `vendor/flowise/packages/server/.env` (migration to `packages/workflow` in progress) |
 | new-api (LLM gateway) | 3000 | `NEWAPI_BASE_URL`, `NEWAPI_ADMIN_KEY`; platform stores only token metadata, never key plaintext (D18) |
 | Langfuse | 3001 | v2.x pinned — **v3 requires ClickHouse**; see `infra/README.md` |
 | MinIO | 9000 / 9001 | `MINIO_ENDPOINT`, bucket `milagents` |
@@ -107,10 +107,10 @@ vendor/flowise  ← (edited in place, not an npm dep; started by compose/host)
 
 ### Apps
 
-- **gateway** (`apps/gateway`): Hono. SSO (dev: HMAC stateless session), route/audit, Flowise **read** proxy (`/api/v1/chatflows`, `/api/v1/executions`), dispatch proxy, new-api token CRUD + probe worker, workspace/flows/lab routes. `app.ts` exports `app` separately from `index.ts` so tests drive it via `app.request()`. Boots OTel → `initDb()` → probe worker → `serve()`.
+- **gateway** (`apps/gateway`): Hono. SSO (dev: HMAC stateless session), route/audit, Flowise **read** proxy (`/api/v1/chatflows`, `/api/v1/executions`), dispatch proxy, new-api token CRUD + probe worker, directories/chats/agents routes (chat-first model). `app.ts` exports `app` separately from `index.ts` so tests drive it via `app.request()`. Boots OTel → `initDb()` → probe worker → `serve()`.
 - **dispatch** (`apps/dispatch`): Hono. Task queue + daemon registry + claim/complete. Routes in `src/routes/` (`agents`, `daemons`, `tasks`, `invoke`, `fleet-stats`, `runs-usage`).
 - **scheduler** (`apps/scheduler`): Hono. `startWorker` (BRPOP `mil:tasks`) + HTTP `fanOut` share one Redis semaphore + one `runs` table. `recoverStaleRuns` on boot re-seeds slots leaked by a SIGKILL'd process (disable with `SCHEDULER_RECOVER_ON_START=0` for multi-instance). Reproduce route in `src/reproduce.ts`.
-- **console** (`apps/console`): Next.js App Router. **Never dials Flowise directly** — every prediction goes through the gateway (`src/lib/config.ts: gatewayUrl()`). 6 pages: dashboard / agents / flows / lab / workspace / settings. Canvas editing still uses Flowise native UI (D4/D5). Vitest alias `@/` mirrors tsconfig `paths`.
+- **console** (`apps/console`): Next.js App Router. **Never dials Flowise directly** — every prediction goes through the gateway (`src/lib/config.ts: gatewayUrl()`). Chat-First layout: chat home (`/`) + chat detail (`/chats/{id}`) + agents / flows / daemons / settings / directories. Canvas editing still uses Flowise native UI (D4/D5) until Plan C. Vitest alias `@/` mirrors tsconfig `paths`.
 
 ### Shared infra code (`@mil/shared`)
 

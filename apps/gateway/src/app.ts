@@ -5,12 +5,9 @@ import { createLogger, getTracer } from '@mil/shared'
 import { tokensRoutes } from './routes/tokens.js'
 import { llmRoutes } from './routes/llm.js'
 import { auditRoutes } from './routes/audit.js'
-import { workspaceRoutes } from './routes/workspaces.js'
 import { directoryRoutes } from './routes/directories.js'
 import { chatRoutes } from './routes/chats.js'
-import { labRoutes } from './routes/lab.js'
 import { agentsRoutes } from './routes/agents.js'
-import { tasksRoutes } from './routes/tasks.js'
 import { authRoutes, currentUser } from './routes/auth.js'
 import { requireLogin, stampSsoUser, type SsoContextVars } from './auth.js'
 import {
@@ -476,18 +473,6 @@ app.route('/api/v1/llm', llmRoutes)
 app.route('/api/v1/audit', auditRoutes)
 
 /**
- * Workspace project read API (M5b.1 / P1.10.T6): the project list + members +
- * linked flows + conversation thread + quota the console Workspace page
- * renders. Read-only, parameterised raw SQL via `runQuery`; the conversation
- * thread reuses `runs` scoped by `workspace_id` so the OTel `run_id` threads
- * end-to-end. ⚠️ membership-scoped once SSO RBAC lands — the SSO session
- * middleware (M5b.4) gates this route under `REQUIRE_LOGIN=1` (401 without a
- * valid session), but does not yet scope rows to the caller's membership; the
- * console proxy forwards the session cookie so logged-in users reach it.
- */
-app.route('/api/v1/workspaces', workspaceRoutes)
-
-/**
  * Directory CRUD API: directories list + detail + create + update + delete
  * with chat_count subquery. Parameterised raw SQL via `runQuery`.
  * Gated by the SSO session middleware (M5b.4) under `REQUIRE_LOGIN=1`,
@@ -505,17 +490,6 @@ app.route('/api/v1/directories', directoryRoutes)
 app.route('/api/v1/chats', chatRoutes)
 
 /**
- * Lab multi-agent chat room API (M5b.2 / P1.10.T7): the experiment session
- * list + threaded messages the console Lab page renders. Read + append-only
- * write, parameterised raw SQL via `runQuery`; each message carries the OTel
- * `run_id` (M6.1) so a turn is end-to-end traceable. ⚠️ membership-scoped once
- * SSO RBAC lands — the SSO session middleware (M5b.4) gates this route under
- * `REQUIRE_LOGIN=1`, but does not yet scope rows to the caller's membership;
- * the console proxy forwards the session cookie so logged-in users reach it.
- */
-app.route('/api/v1/lab', labRoutes)
-
-/**
  * Agent catalogue read API (v0.3-M9.1 / 后端契约 1): the design-aligned
  * `GET /api/v1/agents` + `GET /api/v1/agents/:id` the console's agents page +
  * agent-detail page render. Source of truth is `design/js/agents-data.js`; the
@@ -529,22 +503,6 @@ app.route('/api/v1/lab', labRoutes)
  * other gateway-owned reads; membership scoping is a follow-up (RBAC).
  */
 app.route('/api/v1/agents', agentsRoutes)
-
-/**
- * Task creation API (v0.3-M9.3 / 后端契约 3): the design-aligned
- * `POST /api/v1/tasks` the console's new-task composer will submit to. Accepts
- * the design submit body (`title`/`description`/`assigneeType`/`assigneeId`/
- * `creatorId`/`workspaceId`/`contextRefs`/`priority`/`dueDate`), persists a
- * `tasks` row + a `runs` placeholder, and returns
- * `{ task:{id,status,runId}, runId, path }` where `path` routes the task onto
- * Path A (flow fan-out, `assigneeType='flow'`) or Path B (direct-agent
- * dispatch, `assigneeType='agent'|'squad'`). MVP does NOT trigger real
- * dispatch here — only persists + returns the path; real dispatch is driven
- * downstream by the scheduler fan-out (Path A) / dispatch claim (Path B).
- * Gated by the SSO session middleware (M5b.4) under `REQUIRE_LOGIN=1`, same
- * posture as the other gateway-owned writes.
- */
-app.route('/api/v1/tasks', tasksRoutes)
 
 /**
  * Gateway → dispatch proxy (M2.9b / P1.9).
