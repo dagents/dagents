@@ -234,6 +234,65 @@ describe('PATCH /api/v1/chats/:id — update', () => {
     })
     expect(res.status).toBe(404)
   })
+
+  it('updates chat agentId', async () => {
+    const dirId = await seedDirectory()
+    const id = await seedChat(dirId, { title: 'Agent Chat' })
+    const agentId = randomUUID()
+
+    const res = await app.request(`/api/v1/chats/${id}`, {
+      method: 'PATCH',
+      headers: { 'content-type': 'application/json' },
+      body: JSON.stringify({ agentId }),
+    })
+    expect(res.status).toBe(200)
+    const body = (await res.json()) as {
+      success: boolean
+      data: { chat: { agentId: string | null } }
+    }
+    expect(body.data.chat.agentId).toBe(agentId)
+  })
+
+  it('updates chat flowId', async () => {
+    const dirId = await seedDirectory()
+    const id = await seedChat(dirId, { title: 'Flow Chat' })
+
+    const res = await app.request(`/api/v1/chats/${id}`, {
+      method: 'PATCH',
+      headers: { 'content-type': 'application/json' },
+      body: JSON.stringify({ flowId: 'flow-xyz-123' }),
+    })
+    expect(res.status).toBe(200)
+    const body = (await res.json()) as {
+      success: boolean
+      data: { chat: { flowId: string | null } }
+    }
+    expect(body.data.chat.flowId).toBe('flow-xyz-123')
+  })
+
+  it('clears chat agentId with null', async () => {
+    const dirId = await seedDirectory()
+    const id = await seedChat(dirId, { title: 'Clear Chat' })
+
+    // Set first
+    await app.request(`/api/v1/chats/${id}`, {
+      method: 'PATCH',
+      headers: { 'content-type': 'application/json' },
+      body: JSON.stringify({ agentId: randomUUID() }),
+    })
+    // Then clear
+    const res = await app.request(`/api/v1/chats/${id}`, {
+      method: 'PATCH',
+      headers: { 'content-type': 'application/json' },
+      body: JSON.stringify({ agentId: null }),
+    })
+    expect(res.status).toBe(200)
+    const body = (await res.json()) as {
+      success: boolean
+      data: { chat: { agentId: string | null } }
+    }
+    expect(body.data.chat.agentId).toBeNull()
+  })
 })
 
 describe('DELETE /api/v1/chats/:id — delete', () => {

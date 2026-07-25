@@ -38,6 +38,8 @@ const createBodySchema = z.object({
 const updateBodySchema = z.object({
   title: z.string().min(1).optional(),
   status: z.string().min(1).optional(),
+  agentId: z.string().uuid().nullable().optional(),
+  flowId: z.string().max(200).nullable().optional(),
 })
 
 const createMessageBodySchema = z.object({
@@ -240,6 +242,14 @@ chatRoutes.patch('/:id', async (c) => {
   if (data.status !== undefined) {
     params.push(data.status)
     sets.push(`status = $${params.length}`)
+  }
+  if (data.agentId !== undefined) {
+    params.push(data.agentId)
+    sets.push(`agent_id = $${params.length}`)
+  }
+  if (data.flowId !== undefined) {
+    params.push(data.flowId)
+    sets.push(`flow_id = $${params.length}`)
   }
 
   if (sets.length === 0) {
