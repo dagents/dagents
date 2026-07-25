@@ -1,0 +1,106 @@
+/* ============================================================
+   chat-home.css — Chat Home page
+   Chat-First landing page with sidebar + welcome composer.
+   ============================================================ */
+
+.chat-home-layout {
+  display: flex;
+  flex-direction: row;
+  height: 100%;
+  width: 100%;
+}
+
+.chat-home-sidebar {
+  width: 280px;
+  flex-shrink: 0;
+  border-right: 1px solid var(--border-soft);
+  padding: var(--space-4);
+}
+
+.chat-home-sidebar .chat-sidebar {
+  height: calc(100vh - var(--topbar-h) - var(--space-4) - var(--space-4));
+}
+
+.chat-home-main {
+  flex: 1;
+  display: flex;
+  flex-direction: column;
+  justify-content: center;
+  align-items: center;
+  padding: var(--space-8);
+}
+
+.chat-home-welcome {
+  max-width: 600px;
+  width: 100%;
+  text-align: center;
+}
+
+.chat-home-title {
+  font-family: var(--font-display);
+  font-size: var(--text-3xl);
+  font-weight: 400;
+  letter-spacing: var(--tracking-display);
+  line-height: 1.12;
+  color: var(--fg);
+  margin-bottom: var(--space-3);
+}
+
+.chat-home-subtitle {
+  font-size: var(--text-lg);
+  color: var(--muted);
+  margin-bottom: var(--space-8);
+}
+
+.chat-home-composer {
+  width: 100%;
+  max-width: 600px;
+}
+
+.chat-home-textarea {
+  width: 100%;
+  min-height: 120px;
+  padding: var(--space-4);
+  border: 1px solid var(--border);
+  border-radius: var(--radius-md);
+  resize: vertical;
+  font-size: var(--text-base);
+  line-height: 1.6;
+  background: var(--bg);
+  color: var(--fg);
+}
+
+.chat-home-textarea:focus {
+  border-color: var(--accent);
+  box-shadow: var(--focus-ring);
+  outline: none;
+}
+
+.chat-home-textarea::placeholder {
+  color: var(--meta);
+}
+
+.chat-home-textarea:disabled {
+  opacity: 0.5;
+  cursor: not-allowed;
+}
+
+.chat-home-actions {
+  display: flex;
+  flex-direction: row;
+  justify-content: flex-end;
+  align-items: center;
+  gap: var(--space-3);
+  margin-top: var(--space-3);
+}
+
+.chat-home-dir-select {
+  margin-bottom: var(--space-6);
+  display: flex;
+  justify-content: center;
+}
+
+.chat-home-dir-select .select {
+  max-width: 320px;
+  width: 100%;
+}
