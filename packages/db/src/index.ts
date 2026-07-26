@@ -1,6 +1,6 @@
 export { AppDataSource, initDb, runQuery } from './data-source.js'
-export { TokenMeta } from './entities/token-meta.js'
-export type { TokenHealthStatus } from './entities/token-meta.js'
+export { LlmProvider } from './entities/llm-provider.entity.js'
+export type { LlmProviderStatus } from './entities/llm-provider.entity.js'
 export { Run } from './entities/run.entity.js'
 export type { RunStatus, AgentDaemonCall } from './entities/run.entity.js'
 export { RunNodeSpan } from './entities/run-node-span.entity.js'
