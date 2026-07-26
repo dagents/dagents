@@ -8,6 +8,7 @@ import { auditRoutes } from './routes/audit.js'
 import { directoryRoutes } from './routes/directories.js'
 import { chatRoutes } from './routes/chats.js'
 import { agentsRoutes } from './routes/agents.js'
+import { llmProviderRoutes } from './routes/llm-providers.js'
 import { authRoutes, currentUser } from './routes/auth.js'
 import { requireLogin, stampSsoUser, type SsoContextVars } from './auth.js'
 import {
@@ -503,6 +504,13 @@ app.route('/api/v1/chats', chatRoutes)
  * other gateway-owned reads; membership scoping is a follow-up (RBAC).
  */
 app.route('/api/v1/agents', agentsRoutes)
+
+/**
+ * LLM Provider CRUD API: llm provider list + detail + create + update + delete + test.
+ * Gated by the SSO session middleware (M5b.4) under `REQUIRE_LOGIN=1`,
+ * same posture as the other gateway-owned routes.
+ */
+app.route('/api/v1/llm-providers', llmProviderRoutes)
 
 /**
  * Gateway → dispatch proxy (M2.9b / P1.9).
