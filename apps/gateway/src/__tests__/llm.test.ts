@@ -1,23 +1,22 @@
-import { describe, it, expect, beforeAll, afterAll, afterEach } from 'vitest'
+import { describe, it, expect, vi, beforeEach, beforeAll, afterAll, afterEach } from 'vitest'
 import { createServer, type Server } from 'node:http'
 import type { AddressInfo } from 'node:net'
 import { app } from '../app.js'
+import { randomUUID } from 'node:crypto'
 
-/**
- * Integration tests for /api/v1/llm/* → new-api /v1/* passthrough (M2.8/T10).
- *
- * Stub server emulates new-api's OpenAI-compatible surface; the gateway
- * forwards the caller's Authorization verbatim (no admin key swap).
- *
- * Coverage:
- * - /api/v1/llm/chat/completions → /v1/chat/completions
- * - caller's Authorization forwarded as-is (NOT replaced with admin key)
- * - method + body + query forwarded
- * - 401/429 from upstream pass through (meaningful to the caller)
- * - 5xx collapsed to sanitized 502
- * - missing Authorization → 400 at the edge
- * - path traversal / unsupported path → 400
- */
+const mockRunQuery = vi.fn()
+
+vi.mock('@mil/db', () => ({
+  runQuery: (...args: unknown[]) => mockRunQuery(...args),
+}))
+
+beforeEach(() => {
+  vi.clearAllMocks()
+})
+
+function base64Encode(str: string): string {
+  return Buffer.from(str).toString('base64')
+}
 
 let stubServer: Server
 let stubUrl = ''
@@ -49,9 +48,6 @@ beforeAll(async () => {
   await new Promise<void>((resolve) => stubServer.listen(0, '127.0.0.1', resolve))
   const addr = stubServer.address() as AddressInfo
   stubUrl = `http://127.0.0.1:${addr.port}`
-  process.env.NEWAPI_BASE_URL = stubUrl
-  process.env.NEWAPI_ADMIN_KEY = 'test-admin-key'
-  process.env.NEWAPI_ADMIN_USER_ID = '1'
 })
 
 afterAll(async () => {
@@ -65,12 +61,29 @@ afterEach(() => {
 
 const recordedReq = (): Request | null => recorded.lastReq
 
-describe('gateway llm passthrough', () => {
-  it('rewrites /api/v1/llm/chat/completions → /v1/chat/completions and forwards body', async () => {
+function mockActiveProvider(overrides: Record<string, unknown> = {}) {
+  const id = randomUUID()
+  return {
+    id,
+    base_url: stubUrl,
+    api_key: base64Encode('sk-provider-key-123'),
+    status: 'active',
+    ...overrides,
+  }
+}
+
+describe('gateway llm provider proxy', () => {
+  it('uses provider specified by X-LLM-Provider-Id header', async () => {
+    const provider = mockActiveProvider()
+    mockRunQuery.mockResolvedValueOnce({ records: [provider] })
+
     const res = await app.request('/api/v1/llm/chat/completions', {
       method: 'POST',
-      headers: { 'content-type': 'application/json', authorization: 'Bearer sk-caller-llm' },
-      body: JSON.stringify({ model: 'glm-5.2', messages: [{ role: 'user', content: 'hi' }] }),
+      headers: {
+        'content-type': 'application/json',
+        'x-llm-provider-id': provider.id,
+      },
+      body: JSON.stringify({ model: 'gpt-4', messages: [{ role: 'user', content: 'hi' }] }),
     })
     expect(res.status).toBe(200)
     const body = (await res.json()) as { choices: Array<{ message: { content: string } }> }
@@ -78,82 +91,206 @@ describe('gateway llm passthrough', () => {
 
     const upstream = recordedReq()!
     expect(upstream.method).toBe('POST')
-    expect(upstream.url).toContain('/v1/chat/completions')
-    expect(await upstream.text()).toContain('"model":"glm-5.2"')
+    expect(upstream.url).toContain('/chat/completions')
+    expect(upstream.headers.get('authorization')).toBe('Bearer sk-provider-key-123')
   })
 
-  it('forwards the caller Authorization verbatim — does NOT swap in the admin key', async () => {
-    await app.request('/api/v1/llm/chat/completions', {
-      method: 'POST',
-      headers: { 'content-type': 'application/json', authorization: 'Bearer sk-caller-llm' },
-      body: JSON.stringify({ model: 'm' }),
-    })
-    const upstream = recordedReq()!
-    expect(upstream.headers.get('authorization')).toBe('Bearer sk-caller-llm')
-    expect(upstream.headers.get('authorization')).not.toContain('test-admin-key')
-    // admin user header is NOT injected on the LLM path
-    expect(upstream.headers.get('new-api-user')).toBeNull()
-  })
+  it('uses first active provider when X-LLM-Provider-Id header is missing', async () => {
+    const provider = mockActiveProvider()
+    mockRunQuery.mockResolvedValueOnce({ records: [provider] })
 
-  it('forwards query string (e.g. /v1/models?key=)', async () => {
-    await app.request('/api/v1/llm/models?limit=5', {
-      method: 'GET',
-      headers: { authorization: 'Bearer sk-caller' },
-    })
-    const upstream = recordedReq()!
-    expect(upstream.url).toContain('/v1/models?limit=5')
-  })
-
-  it('400s when Authorization is missing (edge rejects before new-api)', async () => {
     const res = await app.request('/api/v1/llm/chat/completions', {
       method: 'POST',
       headers: { 'content-type': 'application/json' },
-      body: JSON.stringify({ model: 'm' }),
+      body: JSON.stringify({ model: 'gpt-4', messages: [{ role: 'user', content: 'hi' }] }),
+    })
+    expect(res.status).toBe(200)
+
+    const upstream = recordedReq()!
+    expect(upstream.headers.get('authorization')).toBe('Bearer sk-provider-key-123')
+
+    const callArgs = mockRunQuery.mock.calls[0]
+    const sql = callArgs[0] as string
+    expect(sql).toContain("status = 'active'")
+    expect(sql).toContain('ORDER BY updated_at DESC')
+    expect(sql).toContain('LIMIT 1')
+  })
+
+  it('returns 400 when no provider is available', async () => {
+    mockRunQuery.mockResolvedValueOnce({ records: [] })
+
+    const res = await app.request('/api/v1/llm/chat/completions', {
+      method: 'POST',
+      headers: { 'content-type': 'application/json' },
+      body: JSON.stringify({ model: 'gpt-4' }),
     })
     expect(res.status).toBe(400)
-    expect(await res.json()).toMatchObject({ success: false, error: 'missing authorization' })
+    const body = await res.json()
+    expect(body.success).toBe(false)
+    expect(body.error).toBe('no llm provider available')
     expect(recordedReq()).toBeNull()
   })
 
-  it('passes through a 401 from new-api (bad key — meaningful to the caller)', async () => {
+  it('returns 400 when specified provider does not exist', async () => {
+    const fakeId = randomUUID()
+    mockRunQuery.mockResolvedValueOnce({ records: [] })
+
+    const res = await app.request('/api/v1/llm/chat/completions', {
+      method: 'POST',
+      headers: {
+        'content-type': 'application/json',
+        'x-llm-provider-id': fakeId,
+      },
+      body: JSON.stringify({ model: 'gpt-4' }),
+    })
+    expect(res.status).toBe(400)
+    const body = await res.json()
+    expect(body.success).toBe(false)
+    expect(body.error).toBe('no llm provider available')
+    expect(recordedReq()).toBeNull()
+  })
+
+  it('replaces Authorization header with provider apiKey', async () => {
+    const provider = mockActiveProvider()
+    mockRunQuery.mockResolvedValueOnce({ records: [provider] })
+
+    await app.request('/api/v1/llm/chat/completions', {
+      method: 'POST',
+      headers: {
+        'content-type': 'application/json',
+        'x-llm-provider-id': provider.id,
+        'authorization': 'Bearer sk-caller-should-be-replaced',
+      },
+      body: JSON.stringify({ model: 'gpt-4' }),
+    })
+
+    const upstream = recordedReq()!
+    expect(upstream.headers.get('authorization')).toBe('Bearer sk-provider-key-123')
+    expect(upstream.headers.get('authorization')).not.toContain('sk-caller')
+  })
+
+  it('rewrites path correctly: /api/v1/llm/chat/completions → {baseUrl}/chat/completions', async () => {
+    const provider = mockActiveProvider({ base_url: stubUrl + '/v1' })
+    mockRunQuery.mockResolvedValueOnce({ records: [provider] })
+
+    await app.request('/api/v1/llm/chat/completions', {
+      method: 'POST',
+      headers: {
+        'content-type': 'application/json',
+        'x-llm-provider-id': provider.id,
+      },
+      body: JSON.stringify({ model: 'gpt-4' }),
+    })
+
+    const upstream = recordedReq()!
+    expect(upstream.url).toContain('/v1/chat/completions')
+  })
+
+  it('forwards query string', async () => {
+    const provider = mockActiveProvider()
+    mockRunQuery.mockResolvedValueOnce({ records: [provider] })
+
+    await app.request('/api/v1/llm/models?limit=5', {
+      method: 'GET',
+      headers: { 'x-llm-provider-id': provider.id },
+    })
+
+    const upstream = recordedReq()!
+    expect(upstream.url).toContain('/models?limit=5')
+  })
+
+  it('streams SSE response body', async () => {
+    stubHandler = (_req, res) => {
+      res.setHeader('content-type', 'text/event-stream')
+      res.setHeader('cache-control', 'no-cache')
+      res.setHeader('connection', 'keep-alive')
+      res.writeHead(200)
+      res.write('data: {"choices":[{"delta":{"content":"Hello"}}]}\n\n')
+      res.write('data: {"choices":[{"delta":{"content":" world"}}]}\n\n')
+      res.write('data: [DONE]\n\n')
+      res.end()
+    }
+
+    const provider = mockActiveProvider()
+    mockRunQuery.mockResolvedValueOnce({ records: [provider] })
+
+    const res = await app.request('/api/v1/llm/chat/completions', {
+      method: 'POST',
+      headers: {
+        'content-type': 'application/json',
+        'x-llm-provider-id': provider.id,
+      },
+      body: JSON.stringify({ model: 'gpt-4', stream: true }),
+    })
+    expect(res.status).toBe(200)
+    expect(res.headers.get('content-type')).toBe('text/event-stream')
+
+    const body = await res.text()
+    expect(body).toContain('Hello')
+    expect(body).toContain('world')
+    expect(body).toContain('[DONE]')
+  })
+
+  it('passes through 401 from upstream', async () => {
     stubHandler = (_req, res) => {
       res.setHeader('content-type', 'application/json')
       res.writeHead(401)
       res.end(JSON.stringify({ error: { message: 'Invalid token' } }))
     }
+
+    const provider = mockActiveProvider()
+    mockRunQuery.mockResolvedValueOnce({ records: [provider] })
+
     const res = await app.request('/api/v1/llm/chat/completions', {
       method: 'POST',
-      headers: { 'content-type': 'application/json', authorization: 'Bearer sk-bad' },
-      body: JSON.stringify({ model: 'm' }),
+      headers: {
+        'content-type': 'application/json',
+        'x-llm-provider-id': provider.id,
+      },
+      body: JSON.stringify({ model: 'gpt-4' }),
     })
     expect(res.status).toBe(401)
   })
 
-  it('passes through a 429 from new-api (rate limit — meaningful to the caller)', async () => {
+  it('passes through 429 from upstream', async () => {
     stubHandler = (_req, res) => {
       res.setHeader('content-type', 'application/json')
       res.writeHead(429)
       res.end(JSON.stringify({ error: { message: 'rate limited' } }))
     }
+
+    const provider = mockActiveProvider()
+    mockRunQuery.mockResolvedValueOnce({ records: [provider] })
+
     const res = await app.request('/api/v1/llm/chat/completions', {
       method: 'POST',
-      headers: { 'content-type': 'application/json', authorization: 'Bearer sk-caller' },
-      body: JSON.stringify({ model: 'm' }),
+      headers: {
+        'content-type': 'application/json',
+        'x-llm-provider-id': provider.id,
+      },
+      body: JSON.stringify({ model: 'gpt-4' }),
     })
     expect(res.status).toBe(429)
   })
 
-  it('collapses an upstream 5xx to a sanitized 502', async () => {
+  it('collapses upstream 5xx to sanitized 502', async () => {
     stubHandler = (_req, res) => {
       res.setHeader('content-type', 'application/json')
-      res.setHeader('x-internal', 'newapi-host')
+      res.setHeader('x-internal', 'secret-host')
       res.writeHead(502)
       res.end(JSON.stringify({ error: 'boom', stack: 'at /internal/…' }))
     }
+
+    const provider = mockActiveProvider()
+    mockRunQuery.mockResolvedValueOnce({ records: [provider] })
+
     const res = await app.request('/api/v1/llm/chat/completions', {
       method: 'POST',
-      headers: { 'content-type': 'application/json', authorization: 'Bearer sk-caller' },
-      body: JSON.stringify({ model: 'm' }),
+      headers: {
+        'content-type': 'application/json',
+        'x-llm-provider-id': provider.id,
+      },
+      body: JSON.stringify({ model: 'gpt-4' }),
     })
     expect(res.status).toBe(502)
     const body = await res.json()
@@ -165,18 +302,24 @@ describe('gateway llm passthrough', () => {
   it('drops non-allowlisted response headers on success', async () => {
     stubHandler = (_req, res) => {
       res.setHeader('content-type', 'application/json')
-      res.setHeader('x-powered-by', 'new-api')
+      res.setHeader('x-powered-by', 'some-llm')
       res.setHeader('set-cookie', 'leak=1')
       res.writeHead(200)
       res.end(JSON.stringify({ ok: true }))
     }
+
+    const provider = mockActiveProvider()
+    mockRunQuery.mockResolvedValueOnce({ records: [provider] })
+
     const res = await app.request('/api/v1/llm/models', {
       method: 'GET',
-      headers: { authorization: 'Bearer sk-caller' },
+      headers: { 'x-llm-provider-id': provider.id },
     })
     expect(res.status).toBe(200)
     expect(res.headers.get('content-type')).toBe('application/json')
     expect(res.headers.get('x-powered-by')).toBeNull()
     expect(res.headers.get('set-cookie')).toBeNull()
   })
+
+
 })

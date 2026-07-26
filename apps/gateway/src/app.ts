@@ -2,7 +2,6 @@ import { Hono, type Context } from 'hono'
 import { randomUUID } from 'node:crypto'
 import { context, trace } from '@opentelemetry/api'
 import { createLogger, getTracer } from '@mil/shared'
-import { tokensRoutes } from './routes/tokens.js'
 import { llmRoutes } from './routes/llm.js'
 import { auditRoutes } from './routes/audit.js'
 import { directoryRoutes } from './routes/directories.js'
@@ -357,11 +356,6 @@ function failDesign(
   return c.json({ success: false, error, ...extra }, status)
 }
 
-// new-api token admin proxy + local token_meta sync (P1.4.T5). Mounted before
-// the LLM passthrough so `/api/v1/tokens/*` (admin-authed) doesn't fall
-// through to the caller-token LLM route.
-app.route('/api/v1/tokens', tokensRoutes)
-
 /**
  * Gateway → Flowise READ-ONLY passthrough for flow monitoring (P1.9.T5).
  *
@@ -463,14 +457,13 @@ async function proxyFlowiseRead(c: Context): Promise<Response> {
   return new Response(upstream.body, { status: upstream.status, headers: respHeaders })
 }
 
-// new-api LLM passthrough (P1.4.T10): caller's own sk- token forwarded to
-// new-api /v1/*. Flowise/daemon/console point here so new-api is the single
-// LLM upstream.
+// LLM provider proxy: dynamically forwards to the user-configured LLM provider
+// based on X-LLM-Provider-Id header (or first active provider).
 app.route('/api/v1/llm', llmRoutes)
 
-// Audit log query endpoint (M6.6 / P1.4.T6): read side of the audit trail the
-// token routes + scheduler version-lock path write. ⚠️ admin-only once SSO
-// (P1.4.T2) lands — the trail names actors + targets, not for end users.
+// Audit log query endpoint (M6.6 / P1.4.T6): read side of the audit trail.
+// ⚠️ admin-only once SSO (P1.4.T2) lands — the trail names actors + targets,
+// not for end users.
 app.route('/api/v1/audit', auditRoutes)
 
 /**
