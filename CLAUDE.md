@@ -4,9 +4,9 @@ This file provides guidance to Claude Code (claude.ai/code) when working with co
 
 ## What this is
 
-百万智能体平台 (Million-Agent Platform) MVP — a TS/Node monorepo that turns a **forked Flowise** into a batch agent-execution platform. The self-built layers (gateway / dispatch / scheduler / console) wrap Flowise; heterogeneous coding agents (claude, codex, …) are reached through a self-built **central dispatch + local daemon** two-tier design translated from multica's Go protocol (multica source is **not** imported — modified Apache 2.0).
+百万智能体平台 (Million-Agent Platform) — a TS/Node monorepo with Chat-First UX and a **central dispatch + local daemon** two-tier design for heterogeneous coding agents (claude, codex, …). Migrated from Flowise-vendored architecture to in-repo `@mil/workflow` engine; Flowise vendored fork remains for canvas editing only until Plan C removes it.
 
-The architectural source of truth is `docs/superpowers/specs/2026-07-08-mvp-execution-plan-design.md` (the "MVP Plan 设计稿"). Decisions **D1–D19** in its §0.1 are locked; do not propose a different framework/ORM/approach without checking that table first. Reopening a locked decision needs a new Gate or explicit user override.
+The architectural source of truth is `docs/superpowers/specs/2026-07-25-system-architecture-redesign.md` (Chat-First 双维度模型). Legacy MVP Plan 文档已归档至 `docs/archive/specs/`。
 
 Two local skills are auto-discovered and should be invoked when relevant:
 - `mil-agents-patterns` — repo commit/doc/workflow conventions (read this before committing or adding docs).
@@ -91,8 +91,9 @@ contracts  ←  agent-adapters  ←  daemon
 contracts  ←  dispatch
 contracts  ←  db ← repro
 shared     ←  (all)
+workflow   ←  (node implementers; depends on shared only)
 db         ←  gateway / dispatch / scheduler
-vendor/flowise  ← (edited in place, not an npm dep; started by compose/host)
+vendor/flowise  ← (canvas editor only, not an npm dep; being phased out by packages/workflow)
 ```
 - `@mil/contracts` is **zero-dependency** and built first — every layer depends on its types.
 - `dispatch` depends **only** on `contracts` (not `daemon`) — they're decoupled by the HTTP claim/complete protocol in `packages/contracts/src/protocol.ts`.
@@ -137,7 +138,7 @@ Every new feature goes through all 4 stages (powered by superpowers skills). **D
 ### Two Gates
 
 - **Gate-1** (M2): dispatch↔daemon protocol spike — `register/heartbeat/claim/start/messages/complete/fail/usage/session` translated from multica.
-- **Gate-2** (M0, parallel): Flowise fork builds + "where does Flow Execution State live?" — see `docs/gate-2-flow-state.md`.
+- **Gate-2** (M0, parallel): Flowise fork builds + "where does Flow Execution State live?" — 历史决策，已归档见 `docs/archive/architecture/gate-2-flow-state.md`。当前工作流引擎迁移至 `packages/workflow/`，见 `docs/superpowers/specs/2026-07-25-system-architecture-redesign.md` §1.4。
 
 ### Commits — conventional commits, **Chinese descriptions**
 
