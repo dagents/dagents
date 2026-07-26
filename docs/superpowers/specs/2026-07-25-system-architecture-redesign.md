@@ -1,9 +1,23 @@
 # 系统架构重设计：Chat-First 双维度模型
 
 > **日期**: 2026-07-25
-> **状态**: Draft
-> **基于**: `design/` (v0.2/v0.3 平台控制台原型) + `design-redo-open-webui/` (Chat-First 原型)
+> **状态**: Active（架构真相源，见 CLAUDE.md）
+> **基于**: `docs/archive/design/v0.3-9screen/` (v0.2/v0.3 平台控制台原型) + `docs/archive/design/chat-first/` (Chat-First 原型)
 > **决策模式**: 共存 (B) — Chat-First 升级为 home，9 屏精简保留
+
+## 实现状态总览（2026-07-26）
+
+| 章节 | 内容 | 状态 |
+|------|------|------|
+| §2-3 | 路由表 + 数据模型（directories/chats/chat_messages） | ✅ 已实现 |
+| §4 | Directories/Chats API + console proxy routes | ✅ 已实现 |
+| §5 | Chat-First 前端（home/detail/directories/daemons） | ✅ 已实现 |
+| §6 | 服务层职责（gateway/dispatch/scheduler） | ✅ 已实现 |
+| §9 | 工作流引擎内聚（packages/workflow） | 🟡 Plan A 完成；Plan B/C 进行中 |
+| — | new-api 移除 + 自定义 LLM Provider | ✅ 已实现（spec 见 `docs/archive/specs/2026-07-26-remove-new-api-llm-config.md`） |
+| — | Flowise vendored fork | ⏳ 待 Plan C 完成后移除 |
+
+> **当前进行中**: Plan B（Start/LLM/Agent 大节点 + 分支/循环执行）、Plan C（flows 表 + `/api/v1/workflows/*` API + console 前端切换 + Flowise proxy 删除）
 
 ---
 
@@ -698,72 +712,34 @@ CREATE INDEX idx_flows_status ON ("status");
 
 ## 10. 相关文件
 
-### 现有关键文件（参考）
+### 设计原型（已归档）
 
-- [design/](file:///Users/rowan/Projects/dagents-main/design) — v0.2/v0.3 原型
-- [design-redo-open-webui/](file:///Users/rowan/Projects/dagents-main/design-redo-open-webui) — Chat-First 原型
-- [design/daemon-execution.html](file:///Users/rowan/Projects/dagents-main/design/daemon-execution.html) — Daemons 三栏布局原型
-- [design/workspace.html](file:///Users/rowan/Projects/dagents-main/design/workspace.html) — Workspace 双栏布局原型（参考）
-- [apps/dispatch/src/app.ts](file:///Users/rowan/Projects/dagents-main/apps/dispatch/src/app.ts) — Dispatch 服务入口
-- [apps/dispatch/src/routes/daemons.ts](file:///Users/rowan/Projects/dagents-main/apps/dispatch/src/routes/daemons.ts) — Daemons 后端
-- [apps/console/src/app/api/chat/route.ts](file:///Users/rowan/Projects/dagents-main/apps/console/src/app/api/chat/route.ts) — 现有 chat SSE 代理
-- [apps/console/src/app/api/workspaces/](file:///Users/rowan/Projects/dagents-main/apps/console/src/app/api/workspaces) — 现有 workspace API
-- [packages/db/src/data-source.ts](file:///Users/rowan/Projects/dagents-main/packages/db/src/data-source.ts) — 数据库配置
-- [packages/db/src/entities/](file:///Users/rowan/Projects/dagents-main/packages/db/src/entities) — 现有 entities
+- [docs/archive/design/v0.3-9screen/](file:///Users/rowan/Projects/mil-agents-main/docs/archive/design/v0.3-9screen) — v0.2/v0.3 9 屏平台控制台原型
+- [docs/archive/design/chat-first/](file:///Users/rowan/Projects/mil-agents-main/docs/archive/design/chat-first) — Chat-First OpenWebUI 范式原型
+- `docs/archive/design/v0.3-9screen/daemon-execution.html` — Daemons 三栏布局原型
+- `docs/archive/design/v0.3-9screen/workspace.html` — Workspace 双栏布局原型（参考）
 
-### 待新增文件
+### 已实现的关键代码
 
-- `packages/db/src/migrations/1720000009000-create-chat-tables.ts`
-- `packages/db/src/migrations/1720000009001-migrate-workspaces-to-directories.ts`
-- `packages/db/src/entities/directory.entity.ts`
-- `packages/db/src/entities/chat.entity.ts`
-- `packages/db/src/entities/chat-message.entity.ts`
-- `apps/dispatch/src/routes/directories.ts`
-- `apps/dispatch/src/routes/chats.ts`
-- `apps/dispatch/src/routes/chat-messages.ts`
-- `apps/console/src/app/api/directories/route.ts`
-- `apps/console/src/app/api/directories/[id]/route.ts`
-- `apps/console/src/app/api/chats/route.ts`
-- `apps/console/src/app/api/chats/[id]/route.ts`
-- `apps/console/src/app/api/chats/[id]/messages/route.ts`
-- `apps/console/src/app/(chat)/layout.tsx`
-- `apps/console/src/app/(chat)/page.tsx`
-- `apps/console/src/app/(chat)/chats/[id]/page.tsx`
-- `apps/console/src/app/directories/page.tsx`
-- `apps/console/src/app/daemons/page.tsx`
+- [apps/gateway/src/routes/chats.ts](file:///Users/rowan/Projects/mil-agents-main/apps/gateway/src/routes/chats.ts) — Chats API + chat-execute 调度
+- [apps/gateway/src/routes/chat-execute.ts](file:///Users/rowan/Projects/mil-agents-main/apps/gateway/src/routes/chat-execute.ts) — chat 消息执行（@ 命令 + agent 路由）
+- [apps/gateway/src/routes/directories.ts](file:///Users/rowan/Projects/mil-agents-main/apps/gateway/src/routes/directories.ts) — Directories API
+- [apps/gateway/src/routes/llm-providers.ts](file:///Users/rowan/Projects/mil-agents-main/apps/gateway/src/routes/llm-providers.ts) — LLM Provider CRUD（替代 new-api）
+- [apps/dispatch/src/routes/daemons.ts](file:///Users/rowan/Projects/mil-agents-main/apps/dispatch/src/routes/daemons.ts) — Daemons 后端
+- [apps/console/src/app/api/chats/](file:///Users/rowan/Projects/mil-agents-main/apps/console/src/app/api/chats) — Console chat proxy routes
+- [apps/console/src/app/api/directories/](file:///Users/rowan/Projects/mil-agents-main/apps/console/src/app/api/directories) — Console directory proxy routes
+- [apps/console/src/app/api/llm-providers/](file:///Users/rowan/Projects/mil-agents-main/apps/console/src/app/api/llm-providers) — Console LLM Provider proxy routes
+- [apps/console/src/components/chat-home.tsx](file:///Users/rowan/Projects/mil-agents-main/apps/console/src/components/chat-home.tsx) — Chat Home 页面
+- [apps/console/src/components/chat-detail.tsx](file:///Users/rowan/Projects/mil-agents-main/apps/console/src/components/chat-detail.tsx) — 对话详情页
+- [apps/console/src/components/daemons-view.tsx](file:///Users/rowan/Projects/mil-agents-main/apps/console/src/components/daemons-view.tsx) — Daemons 三栏视图
+- [packages/db/src/entities/](file:///Users/rowan/Projects/mil-agents-main/packages/db/src/entities) — Directory/Chat/ChatMessage/LLMProvider 等 entities
+- [packages/db/src/migrations/](file:///Users/rowan/Projects/mil-agents-main/packages/db/src/migrations) — 含 9000/9001/10000/11000/12000/13000 等 migration
 
-### 工作流引擎待新增文件
+### 工作流引擎（Plan A 已完成）
 
-- `packages/workflow/package.json`
-- `packages/workflow/src/index.ts`
-- `packages/workflow/src/types/flow.ts`
-- `packages/workflow/src/types/node.ts`
-- `packages/workflow/src/types/execution.ts`
-- `packages/workflow/src/engine/executor.ts`
-- `packages/workflow/src/engine/node-registry.ts`
-- `packages/workflow/src/engine/runtime.ts`
-- `packages/workflow/src/engine/sse-streamer.ts`
-- `packages/workflow/src/nodes/index.ts`
-- `packages/workflow/src/nodes/start/start.node.ts`
-- `packages/workflow/src/nodes/llm/llm.node.ts`
-- `packages/workflow/src/nodes/agent/agent.node.ts`
-- `packages/workflow/src/nodes/tool/tool.node.ts`
-- `packages/workflow/src/nodes/http/http.node.ts`
-- `packages/workflow/src/nodes/condition/condition.node.ts`
-- `packages/workflow/src/nodes/condition-agent/condition-agent.node.ts`
-- `packages/workflow/src/nodes/iteration/iteration.node.ts`
-- `packages/workflow/src/nodes/loop/loop.node.ts`
-- `packages/workflow/src/nodes/human-input/human-input.node.ts`
-- `packages/workflow/src/nodes/direct-reply/direct-reply.node.ts`
-- `packages/workflow/src/nodes/custom-function/custom-function.node.ts`
-- `packages/workflow/src/nodes/execute-flow/execute-flow.node.ts`
-- `packages/workflow/src/nodes/retriever/retriever.node.ts`
-- `packages/workflow/src/utils/prompt.ts`
-- `packages/workflow/src/utils/variables.ts`
-- `packages/workflow/src/utils/memory.ts`
-- `packages/db/src/migrations/1720000009002-create-flows-table.ts`
-- `packages/db/src/entities/flow.entity.ts`
-- `apps/gateway/src/routes/workflows.ts`
-- `apps/console/src/app/api/workflows/route.ts`
-- `apps/console/src/app/api/workflows/[id]/route.ts`
-- `apps/console/src/app/api/workflows/[id]/run/route.ts`
+- [packages/workflow/](file:///Users/rowan/Projects/mil-agents-main/packages/workflow) — `@dagents/workflow` 包
+- [packages/workflow/src/engine/executor.ts](file:///Users/rowan/Projects/mil-agents-main/packages/workflow/src/engine/executor.ts) — DAG 拓扑排序 + 线性执行
+- [packages/workflow/src/engine/sse-streamer.ts](file:///Users/rowan/Projects/mil-agents-main/packages/workflow/src/engine/sse-streamer.ts) — SSE 流式输出
+- [packages/workflow/src/nodes/](file:///Users/rowan/Projects/mil-agents-main/packages/workflow/src/nodes) — 8 个简单节点（DirectReply/Iteration/Loop/CustomFunction/Retriever/Tool/HTTP/Condition）
+- **Plan B 待新增**: Start/LLM/Agent 大节点 + 分支/循环执行逻辑
+- **Plan C 待新增**: `flows` 表 + `apps/gateway/src/routes/workflows.ts` + console workflows API + Flowise proxy 删除

@@ -543,7 +543,7 @@ describe('M6.7 — full-chain trace e2e (one run_id, gateway → daemon → LLM)
       // Optional evidence dump for the verification doc: set M67_EVIDENCE_PATH
       // to write a JSON snapshot of this run's trace correlation proof. The
       // committed test asserts above; this only captures a concrete example for
-      // docs/m6.7-trace-e2e-verification.md and is a no-op in normal runs.
+      // docs/archive/verification/m6.7-trace-e2e-verification.md and is a no-op in normal runs.
       const evidencePath = process.env.M67_EVIDENCE_PATH
       if (evidencePath) {
         const evRows = await runQuery<{ kind: string; seq: number; payload: AgentEvent }>(

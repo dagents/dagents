@@ -6,7 +6,7 @@ This file provides guidance to Claude Code (claude.ai/code) when working with co
 
 Dagents 平台 (Dagents Platform) — a TS/Node monorepo with Chat-First UX and a **central dispatch + local daemon** two-tier design for heterogeneous coding agents (claude, codex, …). Migrated from Flowise-vendored architecture to in-repo `@dagents/workflow` engine; Flowise vendored fork remains for canvas editing only until Plan C removes it.
 
-The architectural source of truth is `docs/superpowers/specs/2026-07-25-system-architecture-redesign.md` (Chat-First 双维度模型). Legacy MVP Plan 文档已归档至 `docs/archive/specs/`。
+The architectural source of truth is `docs/superpowers/specs/2026-07-25-system-architecture-redesign.md` (Chat-First 双维度模型，顶部含实现状态总览). 所有已完成的 plans / 历史 specs / 验证记录 / 设计原型均已归档至 `docs/archive/{plans,specs,verification,design}/`。
 
 Two local skills are auto-discovered and should be invoked when relevant:
 - `dagents-patterns` — repo commit/doc/workflow conventions (read this before committing or adding docs).

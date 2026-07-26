@@ -604,7 +604,7 @@ describe('END — MVP full closed-loop (define agent → flow → batch → moni
       // Optional evidence dump for the verification doc: set END_EVIDENCE_PATH
       // to write a JSON snapshot of this run's closed-loop proof. The committed
       // test asserts above; this only captures a concrete example for
-      // docs/mvp-closed-loop-verification.md and is a no-op in normal runs.
+      // docs/archive/verification/mvp-closed-loop-verification.md and is a no-op in normal runs.
       const evidencePath = process.env.END_EVIDENCE_PATH
       if (evidencePath) {
         writeFileSync(
