@@ -412,7 +412,7 @@ describe('POST /api/v1/chats/:id/messages — create message', () => {
       body: JSON.stringify({ content: 'Second message' }),
     })
     expect(res2.status).toBe(200)
-    seededMessageIds.push((await res2.json()).data.message.id)
+    seededMessageIds.push(((await res2.json()) as { data: { message: { id: string } } }).data.message.id)
 
     const chatRes = await app.request(`/api/v1/chats/${chatId}`, { method: 'GET' })
     const chatBody = (await chatRes.json()) as {

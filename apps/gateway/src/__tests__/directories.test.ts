@@ -178,7 +178,7 @@ describe('POST /api/v1/directories — create', () => {
       data: { directory: { name: string } }
     }
     expect(body.data.directory.name).toBe('my-folder')
-    seededDirectoryIds.push((body.data.directory as { id: string }).id)
+    seededDirectoryIds.push((body.data.directory as unknown as { id: string }).id)
   })
 
   it('returns 400 when path is missing', async () => {

@@ -47,14 +47,14 @@ const createMessageBodySchema = z.object({
   role: z.enum(['user', 'assistant', 'system', 'tool']).default('user'),
   content: z.string().min(1),
   runId: z.string().uuid().optional(),
-  metadata: z.record(z.unknown()).optional(),
+  metadata: z.record(z.string(), z.unknown()).optional(),
 })
 
 const createMessageWithExecBodySchema = z.object({
   role: z.enum(['user', 'assistant', 'system', 'tool']).default('user'),
   content: z.string().min(1),
   runId: z.string().uuid().optional(),
-  metadata: z.record(z.unknown()).optional(),
+  metadata: z.record(z.string(), z.unknown()).optional(),
   /** Optional agent id — overrides chat.agentId for this message only. */
   agentIdOverride: z.string().uuid().optional(),
   /** Optional flow id — overrides chat.flowId for this message only. */

@@ -25,12 +25,12 @@ const listQuerySchema = z.object({
 const createBodySchema = z.object({
   path: z.string().min(1),
   name: z.string().min(1).optional(),
-  settings: z.record(z.unknown()).optional(),
+  settings: z.record(z.string(), z.unknown()).optional(),
 })
 
 const updateBodySchema = z.object({
   name: z.string().min(1).optional(),
-  settings: z.record(z.unknown()).optional(),
+  settings: z.record(z.string(), z.unknown()).optional(),
 })
 
 interface DirectoryRow {
