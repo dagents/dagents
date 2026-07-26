@@ -1,7 +1,7 @@
 import { describe, it, expect, beforeAll, afterAll, beforeEach } from 'vitest'
 import { randomUUID } from 'node:crypto'
-import { AppDataSource, runQuery } from '@mil/db'
-import { createRedis } from '@mil/shared'
+import { AppDataSource, runQuery } from '@dagents/db'
+import { createRedis } from '@dagents/shared'
 import { buildApp } from '../app.js'
 import type { PredictionClient, PredictionRequest, PredictionResult } from '../prediction-client.js'
 import type { ReproClient } from '../repro-client.js'
@@ -13,8 +13,8 @@ import { startWorker } from '../worker.js'
 /**
  * M4.2 repro integration (plan §Task M4.2 / spec §1.8 acceptance).
  *
- * Drives the scheduler against the real milagents Postgres (`runs` +
- * `pipeline_versions`) + Redis (`mil:tasks`, `mil:sem`) docker-compose stack.
+ * Drives the scheduler against the real dagents Postgres (`runs` +
+ * `pipeline_versions`) + Redis (`dagents:tasks`, `dagents:sem`) docker-compose stack.
  * Flowise + MinIO are stubbed: a `ReproClient` stub records calls and returns
  * deterministic hashes/URIs, so the suite asserts the integration contract —
  * snapshot → bind → archive across fan-out / worker / rerun — without a live
@@ -37,7 +37,7 @@ const FLOW_ID = 'flow-repro-e2e'
 /** Deterministic 64-char hash the stub returns for every snapshot. */
 const STUB_HASH = 'c'.repeat(64)
 /** Deterministic artifact URI the stub returns for every archive. */
-const STUB_URI = (runId: string) => `s3://milagents-stub/runs/${runId}/out.json`
+const STUB_URI = (runId: string) => `s3://dagents-stub/runs/${runId}/out.json`
 
 /** Snapshot calls observed by the stub, keyed by flowId. */
 interface StubReproCalls {
@@ -57,7 +57,7 @@ function stubRepro(calls: StubReproCalls): ReproClient {
     archiveArtifact: async (runId, output) => {
       calls.archives.push(runId)
       if (calls.archiveImpl) return calls.archiveImpl(runId, output)
-      // Faithful to the real `@mil/repro` `archiveArtifact`: the URI is written
+      // Faithful to the real `@dagents/repro` `archiveArtifact`: the URI is written
       // back into `runs.artifact_uri` (the store PUT + the row UPDATE are the
       // one atomic-ish job the repro client owns). The stub records the call,
       // stamps the column, and returns the URI — exactly what the production

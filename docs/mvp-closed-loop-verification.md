@@ -116,18 +116,18 @@ pnpm install
 pnpm -r --filter "./packages/*" --filter "./apps/*" build   # 建 mil 包（跳过 vendor/flowise）
 
 # 跑 END 闭环验证
-POSTGRES_URL=postgresql://milagents:milagents_dev@localhost:15432/milagents \
-REDIS_URL=redis://:milagents_dev@localhost:16479 \
-  pnpm --filter @mil/e2e test
+POSTGRES_URL=postgresql://dagents:dagents_dev@localhost:15432/dagents \
+REDIS_URL=redis://:dagents_dev@localhost:16479 \
+  pnpm --filter @dagents/e2e test
 
 # （可选）重新生成证据快照
 END_EVIDENCE_PATH="$PWD/docs/mvp-closed-loop-evidence.json" \
-POSTGRES_URL=postgresql://milagents:milagents_dev@localhost:15432/milagents \
-REDIS_URL=redis://:milagents_dev@localhost:16479 \
-  pnpm --filter @mil/e2e test
+POSTGRES_URL=postgresql://dagents:dagents_dev@localhost:15432/dagents \
+REDIS_URL=redis://:dagents_dev@localhost:16479 \
+  pnpm --filter @dagents/e2e test
 ```
 
-`pnpm --filter @mil/e2e typecheck` 零错误；全 e2e 套件（M6.7 + END）2/2 通过。
+`pnpm --filter @dagents/e2e typecheck` 零错误；全 e2e 套件（M6.7 + END）2/2 通过。
 
 ## 结论
 

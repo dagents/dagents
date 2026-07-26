@@ -33,7 +33,7 @@ export function schedulerUrl(): string {
  * `XSS.ts:getIframeSecurityHeaders()` reads `IFRAME_ORIGINS` and emits it as the
  * CSP `frame-ancestors` directive; this URL is the *src* side — the origin the
  * iframe points at. Defaults to the vendored Flowise on :3100 (M0.3 uses the
- * flowise build on :3100; the M1 `.env.mil-agents` build runs on :3101 — set
+ * flowise build on :3100; the M1 `.env.dagents` build runs on :3101 — set
  * FLOWISE_EDITOR_URL explicitly if you embed that instance instead).
  *
  * Trailing slashes are stripped so callers can safely append paths.

@@ -1,7 +1,7 @@
 import { describe, it, expect } from 'vitest'
 import { claudeBackend, buildClaudeArgs, parseEvent } from './claude.js'
 import { writeMcpConfigToTemp } from './mcp-config.js'
-import type { Logger } from '@mil/contracts'
+import type { Logger } from '@dagents/contracts'
 import './claude.lifecycle.test.js'
 
 // A capturing logger for asserting filterCustomArgs warn output.

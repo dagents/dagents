@@ -45,7 +45,7 @@ curl ──> gateway :8080 /api/v1/flows/<id>/prediction
 
 ### 2. 起 Flowise :3101（复用 M1 fork 配置，SSRF guard 关闭 + DEBUG）
 
-`~/Projects/Flowise/packages/server/.env`（M1 已配好，同库同 chatflow）指向 mil-agents Postgres(:15432)/Redis(:16479)，`PORT=3101`，`MODE=queue`（API server 只入队，prediction job 由 BullMQ worker 执行）。**必须带 `HTTP_SECURITY_CHECK=false`** 启动，否则 DispatchInvoke 工具的 `secureFetch` 会把 `http://localhost:8080`（gateway）当成 SSRF 攻击拒绝（`isDeniedIP: Access to this host is denied by policy.`），见下文「坑点」。同时带 `DEBUG=true` 让 LangChain 的 `LCConsoleCallbackHandler` 打印 `[tool/start]`/`[tool/end]` trace 作为工具调用的决定性证据（与 M1 文档同法）。
+`~/Projects/Flowise/packages/server/.env`（M1 已配好，同库同 chatflow）指向 dagents Postgres(:15432)/Redis(:16479)，`PORT=3101`，`MODE=queue`（API server 只入队，prediction job 由 BullMQ worker 执行）。**必须带 `HTTP_SECURITY_CHECK=false`** 启动，否则 DispatchInvoke 工具的 `secureFetch` 会把 `http://localhost:8080`（gateway）当成 SSRF 攻击拒绝（`isDeniedIP: Access to this host is denied by policy.`），见下文「坑点」。同时带 `DEBUG=true` 让 LangChain 的 `LCConsoleCallbackHandler` 打印 `[tool/start]`/`[tool/end]` trace 作为工具调用的决定性证据（与 M1 文档同法）。
 
 ```bash
 cd ~/Projects/Flowise && HTTP_SECURITY_CHECK=false DEBUG=true pnpm exec flowise start   # :3101 API
@@ -63,15 +63,15 @@ cd ~/Projects/Flowise && HTTP_SECURITY_CHECK=false DEBUG=true pnpm exec flowise 
 
 ```bash
 # gateway 代理 Flowise(:3101, 默认 FLOWISE_URL) + dispatch(:8081, 默认 DISPATCH_URL)
-POSTGRES_URL=postgresql://milagents:milagents_dev@localhost:15432/milagents \
-  pnpm --filter @mil/gateway dev          # :8080
+POSTGRES_URL=postgresql://dagents:dagents_dev@localhost:15432/dagents \
+  pnpm --filter @dagents/gateway dev          # :8080
 
 # claude daemon 注册到 dispatch(:8081) 并轮询 claim
-POSTGRES_URL=postgresql://milagents:milagents_dev@localhost:15432/milagents \
-  pnpm --filter @mil/daemon exec tsx src/cli.ts http://localhost:8081 m2-claude claude
+POSTGRES_URL=postgresql://dagents:dagents_dev@localhost:15432/dagents \
+  pnpm --filter @dagents/daemon exec tsx src/cli.ts http://localhost:8081 m2-claude claude
 ```
 
-> `POSTGRES_URL` 必须显式指向 `:15432`（mil-agents Postgres 主机映射），否则 `@mil/db` 默认连 `localhost:5432` 会失败。dispatch :8081 复用已在运行的实例（workdir 3313ba50）。
+> `POSTGRES_URL` 必须显式指向 `:15432`（dagents Postgres 主机映射），否则 `@dagents/db` 默认连 `localhost:5432` 会失败。dispatch :8081 复用已在运行的实例（workdir 3313ba50）。
 >
 > claim SQL 不按 `agent_daemon_id` 过滤（`WHERE status='queued' ORDER BY created_at LIMIT 1 FOR UPDATE SKIP LOCKED`），所以任何在线 claude daemon 都会捞走队列里的任务；节点配置里的 `agentDaemonId` 只需是合法 `agent_daemons.id`（FK 约束），用现成的 `6544020d-…`（claude-code/claude）即可。
 
@@ -125,7 +125,7 @@ canvas URL: `http://localhost:3101/canvas/59f18aa2-5a61-43a8-b0b4-16ad7c2989dd`
 ### dispatch_tasks 证据
 
 ```sql
--- docker exec mil-agents-postgres-1 psql -qAt -U milagents -d milagents -c \
+-- docker exec dagents-postgres-1 psql -qAt -U dagents -d dagents -c \
 --   "SELECT id, status, agent_daemon_id, session_id, duration_ms, LEFT(result::text, 200) FROM dispatch_tasks WHERE id='7719943c-510f-4304-ba30-dcf76a6be123'"
 ```
 

@@ -1,6 +1,6 @@
-import { runQuery } from '@mil/db'
-import type { AgentDaemonCall } from '@mil/db'
-import { createLogger } from '@mil/shared'
+import { runQuery } from '@dagents/db'
+import type { AgentDaemonCall } from '@dagents/db'
+import { createLogger } from '@dagents/shared'
 
 /**
  * `runs.agent_daemon_calls` persistence (spec §5.3; plan M6.2 / P1.11.T3).

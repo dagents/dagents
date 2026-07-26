@@ -263,7 +263,7 @@ import '@/styles/shell.css'
 
 export const metadata: Metadata = {
   title: 'DAgent Console',
-  description: '百万智能体编排平台 — 控制台',
+  description: 'Dagents 编排平台 — 控制台',
 }
 
 export default function RootLayout({ children }: { children: React.ReactNode }) {
@@ -281,7 +281,7 @@ export default function RootLayout({ children }: { children: React.ReactNode }) 
 
 - [ ] **Step 4: 构建验证**
 
-Run: `pnpm --filter @mil/console build`
+Run: `pnpm --filter @dagents/console build`
 Expected: Build fails because `ChatNavSidebar` doesn't exist yet — that's expected, we'll create it in Task 2. For now just verify the CSS + layout files compile.
 
 - [ ] **Step 5: Commit**
@@ -916,7 +916,7 @@ export function ChatNavSidebar({ collapsed }: ChatNavSidebarProps): React.ReactE
 
 - [ ] **Step 5: 构建验证**
 
-Run: `pnpm --filter @mil/console build`
+Run: `pnpm --filter @dagents/console build`
 Expected: PASS
 
 - [ ] **Step 6: Commit**
@@ -1405,7 +1405,7 @@ Add these styles to `apps/console/src/styles/chat-home.css` (replace existing co
 
 - [ ] **Step 6: 构建验证**
 
-Run: `pnpm --filter @mil/console build`
+Run: `pnpm --filter @dagents/console build`
 Expected: PASS
 
 - [ ] **Step 7: Commit**
@@ -1946,7 +1946,7 @@ Replace `apps/console/src/styles/chat-detail.css` entirely:
 
 - [ ] **Step 5: 构建验证**
 
-Run: `pnpm --filter @mil/console build`
+Run: `pnpm --filter @dagents/console build`
 Expected: PASS
 
 - [ ] **Step 6: Commit**
@@ -1995,7 +1995,7 @@ export default function DaemonsPage(): React.ReactElement {
 
 - [ ] **Step 2: 构建验证**
 
-Run: `pnpm --filter @mil/console build`
+Run: `pnpm --filter @dagents/console build`
 Expected: PASS — `/daemons` route appears in build output
 
 - [ ] **Step 3: Commit**
@@ -2013,7 +2013,7 @@ git commit -m "feat(console): add daemons page placeholder"
 
 ### Step 1: 全量构建
 
-Run: `pnpm --filter @mil/console build`
+Run: `pnpm --filter @dagents/console build`
 Expected: PASS — all routes present
 
 ### Step 2: 启动 dev 服务器

@@ -3,7 +3,7 @@ import type { INode, INodeData, INodeOutput, IExecutionContext } from '../../typ
 /**
  * Tool node — stub for Plan A.
  *
- * Full implementation (tool execution via @mil/contracts AgentBackend) is in
+ * Full implementation (tool execution via @dagents/contracts AgentBackend) is in
  * Plan B. For now, this node validates the tool name is configured and returns
  * a placeholder so graphs containing Tool nodes can be executed linearly.
  *

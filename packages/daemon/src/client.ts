@@ -26,8 +26,8 @@ import type {
   RegisterResponse,
   TaskComplete,
   TaskFail,
-} from '@mil/contracts'
-import { createLogger, type Logger } from '@mil/shared'
+} from '@dagents/contracts'
+import { createLogger, type Logger } from '@dagents/shared'
 
 /** Dispatch envelope returned by `ok()` (only present on JSON responses). */
 interface Envelope<T> {

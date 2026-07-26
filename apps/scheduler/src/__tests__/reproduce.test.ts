@@ -1,6 +1,6 @@
 import { describe, it, expect, beforeAll, afterAll, beforeEach } from 'vitest'
-import { AppDataSource, runQuery } from '@mil/db'
-import { createRedis } from '@mil/shared'
+import { AppDataSource, runQuery } from '@dagents/db'
+import { createRedis } from '@dagents/shared'
 import { buildApp } from '../app.js'
 import type { PredictionClient, PredictionRequest, PredictionResult } from '../prediction-client.js'
 import { createRedisSemaphore } from '../semaphore.js'
@@ -14,7 +14,7 @@ import { createMemoryArtifactStore, createThrowingArtifactStore } from './mem-ar
  * same harness as rerun.test.ts. The Prediction client is a stub so the test
  * asserts the reproduce contract — same hash + same input re-run + structural
  * compare + report archived — without a live Flowise. The artifact store is an
- * in-memory stub (the real MinIO store is covered by @mil/repro's own suite).
+ * in-memory stub (the real MinIO store is covered by @dagents/repro's own suite).
  *
  * Acceptance (issue description): "同 hash + 同 input 重跑 + 比对, 复现报告生成,
  * 结果可比对 (非字节级)" —

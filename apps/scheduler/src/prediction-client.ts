@@ -1,4 +1,4 @@
-import { createLogger } from '@mil/shared'
+import { createLogger } from '@dagents/shared'
 
 /**
  * Client for the Flowise Prediction API, reached through the gateway

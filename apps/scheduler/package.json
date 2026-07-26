@@ -1,5 +1,5 @@
 {
-  "name": "@mil/scheduler",
+  "name": "@dagents/scheduler",
   "version": "0.0.0",
   "private": true,
   "type": "module",
@@ -13,9 +13,9 @@
   "dependencies": {
     "@hono/node-server": "^1.12.0",
     "hono": "^4.5.0",
-    "@mil/db": "workspace:*",
-    "@mil/repro": "workspace:*",
-    "@mil/shared": "workspace:*",
+    "@dagents/db": "workspace:*",
+    "@dagents/repro": "workspace:*",
+    "@dagents/shared": "workspace:*",
     "zod": "^4.4.3"
   },
   "devDependencies": {

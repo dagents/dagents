@@ -1,11 +1,11 @@
 {
-  "name": "mil-agents",
+  "name": "dagents",
   "private": true,
   "version": "0.0.0",
   "packageManager": "pnpm@10.26.0",
   "scripts": {
     "build": "turbo run build --filter='!flowise'",
-    "dev": "turbo run dev --parallel --filter='!flowise' --filter='!@mil/daemon'",
+    "dev": "turbo run dev --parallel --filter='!flowise' --filter='!@dagents/daemon'",
     "test": "turbo run test --filter='!flowise'",
     "lint": "turbo run lint --filter='!flowise'",
     "typecheck": "turbo run typecheck --filter='!flowise'"

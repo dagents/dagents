@@ -7,16 +7,16 @@ const here = dirname(fileURLToPath(import.meta.url))
 
 export const AppDataSource = new DataSource({
   type: 'postgres',
-  // Default matches the mil-agents docker-compose stack: Postgres is remapped to
+  // Default matches the dagents docker-compose stack: Postgres is remapped to
   // 15432 on the host (see infra/.env.example) to avoid colliding with other
   // projects' :5432. turbo does NOT auto-load `.env` files, so in a bare `pnpm
   // dev` (no sourced env) this fallback is what gateway/dispatch/scheduler boot
   // against — a bare `localhost:5432` would hit ECONNREFUSED and take all three
-  // apps down. Mirrors how `@mil/scheduler` bakes its dev Redis URL. Override
+  // apps down. Mirrors how `@dagents/scheduler` bakes its dev Redis URL. Override
   // via POSTGRES_URL in any other environment.
   url:
     process.env.POSTGRES_URL ??
-    'postgresql://milagents:milagents_dev@localhost:15432/milagents',
+    'postgresql://dagents:dagents_dev@localhost:15432/dagents',
   entities: [join(here, 'entities', '*.{ts,js}')],
   migrations: [join(here, 'migrations', '*.{ts,js}')],
   synchronize: false,

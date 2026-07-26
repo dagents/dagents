@@ -11,8 +11,8 @@
  * on a graceful drain, 1 on a fatal register failure or unexpected crash.
  */
 import { runDaemon } from './main.js'
-import type { AgentType } from '@mil/contracts'
-import { createLogger, startTracing } from '@mil/shared'
+import type { AgentType } from '@dagents/contracts'
+import { createLogger, startTracing } from '@dagents/shared'
 
 // Start OTel BEFORE the daemon loop so the auto-instrumentations patch
 // `fetch` (undici) + `http` before the first dispatch call — W3C `traceparent`
@@ -23,7 +23,7 @@ const tracing = startTracing('daemon')
 
 const log = createLogger({ svc: 'daemon:cli' })
 
-/** Canonical MVP agent-type whitelist (mirrors @mil/contracts AgentType). */
+/** Canonical MVP agent-type whitelist (mirrors @dagents/contracts AgentType). */
 const AGENT_TYPES: readonly string[] = [
   'claude', 'codex', 'copilot', 'opencode', 'openclaw',
   'hermes', 'gemini', 'pi', 'cursor', 'kimi', 'kiro',

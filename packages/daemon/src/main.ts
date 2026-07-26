@@ -6,7 +6,7 @@
  * The daemon is pull-based: it claims work from dispatch over HTTP rather than
  * receiving pushes. One backend per agent type serves all tasks that daemon
  * advertised at registration; for MVP the daemon advertises exactly one
- * capability and maps it 1:1 to an `@mil/agent-adapters` backend.
+ * capability and maps it 1:1 to an `@dagents/agent-adapters` backend.
  *
  * Robustness notes (the plan's skeleton loop had none of these):
  *   - Errors during one task never kill the daemon — a failure is reported
@@ -21,10 +21,10 @@
  *     Gate-1 e2e (M2.4) needs to be restartable without losing a run.
  */
 import { DispatchClient, DispatchHttpError } from './client.js'
-import { claudeBackend } from '@mil/agent-adapters'
+import { claudeBackend } from '@dagents/agent-adapters'
 import { context, trace } from '@opentelemetry/api'
-import { createLogger, getTracer, type Logger } from '@mil/shared'
-import type { AgentBackend, AgentResult, AgentType, ExecOptions } from '@mil/contracts'
+import { createLogger, getTracer, type Logger } from '@dagents/shared'
+import type { AgentBackend, AgentResult, AgentType, ExecOptions } from '@dagents/contracts'
 
 /**
  * A 409 from a terminal endpoint means the task is already `completed` or
@@ -71,12 +71,12 @@ export function defaultBackendFactory(
   executablePath: string,
   logger: Logger,
 ): AgentBackend {
-  // Only the claude adapter exists in @mil/agent-adapters today (M2.1).
+  // Only the claude adapter exists in @dagents/agent-adapters today (M2.1).
   // Codex/opencode/… land with their own tasks; until then a daemon started
   // for any non-claude type fails loudly at execute time, not silently.
   if (agentType !== 'claude') {
     throw new Error(
-      `unsupported agentType '${agentType}': only 'claude' has an adapter in @mil/agent-adapters (M2.1). ` +
+      `unsupported agentType '${agentType}': only 'claude' has an adapter in @dagents/agent-adapters (M2.1). ` +
         `Other backends arrive in their own tasks.`,
     )
   }

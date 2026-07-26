@@ -18,8 +18,8 @@ export type AgentType =
   | 'antigravity' | 'codebuddy' | 'qoder'
 
 /**
- * Structured logger shape. Defined inline here so `@mil/contracts` stays
- * zero-dependency (the concrete logger lives in `@mil/shared`); `BackendConfig`
+ * Structured logger shape. Defined inline here so `@dagents/contracts` stays
+ * zero-dependency (the concrete logger lives in `@dagents/shared`); `BackendConfig`
  * only needs the call surface.
  */
 export interface Logger {

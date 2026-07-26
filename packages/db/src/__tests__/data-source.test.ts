@@ -1,8 +1,8 @@
 import { describe, it, expect } from 'vitest'
-import { AppDataSource, initDb } from '@mil/db'
+import { AppDataSource, initDb } from '@dagents/db'
 
-describe('@mil/db DataSource', () => {
-  it('AppDataSource is a postgres DataSource targeting the milagents db', () => {
+describe('@dagents/db DataSource', () => {
+  it('AppDataSource is a postgres DataSource targeting the dagents db', () => {
     expect(AppDataSource.options.type).toBe('postgres')
     expect(AppDataSource.isInitialized).toBe(false)
   })
@@ -10,7 +10,7 @@ describe('@mil/db DataSource', () => {
   it('reads POSTGRES_URL with a dev fallback', () => {
     const url =
       (AppDataSource.options as { url?: string }).url ??
-      'postgresql://milagents:milagents_dev@localhost:5432/milagents'
+      'postgresql://dagents:dagents_dev@localhost:5432/dagents'
     expect(url).toMatch(/^postgresql:\/\//)
   })
 

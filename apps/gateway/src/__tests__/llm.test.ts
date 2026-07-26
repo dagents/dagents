@@ -6,7 +6,7 @@ import { randomUUID } from 'node:crypto'
 
 const mockRunQuery = vi.fn()
 
-vi.mock('@mil/db', () => ({
+vi.mock('@dagents/db', () => ({
   runQuery: (...args: unknown[]) => mockRunQuery(...args),
 }))
 
@@ -125,7 +125,7 @@ describe('gateway llm provider proxy', () => {
       body: JSON.stringify({ model: 'gpt-4' }),
     })
     expect(res.status).toBe(400)
-    const body = await res.json()
+    const body = (await res.json()) as { success: boolean; error: string }
     expect(body.success).toBe(false)
     expect(body.error).toBe('no llm provider available')
     expect(recordedReq()).toBeNull()
@@ -144,7 +144,7 @@ describe('gateway llm provider proxy', () => {
       body: JSON.stringify({ model: 'gpt-4' }),
     })
     expect(res.status).toBe(400)
-    const body = await res.json()
+    const body = (await res.json()) as { success: boolean; error: string }
     expect(body.success).toBe(false)
     expect(body.error).toBe('no llm provider available')
     expect(recordedReq()).toBeNull()
@@ -293,7 +293,7 @@ describe('gateway llm provider proxy', () => {
       body: JSON.stringify({ model: 'gpt-4' }),
     })
     expect(res.status).toBe(502)
-    const body = await res.json()
+    const body = (await res.json()) as { success: boolean; error: string }
     expect(body).toMatchObject({ success: false, error: 'upstream error' })
     expect(JSON.stringify(body)).not.toContain('stack')
     expect(res.headers.get('x-internal')).toBeNull()

@@ -1,7 +1,7 @@
 import { defineConfig } from 'vitest/config'
 
 // Vitest config for the dispatch package. Integration tests drive the real
-// milagents Postgres (127.0.0.1:15432) via `app.request()`, and every test
+// dagents Postgres (127.0.0.1:15432) via `app.request()`, and every test
 // file wipes the shared dispatch tables in `beforeEach`. Two files running in
 // parallel would interleave those wipes and corrupt each other's state, so we
 // force file-serial execution (`fileParallelism: false`). Tests are fast

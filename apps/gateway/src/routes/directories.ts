@@ -1,8 +1,8 @@
 import { Hono, type Context } from 'hono'
 import type { ContentfulStatusCode } from 'hono/utils/http-status'
 import { z } from 'zod'
-import { runQuery } from '@mil/db'
-import { createLogger } from '@mil/shared'
+import { runQuery } from '@dagents/db'
+import { createLogger } from '@dagents/shared'
 
 export const directoryRoutes = new Hono()
 

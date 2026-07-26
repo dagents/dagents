@@ -1,6 +1,6 @@
 import { describe, it, expect, beforeAll, afterAll, beforeEach } from 'vitest'
 import { app, bootstrap } from '../app.js'
-import { AppDataSource } from '@mil/db'
+import { AppDataSource } from '@dagents/db'
 import { aggregateUsage } from '../runs-usage.js'
 import { randomUUID } from 'node:crypto'
 
@@ -8,7 +8,7 @@ import { randomUUID } from 'node:crypto'
  * Integration tests for daemon usage 落库 (plan M6.2 / P1.11.T3).
  *
  * Drives the Hono app in-process via `app.request()` against the real
- * milagents Postgres (docker-compose stack on 127.0.0.1:15432). Each test
+ * dagents Postgres (docker-compose stack on 127.0.0.1:15432). Each test
  * seeds a daemon + agent_daemon + a `runs` row, then exercises the
  * complete/fail → `runs.agent_daemon_calls` append + the GET /runs/:runId/usage
  * read path — the "usage 可查" acceptance gate.

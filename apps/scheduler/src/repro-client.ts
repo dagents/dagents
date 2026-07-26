@@ -1,4 +1,4 @@
-import { createLogger, type Logger } from '@mil/shared'
+import { createLogger, type Logger } from '@dagents/shared'
 import {
   snapshotPipeline as snapshotFlowVersion,
   archiveArtifact as archiveRunArtifact,
@@ -6,13 +6,13 @@ import {
   type ArtifactStore,
   type RunArtifact,
   type S3ArtifactStoreOpts,
-} from '@mil/repro'
+} from '@dagents/repro'
 import { recordVersionLockAudit } from './audit.js'
 
 /**
- * Scheduler → `@mil/repro` adapter (plan M4.2 / spec §1.8).
+ * Scheduler → `@dagents/repro` adapter (plan M4.2 / spec §1.8).
  *
- * `@mil/repro` exposes the four repro primitives — `snapshotPipeline`,
+ * `@dagents/repro` exposes the four repro primitives — `snapshotPipeline`,
  * `bindRunToVersion`, `archiveArtifact`, `reproduce` — as standalone functions
  * that take their dependencies (flow fetcher, artifact store) as arguments.
  * The scheduler only needs two of them wired into its run lifecycle, and it
@@ -77,7 +77,7 @@ export interface ReproClientOpts {
 
 /**
  * Production repro client: real flow fetch (through the gateway) + the injected
- * artifact store. The store is created lazily by `@mil/repro`'s
+ * artifact store. The store is created lazily by `@dagents/repro`'s
  * `createS3ArtifactStore`, so constructing this client does not require MinIO to
  * be up — mirroring how `createFlowisePredictionClient` defers its first fetch.
  */
@@ -139,9 +139,9 @@ export function createReproClient(opts: ReproClientOpts): ReproClient {
 export function createArtifactStoreFromEnv(): ArtifactStore {
   return createS3ArtifactStore({
     endpoint: process.env.MINIO_ENDPOINT ?? 'http://localhost:9000',
-    accessKeyId: process.env.MINIO_ACCESS_KEY ?? 'milagents',
-    secretAccessKey: process.env.MINIO_SECRET_KEY ?? 'milagents_dev',
-    bucket: process.env.MINIO_BUCKET ?? 'milagents',
+    accessKeyId: process.env.MINIO_ACCESS_KEY ?? 'dagents',
+    secretAccessKey: process.env.MINIO_SECRET_KEY ?? 'dagents_dev',
+    bucket: process.env.MINIO_BUCKET ?? 'dagents',
   } satisfies S3ArtifactStoreOpts)
 }
 

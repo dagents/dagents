@@ -1,5 +1,5 @@
 import { serve } from '@hono/node-server'
-import { startTracing } from '@mil/shared'
+import { startTracing } from '@dagents/shared'
 import { app, bootstrap } from './app.js'
 
 // Start OTel BEFORE any I/O so the auto-instrumentations patch `fetch`/`http`

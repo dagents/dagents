@@ -1,66 +1,67 @@
 /**
  * Settings view 6-tab fidelity tests (v0.3-M8.2).
  *
- * Pins the shape `settings-view.tsx` was aligned onto — the six tabs from
- * `design/settings.html` (全 690 行) grouped 密钥/模型/治理/账户, and the DOM
- * shape each tab renders once switched to.
+ * Pins the shape `settings-view.tsx` was aligned onto — the six tabs grouped
+ * 密钥/模型/治理/账户, and the DOM shape each tab renders once switched to.
  *
- *   §1 tablist — all six tabs render with their design name (API Key / 默认模型
- *     / 预算配额 / 通知 / 账户团队 / 危险区) and API Key is the default-open tab.
+ *   §1 tablist — all six tabs render with their design name (LLM Provider /
+ *     默认模型 / 预算配额 / 通知 / 账户团队 / 危险区) and LLM Provider is the
+ *     default-open tab.
  *
  *   §2 switch — clicking a tab swaps the visible `<section>`; the design's
  *     per-tab primitives appear: 默认模型 → `.model-row` rows, 预算配额 → the
  *     `.bar` budget meter, 通知 → `.toggle-row` event/channel rows, 账户与团队
  *     → `.kv` 个人 + `.model-row` 团队 rows, 危险区 → `.danger-zone` rows.
  *
- *   §3 API Key CRUD — the only live-wired tab. The list, the new-token modal,
- *     and the delete-confirm modal still open/close against a stubbed
- *     `/api/tokens/*` + `/api/gateway-health` fetch (unchanged from P1.10.T8).
+ *   §3 LLM Provider CRUD — the only live-wired tab. The list, the new-provider
+ *     modal, and the delete-confirm modal still open/close against a stubbed
+ *     `/api/llm-providers/*` fetch.
  *
- * The API Key tab's fetch is stubbed via `globalThis.fetch` so the suite runs
- * without a gateway, mirroring the lab/flows-list pattern. The other five
- * tabs are static read-only shells (data wiring deferred per the coverage
- * analysis), so no fetch is needed for them — their shape is in the source.
+ * The LLM Provider tab's fetch is stubbed via `globalThis.fetch` so the suite
+ * runs without a gateway, mirroring the lab/flows-list pattern. The other five
+ * tabs are static read-only shells, so no fetch is needed for them.
  */
 import { describe, it, expect, beforeEach, afterEach, vi } from 'vitest'
 import { render, screen, within, fireEvent, waitFor } from '@testing-library/react'
 
-// ─── fixtures (mirror design/js/tokens-data.js shapes) ─────────────────────
+// ─── fixtures ──────────────────────────────────────────────────────────────
 
-/** The `/api/tokens` list payload — two tokens, one default, one disabled. */
-const TOKENS_FIXTURE = {
+/** The `/api/llm-providers` list payload — two providers, one active, one disabled. */
+const PROVIDERS_FIXTURE = {
   success: true,
   data: {
-    items: [
+    providers: [
       {
-        id: 1,
-        name: '论文复现-生产',
-        key: 'sk-newapi-AAAA**********3f',
-        group: 'prod',
-        status: 1,
-        remain_quota: 480000,
-        used_quota: 20000,
-        unlimited_quota: false,
-        expired_time: -1,
+        id: 'p-001',
+        directoryId: null,
+        name: 'OpenAI 官方',
+        providerType: 'openai',
+        baseUrl: 'https://api.openai.com/v1',
+        apiKey: 'sk-ab••••••3f',
+        defaultModel: 'gpt-4o',
+        models: ['gpt-4o', 'gpt-4o-mini'],
+        status: 'active',
+        remark: null,
+        createdAt: '2026-07-01T00:00:00Z',
+        updatedAt: '2026-07-01T00:00:00Z',
       },
       {
-        id: 2,
-        name: '探索-临时',
-        key: 'sk-newapi-BBBB**********8c',
-        group: 'dev',
-        status: 2,
-        remain_quota: 0,
-        used_quota: 5000,
-        unlimited_quota: false,
-        expired_time: -1,
+        id: 'p-002',
+        directoryId: null,
+        name: 'DeepSeek 探索',
+        providerType: 'deepseek',
+        baseUrl: 'https://api.deepseek.com/v1',
+        apiKey: 'sk-cd••••••8c',
+        defaultModel: 'deepseek-chat',
+        models: ['deepseek-chat'],
+        status: 'disabled',
+        remark: '临时禁用',
+        createdAt: '2026-07-02T00:00:00Z',
+        updatedAt: '2026-07-02T00:00:00Z',
       },
     ],
-    total: 2,
   },
 }
-
-/** `/api/gateway-health` probe result. */
-const HEALTH_FIXTURE = { success: true, ok: true, reachable: true, svc: 'new-api', status: 200 }
 
 function jsonResponse(body: unknown, status = 200): Response {
   return new Response(JSON.stringify(body), {
@@ -71,34 +72,55 @@ function jsonResponse(body: unknown, status = 200): Response {
 
 let originalFetch: typeof globalThis.fetch
 
-// Stub `/api/tokens` (list), `/api/tokens/:id` (create/update/delete), and
-// `/api/gateway-health` so the API Key tab's mount effect resolves without a
-// gateway. The stub records POSTs so the create-modal test can assert one
-// landed with the right body.
-const createdTokens: Array<{ name: string }> = []
+// Stub `/api/llm-providers` (list), `/api/llm-providers/:id` (update/delete),
+// and `/api/llm-providers/:id/test` (connection test) so the LLM Provider tab's
+// mount effect resolves without a gateway. The stub records POSTs so the
+// create-modal test can assert one landed with the right body.
+const createdProviders: Array<{ name: string }> = []
 
 beforeEach(() => {
-  createdTokens.length = 0
+  createdProviders.length = 0
   originalFetch = globalThis.fetch
   globalThis.fetch = (async (input: RequestInfo | URL, init?: RequestInit) => {
     const url = new URL(typeof input === 'string' ? input : input.toString(), 'http://localhost')
     const path = url.pathname
     const method = init?.method ?? 'GET'
 
-    // GET /api/gateway-health — the gateway probe card.
-    if (path === '/api/gateway-health' && method === 'GET') {
-      return jsonResponse(HEALTH_FIXTURE)
+    // GET /api/llm-providers — the provider list.
+    if (path === '/api/llm-providers' && method === 'GET') {
+      return jsonResponse(PROVIDERS_FIXTURE)
     }
-    // GET /api/tokens — the token list.
-    if (path === '/api/tokens' && method === 'GET') {
-      return jsonResponse(TOKENS_FIXTURE)
-    }
-    // POST /api/tokens — create a token. Echo back a created record + record
-    // the body so the test can assert the request landed.
-    if (path === '/api/tokens' && method === 'POST') {
-      const sent = init?.body ? (JSON.parse(init.body.toString()) as { name?: string }) : {}
-      createdTokens.push({ name: sent.name ?? '(empty)' })
-      return jsonResponse({ success: true, data: { id: 99, ...sent } })
+    // POST /api/llm-providers — create a provider. Echo back a created record.
+    if (path === '/api/llm-providers' && method === 'POST') {
+      const sent = init?.body
+        ? (JSON.parse(init.body.toString()) as {
+            name?: string
+            providerType?: string
+            baseUrl?: string
+            defaultModel?: string
+            remark?: string | null
+          })
+        : {}
+      createdProviders.push({ name: sent.name ?? '(empty)' })
+      return jsonResponse({
+        success: true,
+        data: {
+          provider: {
+            id: 'p-099',
+            directoryId: null,
+            name: sent.name ?? '(empty)',
+            providerType: sent.providerType ?? 'openai',
+            baseUrl: sent.baseUrl ?? '',
+            apiKey: 'sk-xx••••••99',
+            defaultModel: sent.defaultModel ?? '',
+            models: [],
+            status: 'active',
+            remark: sent.remark ?? null,
+            createdAt: '2026-07-26T00:00:00Z',
+            updatedAt: '2026-07-26T00:00:00Z',
+          },
+        },
+      })
     }
     return jsonResponse({ success: false, error: 'not found' }, 404)
   }) as typeof globalThis.fetch
@@ -121,20 +143,18 @@ async function renderView(): Promise<void> {
 describe('SettingsView — 6-tab tablist (M8.2)', () => {
   it('renders all six tabs by their design name', async () => {
     await renderView()
-    // The visible button text carries the longer design label; the short
-    // design name rides on aria-label so the tab role + name is unambiguous.
-    const names = ['API Key', '默认模型', '预算配额', '通知', '账户团队', '危险区']
+    const names = ['LLM Provider', '默认模型', '预算配额', '通知', '账户团队', '危险区']
     for (const name of names) {
       expect(screen.getByRole('tab', { name })).toBeInTheDocument()
     }
   })
 
-  it('opens the API Key tab by default', async () => {
+  it('opens the LLM Provider tab by default', async () => {
     await renderView()
-    const apiTab = screen.getByRole('tab', { name: 'API Key' })
-    expect(apiTab).toHaveAttribute('aria-selected', 'true')
-    // The gateway card is unique to the API Key tab.
-    expect(document.querySelector('.gateway')).not.toBeNull()
+    const providerTab = screen.getByRole('tab', { name: 'LLM Provider' })
+    expect(providerTab).toHaveAttribute('aria-selected', 'true')
+    // The provider table is unique to the LLM Provider tab.
+    expect(document.querySelector('.table-wrap')).not.toBeNull()
   })
 })
 
@@ -145,10 +165,8 @@ describe('SettingsView — tab switch + per-tab shape (M8.2)', () => {
     await renderView()
     fireEvent.click(screen.getByRole('tab', { name: '默认模型' }))
     expect(screen.getByRole('tab', { name: '默认模型' })).toHaveAttribute('aria-selected', 'true')
-    // The 按角色分派 card + a model-row carrying the reader role.
     expect(screen.getByText('按角色分派')).toBeInTheDocument()
     expect(screen.getByText('阅读 / reader')).toBeInTheDocument()
-    // The 回退链 card carries the main-model toggle-row.
     expect(screen.getByText('回退链')).toBeInTheDocument()
     expect(screen.getByText('1. Anthropic claude-sonnet-4')).toBeInTheDocument()
   })
@@ -158,7 +176,6 @@ describe('SettingsView — tab switch + per-tab shape (M8.2)', () => {
     fireEvent.click(screen.getByRole('tab', { name: '预算配额' }))
     expect(screen.getByText('全平台预算')).toBeInTheDocument()
     expect(screen.getByText('月预算')).toBeInTheDocument()
-    // The budget bar (.bar) + 熔断规则 toggle-rows.
     const quotaSection = screen.getByText('全平台预算').closest('section')
     expect(quotaSection!.querySelector('.bar')).not.toBeNull()
     expect(screen.getByText('熔断规则')).toBeInTheDocument()
@@ -176,17 +193,11 @@ describe('SettingsView — tab switch + per-tab shape (M8.2)', () => {
   it('switches to 账户团队 and renders 个人 kv + 团队 model-rows', async () => {
     await renderView()
     fireEvent.click(screen.getByRole('tab', { name: '账户团队' }))
-    // The account section is the active panel — scope to it so the repeated
-    // email (个人 kv dd + the owner model-row .p) is unambiguous.
     const section = document.querySelector('section.settings-section.active') as HTMLElement | null
     expect(section).not.toBeNull()
-    // 个人 kv: 姓名 / 邮箱 / 角色 / SSO / 默认 workspace. The email appears
-    // twice on this tab (kv dd + the owner model-row .p), so query the kv's
-    // 邮箱 dd specifically.
     expect(within(section!).getByText('姓名')).toBeInTheDocument()
     const dt = Array.from(section!.querySelectorAll('dl.kv dt')).find((n) => n.textContent === '邮箱')
     expect(dt?.nextElementSibling?.textContent).toBe('rz@team.dev')
-    // 团队 members render as model-rows carrying the owner/admin/editor roles.
     expect(within(section!).getByText('团队 · 38 成员')).toBeInTheDocument()
     expect(section!.querySelectorAll('.model-row').length).toBeGreaterThanOrEqual(3)
   })
@@ -194,51 +205,57 @@ describe('SettingsView — tab switch + per-tab shape (M8.2)', () => {
   it('switches to 危险区 and renders the danger-zone rows (不可恢复 wording present)', async () => {
     await renderView()
     fireEvent.click(screen.getByRole('tab', { name: '危险区' }))
-    // The danger section is the active panel — scope to it because "危险区"
-    // appears on both the tab and the section's card-title.
     const section = document.querySelector('section.settings-section.active') as HTMLElement | null
     expect(section).not.toBeNull()
     expect(within(section!).getByText('危险区')).toBeInTheDocument()
     expect(within(section!).getByText('暂停所有运行中的 run')).toBeInTheDocument()
     expect(within(section!).getByText('轮换全部令牌')).toBeInTheDocument()
-    // The delete-row wording flags the irrecoverable delete.
     expect(within(section!).getByText(/删除 workspace 及全部数据/)).toBeInTheDocument()
     expect(within(section!).getByText(/30 天可恢复/)).toBeInTheDocument()
   })
 
-  it('hides the API Key gateway card when a different tab is selected', async () => {
+  it('hides the LLM Provider table when a different tab is selected', async () => {
     await renderView()
-    expect(document.querySelector('.gateway')).not.toBeNull()
+    expect(document.querySelector('.table-wrap')).not.toBeNull()
     fireEvent.click(screen.getByRole('tab', { name: '通知' }))
-    // API Key section is conditionally rendered, so its gateway card is gone.
-    expect(document.querySelector('.gateway')).toBeNull()
+    // LLM Provider section is conditionally rendered, so its table is gone.
+    expect(document.querySelector('.table-wrap')).toBeNull()
   })
 })
 
-// ─── §3 API Key CRUD (live-wired tab) ───────────────────────────────────────
+// ─── §3 LLM Provider CRUD (live-wired tab) ───────────────────────────────────
 
-describe('SettingsView — API Key tab CRUD (M8.2 retained wiring)', () => {
-  it('lists tokens from /api/tokens', async () => {
+describe('SettingsView — LLM Provider tab CRUD', () => {
+  it('lists providers from /api/llm-providers', async () => {
     await renderView()
-    expect(await screen.findByText('论文复现-生产')).toBeInTheDocument()
-    expect(screen.getByText('探索-临时')).toBeInTheDocument()
+    expect(await screen.findByText('OpenAI 官方')).toBeInTheDocument()
+    expect(screen.getByText('DeepSeek 探索')).toBeInTheDocument()
     // The count chip reflects the fetched list.
-    expect(screen.getByText(/2 \/ 2 个令牌/)).toBeInTheDocument()
+    expect(screen.getByText(/2 \/ 2 个 Provider/)).toBeInTheDocument()
   })
 
-  it('opens the new-token modal and creates a token via POST /api/tokens', async () => {
+  it('opens the new-provider modal and creates a provider via POST /api/llm-providers', async () => {
     await renderView()
     // Wait for the list to render first.
-    expect(await screen.findByText('论文复现-生产')).toBeInTheDocument()
+    expect(await screen.findByText('OpenAI 官方')).toBeInTheDocument()
 
-    fireEvent.click(screen.getByRole('button', { name: '+ 新建令牌' }))
+    fireEvent.click(screen.getByRole('button', { name: '+ 新建 Provider' }))
     // The modal form's name input.
-    const nameInput = await screen.findByLabelText('令牌名称 *')
-    fireEvent.change(nameInput, { target: { value: '新流水线令牌' } })
+    const nameInput = await screen.findByLabelText('名称 *')
+    fireEvent.change(nameInput, { target: { value: 'Claude 官方' } })
+    // Fill required fields (baseUrl + defaultModel).
+    const baseUrlInput = screen.getByLabelText('Base URL *')
+    fireEvent.change(baseUrlInput, { target: { value: 'https://api.anthropic.com' } })
+    const defaultModelInput = screen.getByLabelText('默认模型 *')
+    fireEvent.change(defaultModelInput, { target: { value: 'claude-sonnet-4-20250514' } })
+    // Fill API key (required for create).
+    const apiKeyInput = screen.getByLabelText('API Key *')
+    fireEvent.change(apiKeyInput, { target: { value: 'sk-ant-test' } })
+
     fireEvent.click(screen.getByRole('button', { name: '保存' }))
 
     await waitFor(() => {
-      expect(createdTokens.some((t) => t.name === '新流水线令牌')).toBe(true)
+      expect(createdProviders.some((p) => p.name === 'Claude 官方')).toBe(true)
     })
     // The success toast surfaces.
     expect(await screen.findByText(/已创建/)).toBeInTheDocument()

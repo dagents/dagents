@@ -1,10 +1,10 @@
-import { createLogger } from '@mil/shared'
+import { createLogger } from '@dagents/shared'
 import {
   archiveArtifact,
   compareOutputs,
   type ArtifactStore,
   type RunArtifact,
-} from '@mil/repro'
+} from '@dagents/repro'
 import { runChild, type FanOutDeps } from './fanout.js'
 import {
   createRerunRun,
@@ -37,7 +37,7 @@ import {
  * `runs.artifact_uri`, so the comparison verdict is persisted alongside the
  * run it describes ("复现报告生成, 结果可比对" — issue acceptance).
  *
- * Why this lives here, not in `@mil/repro`: `reproduce()` in the repro package
+ * Why this lives here, not in `@dagents/repro`: `reproduce()` in the repro package
  * is a pure compare given an injected executor — it deliberately depends on no
  * scheduler type so the library stays decoupled. This module is the scheduler
  * integration that supplies the real executor (`runChild`) + DB load/create +

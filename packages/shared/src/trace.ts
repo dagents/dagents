@@ -12,7 +12,7 @@ interface ReadableSpan {
 
 export interface TraceContext { runId: string; traceId: string; parentRunId?: string }
 
-export function getTracer(name = 'mil-agents') {
+export function getTracer(name = 'dagents') {
   return trace.getTracer(name)
 }
 

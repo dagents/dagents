@@ -1,4 +1,4 @@
-import { createLogger } from '@mil/shared'
+import { createLogger } from '@dagents/shared'
 
 /**
  * Fetches the Flowise flow JSON for a flow id (plan M4.1 P1.8.T1).

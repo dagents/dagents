@@ -1,8 +1,8 @@
 import { describe, it, expect, beforeAll, afterAll, beforeEach, afterEach } from 'vitest'
 import { randomUUID } from 'node:crypto'
-import { AppDataSource, runQuery } from '@mil/db'
-import { createRedis } from '@mil/shared'
-import type { RedisClient } from '@mil/shared'
+import { AppDataSource, runQuery } from '@dagents/db'
+import { createRedis } from '@dagents/shared'
+import type { RedisClient } from '@dagents/shared'
 import { recoverStaleRuns, listStaleRuns, resetSemaphore } from '../recovery.js'
 import { createRedisSemaphore, availableSlots } from '../semaphore.js'
 import { TASK_QUEUE_KEY } from '../queue.js'
@@ -13,8 +13,8 @@ import type { PredictionClient, PredictionRequest, PredictionResult } from '../p
 /**
  * Restart-recovery integration test (plan M3.5 / P1.7.T8 — 断点续跑).
  *
- * Drives the real milagents Postgres (`runs`) + Redis (`mil:tasks`,
- * `mil:sem`) from the docker-compose stack. Recovery is exercised against the
+ * Drives the real dagents Postgres (`runs`) + Redis (`dagents:tasks`,
+ * `dagents:sem`) from the docker-compose stack. Recovery is exercised against the
  * actual `runs` rows and Redis keys the worker uses — no mocks of the repo or
  * the semaphore — so the test asserts the real crash→restart contract.
  *
@@ -23,8 +23,8 @@ import type { PredictionClient, PredictionRequest, PredictionResult } from '../p
  * semaphore slot, with the queue task already BRPOP'd away), then runs
  * `recoverStaleRuns` + `startWorker` and asserts the run reaches `completed`.
  *
- * The default URL bakes in the dev Redis password — the mil-agents Redis runs
- * with `--requirepass milagents_dev`, so a bare URL hits `NOAUTH` and the
+ * The default URL bakes in the dev Redis password — the dagents Redis runs
+ * with `--requirepass dagents_dev`, so a bare URL hits `NOAUTH` and the
  * suite skips (see semaphore.test.ts for the full rationale).
  */
 
@@ -70,7 +70,7 @@ async function seedRun(
   return id
 }
 
-/** Drain `mil:tasks` and return the parsed payloads (FIFO: oldest first). */
+/** Drain `dagents:tasks` and return the parsed payloads (FIFO: oldest first). */
 async function drainQueue(): Promise<unknown[]> {
   const out: unknown[] = []
   for (;;) {
@@ -131,7 +131,7 @@ describe('resetSemaphore', () => {
 })
 
 describe('recoverStaleRuns', () => {
-  it('re-enqueues a running run onto mil:tasks and resets the semaphore', async () => {
+  it('re-enqueues a running run onto dagents:tasks and resets the semaphore', async () => {
     const sem = createRedisSemaphore({ redis, maxConcurrent: 4, semKey: 'sem' })
     // Leak a slot (kill mid-run) and leave a running row whose queue task was
     // already BRPOP'd (so it can only be recovered via the runs scan).
@@ -215,7 +215,7 @@ describe('restart recovery — end-to-end acceptance (kill → restart → 续�
     const runId = await seedRun('running', 'flow-e2e', { paper: 7 })
     expect((await sem.acquire()).acquired).toBe(true) // leaked slot
     expect(await sem.count()).toBe(1)
-    // mil:tasks is empty — the task that started this run was already consumed
+    // dagents:tasks is empty — the task that started this run was already consumed
     expect(await redis.brpop(TASK_QUEUE_KEY, 1)).toBeNull()
 
     // --- "restart" ---

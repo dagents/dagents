@@ -7,17 +7,17 @@ import { serve } from '@hono/node-server'
 import { context } from '@opentelemetry/api'
 import { W3CTraceContextPropagator } from '@opentelemetry/core'
 
-import { AppDataSource, runQuery } from '@mil/db'
-import { createRedis, createTestTracing } from '@mil/shared'
-import type { RedisClient } from '@mil/shared'
-import { runDaemon } from '@mil/daemon'
+import { AppDataSource, runQuery } from '@dagents/db'
+import { createRedis, createTestTracing } from '@dagents/shared'
+import type { RedisClient } from '@dagents/shared'
+import { runDaemon } from '@dagents/daemon'
 import type {
   AgentBackend,
   AgentEvent,
   AgentResult,
   AgentSession,
   ExecOptions,
-} from '@mil/contracts'
+} from '@dagents/contracts'
 
 // Real app source — imported by relative path so vitest transforms the TS in
 // place (same convention as m6.7-trace-e2e.test.ts). We deliberately import

@@ -1,5 +1,5 @@
 import { Hono } from 'hono'
-import { runQuery } from '@mil/db'
+import { runQuery } from '@dagents/db'
 import { ok, fail } from '../app.js'
 
 /**

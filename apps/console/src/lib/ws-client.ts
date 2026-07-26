@@ -39,7 +39,7 @@
  */
 
 import { useEffect, useRef, useSyncExternalStore } from 'react'
-import type { ConsoleWsFrame } from '@mil/contracts'
+import type { ConsoleWsFrame } from '@dagents/contracts'
 
 /** Public handle returned by `useWsFrame`. */
 export interface UseWsFrameResult {

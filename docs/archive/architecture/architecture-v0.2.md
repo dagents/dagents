@@ -1,4 +1,4 @@
-# 百万智能体平台 —— 架构设计文档（v0.2，基于 Flowise 重构）
+# Dagents 平台 —— 架构设计文档（v0.2，基于 Flowise 重构）
 
 > **版本**：v0.2
 > **日期**：2026-07-07
@@ -675,7 +675,7 @@ Flowise HTTP 节点
 
 ### 9.1 扩展性目标与瓶颈分析
 
-"百万智能体"的真实瓶颈不在 agent 数量（DB 行数好办），而在：
+"Dagents"的真实瓶颈不在 agent 数量（DB 行数好办），而在：
 
 | 瓶颈 | 原因 | MVP 策略 | 扩展路径 |
 |---|---|---|---|
@@ -966,7 +966,7 @@ A：与 v0.1 一致。MVP 用 docker-compose 验证闭环，K8s 引入运维复�
 
 ### multica（主要参照对象）
 
-- **定位**：开源「把 coding agent 变成可指派队友」的托管平台（task/issue/skill/squad）。与 mil-agents 契合度最高。
+- **定位**：开源「把 coding agent 变成可指派队友」的托管平台（task/issue/skill/squad）。与 dagents 契合度最高。
 - **技术栈**：server 用 **Go**，前端 TS。`server/pkg/agent`（纯适配器）+ `server/internal/daemon`（本地守护进程）+ `server/internal/daemonws`（WS 通信）。
 - **license**：modified Apache 2.0——**禁止直接拿其源码做 SaaS 或嵌入商业产品卖给第三方**，但「组织内部使用（含多 workspace）」与「参照设计自研实现」均允许。
 - **具体借鉴点**：

@@ -1,8 +1,8 @@
-# 百万智能体平台 MVP 实现计划（M0–M6）
+# Dagents 平台 MVP 实现计划（M0–M6）
 
 > **For agentic workers:** REQUIRED SUB-SKILL: Use superpowers:subagent-driven-development (recommended) or superpowers:executing-plans to implement this plan task-by-task. Steps use checkbox (`- [ ]`) syntax for tracking.
 
-**Goal:** 从零实现 mil-agents MVP——fork Flowise 作编排引擎 + 自研 4 薄层（网关/dispatch+daemon/调度/版本）+ 控制台前端，跑通"定义 agent → 编排 flow → 批量执行 → 监控追溯"全闭环。
+**Goal:** 从零实现 dagents MVP——fork Flowise 作编排引擎 + 自研 4 薄层（网关/dispatch+daemon/调度/版本）+ 控制台前端，跑通"定义 agent → 编排 flow → 批量执行 → 监控追溯"全闭环。
 
 **Architecture:** pnpm monorepo，全 TypeScript。`vendor/flowise` 是 fork（直接改源码）。自研层：`apps/gateway`（Hono，含 new-api 代理）、`apps/dispatch`（Hono+WS，daemon 任务队列）、`apps/scheduler`（Redis 队列消费，fan-out）、`apps/console`（Next.js，6 页）；`packages/`（contracts/agent-adapters/daemon/db/repro/shared）。两个 Gate：Gate-1（dispatch↔daemon 协议 + claude adapter，M2）、Gate-2（fork 构建 + Flow State 定位，M0）。
 
@@ -13,7 +13,7 @@
 **执行约定:**
 - TDD：先写失败测试 → 跑（红）→ 最小实现 → 跑（绿）→ commit。
 - 每个任务独立可 commit。
-- 文件路径均为相对 repo 根 `/home/rowan/Projects/mil-agents/`。
+- 文件路径均为相对 repo 根 `/home/rowan/Projects/dagents/`。
 - `vendor/flowise/` 是 fork，改动直接进其源码。
 - 所有 commit message 用 conventional commits（`feat:`/`fix:`/`refactor:`/`docs:`/`test:`/`chore:`）。
 
@@ -40,7 +40,7 @@
 
 ```json
 {
-  "name": "mil-agents",
+  "name": "dagents",
   "private": true,
   "version": "0.0.0",
   "packageManager": "pnpm@9.0.0",
@@ -140,19 +140,19 @@ git commit -m "chore: 建 monorepo 骨架 (pnpm + turbo + tsconfig base)"
 - [ ] **Step 1: 写 `infra/docker-compose.yml`**
 
 ```yaml
-name: mil-agents
+name: dagents
 
 services:
   postgres:
     image: postgres:16-alpine
     environment:
-      POSTGRES_DB: milagents
-      POSTGRES_USER: milagents
-      POSTGRES_PASSWORD: milagents_dev
+      POSTGRES_DB: dagents
+      POSTGRES_USER: dagents
+      POSTGRES_PASSWORD: dagents_dev
     ports: ["127.0.0.1:5432:5432"]
     volumes: ["pgdata:/var/lib/postgresql/data"]
     healthcheck:
-      test: ["CMD-SHELL", "pg_isready -U milagents"]
+      test: ["CMD-SHELL", "pg_isready -U dagents"]
       interval: 5s
       timeout: 5s
       retries: 5
@@ -170,8 +170,8 @@ services:
     image: minio/minio:latest
     command: server /data --console-address ":9001"
     environment:
-      MINIO_ROOT_USER: milagents
-      MINIO_ROOT_PASSWORD: milagents_dev
+      MINIO_ROOT_USER: dagents
+      MINIO_ROOT_PASSWORD: dagents_dev
     ports: ["127.0.0.1:9000:9000", "127.0.0.1:9001:9001"]
     volumes: ["miniodata:/data"]
 
@@ -179,7 +179,7 @@ services:
     image: calciumion/new-api:latest
     ports: ["127.0.0.1:3000:3000"]
     environment:
-      SQL_DSN: postgresql://milagents:milagents_dev@postgres:5432/newapi?sslmode=disable
+      SQL_DSN: postgresql://dagents:dagents_dev@postgres:5432/newapi?sslmode=disable
       TZ: Asia/Shanghai
     depends_on:
       postgres: { condition: service_healthy }
@@ -189,7 +189,7 @@ services:
     image: langfuse/langfuse:latest
     ports: ["127.0.0.1:3001:3000"]
     environment:
-      DATABASE_URL: postgresql://milagents:milagents_dev@postgres:5432/langfuse?sslmode=disable
+      DATABASE_URL: postgresql://dagents:dagents_dev@postgres:5432/langfuse?sslmode=disable
       NEXTAUTH_SECRET: langfuse_dev_secret_change_me
       SALT: langfuse_dev_salt_change_me
       NEXTAUTH_URL: http://localhost:3001
@@ -207,15 +207,15 @@ volumes:
 
 ```
 # Postgres
-POSTGRES_URL=postgresql://milagents:milagents_dev@localhost:5432/milagents
+POSTGRES_URL=postgresql://dagents:dagents_dev@localhost:5432/dagents
 # Redis
 REDIS_URL=redis://localhost:6379
 # MinIO
 MINIO_ENDPOINT=localhost
 MINIO_PORT=9000
-MINIO_ACCESS_KEY=milagents
-MINIO_SECRET_KEY=milagents_dev
-MINIO_BUCKET=milagents
+MINIO_ACCESS_KEY=dagents
+MINIO_SECRET_KEY=dagents_dev
+MINIO_BUCKET=dagents
 # new-api
 NEWAPI_BASE_URL=http://localhost:3000
 NEWAPI_ADMIN_KEY=sk-newapi-admin
@@ -267,7 +267,7 @@ Expected: 看到 `~/Projects/Flowise` 那行 `package.json` 的 M 改动内容�
 
 - [ ] **Step 3: 装 Flowise 依赖**
 
-Run: `cd /home/rowan/Projects/mil-agents && pnpm install`
+Run: `cd /home/rowan/Projects/dagents && pnpm install`
 Expected: 安装完成。Flowise 依赖多，首次 5–10 分钟。若遇 peer dep 冲突，按 Flowise README 加 `.npmrc`（`strict-peer-dependencies=false`）。
 
 - [ ] **Step 4: 构建 Flowise**
@@ -303,9 +303,9 @@ git commit -m "chore: 纳入 Flowise 3.1.3 fork 到 vendor/ (直接改源码, �
 ## Task M0.4: fork remote 改造
 
 **Files:**
-- Modify: `vendor/flowise/.git` 重建（Step 1 删了）—— 不重建，改为在 mil-agents repo 内用 subtree 管理；或保留独立 fork remote 备用。
+- Modify: `vendor/flowise/.git` 重建（Step 1 删了）—— 不重建，改为在 dagents repo 内用 subtree 管理；或保留独立 fork remote 备用。
 
-- [ ] **Step 1: 在 GitHub 建 mil-agents 自己的 Flowise fork**
+- [ ] **Step 1: 在 GitHub 建 dagents 自己的 Flowise fork**
 
 由用户在 GitHub 手动 fork `FlowiseAI/Flowise` 到自己的账号（如 `mzw/Flowise`）。
 
@@ -347,7 +347,7 @@ git commit -m "docs: 记录 Flowise fork remote 与升级流程"
 
 ```json
 {
-  "name": "@mil/contracts",
+  "name": "@dagents/contracts",
   "version": "0.0.0",
   "private": true,
   "type": "module",
@@ -527,12 +527,12 @@ describe('contracts types', () => {
 
 - [ ] **Step 7: 跑测试验证通过**
 
-Run: `pnpm --filter @mil/contracts test`
+Run: `pnpm --filter @dagents/contracts test`
 Expected: PASS（类型测试，验证契约可编译可引用）。
 
 - [ ] **Step 8: typecheck + build**
 
-Run: `pnpm --filter @mil/contracts typecheck && pnpm --filter @mil/contracts build`
+Run: `pnpm --filter @dagents/contracts typecheck && pnpm --filter @dagents/contracts build`
 Expected: 无错。
 
 - [ ] **Step 9: Commit**
@@ -560,7 +560,7 @@ git commit -m "feat(contracts): 加 Backend/ExecOptions/AgentSession/AgentEvent/
 
 ```json
 {
-  "name": "@mil/shared",
+  "name": "@dagents/shared",
   "version": "0.0.0",
   "private": true,
   "type": "module",
@@ -609,7 +609,7 @@ describe('logger', () => {
 
 - [ ] **Step 4: 跑测试验证失败**
 
-Run: `pnpm --filter @mil/shared test`
+Run: `pnpm --filter @dagents/shared test`
 Expected: FAIL（`createLogger` 未定义）。
 
 - [ ] **Step 5: 写 `packages/shared/src/logger.ts`**
@@ -661,7 +661,7 @@ import { context, trace } from '@opentelemetry/api'
 
 export interface TraceContext { runId: string; traceId: string; parentRunId?: string }
 
-export function getTracer(name = 'mil-agents') {
+export function getTracer(name = 'dagents') {
   return trace.getTracer(name)
 }
 
@@ -685,7 +685,7 @@ export interface RedisClient {
   raw(): Redis
 }
 
-export function createRedis(url: string, prefix = 'mil:'): RedisClient {
+export function createRedis(url: string, prefix = 'dagents:'): RedisClient {
   const client = new Redis(url)
   const k = (key: string) => `${prefix}${key}`
   return {
@@ -713,12 +713,12 @@ export * from './redis.js'
 
 - [ ] **Step 10: 跑测试验证通过**
 
-Run: `pnpm --filter @mil/shared test`
+Run: `pnpm --filter @dagents/shared test`
 Expected: PASS。
 
 - [ ] **Step 11: typecheck + build**
 
-Run: `pnpm --filter @mil/shared typecheck && pnpm --filter @mil/shared build`
+Run: `pnpm --filter @dagents/shared typecheck && pnpm --filter @dagents/shared build`
 Expected: 无错。
 
 - [ ] **Step 12: Commit**
@@ -742,7 +742,7 @@ git commit -m "feat(shared): 加 logger(pino)/errors/trace(OTel)/redis 客户端
 
 ```json
 {
-  "name": "@mil/db",
+  "name": "@dagents/db",
   "version": "0.0.0",
   "private": true,
   "type": "module",
@@ -787,7 +787,7 @@ import { join } from 'node:path'
 
 export const AppDataSource = new DataSource({
   type: 'postgres',
-  url: process.env.POSTGRES_URL ?? 'postgresql://milagents:milagents_dev@localhost:5432/milagents',
+  url: process.env.POSTGRES_URL ?? 'postgresql://dagents:dagents_dev@localhost:5432/dagents',
   entities: [join(__dirname, 'entities', '*.{ts,js}')],
   migrations: [join(__dirname, 'migrations', '*.{ts,js}')],
   synchronize: false,
@@ -812,7 +812,7 @@ Run: `mkdir -p packages/db/src/entities packages/db/src/migrations && touch pack
 
 - [ ] **Step 6: 验证连 PG**
 
-Run: `pnpm --filter @mil/db exec ts-node --esm -e "import('./src/data-source.ts').then(async m => { const ds = await m.initDb(); console.log('connected:', ds.isInitialized); await ds.destroy() })"`
+Run: `pnpm --filter @dagents/db exec ts-node --esm -e "import('./src/data-source.ts').then(async m => { const ds = await m.initDb(); console.log('connected:', ds.isInitialized); await ds.destroy() })"`
 Expected: `connected: true`。
 
 - [ ] **Step 7: Commit**
@@ -896,12 +896,12 @@ git commit -m "docs: Gate-2 Flow State 定位结论与时序图"
 
 ```json
 {
-  "name": "@mil/gateway",
+  "name": "@dagents/gateway",
   "version": "0.0.0",
   "private": true,
   "type": "module",
   "scripts": { "dev": "tsx watch src/index.ts", "build": "tsup src/index.ts --format esm", "start": "node dist/index.js", "typecheck": "tsc --noEmit" },
-  "dependencies": { "@hono/node-server": "^1.12.0", "hono": "^4.5.0", "@mil/shared": "workspace:*" },
+  "dependencies": { "@hono/node-server": "^1.12.0", "hono": "^4.5.0", "@dagents/shared": "workspace:*" },
   "devDependencies": { "tsx": "^4.0.0", "tsup": "^8.0.0", "typescript": "^5.5.0", "@types/node": "^20.0.0" }
 }
 ```
@@ -934,9 +934,9 @@ console.log(`gateway on :${port}`)
 
 Run（三个终端）:
 ```bash
-pnpm --filter @mil/gateway dev
-pnpm --filter @mil/dispatch dev
-pnpm --filter @mil/scheduler dev
+pnpm --filter @dagents/gateway dev
+pnpm --filter @dagents/dispatch dev
+pnpm --filter @dagents/scheduler dev
 ```
 Run: `curl -s localhost:8080/health && curl -s localhost:8081/health && curl -s localhost:8082/health`
 Expected: 三个 `{"ok":true,"svc":"..."}`。
@@ -1048,7 +1048,7 @@ describe('gateway flow proxy', () => {
 
 在 `apps/gateway/src/index.ts` 加：
 ```ts
-import { createLogger } from '@mil/shared'
+import { createLogger } from '@dagents/shared'
 const log = createLogger({ svc: 'gateway' })
 
 const FLOWISE_URL = process.env.FLOWISE_URL ?? 'http://localhost:3100'
@@ -1069,7 +1069,7 @@ app.all('/api/v1/flows/*', async (c) => {
 
 - [ ] **Step 3: 手动验证经 gateway 对话**
 
-Run: `pnpm --filter @mil/gateway dev`
+Run: `pnpm --filter @dagents/gateway dev`
 Run:
 ```bash
 curl -s http://localhost:8080/api/v1/flows/<chatflowId>/prediction \
@@ -1135,14 +1135,14 @@ git commit -m "chore: Flowise 接入 Langfuse (M1.5)"
 
 ```json
 {
-  "name": "@mil/agent-adapters",
+  "name": "@dagents/agent-adapters",
   "version": "0.0.0",
   "private": true,
   "type": "module",
   "main": "./dist/index.js",
   "types": "./dist/index.d.ts",
   "scripts": { "build": "tsup src/index.ts --format esm --dts", "typecheck": "tsc --noEmit", "test": "vitest run" },
-  "dependencies": { "@mil/contracts": "workspace:*", "@mil/shared": "workspace:*" },
+  "dependencies": { "@dagents/contracts": "workspace:*", "@dagents/shared": "workspace:*" },
   "devDependencies": { "tsup": "^8.0.0", "typescript": "^5.5.0", "vitest": "^2.0.0", "@types/node": "^20.0.0" }
 }
 ```
@@ -1181,7 +1181,7 @@ describe('claudeBackend', () => {
 
 - [ ] **Step 3: 跑测试验证失败**
 
-Run: `pnpm --filter @mil/agent-adapters test`
+Run: `pnpm --filter @dagents/agent-adapters test`
 Expected: FAIL（模块不存在）。
 
 - [ ] **Step 4: 写 `packages/agent-adapters/src/claude.ts`**（参照 multica `pkg/agent/claude.go` 翻译）
@@ -1189,8 +1189,8 @@ Expected: FAIL（模块不存在）。
 ```ts
 import { spawn, type ChildProcess } from 'node:child_process'
 import { randomUUID } from 'node:crypto'
-import type { AgentBackend, AgentEvent, AgentResult, BackendConfig, ExecOptions, AgentSession, TokenUsage } from '@mil/contracts'
-import { createLogger, type Logger } from '@mil/shared'
+import type { AgentBackend, AgentEvent, AgentResult, BackendConfig, ExecOptions, AgentSession, TokenUsage } from '@dagents/contracts'
+import { createLogger, type Logger } from '@dagents/shared'
 
 export function buildClaudeArgs(opts: ExecOptions): string[] {
   const args = ['--print', '--output-format', 'stream-json', '--verbose']
@@ -1316,7 +1316,7 @@ export { claudeBackend, buildClaudeArgs } from './claude.js'
 
 - [ ] **Step 6: 跑测试验证通过**
 
-Run: `pnpm --filter @mil/agent-adapters test`
+Run: `pnpm --filter @dagents/agent-adapters test`
 Expected: PASS。
 
 - [ ] **Step 7: 手动 e2e 验证（Gate-1 一部分）**
@@ -1359,8 +1359,8 @@ git commit -m "feat(agent-adapters): claude.ts spawn + stream-json 解析 (P1.6.
 ```ts
 import { serve } from '@hono/node-server'
 import { Hono } from 'hono'
-import { AppDataSource } from '@mil/db'
-import { createLogger } from '@mil/shared'
+import { AppDataSource } from '@dagents/db'
+import { createLogger } from '@dagents/shared'
 
 const app = new Hono()
 app.get('/health', (c) => c.json({ ok: true, svc: 'dispatch' }))
@@ -1372,7 +1372,7 @@ log.info('dispatch starting', { port })
 serve({ fetch: app.fetch, port })
 console.log(`dispatch on :${port}`)
 ```
-依赖加 `@mil/db`、`@mil/contracts`。验证 `/health`。
+依赖加 `@dagents/db`、`@dagents/contracts`。验证 `/health`。
 
 Commit: `feat(dispatch): 骨架 + DB 连接 (P1.5.T1)`
 
@@ -1382,7 +1382,7 @@ Commit: `feat(dispatch): 骨架 + DB 连接 (P1.5.T1)`
 
 ```ts
 import { Hono } from 'hono'
-import { AppDataSource } from '@mil/db'
+import { AppDataSource } from '@dagents/db'
 import { randomUUID } from 'node:crypto'
 
 export const invoke = new Hono()
@@ -1445,13 +1445,13 @@ Commit: `feat(dispatch): tasks start/progress/messages/complete/fail (P1.5.T5)`
 
 ```json
 {
-  "name": "@mil/daemon",
+  "name": "@dagents/daemon",
   "version": "0.0.0",
   "private": true,
   "type": "module",
   "bin": { "mil-daemon": "./dist/cli.js" },
   "scripts": { "build": "tsup src/main.ts src/cli.ts --format esm", "typecheck": "tsc --noEmit", "test": "vitest run" },
-  "dependencies": { "@mil/contracts": "workspace:*", "@mil/agent-adapters": "workspace:*", "@mil/shared": "workspace:*" },
+  "dependencies": { "@dagents/contracts": "workspace:*", "@dagents/agent-adapters": "workspace:*", "@dagents/shared": "workspace:*" },
   "devDependencies": { "tsup": "^8.0.0", "typescript": "^5.5.0", "vitest": "^2.0.0", "@types/node": "^20.0.0" }
 }
 ```
@@ -1459,7 +1459,7 @@ Commit: `feat(dispatch): tasks start/progress/messages/complete/fail (P1.5.T5)`
 - [ ] **Step 2: 写 `packages/daemon/src/client.ts`**（dispatch HTTP client）
 
 ```ts
-import type { AgentEvent, AgentResult, ClaimTaskResponse, RegisterRequest, RegisterResponse, HeartbeatPayload, TaskComplete, TaskFail } from '@mil/contracts'
+import type { AgentEvent, AgentResult, ClaimTaskResponse, RegisterRequest, RegisterResponse, HeartbeatPayload, TaskComplete, TaskFail } from '@dagents/contracts'
 
 export class DispatchClient {
   constructor(private baseUrl: string, private token: string) {}
@@ -1495,9 +1495,9 @@ export class DispatchClient {
 
 ```ts
 import { DispatchClient } from './client.js'
-import { claudeBackend } from '@mil/agent-adapters'
-import { createLogger } from '@mil/shared'
-import type { AgentType } from '@mil/contracts'
+import { claudeBackend } from '@dagents/agent-adapters'
+import { createLogger } from '@dagents/shared'
+import type { AgentType } from '@dagents/contracts'
 
 export interface DaemonOpts {
   serverUrl: string
@@ -1546,7 +1546,7 @@ function sleep(ms: number) { return new Promise((r) => setTimeout(r, ms)) }
 
 ```ts
 import { runDaemon } from './main.js'
-import type { AgentType } from '@mil/contracts'
+import type { AgentType } from '@dagents/contracts'
 
 const [serverUrl, label, agentType] = process.argv.slice(2)
 if (!serverUrl || !label || !agentType) {
@@ -1558,7 +1558,7 @@ runDaemon({ serverUrl, label, agentType: agentType as AgentType }).catch((e) => 
 
 - [ ] **Step 5: typecheck + build**
 
-Run: `pnpm --filter @mil/daemon typecheck && pnpm --filter @mil/daemon build`
+Run: `pnpm --filter @dagents/daemon typecheck && pnpm --filter @dagents/daemon build`
 Expected: 无错。
 
 - [ ] **Step 6: Commit**
@@ -1575,8 +1575,8 @@ git commit -m "feat(daemon): 主循环 + dispatch client + CLI (P1.6.T2, Gate-1 
 - [ ] **Step 1: 起 dispatch + daemon**
 
 ```bash
-pnpm --filter @mil/dispatch dev   # 终端1
-pnpm --filter @mil/daemon dev -- http://localhost:8081 dev-laptop claude  # 终端2（或 build 后跑 dist/cli.js）
+pnpm --filter @dagents/dispatch dev   # 终端1
+pnpm --filter @dagents/daemon dev -- http://localhost:8081 dev-laptop claude  # 终端2（或 build 后跑 dist/cli.js）
 ```
 
 - [ ] **Step 2: 手动 invoke**
@@ -1734,9 +1734,9 @@ git commit --allow-empty -m "docs: M2 完成 — 画布内调 Claude Code e2e"
 # 里程碑 M3 — 批量执行 + Flow State 改造（依赖 Gate-2）
 
 ## Task M3.1: scheduler 单 run 执行 + 并发闸（P1.7.T1–T3）
-- 建 `apps/scheduler/src/index.ts`：消费 Redis 队列 `mil:tasks`，每条 = { runId, pipelineId, input }。
+- 建 `apps/scheduler/src/index.ts`：消费 Redis 队列 `dagents:tasks`，每条 = { runId, pipelineId, input }。
 - 调 Flowise `POST /api/v1/prediction/{flowId}`（经 gateway），落 output 到 `runs` 表。
-- 并发闸：Redis 信号量 `mil:sem` maxConcurrent。
+- 并发闸：Redis 信号量 `dagents:sem` maxConcurrent。
 - 测试：mock Flowise 响应，验证单 run 执行 + 并发限制。
 - Commit: `feat(scheduler): 单 run 执行 + 并发闸 (P1.7.T1-T3)`
 
@@ -1799,7 +1799,7 @@ git commit --allow-empty -m "docs: M2 完成 — 画布内调 Claude Code e2e"
 
 ## Task M5a.1: console 骨架 + 对话/会话/SSE（P1.10.T1–T3）
 - 建 `apps/console`（Next.js app router）+ 侧栏 6 页导航 + 对话视图 + SSE 流式。
-- 依赖 `@mil/shared`、经 gateway 调 Flowise。
+- 依赖 `@dagents/shared`、经 gateway 调 Flowise。
 - Commit: `feat(console): 骨架 + 对话 + SSE (P1.10.T1-T3)`
 
 ## Task M5a.2: Agents 管理页（P1.10.T4）

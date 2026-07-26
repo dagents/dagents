@@ -1,6 +1,6 @@
 import { serve } from '@hono/node-server'
-import { AppDataSource } from '@mil/db'
-import { createLogger, createRedis, startTracing } from '@mil/shared'
+import { AppDataSource } from '@dagents/db'
+import { createLogger, createRedis, startTracing } from '@dagents/shared'
 import { buildApp } from './app.js'
 import { createFlowisePredictionClient } from './prediction-client.js'
 import { recoverStaleRuns } from './recovery.js'
@@ -18,10 +18,10 @@ const tracing = startTracing('scheduler')
 /**
  * Scheduler entrypoint (M3.1 + M3.2 + M3.5 + M4.2 + M4.3).
  *
- * Two execution paths share one Redis concurrency gate (`mil:sem`) and one
+ * Two execution paths share one Redis concurrency gate (`dagents:sem`) and one
  * `runs` table:
  *
- * - **Queue worker (M3.1)** — `startWorker` BRPOPs `mil:tasks` and runs each
+ * - **Queue worker (M3.1)** — `startWorker` BRPOPs `dagents:tasks` and runs each
  *   task through the Flowise Prediction API under the semaphore. Producers
  *   LPUSH `ScheduleTask` payloads; the worker acquires a slot *before* it
  *   dequeues, so a dequeued task always has a slot to run in (no orphaned
@@ -37,7 +37,7 @@ const tracing = startTracing('scheduler')
  * ceiling).
  *
  * **Repro integration (M4.2)** — both paths also share one `ReproClient`
- * (`@mil/repro`): every run is snapshotted + bound to a `pipeline_version_hash`
+ * (`@dagents/repro`): every run is snapshotted + bound to a `pipeline_version_hash`
  * inline (atomic in `createRun`) and its output archived to MinIO
  * (`runs.artifact_uri`) on completion. Fan-out snapshots once per batch and
  * reuses the hash for parent + every child; rerun copies the source's hash
@@ -57,8 +57,8 @@ const tracing = startTracing('scheduler')
  * dispatch/gateway) so every request + worker iteration reuses the pool.
  *
  * **Restart recovery (M3.5)** — before the worker starts, `recoverStaleRuns`
- * zeroes the leaked `mil:sem` counter and re-enqueues any run left in
- * `running` by a prior crash (BRPOP'd tasks are gone from `mil:tasks`, so a
+ * zeroes the leaked `dagents:sem` counter and re-enqueues any run left in
+ * `running` by a prior crash (BRPOP'd tasks are gone from `dagents:tasks`, so a
  * killed-mid-run row would otherwise hang forever). The worker then drains
  * the recovered queue like any other. Disable with `SCHEDULER_RECOVER_ON_START=0`
  * (e.g. a multi-instance deployment where one process must not zero another's
@@ -72,10 +72,10 @@ const tracing = startTracing('scheduler')
 
 const log = createLogger({ svc: 'scheduler' })
 
-// Default matches the mil-agents docker-compose stack: Redis is remapped to
+// Default matches the dagents docker-compose stack: Redis is remapped to
 // 16479 on the host (see infra/.env.example). The dev compose stack runs redis
 // with NO `--requirepass`, so the URL carries no password — mirroring how
-// `@mil/db` bakes its dev PG creds. A bare `redis://localhost:6379` would hit
+// `@dagents/db` bakes its dev PG creds. A bare `redis://localhost:6379` would hit
 // the wrong port (no redis on 6379 on this host). Override via REDIS_URL in any
 // other environment.
 const redisUrl =
@@ -95,7 +95,7 @@ await bootstrap()
 
 // One Redis client + one semaphore, shared by the worker and the fan-out
 // server. Sharing the client keeps a single connection pool; sharing the
-// semaphore gives both paths one concurrency budget (`mil:sem`).
+// semaphore gives both paths one concurrency budget (`dagents:sem`).
 const redis = createRedis(redisUrl)
 const semaphore = createRedisSemaphore({ redis, maxConcurrent, semKey: 'sem' })
 

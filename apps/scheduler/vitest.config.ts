@@ -1,8 +1,8 @@
 import { defineConfig } from 'vitest/config'
 
-// Integration tests hit the real milagents Postgres (127.0.0.1:15432) and
+// Integration tests hit the real dagents Postgres (127.0.0.1:15432) and
 // Redis (127.0.0.1:16479) from the docker-compose stack. Run files serially:
-// the suite shares the `runs` table + `mil:sem`/`mil:tasks` keys across files
+// the suite shares the `runs` table + `dagents:sem`/`dagents:tasks` keys across files
 // (each file wipes them in beforeEach), and parallel files would race on the
 // same rows/keys. The suite is small and fast, so serializing the whole thing
 // keeps counts deterministic (same rationale as apps/gateway/vitest.config.ts).

@@ -1,13 +1,13 @@
 #!/usr/bin/env python3
 """
 M2.10: Programmatically build a Flowise chatflow that wires a ChatOpenAI node
-(pointed at the mil-agents new-api LLM gateway) into a Tool Agent (function
+(pointed at the dagents new-api LLM gateway) into a Tool Agent (function
 calling) with a DispatchInvoke tool, then run the canvas end-to-end acceptance
-probe through the mil-agents gateway.
+probe through the dagents gateway.
 
 This mirrors scripts/flowise-m1-setup.py (same urllib + Bearer API Key +
 find_or_create structure, same ChatOpenAI→new-api + BufferMemory scaffolding)
-and swaps the Calculator tool for the mil-agents DispatchInvoke tool node
+and swaps the Calculator tool for the dagents DispatchInvoke tool node
 (vendor/flowise/.../nodes/tools/DispatchInvoke). The DispatchInvoke tool POSTs
 /api/v1/dispatch/invoke through the gateway and polls
 GET /api/v1/dispatch/tasks/:id until the claimed claude daemon completes, so an
@@ -32,7 +32,7 @@ Env:
   CHATFLOW_NAME     default M2 Dispatch Demo
   NEWAPI_MODEL      default glm-5.2
   AGENT_DAEMON_ID   UUID of the target agent_daemons row (FK). Default is the
-                    single claude row present in the mil-agents DB.
+                    single claude row present in the dagents DB.
   DISPATCH_TIMEOUT_MS  default 180000  (claude CLI is slow; > gateway 120s default)
   PROBE_QUESTION    default "用 claude 列出目录"  (the M2.10 acceptance question)
 """
@@ -51,7 +51,7 @@ CRED_NAME = os.environ.get("FLOWISE_CRED_NAME", "newapi-openai-m2")
 CHATFLOW_NAME = os.environ.get("CHATFLOW_NAME", "M2 Dispatch Demo")
 MODEL = os.environ.get("NEWAPI_MODEL", "glm-5.2")
 # Default is the single agent_daemons row (claude-code / claude) present in the
-# mil-agents DB as of 2026-07-09. The plan's stale 0a791869… row no longer
+# dagents DB as of 2026-07-09. The plan's stale 0a791869… row no longer
 # exists; the FK on dispatch_tasks.agent_daemon_id rejects anything else.
 AGENT_DAEMON_ID = os.environ.get(
     "AGENT_DAEMON_ID", "6544020d-918a-43e5-a411-a17733b368e1"
@@ -203,7 +203,7 @@ def build_flow_data(cred_id):
                 "name": "dispatchInvoke", "type": "DispatchInvoke",
                 "baseClasses": ["DispatchInvoke", "Tool", "StructuredTool", "BaseLangChain"],
                 "category": "Tools",
-                "description": "Invoke a mil-agents dispatch task via the gateway and return its output",
+                "description": "Invoke a dagents dispatch task via the gateway and return its output",
                 "inputParams": [
                     {"label": "Agent Daemon ID", "name": "agentDaemonId", "type": "string",
                      "description": "UUID of the target agent daemon that will run the task",
@@ -222,7 +222,7 @@ def build_flow_data(cred_id):
                      "optional": True, "additionalParams": True,
                      "id": "dispatchInvoke_0-input-name-string"},
                     {"label": "Description", "name": "description", "type": "string", "rows": 4,
-                     "default": "Invoke a mil-agents dispatch task and return its output",
+                     "default": "Invoke a dagents dispatch task and return its output",
                      "optional": True, "additionalParams": True,
                      "id": "dispatchInvoke_0-input-description-string"},
                 ],

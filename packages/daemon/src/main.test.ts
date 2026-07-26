@@ -1,7 +1,7 @@
 import { describe, it, expect, vi } from 'vitest'
 import { runDaemon } from './main.js'
 import { DispatchClient, DispatchHttpError } from './client.js'
-import type { AgentBackend, AgentEvent, AgentResult, AgentSession, ExecOptions } from '@mil/contracts'
+import type { AgentBackend, AgentEvent, AgentResult, AgentSession, ExecOptions } from '@dagents/contracts'
 
 /**
  * Main-loop tests for `runDaemon` (M2.3).

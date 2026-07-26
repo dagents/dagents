@@ -9,7 +9,7 @@
  *    has a `flowId` (the Flowise chatflow id) and a short description.
  *
  *  - **Heterogeneous CLI agents** — `claude`, `codex`, … (the 14-type
- *    whitelist in `@mil/contracts` `AgentType`). These are dispatched through
+ *    whitelist in `@dagents/contracts` `AgentType`). These are dispatched through
  *    the daemon fleet, not the prediction API, so in the M5a.1 chat view they
  *    are listed but flagged `runtime: 'cli'` and route through the same
  *    prompt-agent path as a placeholder until the dispatch UI lands (M5b). The
@@ -20,7 +20,7 @@
  * configured default chatflow.
  */
 
-import type { AgentType } from '@mil/contracts'
+import type { AgentType } from '@dagents/contracts'
 import { DEFAULT_FLOW_ID } from './config'
 
 export type AgentRuntime = 'prompt' | 'cli'

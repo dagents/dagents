@@ -1,6 +1,6 @@
 import { describe, it, expect, beforeAll, afterAll, beforeEach } from 'vitest'
 import { randomUUID } from 'node:crypto'
-import { AppDataSource, runQuery } from '@mil/db'
+import { AppDataSource, runQuery } from '@dagents/db'
 import { ingestRunNodeSpans } from '../node-span-ingest.js'
 
 /**

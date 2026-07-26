@@ -1,5 +1,5 @@
-import { runQuery } from '@mil/db'
-import type { AgentDaemonCall, RunStatus } from '@mil/db'
+import { runQuery } from '@dagents/db'
+import type { AgentDaemonCall, RunStatus } from '@dagents/db'
 
 /**
  * `runs` table repository (spec §5.3; M3.2's persistence layer).

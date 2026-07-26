@@ -12,7 +12,7 @@
  *
  * The dev infra remaps Postgres→15432 and Redis→16479 (see infra/README.md);
  * set those as defaults so `pnpm test` works without a local .env. The Redis
- * in this stack requires a password (`milagents_dev`), so the default REDIS_URL
+ * in this stack requires a password (`dagents_dev`), so the default REDIS_URL
  * carries it — a bare `redis://localhost:16479` would hit `NOAUTH` and every
  * Redis-touching test would fail (same rationale as the inline defaults in
  * `semaphore.test.ts` / `fanout.test.ts`). Tests that need a different Redis
@@ -21,10 +21,10 @@
  * `await` at top level is fine here: vitest awaits an ESM setup module's
  * top-level await before starting the file's tests, so migrations finish first.
  */
-import { AppDataSource, initDb } from '@mil/db'
+import { AppDataSource, initDb } from '@dagents/db'
 
 process.env.POSTGRES_URL ??=
-  'postgresql://milagents:milagents_dev@localhost:15432/milagents'
+  'postgresql://dagents:dagents_dev@localhost:15432/dagents'
 process.env.REDIS_URL ??= 'redis://localhost:16479'
 
 await initDb()

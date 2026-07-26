@@ -10,17 +10,17 @@
  * `await` at top level is fine: vitest awaits an ESM setup module's top-level
  * await before starting the file's tests, so migrations finish first.
  */
-import { AppDataSource, initDb } from '@mil/db'
+import { AppDataSource, initDb } from '@dagents/db'
 
 process.env.POSTGRES_URL ??=
-  'postgresql://milagents:milagents_dev@localhost:15432/milagents'
+  'postgresql://dagents:dagents_dev@localhost:15432/dagents'
 
 // MinIO dev creds (infra/.env.example). Tests that need a different store
 // override these before constructing the S3 client.
 process.env.MINIO_ENDPOINT ??= 'http://localhost:9000'
-process.env.MINIO_ACCESS_KEY ??= 'milagents'
-process.env.MINIO_SECRET_KEY ??= 'milagents_dev'
-process.env.MINIO_BUCKET ??= 'milagents'
+process.env.MINIO_ACCESS_KEY ??= 'dagents'
+process.env.MINIO_SECRET_KEY ??= 'dagents_dev'
+process.env.MINIO_BUCKET ??= 'dagents'
 
 await initDb()
 // Run pending migrations so `pipeline_versions` exists on a fresh DB.

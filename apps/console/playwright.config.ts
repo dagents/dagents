@@ -9,11 +9,11 @@ import { defineConfig, devices } from '@playwright/test'
  * presence-pill render (the WS-refresh e2e is deferred — see the spec header),
  * and the flows edit button opening the Flowise canvas editor in an iframe.
  * The webServer block boots `next dev` on :3000 and reuses an already-running
- * instance so a developer's `pnpm --filter @mil/console dev` is not killed
+ * instance so a developer's `pnpm --filter @dagents/console dev` is not killed
  * between runs.
  *
  * These are **true end-to-end** tests, not the in-process `app.request()`
- * suites under `__tests__/`. They need the mil-agents dev stack up: Postgres
+ * suites under `__tests__/`. They need the dagents dev stack up: Postgres
  * (:15432), Redis (:16479), and the gateway (:8080) + dispatch (:8081) +
  * Flowise (:3100) services the console proxies into. See the issue brief and
  * `infra/README.md` for bring-up. The webServer here only owns the Next dev
@@ -65,7 +65,7 @@ export default defineConfig({
     // lets a developer keep their own console dev running and have Playwright
     // attach to it instead of spawning a second instance. Point at a different
     // port (e.g. another Next app occupies :3000) via `E2E_PORT`.
-    command: 'pnpm --filter @mil/console exec next dev -p ' + (process.env.E2E_PORT ?? '3000'),
+    command: 'pnpm --filter @dagents/console exec next dev -p ' + (process.env.E2E_PORT ?? '3000'),
     url: `http://127.0.0.1:${process.env.E2E_PORT ?? '3000'}`,
     reuseExistingServer: true,
     timeout: 180_000,

@@ -1,5 +1,5 @@
-import { runQuery } from '@mil/db'
-import { createLogger } from '@mil/shared'
+import { runQuery } from '@dagents/db'
+import { createLogger } from '@dagents/shared'
 import type { NodeSpanInput } from './node-spans.js'
 
 /**

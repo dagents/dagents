@@ -1,6 +1,6 @@
 import { context, trace } from '@opentelemetry/api'
-import { createLogger, getTracer } from '@mil/shared'
-import { runQuery } from '@mil/db'
+import { createLogger, getTracer } from '@dagents/shared'
+import { runQuery } from '@dagents/db'
 import type { PredictionClient, PredictionResult } from './prediction-client.js'
 import { PredictionError } from './prediction-client.js'
 import type { ReproClient } from './repro-client.js'

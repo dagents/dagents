@@ -1,13 +1,13 @@
 ---
-name: mil-agents-patterns
-description: Conventions and workflow patterns for the mil-agents repo (百万智能体平台 MVP). Use when working in this repo — committing, adding docs/specs/plans, or making architecture decisions.
+name: dagents-patterns
+description: Conventions and workflow patterns for the dagents repo (Dagents 平台 MVP). Use when working in this repo — committing, adding docs/specs/plans, or making architecture decisions.
 version: 1.0.0
 source: local-git-analysis
 analyzed_commits: 8
 last_updated: 2026-07-08
 ---
 
-# mil-agents Repo Patterns
+# dagents Repo Patterns
 
 > Extracted from git history + repo docs. The repo is pre-code (8 commits, all docs/design), so these patterns describe **how this project plans and records work**, not code structure (which lives in `docs/superpowers/plans/`).
 

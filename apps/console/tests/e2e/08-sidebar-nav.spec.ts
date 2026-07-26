@@ -29,7 +29,7 @@ import { createSeedContext, seedDirectory, seedChat, type SeedContext } from './
  *
  * ## Prerequisites
  *
- * True end-to-end: the mil-agents dev stack must be up — Postgres (:15432),
+ * True end-to-end: the dagents dev stack must be up — Postgres (:15432),
  * Redis (:16479), gateway (:8080) + dispatch (:8081). The sidebar reads
  * directories/chats through the console's `/api/directories` + `/api/chats`
  * proxies, which hit the gateway, which reads the shared Postgres. The

@@ -4,7 +4,7 @@ import {
   GetObjectCommand,
   type S3ClientConfig,
 } from '@aws-sdk/client-s3'
-import { createLogger } from '@mil/shared'
+import { createLogger } from '@dagents/shared'
 import { sha256Bytes } from './hash.js'
 
 /**

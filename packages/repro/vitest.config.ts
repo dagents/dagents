@@ -1,6 +1,6 @@
 import { defineConfig } from 'vitest/config'
 
-// Integration tests hit the real milagents Postgres (127.0.0.1:15432) and
+// Integration tests hit the real dagents Postgres (127.0.0.1:15432) and
 // MinIO (127.0.0.1:9000) from the docker-compose stack, and mutate the shared
 // `runs` + `pipeline_versions` tables. Run files serially: the suite shares
 // those tables across files (each file wipes them in beforeEach), and parallel

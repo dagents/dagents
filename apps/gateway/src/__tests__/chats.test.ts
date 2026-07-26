@@ -1,6 +1,6 @@
 import { describe, it, expect, beforeAll, afterAll, beforeEach, afterEach } from 'vitest'
 import { app } from '../app.js'
-import { AppDataSource, runQuery } from '@mil/db'
+import { AppDataSource, runQuery } from '@dagents/db'
 import { randomUUID } from 'node:crypto'
 
 let seededMessageIds: string[] = []

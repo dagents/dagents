@@ -7,7 +7,7 @@ import { flowiseEditorUrl } from './config'
  * The console embeds the Flowise canvas editor in an `<iframe>`; this resolver
  * is the iframe SRC side of that wiring. Its mirror, the CSP `frame-ancestors`
  * side, lives on the Flowise server (IFRAME_ORIGINS — see vendor/flowise/
- * packages/server/.env.mil-agents). These pin the default + override + the
+ * packages/server/.env.dagents). These pin the default + override + the
  * trailing-slash normalization the iframe src relies on, without booting Next.
  */
 describe('flowiseEditorUrl', () => {

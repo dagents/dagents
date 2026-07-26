@@ -1,8 +1,8 @@
 import { describe, it, expect, beforeAll, afterAll, afterEach } from 'vitest'
 import { randomUUID } from 'node:crypto'
-import { AppDataSource } from '@mil/db'
-import { createRedis } from '@mil/shared'
-import type { RedisClient } from '@mil/shared'
+import { AppDataSource } from '@dagents/db'
+import { createRedis } from '@dagents/shared'
+import type { RedisClient } from '@dagents/shared'
 import { startWorker } from '../worker.js'
 import { createRedisSemaphore, availableSlots } from '../semaphore.js'
 import { TASK_QUEUE_KEY, type ScheduleTask } from '../queue.js'
@@ -12,13 +12,13 @@ import type { PredictionClient, PredictionRequest, PredictionResult } from '../p
 /**
  * Integration tests for the scheduler worker (plan M3.1 / P1.7).
  *
- * Uses the real milagents Postgres (runs table) + Redis (mil:tasks queue +
- * mil:sem semaphore) from the docker-compose stack. Flowise is mocked with an
+ * Uses the real dagents Postgres (runs table) + Redis (dagents:tasks queue +
+ * dagents:sem semaphore) from the docker-compose stack. Flowise is mocked with an
  * in-process PredictionClient so no gateway is required — the test asserts the
  * scheduler's queue→semaphore→run→persist loop, not Flowise itself.
  *
  * The semaphore is main's `createRedisSemaphore` (Lua INCR/DECR counter on
- * `mil:sem`) — the same gate the fan-out path uses — so this also verifies the
+ * `dagents:sem`) — the same gate the fan-out path uses — so this also verifies the
  * worker shares the gate correctly.
  *
  * Coverage (验收清单):
@@ -117,9 +117,9 @@ afterAll(async () => {
 
 afterEach(async () => {
   // Wipe queue + semaphore + runs between tests so state never leaks. The
-  // prefixed `redis.del` applies the `mil:` prefix, so `del('tasks')` /
-  // `del('sem')` hit `mil:tasks` / `mil:sem` — matching the keys the worker
-  // BRPOPs and the semaphore EVALs (both compose the `mil:` prefix).
+  // prefixed `redis.del` applies the `dagents:` prefix, so `del('tasks')` /
+  // `del('sem')` hit `dagents:tasks` / `dagents:sem` — matching the keys the worker
+  // BRPOPs and the semaphore EVALs (both compose the `dagents:` prefix).
   await redis.del(TASK_QUEUE_KEY)
   await redis.del('sem')
   await AppDataSource.query(`DELETE FROM runs`)
@@ -131,7 +131,7 @@ afterEach(async () => {
 
 /**
  * Enqueue tasks and return a fresh semaphore at `max`. The worker shares this
- * `mil:sem` gate with the fan-out path; the test builds its own semaphore
+ * `dagents:sem` gate with the fan-out path; the test builds its own semaphore
  * instance pointed at the same key so it can both seed the cap (via `reset` +
  * the cap baked into `createRedisSemaphore`) and read `availableSlots`.
  */

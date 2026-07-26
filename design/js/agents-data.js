@@ -1,5 +1,5 @@
 /* agents-data.js — sample agent records for agents.html + agent-detail.html
-   Aligned to mil-agents v0.2 architecture (Agent / Agent Daemon / Run) and
+   Aligned to dagents v0.2 architecture (Agent / Agent Daemon / Run) and
    multica's detail-page field model (activity buckets / skills / instructions /
    visibility / concurrency / model / runtime / owner / created).
    status: running | queued | idle | failed | paused (list-level)

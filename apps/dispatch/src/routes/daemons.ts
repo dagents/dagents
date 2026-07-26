@@ -1,8 +1,8 @@
 import { Hono } from 'hono'
 import { z } from 'zod'
 import { randomUUID } from 'node:crypto'
-import { runQuery } from '@mil/db'
-import { createLogger } from '@mil/shared'
+import { runQuery } from '@dagents/db'
+import { createLogger } from '@dagents/shared'
 import { ok, fail } from '../app.js'
 
 /**

@@ -1,6 +1,6 @@
 import { createHmac, randomBytes, timingSafeEqual } from 'node:crypto'
 import type { Context } from 'hono'
-import { createLogger } from '@mil/shared'
+import { createLogger } from '@dagents/shared'
 
 /**
  * Gateway SSO — dev-mode session auth (plan M5b.4 / P1.4.T2).

@@ -1,7 +1,7 @@
 #!/usr/bin/env python3
 """
 M1.1–M1.3: Programmatically build a Flowise chatflow that wires a
-ChatOpenAI node (pointed at the mil-agents new-api LLM gateway) into a
+ChatOpenAI node (pointed at the dagents new-api LLM gateway) into a
 ReAct Agent with a Calculator tool, then verify a conversation + tool call.
 
 Env:

@@ -11,10 +11,10 @@
  * `await` at top level is fine: vitest awaits an ESM setup module's top-level
  * await before starting the file's tests, so migrations finish first.
  */
-import { AppDataSource, initDb } from '@mil/db'
+import { AppDataSource, initDb } from '@dagents/db'
 
 process.env.POSTGRES_URL ??=
-  'postgresql://milagents:milagents_dev@localhost:15432/milagents'
+  'postgresql://dagents:dagents_dev@localhost:15432/dagents'
 process.env.REDIS_URL ??= 'redis://localhost:16479'
 
 await initDb()

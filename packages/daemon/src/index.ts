@@ -1,5 +1,5 @@
 /**
- * @mil/daemon — local long-lived agent daemon.
+ * @dagents/daemon — local long-lived agent daemon.
  *
  * Public surface:
  *   - `runDaemon(opts)`    start the register→heartbeat→claim→execute loop

@@ -6,7 +6,7 @@ import '@/styles/shell.css'
 
 export const metadata: Metadata = {
   title: 'DAgent Console',
-  description: '百万智能体编排平台 — 控制台',
+  description: 'Dagents 编排平台 — 控制台',
 }
 
 export default function RootLayout({ children }: { children: React.ReactNode }) {

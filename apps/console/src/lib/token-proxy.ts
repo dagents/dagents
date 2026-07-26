@@ -13,13 +13,13 @@
  */
 
 import { type NextRequest, NextResponse } from 'next/server'
-import { createLogger } from '@mil/shared'
+import { createLogger } from '@dagents/shared'
 import { gatewayUrl } from '@/lib/config'
 import { resolveRunId } from '@/lib/run-id'
 
 /**
  * Server-side logger for the token proxy. Routes the raw fetch error to the
- * Next server log (pino via `@mil/shared`) — NOT to the browser. The client
+ * Next server log (pino via `@dagents/shared`) — NOT to the browser. The client
  * only ever sees the sanitized `fail()` envelope; the detail stays here.
  */
 const proxyLog = createLogger({ svc: 'console:tokens-proxy' })

@@ -79,7 +79,7 @@
 
 - [ ] **Step 1: 在 chats.ts 顶部导入 chat-execute**
 
-修改 `apps/gateway/src/routes/chats.ts` 顶部 import 块,在 `import { createLogger } from '@mil/shared'` 之后加:
+修改 `apps/gateway/src/routes/chats.ts` 顶部 import 块,在 `import { createLogger } from '@dagents/shared'` 之后加:
 
 ```typescript
 import {
@@ -130,7 +130,7 @@ describe('parseCommand', () => {
 
 - [ ] **Step 3: 运行测试验证失败**
 
-Run: `pnpm --filter @mil/gateway test chat-execute`
+Run: `pnpm --filter @dagents/gateway test chat-execute`
 Expected: FAIL with "Cannot find module '../routes/chat-execute.js'"
 
 - [ ] **Step 4: 实现 chat-execute.ts 的 parseCommand**
@@ -140,8 +140,8 @@ Expected: FAIL with "Cannot find module '../routes/chat-execute.js'"
 ```typescript
 import { Hono, type Context } from 'hono'
 import type { ContentfulStatusCode } from 'hono/utils/http-status'
-import { runQuery } from '@mil/db'
-import { createLogger } from '@mil/shared'
+import { runQuery } from '@dagents/db'
+import { createLogger } from '@dagents/shared'
 
 const log = createLogger({ svc: 'gateway:chat-execute' })
 
@@ -202,7 +202,7 @@ export interface RouteResult {
 
 - [ ] **Step 5: 运行测试验证通过**
 
-Run: `pnpm --filter @mil/gateway test chat-execute`
+Run: `pnpm --filter @dagents/gateway test chat-execute`
 Expected: PASS — all 6 parseCommand tests green.
 
 - [ ] **Step 6: 写失败测试 — routeMessage 默认路径返回 stream mode**
@@ -212,7 +212,7 @@ Expected: PASS — all 6 parseCommand tests green.
 ```typescript
 import { beforeAll, afterAll, beforeEach, afterEach } from 'vitest'
 import { app } from '../app.js'
-import { AppDataSource, runQuery } from '@mil/db'
+import { AppDataSource, runQuery } from '@dagents/db'
 import { randomUUID } from 'node:crypto'
 
 let seededChatIds: string[] = []
@@ -296,7 +296,7 @@ describe('POST /api/v1/chats/:id/messages — default routing', () => {
 
 - [ ] **Step 7: 运行测试验证失败**
 
-Run: `pnpm --filter @mil/gateway test chat-execute`
+Run: `pnpm --filter @dagents/gateway test chat-execute`
 Expected: FAIL — current `POST /:id/messages` returns `{ message }` without `mode`/`chatRunId`.
 
 - [ ] **Step 8: 实现 routeMessage**
@@ -508,11 +508,11 @@ chatRoutes.post('/:id/messages', async (c) => {
 
 - [ ] **Step 10: 运行测试验证通过**
 
-Run: `pnpm --filter @mil/gateway test chat-execute`
+Run: `pnpm --filter @dagents/gateway test chat-execute`
 Expected: PASS — all tests green.
 
 也跑现有 chats 测试避免回归:
-Run: `pnpm --filter @mil/gateway test chats`
+Run: `pnpm --filter @dagents/gateway test chats`
 Expected: PASS — existing 9 tests still green (createMessage tests use role:'user' default, will now also call routeMessage; for chats without agent/flow they get mode=json + error, but the existing tests only check `message`/`messageCount`/`lastMessage` so they should still pass).
 
 如果现有测试因 mode 字段失败,在测试断言里跳过新字段即可(只检查 `body.data.message`)。
@@ -600,7 +600,7 @@ git commit -m "feat(gateway): chat message routing with @-command parsing and st
 
 - [ ] **Step 2: 运行测试验证失败**
 
-Run: `pnpm --filter @mil/gateway test chats`
+Run: `pnpm --filter @dagents/gateway test chats`
 Expected: FAIL — 3 new tests fail (agentId/flowId not in schema → 400 invalid body).
 
 - [ ] **Step 3: 扩展 updateBodySchema**
@@ -641,7 +641,7 @@ const updateBodySchema = z.object({
 
 - [ ] **Step 5: 运行测试验证通过**
 
-Run: `pnpm --filter @mil/gateway test chats`
+Run: `pnpm --filter @dagents/gateway test chats`
 Expected: PASS — all 12 PATCH tests green (existing + 3 new).
 
 - [ ] **Step 6: 提交**
@@ -813,10 +813,10 @@ export async function sendChatMessage(
 
 - [ ] **Step 3: 运行类型检查**
 
-Run: `pnpm --filter @mil/console typecheck`
+Run: `pnpm --filter @dagents/console typecheck`
 Expected: PASS — no type errors.
 
-(如果 console 没有 `typecheck` 脚本,跑 `pnpm --filter @mil/console exec tsc --noEmit`.)
+(如果 console 没有 `typecheck` 脚本,跑 `pnpm --filter @dagents/console exec tsc --noEmit`.)
 
 - [ ] **Step 4: 提交**
 
@@ -1179,7 +1179,7 @@ messages.map((m) => (
 
 - [ ] **Step 3: 类型检查**
 
-Run: `pnpm --filter @mil/console exec tsc --noEmit`
+Run: `pnpm --filter @dagents/console exec tsc --noEmit`
 Expected: PASS — no type errors.
 
 - [ ] **Step 4: 手动浏览器验证**
@@ -1505,7 +1505,7 @@ const result = await sendChatMessage(chatId, text, {
 
 - [ ] **Step 5: 类型检查 + 手动验证**
 
-Run: `pnpm --filter @mil/console exec tsc --noEmit`
+Run: `pnpm --filter @dagents/console exec tsc --noEmit`
 Expected: PASS.
 
 浏览器中打开 chat detail,点击 composer 左下 "Agent" 按钮,应看到下拉列表(包含 "auto" + agents 列表)。
@@ -1711,7 +1711,7 @@ import { DirectorySelector } from '@/components/directory-selector'
 
 - [ ] **Step 4: 类型检查 + 手动验证**
 
-Run: `pnpm --filter @mil/console exec tsc --noEmit`
+Run: `pnpm --filter @dagents/console exec tsc --noEmit`
 Expected: PASS.
 
 浏览器打开 `http://localhost:3000/`,顶部应看到目录选择器,点击展开可切换目录。
@@ -1798,7 +1798,7 @@ export function SuggestionCards({ onPick }: SuggestionCardsProps): React.ReactEl
 
 - [ ] **Step 2: 类型检查 + 手动验证**
 
-Run: `pnpm --filter @mil/console exec tsc --noEmit`
+Run: `pnpm --filter @dagents/console exec tsc --noEmit`
 Expected: PASS.
 
 浏览器打开 `/`,点击"创建 AgentFlow"应跳转到 `/flows`;点击"查看 Agent 状态"应跳转到 `/agents`;后两张卡仍触发消息发送。
@@ -2275,7 +2275,7 @@ useEffect(() => {
 
 - [ ] **Step 7: 类型检查 + 手动验证**
 
-Run: `pnpm --filter @mil/console exec tsc --noEmit`
+Run: `pnpm --filter @dagents/console exec tsc --noEmit`
 Expected: PASS.
 
 浏览器打开 chat detail,右栏 agent/flow 应有"编辑"按钮,点击后可改;执行记录应显示真正的 run 列表(如果 runs 表有数据)。
@@ -2870,7 +2870,7 @@ export default function DaemonsPage(): React.ReactElement {
 
 - [ ] **Step 8: 类型检查 + 手动验证**
 
-Run: `pnpm --filter @mil/console exec tsc --noEmit`
+Run: `pnpm --filter @dagents/console exec tsc --noEmit`
 Expected: PASS.
 
 浏览器打开 `http://localhost:3000/daemons`,应看到三栏布局:左栏任务队列(支持 filter),中栏时间线,右栏统计。
@@ -2920,7 +2920,7 @@ Expected: 0 matches for each (or only matches inside the files being deleted).
 
 - [ ] **Step 3: 类型检查**
 
-Run: `pnpm --filter @mil/console exec tsc --noEmit`
+Run: `pnpm --filter @dagents/console exec tsc --noEmit`
 Expected: PASS — no broken imports.
 
 如果有 broken imports,逐个修复(替换为新 lib 的对应函数)。

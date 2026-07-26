@@ -18,7 +18,7 @@ Acceptance gates (per M0.2):
 curl -s http://localhost:3000/api/status    # new-api status JSON
 # new-api web admin: http://localhost:3000  →  root / 123456
 # Langfuse web UI:    http://localhost:3001
-# MinIO console:      http://localhost:9001  →  milagents / milagents_dev
+# MinIO console:      http://localhost:9001  →  dagents / dagents_dev
 ```
 
 ## Port map
@@ -42,11 +42,11 @@ unaffected. Override any host port via `.env` (see `.env.example`).
 
 ## Databases & buckets
 
-- `POSTGRES_DB=milagents` is created by the Postgres image on first boot.
+- `POSTGRES_DB=dagents` is created by the Postgres image on first boot.
 - The `newapi` and `langfuse` databases are created by the one-shot
   `postgres-init` container (idempotent — `createdb` failing on an existing DB
   is swallowed and the container exits 0).
-- The `milagents` MinIO bucket is created by the one-shot `minio-init`
+- The `dagents` MinIO bucket is created by the one-shot `minio-init`
   container (same idempotent pattern with `mc mb -p`).
 
 ## Langfuse: why v2, not v3

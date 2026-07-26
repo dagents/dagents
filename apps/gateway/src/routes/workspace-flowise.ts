@@ -1,4 +1,4 @@
-import { createLogger } from '@mil/shared'
+import { createLogger } from '@dagents/shared'
 import { z } from 'zod'
 
 /**

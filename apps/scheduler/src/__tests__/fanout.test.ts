@@ -1,6 +1,6 @@
 import { describe, it, expect, beforeAll, afterAll, beforeEach } from 'vitest'
-import { AppDataSource, runQuery } from '@mil/db'
-import { createRedis } from '@mil/shared'
+import { AppDataSource, runQuery } from '@dagents/db'
+import { createRedis } from '@dagents/shared'
 import { buildApp } from '../app.js'
 import type { PredictionClient, PredictionRequest, PredictionResult } from '../prediction-client.js'
 import { createRedisSemaphore } from '../semaphore.js'
@@ -19,8 +19,8 @@ import { createRedisSemaphore } from '../semaphore.js'
  * `failed` without aborting the batch, and the parent's status reflects child
  * outcomes.
  *
- * The default URL bakes in the dev Redis password — the mil-agents Redis runs
- * with `--requirepass milagents_dev`, so a bare URL hits `NOAUTH` and the whole
+ * The default URL bakes in the dev Redis password — the dagents Redis runs
+ * with `--requirepass dagents_dev`, so a bare URL hits `NOAUTH` and the whole
  * suite skips (see semaphore.test.ts for the full rationale). Override via
  * REDIS_URL for a non-dev stack.
  */

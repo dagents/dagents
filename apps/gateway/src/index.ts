@@ -1,6 +1,6 @@
 import { serve } from '@hono/node-server'
-import { initDb } from '@mil/db'
-import { startTracing } from '@mil/shared'
+import { initDb } from '@dagents/db'
+import { startTracing } from '@dagents/shared'
 import { app } from './app.js'
 
 const tracing = startTracing('gateway')

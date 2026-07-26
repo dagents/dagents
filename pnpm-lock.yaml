@@ -17,10 +17,10 @@ importers:
 
   apps/console:
     dependencies:
-      '@mil/contracts':
+      '@dagents/contracts':
         specifier: workspace:*
         version: link:../../packages/contracts
-      '@mil/shared':
+      '@dagents/shared':
         specifier: workspace:*
         version: link:../../packages/shared
       next:
@@ -39,7 +39,7 @@ importers:
         specifier: ^4.4.3
         version: 4.4.3
     devDependencies:
-      '@mil/db':
+      '@dagents/db':
         specifier: workspace:*
         version: link:../../packages/db
       '@playwright/test':
@@ -78,13 +78,13 @@ importers:
       '@hono/node-server':
         specifier: ^1.12.0
         version: 1.19.14(hono@4.12.28)
-      '@mil/contracts':
+      '@dagents/contracts':
         specifier: workspace:*
         version: link:../../packages/contracts
-      '@mil/db':
+      '@dagents/db':
         specifier: workspace:*
         version: link:../../packages/db
-      '@mil/shared':
+      '@dagents/shared':
         specifier: workspace:*
         version: link:../../packages/shared
       hono:
@@ -115,10 +115,10 @@ importers:
       '@hono/node-server':
         specifier: ^1.12.0
         version: 1.19.14(hono@4.12.28)
-      '@mil/db':
+      '@dagents/db':
         specifier: workspace:*
         version: link:../../packages/db
-      '@mil/shared':
+      '@dagents/shared':
         specifier: workspace:*
         version: link:../../packages/shared
       hono:
@@ -149,13 +149,13 @@ importers:
       '@hono/node-server':
         specifier: ^1.12.0
         version: 1.19.14(hono@4.12.28)
-      '@mil/db':
+      '@dagents/db':
         specifier: workspace:*
         version: link:../../packages/db
-      '@mil/repro':
+      '@dagents/repro':
         specifier: workspace:*
         version: link:../../packages/repro
-      '@mil/shared':
+      '@dagents/shared':
         specifier: workspace:*
         version: link:../../packages/shared
       hono:
@@ -183,10 +183,10 @@ importers:
 
   packages/agent-adapters:
     dependencies:
-      '@mil/contracts':
+      '@dagents/contracts':
         specifier: workspace:*
         version: link:../contracts
-      '@mil/shared':
+      '@dagents/shared':
         specifier: workspace:*
         version: link:../shared
     devDependencies:
@@ -217,13 +217,13 @@ importers:
 
   packages/daemon:
     dependencies:
-      '@mil/agent-adapters':
+      '@dagents/agent-adapters':
         specifier: workspace:*
         version: link:../agent-adapters
-      '@mil/contracts':
+      '@dagents/contracts':
         specifier: workspace:*
         version: link:../contracts
-      '@mil/shared':
+      '@dagents/shared':
         specifier: workspace:*
         version: link:../shared
     devDependencies:
@@ -276,19 +276,19 @@ importers:
       '@hono/node-server':
         specifier: ^1.12.0
         version: 1.19.14(hono@4.12.28)
-      '@mil/agent-adapters':
+      '@dagents/agent-adapters':
         specifier: workspace:*
         version: link:../agent-adapters
-      '@mil/contracts':
+      '@dagents/contracts':
         specifier: workspace:*
         version: link:../contracts
-      '@mil/daemon':
+      '@dagents/daemon':
         specifier: workspace:*
         version: link:../daemon
-      '@mil/db':
+      '@dagents/db':
         specifier: workspace:*
         version: link:../db
-      '@mil/shared':
+      '@dagents/shared':
         specifier: workspace:*
         version: link:../shared
     devDependencies:
@@ -316,10 +316,10 @@ importers:
       '@aws-sdk/client-s3':
         specifier: ^3.1083.0
         version: 3.1083.0
-      '@mil/db':
+      '@dagents/db':
         specifier: workspace:*
         version: link:../db
-      '@mil/shared':
+      '@dagents/shared':
         specifier: workspace:*
         version: link:../shared
       zod:

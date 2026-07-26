@@ -1,7 +1,7 @@
 import { Hono, type Context } from 'hono'
 import type { ContentfulStatusCode } from 'hono/utils/http-status'
 import { z } from 'zod'
-import { createLogger } from '@mil/shared'
+import { createLogger } from '@dagents/shared'
 import {
   requireLogin,
   ssoConfigured,

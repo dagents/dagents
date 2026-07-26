@@ -9,7 +9,7 @@
  * is open to grow (run-updated, fleet-tick, …) without breaking consumers
  * that default on unknown `type`s.
  *
- * This lives in `@mil/contracts` (zero-dependency, built first) so the browser
+ * This lives in `@dagents/contracts` (zero-dependency, built first) so the browser
  * client (`apps/console/src/lib/ws-client.ts`) and any future server-side
  * emitter share one source of truth for the on-the-wire shape.
  *

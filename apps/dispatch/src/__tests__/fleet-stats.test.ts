@@ -1,6 +1,6 @@
 import { describe, it, expect, beforeAll, afterAll, beforeEach } from 'vitest'
 import { app, bootstrap } from '../app.js'
-import { AppDataSource } from '@mil/db'
+import { AppDataSource } from '@dagents/db'
 import { aggregateUsage } from '../runs-usage.js'
 import { windowSince, FLEET_WINDOW_HOURS } from '../fleet-stats.js'
 import { randomUUID } from 'node:crypto'
@@ -9,7 +9,7 @@ import { randomUUID } from 'node:crypto'
  * Integration tests for the fleet resource-dashboard aggregation API
  * (plan M6.5 / P1.11.T6).
  *
- * Drives the Hono app in-process via `app.request()` against the real milagents
+ * Drives the Hono app in-process via `app.request()` against the real dagents
  * Postgres (docker-compose stack on 127.0.0.1:15432). Each test seeds daemons /
  * agent_daemons / runs (with `agent_daemon_calls` + `cost`) then exercises
  * `GET /api/v1/dispatch/fleet-stats` — the "资源看板数据聚合" acceptance gate.

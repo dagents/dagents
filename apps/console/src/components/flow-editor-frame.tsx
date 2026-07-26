@@ -15,7 +15,7 @@
  *
  * Flowise 服务端 `XSS.ts:getIframeSecurityHeaders()` 读 `IFRAME_ORIGINS` 并
  * 发成 CSP `frame-ancestors`；M0.3 已在 vendor/flowise/packages/server/
- * .env.mil-agents 配 `IFRAME_ORIGINS=http://localhost:3000`，所以控制台
+ * .env.dagents 配 `IFRAME_ORIGINS=http://localhost:3000`，所以控制台
  * :3000 可嵌入 Flowise :3100 画布。本组件只管 iframe SRC 侧（`flowiseEditorUrl()`
  * 来自 M0.3 的 config.ts）。
  *

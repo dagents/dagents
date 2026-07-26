@@ -1,5 +1,5 @@
 import { describe, it, expect, beforeAll, afterAll, beforeEach } from 'vitest'
-import { createRedis } from '@mil/shared'
+import { createRedis } from '@dagents/shared'
 import { createRedisSemaphore } from '../semaphore.js'
 
 /**
@@ -11,11 +11,11 @@ import { createRedisSemaphore } from '../semaphore.js'
  * bounds concurrent execution to `maxConcurrent` even when N>max tasks start
  * at once. This is the gate M3.2's fan-out reuses.
  *
- * The default URL bakes in the dev Redis password: the mil-agents compose
- * stack starts Redis with `--requirepass milagents_dev` (see infra/.env.example
+ * The default URL bakes in the dev Redis password: the dagents compose
+ * stack starts Redis with `--requirepass dagents_dev` (see infra/.env.example
  * REDIS_PASSWORD), so a bare `redis://localhost:16479` hits `NOAUTH` and every
  * test skips — a green run would silently depend on an undocumented exported
- * REDIS_URL. Mirrors how `@mil/db` bakes the dev PG creds into its default
+ * REDIS_URL. Mirrors how `@dagents/db` bakes the dev PG creds into its default
  * POSTGRES_URL. Override via REDIS_URL for a non-dev stack.
  */
 const redisUrl =
@@ -32,7 +32,7 @@ afterAll(async () => {
 })
 
 beforeEach(async () => {
-  // `redis.del` applies the `mil:` prefix → clears `mil:sem`, the semaphore's
+  // `redis.del` applies the `dagents:` prefix → clears `dagents:sem`, the semaphore's
   // default key. Raw EVAL inside the semaphore composes the same prefix, so
   // this and the semaphore see one key.
   await redis.del('sem')

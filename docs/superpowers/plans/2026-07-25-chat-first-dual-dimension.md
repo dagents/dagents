@@ -16,7 +16,7 @@
 
 **Files:**
 - Create: `packages/db/src/migrations/1720000009000-create-chat-tables.ts`
-- Test: `pnpm --filter @mil/db typeorm migration:run`
+- Test: `pnpm --filter @dagents/db typeorm migration:run`
 
 - [ ] **Step 1: Write the migration file**
 
@@ -116,8 +116,8 @@ export class CreateChatTables1720000009000 implements MigrationInterface {
 
 Run:
 ```bash
-cd /Users/rowan/Projects/mil-agents-main
-pnpm --filter @mil/db typeorm migration:run -d src/data-source.ts
+cd /Users/rowan/Projects/dagents-main
+pnpm --filter @dagents/db typeorm migration:run -d src/data-source.ts
 ```
 Expected: migration `CreateChatTables1720000009000` has been executed successfully.
 
@@ -125,7 +125,7 @@ Expected: migration `CreateChatTables1720000009000` has been executed successful
 
 Run:
 ```bash
-pnpm --filter @mil/db typeorm migration:revert -d src/data-source.ts
+pnpm --filter @dagents/db typeorm migration:revert -d src/data-source.ts
 ```
 Expected: migration `CreateChatTables1720000009000` has been reverted successfully.
 
@@ -133,7 +133,7 @@ Expected: migration `CreateChatTables1720000009000` has been reverted successful
 
 Run:
 ```bash
-pnpm --filter @mil/db typeorm migration:run -d src/data-source.ts
+pnpm --filter @dagents/db typeorm migration:run -d src/data-source.ts
 ```
 Expected: migration applied successfully.
 
@@ -238,7 +238,7 @@ export class MigrateWorkspacesToDirectories1720000009001 implements MigrationInt
 
 Run:
 ```bash
-pnpm --filter @mil/db typeorm migration:run -d src/data-source.ts
+pnpm --filter @dagents/db typeorm migration:run -d src/data-source.ts
 ```
 Expected: migration `MigrateWorkspacesToDirectories1720000009001` applied successfully.
 
@@ -246,7 +246,7 @@ Expected: migration `MigrateWorkspacesToDirectories1720000009001` applied succes
 
 Run:
 ```bash
-psql -U milagents -h localhost -p 15432 -d milagents -c "SELECT count(*) FROM directories; SELECT count(*) FROM chats;"
+psql -U dagents -h localhost -p 15432 -d dagents -c "SELECT count(*) FROM directories; SELECT count(*) FROM chats;"
 ```
 Expected: directories count equals active workspaces count; chats count equals number of top-level runs with valid workspace_id.
 
@@ -415,7 +415,7 @@ export type { ChatMessageRole } from './entities/chat-message.entity.js'
 
 Run:
 ```bash
-pnpm --filter @mil/db build
+pnpm --filter @dagents/db build
 ```
 Expected: build succeeds with no errors.
 
@@ -446,7 +446,7 @@ Create `apps/gateway/src/__tests__/directories.test.ts`:
 ```ts
 import { describe, it, expect, beforeAll, afterAll, beforeEach } from 'vitest'
 import { app } from '../app.js'
-import { AppDataSource, runQuery } from '@mil/db'
+import { AppDataSource, runQuery } from '@dagents/db'
 import { randomUUID } from 'node:crypto'
 
 let seededDirIds: string[] = []
@@ -594,7 +594,7 @@ describe('DELETE /api/v1/directories/:id — delete', () => {
 
 Run:
 ```bash
-pnpm --filter @mil/gateway test -- directories.test.ts
+pnpm --filter @dagents/gateway test -- directories.test.ts
 ```
 Expected: tests fail with 404 or route not found errors.
 
@@ -606,8 +606,8 @@ Create `apps/gateway/src/routes/directories.ts`:
 import { Hono, type Context } from 'hono'
 import type { ContentfulStatusCode } from 'hono/utils/http-status'
 import { z } from 'zod'
-import { runQuery } from '@mil/db'
-import { createLogger } from '@mil/shared'
+import { runQuery } from '@dagents/db'
+import { createLogger } from '@dagents/shared'
 
 export const directoryRoutes = new Hono()
 
@@ -806,7 +806,7 @@ app.route('/api/v1/directories', directoryRoutes)
 
 Run:
 ```bash
-pnpm --filter @mil/gateway test -- directories.test.ts
+pnpm --filter @dagents/gateway test -- directories.test.ts
 ```
 Expected: all tests pass.
 
@@ -834,7 +834,7 @@ Create `apps/gateway/src/__tests__/chats.test.ts`:
 ```ts
 import { describe, it, expect, beforeAll, afterAll, beforeEach } from 'vitest'
 import { app } from '../app.js'
-import { AppDataSource, runQuery } from '@mil/db'
+import { AppDataSource, runQuery } from '@dagents/db'
 import { randomUUID } from 'node:crypto'
 
 let seededIds: { dirId: string; chatIds: string[] }[] = []
@@ -1055,7 +1055,7 @@ describe('GET /api/v1/chats/:id/messages — list messages', () => {
 
 Run:
 ```bash
-pnpm --filter @mil/gateway test -- chats.test.ts
+pnpm --filter @dagents/gateway test -- chats.test.ts
 ```
 Expected: tests fail with 404 errors.
 
@@ -1067,8 +1067,8 @@ Create `apps/gateway/src/routes/chats.ts`:
 import { Hono, type Context } from 'hono'
 import type { ContentfulStatusCode } from 'hono/utils/http-status'
 import { z } from 'zod'
-import { runQuery } from '@mil/db'
-import { createLogger } from '@mil/shared'
+import { runQuery } from '@dagents/db'
+import { createLogger } from '@dagents/shared'
 
 export const chatRoutes = new Hono()
 
@@ -1401,7 +1401,7 @@ app.route('/api/v1/chats', chatRoutes)
 
 Run:
 ```bash
-pnpm --filter @mil/gateway test -- chats.test.ts
+pnpm --filter @dagents/gateway test -- chats.test.ts
 ```
 Expected: all tests pass.
 
@@ -1504,7 +1504,7 @@ describe('GET /api/directories/:id — detail', () => {
 
 Run:
 ```bash
-pnpm --filter @mil/console test -- directories/route.test.ts
+pnpm --filter @dagents/console test -- directories/route.test.ts
 ```
 Expected: test fails with module not found.
 
@@ -1514,7 +1514,7 @@ Create `apps/console/src/lib/directory-proxy.ts`:
 
 ```ts
 import { type NextRequest, NextResponse } from 'next/server'
-import { createLogger } from '@mil/shared'
+import { createLogger } from '@dagents/shared'
 import { gatewayUrl, MAX_RUN_ID_LEN } from '@/lib/config'
 
 const proxyLog = createLogger({ svc: 'console:directories-proxy' })
@@ -1685,7 +1685,7 @@ export async function DELETE(
 
 Run:
 ```bash
-pnpm --filter @mil/console test -- directories/route.test.ts
+pnpm --filter @dagents/console test -- directories/route.test.ts
 ```
 Expected: all tests pass.
 
@@ -1788,7 +1788,7 @@ Create `apps/console/src/lib/chat-proxy.ts`:
 
 ```ts
 import { type NextRequest, NextResponse } from 'next/server'
-import { createLogger } from '@mil/shared'
+import { createLogger } from '@dagents/shared'
 import { gatewayUrl, MAX_RUN_ID_LEN } from '@/lib/config'
 
 const proxyLog = createLogger({ svc: 'console:chats-proxy' })
@@ -2018,7 +2018,7 @@ export async function POST(
 
 Run:
 ```bash
-pnpm --filter @mil/console test -- chats/route.test.ts
+pnpm --filter @dagents/console test -- chats/route.test.ts
 ```
 Expected: all tests pass.
 
@@ -3002,7 +3002,7 @@ git commit -m "feat(console): add directories management page"
 
 Run:
 ```bash
-pnpm --filter @mil/console build
+pnpm --filter @dagents/console build
 ```
 Expected: build succeeds with no TypeScript errors.
 
@@ -3010,8 +3010,8 @@ Expected: build succeeds with no TypeScript errors.
 
 Run:
 ```bash
-pnpm --filter @mil/gateway test
-pnpm --filter @mil/console test
+pnpm --filter @dagents/gateway test
+pnpm --filter @dagents/console test
 ```
 Expected: all existing tests pass (no regressions).
 
@@ -3019,11 +3019,11 @@ Expected: all existing tests pass (no regressions).
 
 Run:
 ```bash
-pnpm --filter @mil/gateway dev
+pnpm --filter @dagents/gateway dev
 ```
 In another terminal:
 ```bash
-pnpm --filter @mil/console dev
+pnpm --filter @dagents/console dev
 ```
 Then manually verify:
 - `/` shows chat home with directory selector

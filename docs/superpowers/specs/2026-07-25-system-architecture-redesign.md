@@ -95,7 +95,7 @@ Sidebar
 │   ├── Daemons
 │   └── Settings
 └── 项目目录 (可折叠)
-    ├── 📁 mil-agents-main (3)
+    ├── 📁 dagents-main (3)
     │   ├── 重构 agent 注册流程 (running)
     │   ├── 数据迁移脚本测试 (pending)
     │   └── 调试 daemons 心跳 (done)
@@ -144,8 +144,8 @@ CREATE INDEX idx_directories_name ON ("name");
 ```
 
 **字段说明**:
-- `path`: 文件系统绝对路径（如 `/Users/rowan/Projects/mil-agents-main`）
-- `name`: 显示名称（如 `mil-agents-main`，可自定义）
+- `path`: 文件系统绝对路径（如 `/Users/rowan/Projects/dagents-main`）
+- `name`: 显示名称（如 `dagents-main`，可自定义）
 - `settings`: 扩展配置（如默认 agent、配额等，原 `workspaces.quota` 迁移至此）
 
 #### `chats` 表（对话）
@@ -430,7 +430,7 @@ apps/console/src/app/
 
 **布局**: 面包屑 + 双栏（左对话 + 右上下文）
 
-**面包屑**: `📁 mil-agents-main / 重构 agent 注册流程 [running]`
+**面包屑**: `📁 dagents-main / 重构 agent 注册流程 [running]`
 
 **左栏（对话流）**:
 - 消息列表（user/assistant/system/tool 不同样式）
@@ -688,10 +688,10 @@ CREATE INDEX idx_flows_status ON ("status");
 ### 9.7 依赖关系
 
 ```
-@mil/workflow ← @mil/contracts ← @mil/db ← @mil/shared
+@dagents/workflow ← @dagents/contracts ← @dagents/db ← @dagents/shared
 ```
 
-- `@mil/workflow` 依赖 `@mil/contracts`（类型定义）、`@mil/db`（数据访问）、`@mil/shared`（工具函数）
+- `@dagents/workflow` 依赖 `@dagents/contracts`（类型定义）、`@dagents/db`（数据访问）、`@dagents/shared`（工具函数）
 - gateway 和 console 通过 API 调用 workflow 引擎，不直接依赖包
 
 ---
@@ -700,16 +700,16 @@ CREATE INDEX idx_flows_status ON ("status");
 
 ### 现有关键文件（参考）
 
-- [design/](file:///Users/rowan/Projects/mil-agents-main/design) — v0.2/v0.3 原型
-- [design-redo-open-webui/](file:///Users/rowan/Projects/mil-agents-main/design-redo-open-webui) — Chat-First 原型
-- [design/daemon-execution.html](file:///Users/rowan/Projects/mil-agents-main/design/daemon-execution.html) — Daemons 三栏布局原型
-- [design/workspace.html](file:///Users/rowan/Projects/mil-agents-main/design/workspace.html) — Workspace 双栏布局原型（参考）
-- [apps/dispatch/src/app.ts](file:///Users/rowan/Projects/mil-agents-main/apps/dispatch/src/app.ts) — Dispatch 服务入口
-- [apps/dispatch/src/routes/daemons.ts](file:///Users/rowan/Projects/mil-agents-main/apps/dispatch/src/routes/daemons.ts) — Daemons 后端
-- [apps/console/src/app/api/chat/route.ts](file:///Users/rowan/Projects/mil-agents-main/apps/console/src/app/api/chat/route.ts) — 现有 chat SSE 代理
-- [apps/console/src/app/api/workspaces/](file:///Users/rowan/Projects/mil-agents-main/apps/console/src/app/api/workspaces) — 现有 workspace API
-- [packages/db/src/data-source.ts](file:///Users/rowan/Projects/mil-agents-main/packages/db/src/data-source.ts) — 数据库配置
-- [packages/db/src/entities/](file:///Users/rowan/Projects/mil-agents-main/packages/db/src/entities) — 现有 entities
+- [design/](file:///Users/rowan/Projects/dagents-main/design) — v0.2/v0.3 原型
+- [design-redo-open-webui/](file:///Users/rowan/Projects/dagents-main/design-redo-open-webui) — Chat-First 原型
+- [design/daemon-execution.html](file:///Users/rowan/Projects/dagents-main/design/daemon-execution.html) — Daemons 三栏布局原型
+- [design/workspace.html](file:///Users/rowan/Projects/dagents-main/design/workspace.html) — Workspace 双栏布局原型（参考）
+- [apps/dispatch/src/app.ts](file:///Users/rowan/Projects/dagents-main/apps/dispatch/src/app.ts) — Dispatch 服务入口
+- [apps/dispatch/src/routes/daemons.ts](file:///Users/rowan/Projects/dagents-main/apps/dispatch/src/routes/daemons.ts) — Daemons 后端
+- [apps/console/src/app/api/chat/route.ts](file:///Users/rowan/Projects/dagents-main/apps/console/src/app/api/chat/route.ts) — 现有 chat SSE 代理
+- [apps/console/src/app/api/workspaces/](file:///Users/rowan/Projects/dagents-main/apps/console/src/app/api/workspaces) — 现有 workspace API
+- [packages/db/src/data-source.ts](file:///Users/rowan/Projects/dagents-main/packages/db/src/data-source.ts) — 数据库配置
+- [packages/db/src/entities/](file:///Users/rowan/Projects/dagents-main/packages/db/src/entities) — 现有 entities
 
 ### 待新增文件
 

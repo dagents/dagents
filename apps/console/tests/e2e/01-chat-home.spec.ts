@@ -40,10 +40,10 @@ import { createSeedContext, seedDirectory, type SeedContext } from './helpers/se
  *               /api/directories with an empty list (no DB mutation of the
  *               dev stack's real directories).
  *
- * Prerequisites: the mil-agents dev stack must be up — Postgres (:15432),
+ * Prerequisites: the dagents dev stack must be up — Postgres (:15432),
  * Redis (:16479), gateway (:8080), dispatch (:8081) — so /api/directories and
  * /api/chats resolve. The playwright.config.ts webServer only owns the Next dev
- * process (:3000). beforeAll seeds two directories via @mil/db runQuery (the
+ * process (:3000). beforeAll seeds two directories via @dagents/db runQuery (the
  * same layer the gateway uses); afterAll disposes them. The chat + messages
  * UC-CHAT-04 creates via the UI are registered for cleanup on the fly.
  */

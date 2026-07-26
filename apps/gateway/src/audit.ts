@@ -1,6 +1,6 @@
-import { runQuery } from '@mil/db'
-import type { AuditActorType, AuditTargetType } from '@mil/db'
-import { createLogger } from '@mil/shared'
+import { runQuery } from '@dagents/db'
+import type { AuditActorType, AuditTargetType } from '@dagents/db'
+import { createLogger } from '@dagents/shared'
 import type { Context } from 'hono'
 import type { SsoUser } from './auth.js'
 

@@ -5,7 +5,7 @@ import type { MigrationInterface, QueryRunner } from 'typeorm'
  * redesign (spec §2.5 + §6.2).
  *
  * After commit `9c99927` (chore: 清理已弃用的 gateway 路由与实体) the gateway
- * no longer mounts `/api/v1/lab` or `/api/v1/tasks`, the @mil/db package no
+ * no longer mounts `/api/v1/lab` or `/api/v1/tasks`, the @dagents/db package no
  * longer exports the `LabSession` / `LabMessage` / `Task` entities, and no
  * production code references these tables. The tables themselves still exist
  * in the DB (CREATE TABLE migrations `1720000006000` + `1720000008002` ran

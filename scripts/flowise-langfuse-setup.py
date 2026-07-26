@@ -25,7 +25,7 @@ Env:
   FLOWISE_API_KEY    Flowise platform API key (Bearer)
   CHATFLOW_NAME      default "M1 Agent Demo"  (must already exist — M1.1-1.3)
   LANGFUSE_BASE_URL  default http://localhost:3001
-  LANGFUSE_EMAIL     default admin@milagents.local
+  LANGFUSE_EMAIL     default admin@dagents.local
   LANGFUSE_PASSWORD  default Admin1234!
   LANGFUSE_ORG_NAME  default "Mil-Agents"
   LANGFUSE_PROJECT_NAME  default "Mil-Agents Dev"
@@ -53,7 +53,7 @@ FLOWISE_API_KEY = os.environ.get("FLOWISE_API_KEY", "")
 CHATFLOW_NAME = os.environ.get("CHATFLOW_NAME", "M1 Agent Demo")
 
 LANGFUSE_BASE = os.environ.get("LANGFUSE_BASE_URL", "http://localhost:3001").rstrip("/")
-LF_EMAIL = os.environ.get("LANGFUSE_EMAIL", "admin@milagents.local")
+LF_EMAIL = os.environ.get("LANGFUSE_EMAIL", "admin@dagents.local")
 LF_PASSWORD = os.environ.get("LANGFUSE_PASSWORD", "Admin1234!")
 LF_ORG_NAME = os.environ.get("LANGFUSE_ORG_NAME", "Mil-Agents")
 LF_PROJECT_NAME = os.environ.get("LANGFUSE_PROJECT_NAME", "Mil-Agents Dev")

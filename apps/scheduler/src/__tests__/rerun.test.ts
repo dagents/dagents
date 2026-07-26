@@ -1,6 +1,6 @@
 import { describe, it, expect, beforeAll, afterAll, beforeEach } from 'vitest'
-import { AppDataSource, runQuery } from '@mil/db'
-import { createRedis } from '@mil/shared'
+import { AppDataSource, runQuery } from '@dagents/db'
+import { createRedis } from '@dagents/shared'
 import { buildApp } from '../app.js'
 import type { PredictionClient, PredictionRequest, PredictionResult } from '../prediction-client.js'
 import { createRedisSemaphore } from '../semaphore.js'

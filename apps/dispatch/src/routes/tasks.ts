@@ -1,9 +1,9 @@
 import { Hono } from 'hono'
 import { z } from 'zod'
-import { runQuery } from '@mil/db'
+import { runQuery } from '@dagents/db'
 import { ok, fail } from '../app.js'
 import { appendAgentDaemonCall } from '../runs-usage.js'
-import { createLogger } from '@mil/shared'
+import { createLogger } from '@dagents/shared'
 
 /**
  * Task lifecycle routes (spec §1.5.T5):

@@ -273,7 +273,7 @@ multica autopilot trigger-add "$AP" --kind schedule --cron "0 * * * *" --timezon
 multica autopilot trigger "$AP"   # fire once to test
 ```
 
-Write the description to a file (`--description-file` not available on `update`; for update use `--description "$(cat file)"`). Include in the prompt: role, disciplines, mention-format, team UUIDs, iteration steps, forbidden list. See the mil-agents autopilot (`bebfac1d`) and the reference minihackathon autopilot (`39f58aa1`) for examples.
+Write the description to a file (`--description-file` not available on `update`; for update use `--description "$(cat file)"`). Include in the prompt: role, disciplines, mention-format, team UUIDs, iteration steps, forbidden list. See the dagents autopilot (`bebfac1d`) and the reference minihackathon autopilot (`39f58aa1`) for examples.
 
 ## Gotchas & Lessons (from production coordinators)
 
@@ -299,4 +299,4 @@ Write the description to a file (`--description-file` not available on `update`;
 
 - Local source: `~/Projects/multica/CLI_AND_DAEMON.md`, `~/Projects/multica/CLI_INSTALL.md` (authoritative, from the repo)
 - Server: https://021multica.zero2x.org
-- In-repo autopilot example: `bebfac1d-deb8-4264-bc2e-16c91fabbe31` (mil-agents coordinator) + `docs/superpowers/specs/2026-07-08-mvp-execution-plan-design.md` for the project context
+- In-repo autopilot example: `bebfac1d-deb8-4264-bc2e-16c91fabbe31` (dagents coordinator) + `docs/superpowers/specs/2026-07-08-mvp-execution-plan-design.md` for the project context

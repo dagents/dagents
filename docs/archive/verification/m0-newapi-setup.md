@@ -20,7 +20,7 @@ docker compose up -d postgres redis minio new-api langfuse
 docker compose ps   # 5 个服务 healthy / running
 ```
 
-- 容器名: `mil-agents-new-api-1`
+- 容器名: `dagents-new-api-1`
 - 主机端口: `127.0.0.1:13000 -> 3000`（容器内 3000；3000 在本机被占用，故主机侧映射到 13000，见 M0.2 compose 的 `${NEWAPI_HOST_PORT:-13000}`）。
 - 数据库: 复用同一个 Postgres 实例，库名 `newapi`（由 `postgres-init` 一次性建库）。
 - 数据卷: `newapidata`。**注意：卷是持久的——首次之后的启动会沿用旧数据，包括 root 密码。** 详见下方 §1 的「密码重置」分支。
@@ -55,7 +55,7 @@ python3 -c "import bcrypt; print(bcrypt.hashpw(b'123456', bcrypt.gensalt(10)).de
 # 例: $2b$10$bmR8Cmgjl6KR2/8OmdJGdO69ApOulF3k3RPcuDAnYOhABRW5ln8cm
 
 # 2. 写回 newapi 库的 users 表
-docker exec mil-agents-postgres-1 psql -U milagents -d newapi -c \
+docker exec dagents-postgres-1 psql -U dagents -d newapi -c \
   "UPDATE users SET password = '<粘上面的 hash>', status = 1 WHERE username = 'root';"
 
 # 3. 重新登录 root / 123456
@@ -124,7 +124,7 @@ curl -s -b /tmp/na.cookie -X POST http://localhost:13000/api/channel/ \
 
 ```bash
 # 1. 建 channel 行
-docker exec mil-agents-postgres-1 psql -U milagents -d newapi -c \
+docker exec dagents-postgres-1 psql -U dagents -d newapi -c \
 "INSERT INTO channels
   (type, key, status, name, weight, created_time, base_url, other,
    models, \"group\", model_mapping, priority, auto_ban, other_info, tag,
@@ -137,7 +137,7 @@ RETURNING id;"
 
 # 2. 拿到 channel id（假设为 CID），给每个模型建 ability
 CID=1
-docker exec mil-agents-postgres-1 psql -U milagents -d newapi -c \
+docker exec dagents-postgres-1 psql -U dagents -d newapi -c \
 "INSERT INTO abilities (\"group\", model, channel_id, enabled, priority, weight) VALUES
   ('default','<model-A>',${CID},true,0,100),
   ('default','<model-B>',${CID},true,0,100)
@@ -150,13 +150,13 @@ ON CONFLICT DO NOTHING;"
 - `base_url` **不带 `/v1`**。
 - `models` 逗号分隔的模型名，必须与上游 `/v1/models` 返回的 id 严格一致。
 
-> **定价 / 自用模式（重要）**: 渠道建好后，若 `curl /v1/chat/completions` 回 `模型 X 的价格未配置`，是 new-api 的计费前置检查——它要求每个模型在「系统设置 → 分组与模型定价」里有价格，或开启「自用模式」。本地 dev 直接开自用模式：在 `newapi` 库的 `options` 表把 `SelfUseModeEnabled` 置 `true`，然后重启 new-api（`docker restart mil-agents-new-api-1`）让它重新加载 options：
+> **定价 / 自用模式（重要）**: 渠道建好后，若 `curl /v1/chat/completions` 回 `模型 X 的价格未配置`，是 new-api 的计费前置检查——它要求每个模型在「系统设置 → 分组与模型定价」里有价格，或开启「自用模式」。本地 dev 直接开自用模式：在 `newapi` 库的 `options` 表把 `SelfUseModeEnabled` 置 `true`，然后重启 new-api（`docker restart dagents-new-api-1`）让它重新加载 options：
 >
 > ```bash
-> docker exec mil-agents-postgres-1 psql -U milagents -d newapi -c \
+> docker exec dagents-postgres-1 psql -U dagents -d newapi -c \
 >   "INSERT INTO options (key, value) VALUES ('SelfUseModeEnabled','true')
 >    ON CONFLICT (key) DO UPDATE SET value='true';"
-> docker restart mil-agents-new-api-1
+> docker restart dagents-new-api-1
 > ```
 >
 > 自用模式跳过价格校验，适合本地验证；生产环境应配正式模型定价。
@@ -197,7 +197,7 @@ curl -s -b /tmp/na.cookie -X POST http://localhost:13000/api/token/ \
 API list 会把 key 打码。要拿完整 key 直接查库（**仅在本地终端执行，不要把输出粘进任何文件/issue**）：
 
 ```bash
-docker exec mil-agents-postgres-1 psql -U milagents -d newapi -t -c \
+docker exec dagents-postgres-1 psql -U dagents -d newapi -t -c \
   "SELECT key FROM tokens WHERE name='sk-newapi-m0';"
 # 输出形如: <48-char base62 key>（DB 存裸 key，不带 sk- 前缀）
 ```
@@ -245,7 +245,7 @@ OPENAI_API_KEY=$NEWAPI_TOKEN   # sk-<your-newapi-token>, 从环境变量/secret 
 
 ## 验证记录（本机实测, 2026-07-08）
 
-环境: M0.2 的 docker-compose（devops `issue/MZW-235` 工作树，本机 `docker ps` 见 `mil-agents-new-api-1` healthy）。
+环境: M0.2 的 docker-compose（devops `issue/MZW-235` 工作树，本机 `docker ps` 见 `dagents-new-api-1` healthy）。
 
 | 验收项 | 结果 | 证据 |
 |---|---|---|

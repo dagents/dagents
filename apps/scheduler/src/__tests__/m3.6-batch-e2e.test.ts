@@ -1,8 +1,8 @@
 import { describe, it, expect, beforeAll, afterAll, beforeEach } from 'vitest'
 import { randomUUID } from 'node:crypto'
-import { AppDataSource, runQuery } from '@mil/db'
-import { createRedis } from '@mil/shared'
-import type { RedisClient } from '@mil/shared'
+import { AppDataSource, runQuery } from '@dagents/db'
+import { createRedis } from '@dagents/shared'
+import type { RedisClient } from '@dagents/shared'
 import { recoverStaleRuns } from '../recovery.js'
 import { createRedisSemaphore, availableSlots } from '../semaphore.js'
 import { TASK_QUEUE_KEY } from '../queue.js'
@@ -23,10 +23,10 @@ import type { PredictionClient, PredictionRequest, PredictionResult } from '../p
  * Acceptance (issue description): "N 篇输入 → fan-out → 中途重启 → 续跑完成."
  *
  * This is the integration capstone for milestone M3: it wires the three
- * milestone pieces together against the real milagents Postgres (`runs`) +
- * Redis (`mil:tasks`, `mil:sem`) docker-compose stack —
+ * milestone pieces together against the real dagents Postgres (`runs`) +
+ * Redis (`dagents:tasks`, `dagents:sem`) docker-compose stack —
  *
- * - M3.2 fan-out (parent + N children, shared `mil:sem` gate)
+ * - M3.2 fan-out (parent + N children, shared `dagents:sem` gate)
  * - M3.4 rerun (not exercised here; covered by rerun.test.ts)
  * - M3.5 restart recovery (`recoverStaleRuns` zeroes leaked slots + re-enqueues
  *   `running` rows)
@@ -39,7 +39,7 @@ import type { PredictionClient, PredictionRequest, PredictionResult } from '../p
  * The crash state is seeded via the real `runs`-repo functions (createRun /
  * markRunning / completeRun) rather than raw SQL, so the post-crash rows are
  * exactly what a killed `fanOut` would have left: a `pending` parent, some
- * `completed` children, some `running` children, and `mil:sem` short by the
+ * `completed` children, some `running` children, and `dagents:sem` short by the
  * in-flight count. `recoverStaleRuns` + a fresh `startWorker` then play the
  * role of the restarted process. (Same seeding rationale as recovery.test.ts:
  * the only faithful way to freeze a "running mid-prediction" row is to seed it
@@ -118,7 +118,7 @@ describe('M3.6 — 中途重启 → 续跑完成 (the acceptance case)', () => {
    * - 1 parent (pending — fanOut was killed before completeParentRun)
    * - `doneCount` children already completed (these finished before the crash)
    * - `runningCount` children still `running` (mid-prediction when SIGKILL hit)
-   * - `mil:sem` short by `runningCount` (each in-flight child held a leaked slot)
+   * - `dagents:sem` short by `runningCount` (each in-flight child held a leaked slot)
    *
    * Uses the real repo functions so the rows match what a killed `fanOut`
    * leaves behind. `flowId == pipelineId` (the realistic shape: the fan-out

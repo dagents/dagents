@@ -1,4 +1,4 @@
-# 百万智能体平台 —— MVP 可执行 Plan（设计稿）
+# Dagents 平台 —— MVP 可执行 Plan（设计稿）
 
 > **版本**：v0.2-exec-plan / 草案 1
 > **日期**：2026-07-08
@@ -53,7 +53,7 @@
 ## 0.2 最终 monorepo 结构
 
 ```
-mil-agents/
+dagents/
 ├─ apps/
 │  ├─ gateway/          # 自研① 网关观测层（Hono）：SSO/路由/限流/审计/Trace 注入/new-api 代理
 │  ├─ dispatch/         # 自研② 中央 dispatch server（Hono + WS）：任务队列 + daemon 注册
@@ -345,7 +345,7 @@ export interface RedisClient { /* ioredis-like 封装，带 key 前缀 */ }
 |---|---|---|---|
 | P1.3.T1 | 建 `packages/shared`，配 pino + ioredis + OTel api | 包能 build | 0.5 / 1 |
 | P1.3.T2 | 写 Logger（pino 封装，强制带 runId 字段） + TraceContext helper | 单测过 | 0.5 / 1 |
-| P1.3.T3 | 写 RedisClient（ioredis 封装，key 前缀 `mil:`） + AppError | 单测过 | 0.5 / 1 |
+| P1.3.T3 | 写 RedisClient（ioredis 封装，key 前缀 `dagents:`） + AppError | 单测过 | 0.5 / 1 |
 
 **依赖**：无。**产出供**：所有层。
 
@@ -494,7 +494,7 @@ while (running) {
 
 ```ts
 // apps/scheduler/src/index.ts
-// 消费 Redis 队列 'mil:tasks'，每条消息 = { runId, pipelineId, input, parentRunId? }
+// 消费 Redis 队列 'dagents:tasks'，每条消息 = { runId, pipelineId, input, parentRunId? }
 // 执行: 调 Flowise POST /api/v1/predrediction/{flowId}（经 gateway）
 // 并发闸: maxConcurrent（如 10）
 // fan-out: 收到批量输入 → 拆 N 个子 run（parent_run_id）→ 并发调 Prediction API
@@ -860,8 +860,8 @@ export async function archiveArtifact(runId: string, artifact: RunArtifact): Pro
 
 1. **功能重叠致命**：multica 的 autopilot（自动驾驶任务流）与 Flowise Agentflow V2 都是"编排 agent 执行"。已 fork Flowise 做编排引擎，再引入 multica autopilot = 两个编排系统打架。v0.2 把 multica 降级为"只参照 daemon 协议"正因如此——要的是它的**异构 agent 执行能力**（daemon + adapter，~15% 代码），不是它的**任务管理 + 编排能力**（Issue/Squad/Autopilot，~85%）。
 2. **Go 栈与 D6 冲突**：全 TS 是锁定决策。fork multica 引入 Go 后端，daemon 的写/改/调试与 TS 层割裂，且 3272 行 Go 需先吃透。
-3. **域模型不匹配**：mil-agents 要"编排 agent 跑流水线 + 批量复现"，不要 issue 跟踪/squad 协作/autopilot 语义。引入它们 = 背用不到的任务管理系统。
-4. **license 边界**：fork 改源码自用允许，但 mil-agents 若未来对外服务则触发商业 license。翻译协议形状不引源码，完全规避。
+3. **域模型不匹配**：dagents 要"编排 agent 跑流水线 + 批量复现"，不要 issue 跟踪/squad 协作/autopilot 语义。引入它们 = 背用不到的任务管理系统。
+4. **license 边界**：fork 改源码自用允许，但 dagents 若未来对外服务则触发商业 license。翻译协议形状不引源码，完全规避。
 5. **翻译成本被高估，且协议稳定**：multica 协议是标准 REST，client.go 方法签名跨版本未变（v0.3.40 复核），TS 翻译是机械工作且目标是稳定靶子；claude adapter 是 spawn + stream-json 解析，TS 等价物不更复杂。Gate-1 限时 2 天 spike 足以验证。相比 fork 4699 行 Go 代码的长期学习成本，翻译是赚的。
 
 **结论**：D12（参照 multica 协议用 TS 自研、不引源码）成立。Gate-1（翻译协议 + claude adapter spike）是丙路线的验证点。Plan 不变。

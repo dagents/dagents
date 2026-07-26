@@ -1,7 +1,7 @@
 import { Hono, type Context } from 'hono'
 import { randomUUID } from 'node:crypto'
 import { context, trace } from '@opentelemetry/api'
-import { createLogger, getTracer } from '@mil/shared'
+import { createLogger, getTracer } from '@dagents/shared'
 import { llmRoutes } from './routes/llm.js'
 import { auditRoutes } from './routes/audit.js'
 import { directoryRoutes } from './routes/directories.js'

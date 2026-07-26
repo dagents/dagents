@@ -9,7 +9,7 @@ export interface RedisClient {
   raw(): Redis
 }
 
-export function createRedis(url: string, prefix = 'mil:'): RedisClient {
+export function createRedis(url: string, prefix = 'dagents:'): RedisClient {
   const client = new Redis(url)
   const k = (key: string) => `${prefix}${key}`
   return {

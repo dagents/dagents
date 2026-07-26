@@ -11,7 +11,7 @@
  */
 import { describe, it, expect } from 'vitest'
 import { accumulateAssistantUsage, resultUsage } from './claude.js'
-import type { TokenUsage } from '@mil/contracts'
+import type { TokenUsage } from '@dagents/contracts'
 
 // The internal `ClaudeMessage` / `ClaudeStreamMessage` shapes are not exported;
 // structural typing lets us pass plain literals. Only the fields the functions

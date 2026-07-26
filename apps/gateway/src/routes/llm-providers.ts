@@ -1,8 +1,9 @@
 import { Hono, type Context } from 'hono'
 import type { ContentfulStatusCode } from 'hono/utils/http-status'
 import { z } from 'zod'
-import { runQuery } from '@mil/db'
-import { createLogger } from '@mil/shared'
+import { runQuery } from '@dagents/db'
+import { createLogger } from '@dagents/shared'
+import { recordAudit } from '../audit.js'
 
 export const llmProviderRoutes = new Hono()
 
@@ -31,6 +32,7 @@ const createBodySchema = z.object({
 
 const updateBodySchema = z.object({
   name: z.string().min(1).optional(),
+  providerType: z.string().min(1).optional(),
   baseUrl: z.string().min(1).optional(),
   apiKey: z.string().min(1).optional(),
   defaultModel: z.string().min(1).optional(),
@@ -184,6 +186,12 @@ llmProviderRoutes.post('/', async (c) => {
     return fail(c, 502, 'llm provider create failed')
   }
 
+  await recordAudit(c, {
+    action: 'llm_provider.create',
+    target: { type: 'llm_provider', id: row.id },
+    detail: { name: data.name, providerType: data.providerType ?? 'openai_compatible', baseUrl: data.baseUrl, defaultModel: data.defaultModel },
+  })
+
   return ok(c, { provider: normalizeProvider(row) })
 })
 
@@ -280,6 +288,20 @@ llmProviderRoutes.patch('/:id', async (c) => {
     return fail(c, 404, 'provider not found', { id })
   }
 
+  const updateDetail: Record<string, unknown> = {}
+  if (data.name !== undefined) updateDetail.name = data.name
+  if (data.baseUrl !== undefined) updateDetail.baseUrl = data.baseUrl
+  if (data.defaultModel !== undefined) updateDetail.defaultModel = data.defaultModel
+  if (data.status !== undefined) updateDetail.status = data.status
+  if (data.remark !== undefined) updateDetail.remark = data.remark
+  if (data.providerType !== undefined) updateDetail.providerType = data.providerType
+
+  await recordAudit(c, {
+    action: 'llm_provider.update',
+    target: { type: 'llm_provider', id },
+    detail: updateDetail,
+  })
+
   return ok(c, { provider: normalizeProvider(row) })
 })
 
@@ -303,6 +325,12 @@ llmProviderRoutes.delete('/:id', async (c) => {
   if (!deletedId) {
     return fail(c, 404, 'provider not found', { id })
   }
+
+  await recordAudit(c, {
+    action: 'llm_provider.delete',
+    target: { type: 'llm_provider', id: deletedId },
+    detail: {},
+  })
 
   return ok(c, { deleted: true, id: deletedId })
 })

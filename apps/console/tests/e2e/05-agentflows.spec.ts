@@ -53,7 +53,7 @@ import { createSeedContext, type SeedContext } from './helpers/seed'
  * creates a seed context for suite-pattern consistency (the Chat-First
  * suite always provisions + disposes a context so `db.runQuery` is
  * available and cleanup is symmetric); no flows are seeded directly —
- * flows live in Flowise, not the mil-agents DB. `afterAll` calls
+ * flows live in Flowise, not the dagents DB. `afterAll` calls
  * `ctx.dispose()`.
  *
  * ## Note on the workflow-engine migration (architecture §9)

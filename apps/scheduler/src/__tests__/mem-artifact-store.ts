@@ -1,4 +1,4 @@
-import { sha256Bytes, type ArtifactStore, type PutResult, type RunArtifact } from '@mil/repro'
+import { sha256Bytes, type ArtifactStore, type PutResult, type RunArtifact } from '@dagents/repro'
 
 /**
  * In-memory `ArtifactStore` for scheduler tests (M4.3 reproduce).

@@ -4,7 +4,7 @@ import { z } from 'zod'
  * Scheduler task-queue contract (plan M3.1 / P1.7).
  *
  * Producers LPUSH JSON-serialised `ScheduleTask` payloads onto the Redis list
- * `mil:tasks`; the scheduler worker BRPOPs them off (FIFO: LPUSH in + BRPOP out
+ * `dagents:tasks`; the scheduler worker BRPOPs them off (FIFO: LPUSH in + BRPOP out
  * gives queue order, not stack order) and runs each through Flowise.
  *
  * `runId` is a caller-supplied UUID and becomes the `runs.id` primary key — the
@@ -39,8 +39,8 @@ export function parseScheduleTask(raw: unknown): ScheduleTask | null {
   return result.success ? result.data : null
 }
 
-/** Redis list key the scheduler consumes (under the `mil:` prefix). */
+/** Redis list key the scheduler consumes (under the `dagents:` prefix). */
 export const TASK_QUEUE_KEY = 'tasks'
 
-/** Redis key holding the semaphore token pool (under the `mil:` prefix). */
+/** Redis key holding the semaphore token pool (under the `dagents:` prefix). */
 export const SEMAPHORE_KEY = 'sem'

@@ -30,14 +30,18 @@
 import { Fragment, useCallback, useEffect, useMemo, useState } from 'react'
 import { PageShell } from '@/components/page-shell'
 import {
-  createToken,
-  deleteToken,
-  getGatewayHealth,
-  listTokens,
-  updateToken,
-  type GatewayHealth,
-} from '@/lib/tokens-client'
-import type { ApiToken, TokenFormInput, TokenStatus } from '@/lib/tokens'
+  createLlmProvider,
+  deleteLlmProvider,
+  listLlmProviders,
+  testLlmProvider,
+  updateLlmProvider,
+} from '@/lib/llm-providers-client'
+import {
+  llmProviderStatusText,
+  type LlmProvider,
+  type LlmProviderFormInput,
+  type LlmProviderStatus,
+} from '@/lib/llm-providers'
 
 /** The six settings tabs, grouped as the design's sub-nav renders them. */
 type TabId = 'keys' | 'models' | 'quota' | 'notify' | 'account' | 'danger'
@@ -48,7 +52,7 @@ interface TabGroup {
 }
 
 const TAB_GROUPS: TabGroup[] = [
-  { label: '密钥', tabs: [{ id: 'keys', label: 'API Key 管理' }] },
+  { label: '密钥', tabs: [{ id: 'keys', label: 'LLM Provider 管理' }] },
   { label: '模型', tabs: [{ id: 'models', label: '默认模型' }] },
   {
     label: '治理',
@@ -73,7 +77,7 @@ const TAB_GROUPS: TabGroup[] = [
  * design label, so aria-label carries the short form.
  */
 const TAB_A11Y: Record<TabId, string> = {
-  keys: 'API Key',
+  keys: 'LLM Provider',
   models: '默认模型',
   quota: '预算配额',
   notify: '通知',
@@ -81,68 +85,17 @@ const TAB_A11Y: Record<TabId, string> = {
   danger: '危险区',
 }
 
-const STATUS_CN: Record<TokenStatus, string> = {
-  active: '启用',
-  disabled: '禁用',
-  expired: '已过期',
-  exhausted: '已耗尽',
-}
+const PROVIDER_TYPES = ['openai', 'anthropic', 'google', 'azure', 'deepseek', 'moonshot', 'qwen', 'ollama', 'custom'] as const
 
-/** new-api quota-points unit: 1$ ≈ 500000 (docs/m0-newapi-setup.md §3). */
-const POINTS_PER_DOLLAR = 500_000
-
-function maskKey(key: string): string {
-  if (!key) return ''
-  // new-api already masks (e.g. `AAAA**********aaaa`); show as-is. If a full
-  // key ever slipped through, mask the middle defensively.
-  if (key.includes('*')) return key
-  if (key.length <= 12) return key.slice(0, 4) + '••••' + key.slice(-4)
-  return key.slice(0, 8) + '••••••••' + key.slice(-4)
-}
-
-function fmtQuotaPoints(points: number): string {
-  if (points >= 1000) return `${(points / 1000).toFixed(0)}K`
-  return String(points)
-}
-
-/**
- * Remaining quota for the row, in new-api quota-points. `ApiToken.remainQuota`
- * is new-api's `remain_quota` (the *remaining* budget), which is exactly what
- * we send back as `remain_quota` on edit — so a name-only edit doesn't change
- * the budget. Returns `null` for unlimited tokens (no remaining budget to edit).
- */
-function remainFromToken(t: ApiToken): number | null {
-  if (t.unlimitedQuota) return null
-  return t.remainQuota ?? 0
-}
-
-function quotaPct(t: ApiToken): number {
-  // Used / original grant. `totalQuota` is the derived grant (used + remain),
-  // so this is the design's `used / total` bar — NOT used / (used+remain),
-  // which would double-count `used` in the denominator and under-report.
-  if (!t.totalQuota) return 0
-  return Math.min(100, Math.round((t.usedQuota / t.totalQuota) * 100))
-}
-
-function expiryText(t: ApiToken): string {
-  if (!t.expiredTime) return '永久'
-  const d = new Date(t.expiredTime * 1000)
-  const now = new Date()
-  if (d < now) return '已过期'
-  const days = Math.ceil((d.getTime() - now.getTime()) / 86_400_000)
-  return days > 30 ? d.toLocaleDateString('zh-CN') : `${days} 天后`
-}
-
-const TOKEN_GROUPS = ['default', 'prod', 'dev', 'research', 'external'] as const
-
-const EMPTY_FORM: TokenFormInput = {
+const EMPTY_FORM: LlmProviderFormInput = {
   name: '',
-  group: 'default',
-  remainQuota: null,
-  unlimitedQuota: false,
-  expiredTime: null,
-  models: null,
-  meta: { remark: '', visibility: 'workspace' },
+  providerType: 'openai',
+  baseUrl: '',
+  apiKey: '',
+  defaultModel: '',
+  models: [],
+  status: 'active',
+  remark: '',
 }
 
 export function SettingsView(): React.ReactElement {
@@ -151,7 +104,7 @@ export function SettingsView(): React.ReactElement {
   return (
     <PageShell
       title="设置"
-      subtitle="new-api 令牌 CRUD、网关健康探测、默认模型、预算配额与熔断、通知。令牌经 new-api 统一签发，上游渠道由网关维护。"
+      subtitle="LLM Provider 管理、默认模型、预算配额与熔断、通知。Provider 配置经网关统一管理，上游渠道由平台维护。"
     >
       <div className="settings-layout">
         <nav className="settings-nav" aria-label="设置分组" role="tablist">
@@ -177,7 +130,7 @@ export function SettingsView(): React.ReactElement {
         </nav>
 
         <div>
-          {tab === 'keys' && <ApiKeysTab />}
+          {tab === 'keys' && <LlmProvidersTab />}
           {tab === 'models' && <DefaultModelsTab />}
           {tab === 'quota' && <QuotaTab />}
           {tab === 'notify' && <NotifyTab />}
@@ -189,28 +142,27 @@ export function SettingsView(): React.ReactElement {
   )
 }
 
-// ─── API Key tab ───────────────────────────────────────────────
+// ─── LLM Provider tab ───────────────────────────────────────────────
 
-function ApiKeysTab(): React.ReactElement {
-  const [tokens, setTokens] = useState<ApiToken[]>([])
+function LlmProvidersTab(): React.ReactElement {
+  const [providers, setProviders] = useState<LlmProvider[]>([])
   const [loading, setLoading] = useState(true)
   const [error, setError] = useState<string | null>(null)
   const [query, setQuery] = useState('')
-  const [statusFilter, setStatusFilter] = useState<TokenStatus | null>(null)
-  const [health, setHealth] = useState<GatewayHealth | null>(null)
+  const [statusFilter, setStatusFilter] = useState<LlmProviderStatus | null>(null)
   const [toast, setToast] = useState<{ msg: string; kind: 'ok' | 'err' } | null>(null)
 
-  const [editing, setEditing] = useState<{ id: number | null; form: TokenFormInput } | null>(null)
-  const [pendingDelete, setPendingDelete] = useState<ApiToken | null>(null)
+  const [editing, setEditing] = useState<{ id: string | null; form: LlmProviderFormInput } | null>(null)
+  const [pendingDelete, setPendingDelete] = useState<LlmProvider | null>(null)
   const [busy, setBusy] = useState(false)
+  const [testingId, setTestingId] = useState<string | null>(null)
 
   const load = useCallback(async () => {
     setLoading(true)
     setError(null)
     try {
-      const [list, h] = await Promise.all([listTokens(), getGatewayHealth()])
-      setTokens(list.tokens)
-      setHealth(h)
+      const list = await listLlmProviders()
+      setProviders(list.providers)
     } catch (err) {
       setError(err instanceof Error ? err.message : String(err))
     } finally {
@@ -222,7 +174,6 @@ function ApiKeysTab(): React.ReactElement {
     void load()
   }, [load])
 
-  // Auto-dismiss the toast after a couple seconds.
   useEffect(() => {
     if (!toast) return
     const t = setTimeout(() => setToast(null), 2400)
@@ -231,33 +182,34 @@ function ApiKeysTab(): React.ReactElement {
 
   const filtered = useMemo(() => {
     const q = query.trim().toLowerCase()
-    return tokens.filter((t) => {
-      if (statusFilter && t.status !== statusFilter) return false
-      if (q && !(t.name.toLowerCase().includes(q) || t.key.toLowerCase().includes(q))) return false
+    return providers.filter((p) => {
+      if (statusFilter && p.status !== statusFilter) return false
+      if (q && !(
+        p.name.toLowerCase().includes(q) ||
+        p.providerType.toLowerCase().includes(q) ||
+        p.baseUrl.toLowerCase().includes(q) ||
+        p.defaultModel.toLowerCase().includes(q)
+      )) return false
       return true
     })
-  }, [tokens, query, statusFilter])
+  }, [providers, query, statusFilter])
 
   function openCreate(): void {
-    setEditing({ id: null, form: { ...EMPTY_FORM, meta: { remark: '', visibility: 'workspace' } } })
+    setEditing({ id: null, form: { ...EMPTY_FORM } })
   }
 
-  function openEdit(t: ApiToken): void {
+  function openEdit(p: LlmProvider): void {
     setEditing({
-      id: t.id,
+      id: p.id,
       form: {
-        name: t.name,
-        group: t.group,
-        // Backfill the *remaining* budget (new-api's remain_quota), not the
-        // original grant — sending the grant back as remain_quota would add
-        // the used amount to the token's budget on every save.
-        remainQuota: remainFromToken(t),
-        unlimitedQuota: t.unlimitedQuota,
-        expiredTime: t.expiredTime,
-        // `models: null` → no `models` key sent → new-api keeps the existing
-        // allowlist (the form doesn't surface the allowlist for editing yet).
-        models: null,
-        meta: { remark: t.remark ?? '', visibility: t.visibility ?? 'workspace' },
+        name: p.name,
+        providerType: p.providerType,
+        baseUrl: p.baseUrl,
+        apiKey: '',
+        defaultModel: p.defaultModel,
+        models: p.models ?? [],
+        status: p.status,
+        remark: p.remark ?? '',
       },
     })
   }
@@ -265,16 +217,27 @@ function ApiKeysTab(): React.ReactElement {
   async function save(): Promise<void> {
     if (!editing) return
     const name = editing.form.name.trim()
-    if (!name) return
+    const baseUrl = editing.form.baseUrl.trim()
+    const defaultModel = editing.form.defaultModel.trim()
+    if (!name || !baseUrl || !defaultModel) return
     setBusy(true)
     try {
-      const form: TokenFormInput = { ...editing.form, name, meta: editing.form.meta }
+      const form: LlmProviderFormInput = {
+        ...editing.form,
+        name,
+        baseUrl,
+        defaultModel,
+      }
       if (editing.id === null) {
-        await createToken(form)
-        setToast({ msg: `令牌「${name}」已创建`, kind: 'ok' })
+        await createLlmProvider(form)
+        setToast({ msg: `Provider「${name}」已创建`, kind: 'ok' })
       } else {
-        await updateToken(editing.id, form)
-        setToast({ msg: `令牌「${name}」已更新`, kind: 'ok' })
+        const updatePayload: Partial<LlmProviderFormInput> = { ...form }
+        if (!form.apiKey) {
+          delete updatePayload.apiKey
+        }
+        await updateLlmProvider(editing.id, updatePayload)
+        setToast({ msg: `Provider「${name}」已更新`, kind: 'ok' })
       }
       setEditing(null)
       await load()
@@ -285,26 +248,13 @@ function ApiKeysTab(): React.ReactElement {
     }
   }
 
-  async function toggleStatus(t: ApiToken): Promise<void> {
-    // new-api status: 1=enabled, 2=disabled. Flip it explicitly via PUT — the
-    // gateway forwards `status` through to new-api's UpdateToken. Only the
-    // status flips; quota / expiry / name are re-sent as-is (using the
-    // remaining budget, not the grant, so the budget is preserved).
-    const nextStatus: 1 | 2 = t.status === 'active' ? 2 : 1
+  async function toggleStatus(p: LlmProvider): Promise<void> {
+    const nextStatus: LlmProviderStatus = p.status === 'active' ? 'disabled' : 'active'
     setBusy(true)
     try {
-      await updateToken(t.id, {
-        name: t.name,
-        group: t.group,
-        remainQuota: remainFromToken(t),
-        unlimitedQuota: t.unlimitedQuota,
-        expiredTime: t.expiredTime,
-        models: null,
-        status: nextStatus,
-        meta: { remark: t.remark ?? '', visibility: t.visibility ?? 'workspace' },
-      })
+      await updateLlmProvider(p.id, { status: nextStatus })
       await load()
-      setToast({ msg: `令牌「${t.name}」已${nextStatus === 2 ? '禁用' : '启用'}`, kind: 'ok' })
+      setToast({ msg: `Provider「${p.name}」已${nextStatus === 'disabled' ? '禁用' : '启用'}`, kind: 'ok' })
     } catch (err) {
       setToast({ msg: err instanceof Error ? err.message : String(err), kind: 'err' })
     } finally {
@@ -312,12 +262,24 @@ function ApiKeysTab(): React.ReactElement {
     }
   }
 
+  async function testConnection(p: LlmProvider): Promise<void> {
+    setTestingId(p.id)
+    try {
+      const result = await testLlmProvider(p.id)
+      setToast({ msg: `连接成功，发现 ${result.models.length} 个模型`, kind: 'ok' })
+    } catch (err) {
+      setToast({ msg: err instanceof Error ? err.message : String(err), kind: 'err' })
+    } finally {
+      setTestingId(null)
+    }
+  }
+
   async function confirmDelete(): Promise<void> {
     if (!pendingDelete) return
     setBusy(true)
     try {
-      await deleteToken(pendingDelete.id)
-      setToast({ msg: `令牌「${pendingDelete.name}」已删除`, kind: 'ok' })
+      await deleteLlmProvider(pendingDelete.id)
+      setToast({ msg: `Provider「${pendingDelete.name}」已删除`, kind: 'ok' })
       setPendingDelete(null)
       await load()
     } catch (err) {
@@ -328,29 +290,27 @@ function ApiKeysTab(): React.ReactElement {
   }
 
   return (
-    <section className="settings-section active" aria-label="API Key 管理">
+    <section className="settings-section active" aria-label="LLM Provider 管理">
       <div className="row-between mb-4">
         <div>
-          <div className="card-title" style={{ fontSize: 'var(--text-lg)' }}>API Key 管理</div>
+          <div className="card-title" style={{ fontSize: 'var(--text-lg)' }}>LLM Provider 管理</div>
           <div className="muted mt-2" style={{ fontSize: 13 }}>
-            通过 new-api 网关统一鉴权与计费，平台只管理令牌（token）的 CRUD
+            管理 LLM 服务商配置，支持多 Provider 接入与统一鉴权
           </div>
         </div>
       </div>
-
-      <GatewayCard health={health} tokenCount={tokens.length} />
 
       <div className="tokens-toolbar">
         <div className="search-mini">
           <input
             type="search"
-            placeholder="搜索令牌名称或 key…"
-            aria-label="搜索令牌"
+            placeholder="搜索 Provider 名称、类型、Base URL、默认模型…"
+            aria-label="搜索 Provider"
             value={query}
             onChange={(e) => setQuery(e.target.value)}
           />
         </div>
-        {(['active', 'disabled', 'expired'] as const).map((s) => (
+        {(['active', 'disabled'] as const).map((s) => (
           <button
             key={s}
             type="button"
@@ -358,15 +318,15 @@ function ApiKeysTab(): React.ReactElement {
             aria-pressed={statusFilter === s}
             onClick={() => setStatusFilter((prev) => (prev === s ? null : s))}
           >
-            {STATUS_CN[s]}
+            {llmProviderStatusText(s)}
           </button>
         ))}
         <span className="tk-count">
-          {filtered.length} / {tokens.length} 个令牌
+          {filtered.length} / {providers.length} 个 Provider
         </span>
         <div className="grow" />
         <button type="button" className="btn btn-accent btn-sm" onClick={openCreate}>
-          + 新建令牌
+          + 新建 Provider
         </button>
       </div>
 
@@ -374,11 +334,11 @@ function ApiKeysTab(): React.ReactElement {
         <table className="data" style={{ width: '100%' }}>
           <thead>
             <tr>
-              <th style={{ width: '24%' }}>名称</th>
-              <th style={{ width: '22%' }}>Key</th>
-              <th>分组</th>
-              <th>额度</th>
-              <th>过期</th>
+              <th style={{ width: '20%' }}>名称</th>
+              <th style={{ width: '14%' }}>类型</th>
+              <th style={{ width: '22%' }}>Base URL</th>
+              <th style={{ width: '16%' }}>默认模型</th>
+              <th style={{ width: '12%' }}>状态</th>
               <th style={{ textAlign: 'right' }}>操作</th>
             </tr>
           </thead>
@@ -403,97 +363,92 @@ function ApiKeysTab(): React.ReactElement {
             ) : filtered.length === 0 ? (
               <tr>
                 <td colSpan={6} className="tc muted" style={{ padding: 'var(--space-12)' }}>
-                  {query || statusFilter ? '没有匹配的令牌。' : '还没有令牌。点击「新建令牌」创建第一个。'}
+                  {query || statusFilter ? '没有匹配的 Provider。' : '还没有 Provider。点击「新建 Provider」创建第一个。'}
                 </td>
               </tr>
             ) : (
-              filtered.map((t) => {
-                const pct = quotaPct(t)
-                const qCls = pct >= 90 ? 'danger' : pct >= 70 ? 'warn' : ''
-                return (
-                  <tr key={t.id}>
-                    <td>
-                      <div className="tk-name">
-                        <div className="nm">
-                          {t.name}
-                          {t.isDefault ? <span className="badge-default">默认</span> : null}
-                        </div>
-                        <div className="meta">{t.unlimitedQuota ? '无限额度' : `${fmtQuotaPoints(t.totalQuota ?? 0)} 点`}</div>
+              filtered.map((p) => (
+                <tr key={p.id}>
+                  <td>
+                    <div className="tk-name">
+                      <div className="nm">{p.name}</div>
+                      <div className="meta">
+                        <span className="tk-key mono">{p.apiKey}</span>
                       </div>
-                    </td>
-                    <td>
-                      <span className="tk-key mono">{maskKey(t.key)}</span>
-                    </td>
-                    <td>
-                      <span className="tk-group">{t.group}</span>
-                    </td>
-                    <td>
-                      <div className="tk-quota">
-                        <div className={`bar ${qCls}`}>
-                          <span style={{ width: `${pct}%` }} />
-                        </div>
-                        <div className="num">
-                          {t.unlimitedQuota ? '∞' : `${fmtQuotaPoints(t.usedQuota)} / ${fmtQuotaPoints(t.totalQuota ?? 0)}`}
-                        </div>
-                      </div>
-                    </td>
-                    <td>
-                      <span className={`status ${t.status === 'active' ? 'running' : t.status === 'expired' ? 'failed' : 'idle'}`}>
-                        <span className="dot" />
-                        {STATUS_CN[t.status]}
-                      </span>
-                      <div className="meta" style={{ fontSize: 10, marginTop: 2 }}>
-                        {expiryText(t)}
-                      </div>
-                    </td>
-                    <td>
-                      <div className="tk-actions">
-                        <button
-                          type="button"
-                          className="mini-btn"
-                          aria-label={t.status === 'active' ? '禁用' : '启用'}
-                          title={t.status === 'active' ? '禁用' : '启用'}
-                          disabled={busy}
-                          onClick={() => void toggleStatus(t)}
-                        >
-                          {t.status === 'active' ? '∥' : '▶'}
-                        </button>
-                        <button
-                          type="button"
-                          className="mini-btn"
-                          aria-label="编辑"
-                          title="编辑"
-                          disabled={busy}
-                          onClick={() => openEdit(t)}
-                        >
-                          ✎
-                        </button>
-                        <button
-                          type="button"
-                          className="mini-btn danger"
-                          aria-label="删除"
-                          title="删除"
-                          disabled={busy}
-                          onClick={() => setPendingDelete(t)}
-                        >
-                          ✕
-                        </button>
-                      </div>
-                    </td>
-                  </tr>
-                )
-              })
+                    </div>
+                  </td>
+                  <td>
+                    <span className="tk-group">{p.providerType}</span>
+                  </td>
+                  <td>
+                    <span className="mono" style={{ fontSize: 12, wordBreak: 'break-all' }}>{p.baseUrl}</span>
+                  </td>
+                  <td>
+                    <span className="mono" style={{ fontSize: 12 }}>{p.defaultModel}</span>
+                  </td>
+                  <td>
+                    <span className={`status ${p.status === 'active' ? 'running' : 'idle'}`}>
+                      <span className="dot" />
+                      {llmProviderStatusText(p.status)}
+                    </span>
+                  </td>
+                  <td>
+                    <div className="tk-actions">
+                      <button
+                        type="button"
+                        className="mini-btn"
+                        aria-label={p.status === 'active' ? '禁用' : '启用'}
+                        title={p.status === 'active' ? '禁用' : '启用'}
+                        disabled={busy}
+                        onClick={() => void toggleStatus(p)}
+                      >
+                        {p.status === 'active' ? '∥' : '▶'}
+                      </button>
+                      <button
+                        type="button"
+                        className="mini-btn"
+                        aria-label="测试连接"
+                        title="测试连接"
+                        disabled={busy || testingId === p.id}
+                        onClick={() => void testConnection(p)}
+                      >
+                        {testingId === p.id ? '⟳' : '↻'}
+                      </button>
+                      <button
+                        type="button"
+                        className="mini-btn"
+                        aria-label="编辑"
+                        title="编辑"
+                        disabled={busy}
+                        onClick={() => openEdit(p)}
+                      >
+                        ✎
+                      </button>
+                      <button
+                        type="button"
+                        className="mini-btn danger"
+                        aria-label="删除"
+                        title="删除"
+                        disabled={busy}
+                        onClick={() => setPendingDelete(p)}
+                      >
+                        ✕
+                      </button>
+                    </div>
+                  </td>
+                </tr>
+              ))
             )}
           </tbody>
         </table>
       </div>
 
       <p className="muted mt-3" style={{ fontSize: 12, lineHeight: 1.6 }}>
-        令牌由 new-api 签发并托管，平台本地不存原文。所有 LLM/工具调用经网关统一鉴权与计费，上游渠道（Anthropic / OpenAI / Google / 本地）由 new-api 的渠道管理维护。
+        Provider 配置由网关统一管理，API Key 以掩码形式显示，原文不返回前端。所有 LLM 调用经网关统一鉴权与路由。
       </p>
 
       {editing ? (
-        <TokenModal
+        <LlmProviderModal
           form={editing.form}
           isEdit={editing.id !== null}
           busy={busy}
@@ -505,7 +460,7 @@ function ApiKeysTab(): React.ReactElement {
 
       {pendingDelete ? (
         <DeleteModal
-          token={pendingDelete}
+          provider={pendingDelete}
           busy={busy}
           onCancel={() => setPendingDelete(null)}
           onConfirm={() => void confirmDelete()}
@@ -517,57 +472,29 @@ function ApiKeysTab(): React.ReactElement {
   )
 }
 
-function GatewayCard({ health, tokenCount }: { health: GatewayHealth | null; tokenCount: number }): React.ReactElement {
-  const reachable = health?.reachable === true
-  return (
-    <div className="gateway">
-      <div className="gw-mark">N</div>
-      <div>
-        <div className="gw-title">new-api 网关</div>
-        <div className="gw-sub">
-          <span className={`s status ${reachable ? 'online' : 'offline'}`}>
-            <span className="dot" />
-            {reachable ? '已连接' : '未连接'}
-          </span>
-          <span className="s mono">{reachable && health?.svc ? `svc=${health.svc}` : '经网关代理'}</span>
-        </div>
-      </div>
-      <div className="gw-meta">
-        <div className="gw-stat">
-          <div className="v">{tokenCount}</div>
-          <div className="l">令牌</div>
-        </div>
-      </div>
-    </div>
-  )
-}
-
-function TokenModal(props: {
-  form: TokenFormInput
+function LlmProviderModal(props: {
+  form: LlmProviderFormInput
   isEdit: boolean
   busy: boolean
-  onChange: (form: TokenFormInput) => void
+  onChange: (form: LlmProviderFormInput) => void
   onCancel: () => void
   onSave: () => void
 }): React.ReactElement {
   const { form, isEdit, busy, onChange, onCancel, onSave } = props
   const nameInvalid = form.name.trim().length === 0
+  const baseUrlInvalid = form.baseUrl.trim().length === 0
+  const defaultModelInvalid = form.defaultModel.trim().length === 0
+  const apiKeyRequired = !isEdit && !form.apiKey
 
-  function set<K extends keyof TokenFormInput>(key: K, value: TokenFormInput[K]): void {
+  function set<K extends keyof LlmProviderFormInput>(key: K, value: LlmProviderFormInput[K]): void {
     onChange({ ...form, [key]: value })
   }
 
-  // datetime-local → epoch seconds (or null). The form keeps expiredTime as
-  // epoch seconds; the input renders a local-datetime string.
-  const expiredLocal = form.expiredTime
-    ? new Date(form.expiredTime * 1000).toISOString().slice(0, 16)
-    : ''
-
   return (
     <div className="modal-backdrop open" onClick={(e) => e.target === e.currentTarget && onCancel()}>
-      <div className="modal" role="dialog" aria-modal="true" aria-labelledby="tm-title">
+      <div className="modal" role="dialog" aria-modal="true" aria-labelledby="lp-title">
         <div className="modal-head">
-          <div className="title" id="tm-title">{isEdit ? '编辑令牌' : '新建令牌'}</div>
+          <div className="title" id="lp-title">{isEdit ? '编辑 Provider' : '新建 Provider'}</div>
           <button type="button" className="icon-btn" aria-label="关闭" onClick={onCancel}>
             ✕
           </button>
@@ -576,18 +503,18 @@ function TokenModal(props: {
           <form
             onSubmit={(e) => {
               e.preventDefault()
-              if (!nameInvalid) onSave()
+              if (!nameInvalid && !baseUrlInvalid && !defaultModelInvalid && !apiKeyRequired) onSave()
             }}
           >
             <div className="modal-grid">
               <div className={`field full ${nameInvalid ? 'invalid' : ''}`}>
-                <label htmlFor="f-name">令牌名称 *</label>
+                <label htmlFor="f-name">名称 *</label>
                 <input
                   id="f-name"
                   className="input"
                   required
-                  maxLength={40}
-                  placeholder="如：论文复现-生产"
+                  maxLength={60}
+                  placeholder="如：OpenAI 官方"
                   value={form.name}
                   onChange={(e) => set('name', e.target.value)}
                   aria-invalid={nameInvalid}
@@ -595,78 +522,100 @@ function TokenModal(props: {
                 <span className="field-error">名称不能为空。</span>
               </div>
               <div className="field">
-                <label htmlFor="f-group">分组</label>
+                <label htmlFor="f-provider-type">Provider 类型</label>
                 <select
-                  id="f-group"
+                  id="f-provider-type"
                   className="select"
-                  value={form.group ?? 'default'}
-                  onChange={(e) => set('group', e.target.value)}
+                  value={form.providerType ?? 'openai'}
+                  onChange={(e) => set('providerType', e.target.value)}
                 >
-                  {TOKEN_GROUPS.map((g) => (
-                    <option key={g} value={g}>{g}</option>
+                  {PROVIDER_TYPES.map((t) => (
+                    <option key={t} value={t}>{t}</option>
                   ))}
                 </select>
-                <span className="hint">用于 new-api 按组限流与分摊</span>
               </div>
-              <div className="field">
-                <label htmlFor="f-quota">剩余额度（额度点）</label>
+              <div className={`field ${baseUrlInvalid ? 'invalid' : ''}`}>
+                <label htmlFor="f-base-url">Base URL *</label>
                 <input
-                  id="f-quota"
+                  id="f-base-url"
                   className="input"
-                  type="number"
-                  min={0}
-                  step={100}
-                  placeholder="500000"
-                  disabled={form.unlimitedQuota}
-                  value={form.remainQuota ?? ''}
-                  onChange={(e) => set('remainQuota', e.target.value === '' ? null : Number(e.target.value))}
+                  required
+                  placeholder="https://api.openai.com/v1"
+                  value={form.baseUrl}
+                  onChange={(e) => set('baseUrl', e.target.value)}
+                  aria-invalid={baseUrlInvalid}
                 />
-                <span className="hint">
-                  {isEdit
-                    ? '令牌的剩余额度点；new-api 按此扣减。留空 = 不修改'
-                    : `初始剩余额度点；1 点 ≈ $${(1 / POINTS_PER_DOLLAR).toFixed(4)}`}
-                </span>
+                <span className="field-error">Base URL 不能为空。</span>
+              </div>
+              <div className={`field full ${apiKeyRequired ? 'invalid' : ''}`}>
+                <label htmlFor="f-api-key">
+                  API Key {isEdit ? <span className="hint">（留空表示不修改）</span> : ' *'}
+                </label>
+                <input
+                  id="f-api-key"
+                  className="input"
+                  type="password"
+                  placeholder={isEdit ? '••••••••（留空不修改）' : 'sk-...'}
+                  value={form.apiKey ?? ''}
+                  onChange={(e) => set('apiKey', e.target.value)}
+                  aria-invalid={apiKeyRequired}
+                />
+                {apiKeyRequired && <span className="field-error">API Key 不能为空。</span>}
+              </div>
+              <div className={`field ${defaultModelInvalid ? 'invalid' : ''}`}>
+                <label htmlFor="f-default-model">默认模型 *</label>
+                <input
+                  id="f-default-model"
+                  className="input"
+                  required
+                  placeholder="gpt-4o-mini"
+                  value={form.defaultModel}
+                  onChange={(e) => set('defaultModel', e.target.value)}
+                  aria-invalid={defaultModelInvalid}
+                />
+                <span className="field-error">默认模型不能为空。</span>
               </div>
               <div className="field">
-                <label htmlFor="f-expired">过期时间</label>
-                <input
-                  id="f-expired"
-                  className="input"
-                  type="datetime-local"
-                  value={expiredLocal}
+                <label htmlFor="f-status">状态</label>
+                <select
+                  id="f-status"
+                  className="select"
+                  value={form.status ?? 'active'}
+                  onChange={(e) => set('status', e.target.value as LlmProviderStatus)}
+                >
+                  <option value="active">启用</option>
+                  <option value="disabled">禁用</option>
+                </select>
+              </div>
+              <div className="field full">
+                <label htmlFor="f-models">模型列表</label>
+                <textarea
+                  id="f-models"
+                  className="textarea"
+                  rows={2}
+                  placeholder="可选，逗号分隔，如：gpt-4o, gpt-4o-mini, claude-3-opus"
+                  value={Array.isArray(form.models) ? form.models.join(', ') : ''}
                   onChange={(e) => {
-                    const v = e.target.value
-                    set('expiredTime', v ? Math.floor(new Date(v).getTime() / 1000) : null)
+                    const models = e.target.value
+                      .split(',')
+                      .map((m) => m.trim())
+                      .filter((m) => m.length > 0)
+                    set('models', models)
                   }}
                 />
-                <span className="hint">留空 = 永不过期</span>
-              </div>
-              <div className="field">
-                <label className="switch">
-                  <input
-                    type="checkbox"
-                    checked={form.unlimitedQuota ?? false}
-                    onChange={(e) => set('unlimitedQuota', e.target.checked)}
-                  />
-                  <span className="track" />
-                  <span className="switch-label">无限额度</span>
-                </label>
+                <span className="hint">留空则使用测试连接返回的模型列表</span>
               </div>
               <div className="field full">
                 <label htmlFor="f-remark">备注</label>
                 <textarea
                   id="f-remark"
                   className="textarea"
-                  maxLength={120}
+                  maxLength={200}
                   rows={2}
                   placeholder="可选，便于团队识别用途"
-                  value={form.meta?.remark ?? ''}
-                  onChange={(e) => set('meta', { ...(form.meta ?? { visibility: 'workspace' }), remark: e.target.value })}
+                  value={form.remark ?? ''}
+                  onChange={(e) => set('remark', e.target.value)}
                 />
-                <span className="hint">
-                  仅本平台可见，不会同步到 new-api
-                  {isEdit ? '（gateway 暂未回填，编辑时需重新填写）' : ''}
-                </span>
               </div>
             </div>
           </form>
@@ -675,7 +624,12 @@ function TokenModal(props: {
           <button type="button" className="btn btn-ghost btn-sm" onClick={onCancel} disabled={busy}>
             取消
           </button>
-          <button type="button" className="btn btn-accent btn-sm" onClick={onSave} disabled={busy || nameInvalid}>
+          <button
+            type="button"
+            className="btn btn-accent btn-sm"
+            onClick={onSave}
+            disabled={busy || nameInvalid || baseUrlInvalid || defaultModelInvalid || apiKeyRequired}
+          >
             {busy ? '保存中…' : '保存'}
           </button>
         </div>
@@ -685,24 +639,24 @@ function TokenModal(props: {
 }
 
 function DeleteModal(props: {
-  token: ApiToken
+  provider: LlmProvider
   busy: boolean
   onCancel: () => void
   onConfirm: () => void
 }): React.ReactElement {
-  const { token, busy, onCancel, onConfirm } = props
+  const { provider, busy, onCancel, onConfirm } = props
   return (
     <div className="modal-backdrop open" onClick={(e) => e.target === e.currentTarget && onCancel()}>
       <div className="modal" style={{ width: 420 }} role="alertdialog" aria-modal="true" aria-labelledby="del-title">
         <div className="modal-head">
-          <div className="title" id="del-title">删除令牌</div>
+          <div className="title" id="del-title">删除 Provider</div>
         </div>
         <div className="modal-body">
           <p style={{ fontSize: 'var(--text-sm)', color: 'var(--fg-2)', lineHeight: 1.6 }}>
-            即将在 new-api 上删除令牌 <span className="mono" style={{ fontWeight: 600 }}>{token.name}</span>。
+            即将删除 Provider <span className="mono" style={{ fontWeight: 600 }}>{provider.name}</span>。
           </p>
           <p className="muted mt-3" style={{ fontSize: 12, lineHeight: 1.6 }}>
-            删除后该 key 立即失效，正在进行的请求会被网关拒绝。此操作不可撤销。
+            删除后该 Provider 配置立即失效，关联的调用会失败。此操作不可撤销。
           </p>
         </div>
         <div className="modal-foot">

@@ -1,5 +1,5 @@
 {
-  "name": "@mil/daemon",
+  "name": "@dagents/daemon",
   "version": "0.0.0",
   "private": true,
   "type": "module",
@@ -12,9 +12,9 @@
     "test": "vitest run"
   },
   "dependencies": {
-    "@mil/contracts": "workspace:*",
-    "@mil/agent-adapters": "workspace:*",
-    "@mil/shared": "workspace:*"
+    "@dagents/contracts": "workspace:*",
+    "@dagents/agent-adapters": "workspace:*",
+    "@dagents/shared": "workspace:*"
   },
   "devDependencies": {
     "tsup": "^8.0.0",

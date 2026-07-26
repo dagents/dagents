@@ -7,7 +7,7 @@
  *
  * ## Approach
  *
- * - All seeds go through `@mil/db` `runQuery` (the same layer gateway uses).
+ * - All seeds go through `@dagents/db` `runQuery` (the same layer gateway uses).
  * - `process.env.POSTGRES_URL` is set before the dynamic import so AppDataSource
  *   targets the dev-stack Postgres (:15432 by default).
  * - Each spec calls `createSeedContext()` in `beforeAll` to get a context that
@@ -18,7 +18,7 @@
  *
  * ## Why dynamic import
  *
- * `@mil/db` is not a declared console dependency (the console app itself never
+ * `@dagents/db` is not a declared console dependency (the console app itself never
  * touches the DB layer — only the gateway does). Pulling it in via a static
  * import would break the console's build graph. Dynamic import inside `beforeAll`
  * keeps it test-only tooling, same pattern as `v0.3-design.spec.ts`.
@@ -31,7 +31,7 @@ import type { APIRequestContext } from '@playwright/test'
  * Override via env when pointing at a different stack.
  */
 export const E2E_POSTGRES_URL =
-  process.env.POSTGRES_URL ?? 'postgresql://milagents:milagents_dev@localhost:15432/milagents'
+  process.env.POSTGRES_URL ?? 'postgresql://dagents:dagents_dev@localhost:15432/dagents'
 
 export const GATEWAY_BASE = process.env.E2E_GATEWAY_URL ?? 'http://localhost:8080'
 export const DISPATCH_BASE = `${GATEWAY_BASE}/api/v1/dispatch`
@@ -49,7 +49,7 @@ export interface SeedContext {
   messageIds: string[]
   /** Resolved runQuery + initDb from the dynamic import. `initDb` returns the
    *  DataSource (typed `Promise<unknown>` here so the helper doesn't have to
-   *  depend on `@mil/db`'s `DataSource` type — callers `await` it for its side
+   *  depend on `@dagents/db`'s `DataSource` type — callers `await` it for its side
    *  effect and ignore the returned handle). */
   db: {
     runQuery: <T = Record<string, unknown>>(sql: string, params?: unknown[]) => Promise<{ records: T[] }>
@@ -61,12 +61,12 @@ export interface SeedContext {
 
 /**
  * Build a seed context. Sets POSTGRES_URL on process.env *before* dynamically
- * importing `@mil/db` (the DataSource captures the env at module-construction
+ * importing `@dagents/db` (the DataSource captures the env at module-construction
  * time — a static import would already be locked to the wrong URL).
  */
 export async function createSeedContext(): Promise<SeedContext> {
   process.env.POSTGRES_URL = E2E_POSTGRES_URL
-  const { initDb, runQuery } = await import('@mil/db')
+  const { initDb, runQuery } = await import('@dagents/db')
   await initDb()
 
   const ctx: SeedContext = {

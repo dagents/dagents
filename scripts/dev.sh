@@ -50,12 +50,12 @@ fi
 # and you can provision it later (see docs/m1-flowise-agent-verification.md).
 __flowise_key() {
   if [[ -n "${FLOWISE_API_KEY:-}" ]]; then return; fi   # .env / caller wins
-  if ! docker ps --format '{{.Names}}' 2>/dev/null | grep -q '^mil-agents-postgres-1$'; then
+  if ! docker ps --format '{{.Names}}' 2>/dev/null | grep -q '^dagents-postgres-1$'; then
     return
   fi
   local key
-  key="$(docker exec mil-agents-postgres-1 psql -U milagents -d flowise -t -A 2>/dev/null \
-    -c 'SELECT "apiKey" FROM apikey WHERE "keyName"='"'"'mil-agents-m1'"'"' LIMIT 1;')" || true
+  key="$(docker exec dagents-postgres-1 psql -U dagents -d flowise -t -A 2>/dev/null \
+    -c 'SELECT "apiKey" FROM apikey WHERE "keyName"='"'"'dagents-m1'"'"' LIMIT 1;')" || true
   if [[ -n "$key" ]]; then
     export FLOWISE_API_KEY="$key"
   fi

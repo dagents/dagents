@@ -1,4 +1,4 @@
-import { createLogger } from '@mil/shared'
+import { createLogger } from '@dagents/shared'
 import { runChild, type FanOutDeps } from './fanout.js'
 import {
   createRerunRun,

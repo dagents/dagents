@@ -1,5 +1,5 @@
 {
-  "name": "@mil/dispatch",
+  "name": "@dagents/dispatch",
   "version": "0.0.0",
   "private": true,
   "type": "module",
@@ -12,9 +12,9 @@
   },
   "dependencies": {
     "@hono/node-server": "^1.12.0",
-    "@mil/contracts": "workspace:*",
-    "@mil/db": "workspace:*",
-    "@mil/shared": "workspace:*",
+    "@dagents/contracts": "workspace:*",
+    "@dagents/db": "workspace:*",
+    "@dagents/shared": "workspace:*",
     "hono": "^4.5.0",
     "zod": "^4.4.3"
   },

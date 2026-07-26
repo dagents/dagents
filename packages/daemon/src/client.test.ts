@@ -4,7 +4,7 @@ import type {
   AgentEvent,
   ClaimTaskResponse,
   RegisterResponse,
-} from '@mil/contracts'
+} from '@dagents/contracts'
 
 /**
  * Unit tests for `DispatchClient` (M2.3).

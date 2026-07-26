@@ -170,7 +170,7 @@ sequenceDiagram
 
 ### 3.2 为什么不是"否（完全不用 Redis）"
 
-- 平台要水平扩展 / 跨实例恢复，**确实需要 Redis**——但用途是 BullMQ **任务队列** + SSE **事件 pub/sub**（`MODE=QUEUE`），以及限流/缓存。这部分 v0.2 已经规划（`packages/shared` 的 redis 客户端、`apps/scheduler` 消费 `mil:tasks`）。
+- 平台要水平扩展 / 跨实例恢复，**确实需要 Redis**——但用途是 BullMQ **任务队列** + SSE **事件 pub/sub**（`MODE=QUEUE`），以及限流/缓存。这部分 v0.2 已经规划（`packages/shared` 的 redis 客户端、`apps/scheduler` 消费 `dagents:tasks`）。
 - 也确实需要"共享持久态"——但载体是**共享 PostgreSQL**（`execution` + `chat_message` + 平台 `runs` 表），不是把 Flow State 再塞一份 Redis。
 
 ### 3.3 真正的"形态不同"是什么

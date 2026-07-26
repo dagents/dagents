@@ -17,7 +17,7 @@
  */
 import { describe, it, expect, beforeAll } from 'vitest'
 import { claudeBackend } from './claude.js'
-import type { AgentEvent } from '@mil/contracts'
+import type { AgentEvent } from '@dagents/contracts'
 
 const isWindows = process.platform === 'win32'
 

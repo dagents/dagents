@@ -41,8 +41,8 @@ import type {
   ExecOptions,
   Logger,
   TokenUsage,
-} from '@mil/contracts'
-import { createLogger } from '@mil/shared'
+} from '@dagents/contracts'
+import { createLogger } from '@dagents/shared'
 import { writeMcpConfigToTemp } from './mcp-config.js'
 import type { McpConfigFile } from './mcp-config.js'
 

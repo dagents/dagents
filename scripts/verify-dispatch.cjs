@@ -17,7 +17,7 @@ async function main() {
   // 2. seed an agent_daemon via psql (FK target for invoke) — using docker exec
   const { execSync } = require('node:child_process')
   const adId = execSync(
-    `docker exec mil-agents-postgres-1 psql -qAt -U milagents -d milagents -c "INSERT INTO agent_daemons (name, kind, daemon_id, executable_path) VALUES ('claude-code','claude','${daemonId}','claude') RETURNING id"`,
+    `docker exec dagents-postgres-1 psql -qAt -U dagents -d dagents -c "INSERT INTO agent_daemons (name, kind, daemon_id, executable_path) VALUES ('claude-code','claude','${daemonId}','claude') RETURNING id"`,
   ).toString().split(/\r?\n/)[0].trim()
   console.log('2. seed agent_daemon ->', adId)
 
@@ -109,9 +109,9 @@ async function main() {
   console.log('16. deregister ->', await code(dl))
 
   // DB state
-  const tasks = execSync(`docker exec mil-agents-postgres-1 psql -U milagents -d milagents -c "SELECT id, status, session_id, duration_ms, result->>'output' AS out, failure_reason FROM dispatch_tasks ORDER BY created_at;"`).toString()
+  const tasks = execSync(`docker exec dagents-postgres-1 psql -U dagents -d dagents -c "SELECT id, status, session_id, duration_ms, result->>'output' AS out, failure_reason FROM dispatch_tasks ORDER BY created_at;"`).toString()
   console.log('\n=== dispatch_tasks ===\n' + tasks)
-  const events = execSync(`docker exec mil-agents-postgres-1 psql -U milagents -d milagents -c "SELECT task_id, kind, seq, payload->>'summary' AS s, payload->>'content' AS c FROM dispatch_task_events ORDER BY seq;"`).toString()
+  const events = execSync(`docker exec dagents-postgres-1 psql -U dagents -d dagents -c "SELECT task_id, kind, seq, payload->>'summary' AS s, payload->>'content' AS c FROM dispatch_task_events ORDER BY seq;"`).toString()
   console.log('=== dispatch_task_events ===\n' + events)
 }
 main().catch((e) => { console.error('ERR', e); process.exit(1) })

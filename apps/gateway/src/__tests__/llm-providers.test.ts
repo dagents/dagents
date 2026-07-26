@@ -4,7 +4,7 @@ import { randomUUID } from 'node:crypto'
 
 const mockRunQuery = vi.fn()
 
-vi.mock('@mil/db', () => ({
+vi.mock('@dagents/db', () => ({
   runQuery: (...args: unknown[]) => mockRunQuery(...args),
 }))
 
@@ -90,7 +90,7 @@ describe('POST /api/v1/llm-providers — create', () => {
       body: JSON.stringify({ name: 'Bad Provider' }),
     })
     expect(res.status).toBe(400)
-    const body = await res.json()
+    const body = (await res.json()) as { success: boolean; error: string }
     expect(body.success).toBe(false)
     expect(body.error).toBe('invalid body')
   })
@@ -117,7 +117,7 @@ describe('GET /api/v1/llm-providers/:id — get', () => {
 
     const res = await app.request(`/api/v1/llm-providers/${id}`, { method: 'GET' })
     expect(res.status).toBe(404)
-    const body = await res.json()
+    const body = (await res.json()) as { success: boolean; error: string }
     expect(body.success).toBe(false)
     expect(body.error).toBe('provider not found')
   })
@@ -125,7 +125,7 @@ describe('GET /api/v1/llm-providers/:id — get', () => {
   it('returns 400 for malformed id', async () => {
     const res = await app.request('/api/v1/llm-providers/not-a-uuid', { method: 'GET' })
     expect(res.status).toBe(400)
-    const body = await res.json()
+    const body = (await res.json()) as { success: boolean; error: string }
     expect(body.success).toBe(false)
     expect(body.error).toBe('invalid provider id')
   })
@@ -167,7 +167,7 @@ describe('PATCH /api/v1/llm-providers/:id — update', () => {
       body: JSON.stringify({ name: 'Nope' }),
     })
     expect(res.status).toBe(404)
-    const body = await res.json()
+    const body = (await res.json()) as { success: boolean; error: string }
     expect(body.success).toBe(false)
     expect(body.error).toBe('provider not found')
   })
@@ -192,7 +192,7 @@ describe('DELETE /api/v1/llm-providers/:id — delete', () => {
 
     const res = await app.request(`/api/v1/llm-providers/${id}`, { method: 'DELETE' })
     expect(res.status).toBe(404)
-    const body = await res.json()
+    const body = (await res.json()) as { success: boolean; error: string }
     expect(body.success).toBe(false)
     expect(body.error).toBe('provider not found')
   })
@@ -235,7 +235,7 @@ describe('POST /api/v1/llm-providers/:id/test — test connection', () => {
 
     const res = await app.request(`/api/v1/llm-providers/${id}/test`, { method: 'POST' })
     expect(res.status).toBe(502)
-    const body = await res.json()
+    const body = (await res.json()) as { success: boolean; error: string }
     expect(body.success).toBe(false)
     expect(body.error).toBe('connection test failed')
 

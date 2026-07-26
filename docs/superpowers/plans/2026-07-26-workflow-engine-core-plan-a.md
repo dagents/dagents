@@ -4,7 +4,7 @@
 
 **Goal:** Create `packages/workflow/` with type system, DAG execution engine skeleton, and 8 simple nodes — producing a testable workflow engine that can run linear DAGs without Flowise.
 
-**Architecture:** New `@mil/workflow` package following the `@mil/contracts` pattern (ESM + tsup + vitest). Types are抽离 from Flowise's `INode`/`INodeData`/`ICommonObject` into a self-contained contract. The DAG executor implements topological sort + state passing (no branching/looping yet — that's Plan B). 8 simple nodes (DirectReply, Iteration, Loop, CustomFunction, Retriever, Tool, HTTP, Condition) are migrated with Flowise dependencies replaced by the new types.
+**Architecture:** New `@dagents/workflow` package following the `@dagents/contracts` pattern (ESM + tsup + vitest). Types are抽离 from Flowise's `INode`/`INodeData`/`ICommonObject` into a self-contained contract. The DAG executor implements topological sort + state passing (no branching/looping yet — that's Plan B). 8 simple nodes (DirectReply, Iteration, Loop, CustomFunction, Retriever, Tool, HTTP, Condition) are migrated with Flowise dependencies replaced by the new types.
 
 **Tech Stack:** TypeScript / vitest / tsup / ESM (NodeNext)
 
@@ -66,7 +66,7 @@
 | File | Change |
 |------|--------|
 | `pnpm-workspace.yaml` | Already includes `packages/*` — no change needed |
-| `packages/workflow` auto-discovered | Verified by `pnpm --filter @mil/workflow` |
+| `packages/workflow` auto-discovered | Verified by `pnpm --filter @dagents/workflow` |
 
 ---
 
@@ -83,7 +83,7 @@ Create `packages/workflow/package.json`:
 
 ```json
 {
-  "name": "@mil/workflow",
+  "name": "@dagents/workflow",
   "version": "0.0.0",
   "private": true,
   "type": "module",
@@ -121,7 +121,7 @@ Create `packages/workflow/src/index.ts`:
 
 ```typescript
 /**
- * @mil/workflow — Workflow engine core (Plan A).
+ * @dagents/workflow — Workflow engine core (Plan A).
  *
  * Provides the DAG execution engine and node contract for the Chat-First
  * workflow system. Replaces the Flowise agentflow engine dependency.
@@ -153,18 +153,18 @@ export * from './nodes/index.js'
 - [ ] **Step 4: Install dependencies**
 
 Run: `pnpm install`
-Expected: `@mil/workflow` resolved as workspace package, `tsup`/`vitest` installed.
+Expected: `@dagents/workflow` resolved as workspace package, `tsup`/`vitest` installed.
 
 - [ ] **Step 5: Verify scaffold**
 
-Run: `pnpm --filter @mil/workflow typecheck`
+Run: `pnpm --filter @dagents/workflow typecheck`
 Expected: FAIL with "Cannot find module './types/node.js'" — this is correct, types not created yet.
 
 - [ ] **Step 6: Commit**
 
 ```bash
 git add packages/workflow/package.json packages/workflow/tsconfig.json packages/workflow/src/index.ts
-git commit -m "feat(workflow): scaffold @mil/workflow package"
+git commit -m "feat(workflow): scaffold @dagents/workflow package"
 ```
 
 ---
@@ -244,7 +244,7 @@ describe('type contracts', () => {
 
 - [ ] **Step 2: Run test to verify it fails**
 
-Run: `pnpm --filter @mil/workflow test`
+Run: `pnpm --filter @dagents/workflow test`
 Expected: FAIL with "Cannot find module '../types/node.js'"
 
 - [ ] **Step 3: Create node.ts types**
@@ -494,7 +494,7 @@ export interface IServerSideEventStreamer {
 
 - [ ] **Step 7: Run test to verify it passes**
 
-Run: `pnpm --filter @mil/workflow test`
+Run: `pnpm --filter @dagents/workflow test`
 Expected: PASS — all 6 type tests green.
 
 - [ ] **Step 8: Commit**
@@ -575,7 +575,7 @@ describe('NodeRegistry', () => {
 
 - [ ] **Step 2: Run test to verify it fails**
 
-Run: `pnpm --filter @mil/workflow test node-registry`
+Run: `pnpm --filter @dagents/workflow test node-registry`
 Expected: FAIL with "Cannot find module '../engine/node-registry.js'"
 
 - [ ] **Step 3: Implement NodeRegistry**
@@ -624,7 +624,7 @@ export class NodeRegistry {
 
 - [ ] **Step 4: Run test to verify it passes**
 
-Run: `pnpm --filter @mil/workflow test node-registry`
+Run: `pnpm --filter @dagents/workflow test node-registry`
 Expected: PASS — all 5 tests green.
 
 - [ ] **Step 5: Commit**
@@ -686,7 +686,7 @@ describe('RuntimeState', () => {
 
 - [ ] **Step 2: Run test to verify it fails**
 
-Run: `pnpm --filter @mil/workflow test runtime`
+Run: `pnpm --filter @dagents/workflow test runtime`
 Expected: FAIL with "Cannot find module '../engine/runtime.js'"
 
 - [ ] **Step 3: Implement RuntimeState**
@@ -736,7 +736,7 @@ export class RuntimeState {
 
 - [ ] **Step 4: Run test to verify it passes**
 
-Run: `pnpm --filter @mil/workflow test runtime`
+Run: `pnpm --filter @dagents/workflow test runtime`
 Expected: PASS — all 4 tests green.
 
 - [ ] **Step 5: Commit**
@@ -823,7 +823,7 @@ describe('SseStreamer', () => {
 
 - [ ] **Step 2: Run test to verify it fails**
 
-Run: `pnpm --filter @mil/workflow test sse-streamer`
+Run: `pnpm --filter @dagents/workflow test sse-streamer`
 Expected: FAIL with "Cannot find module '../engine/sse-streamer.js'"
 
 - [ ] **Step 3: Implement SseStreamer**
@@ -913,7 +913,7 @@ export class SseStreamer implements IServerSideEventStreamer {
 
 - [ ] **Step 4: Run test to verify it passes**
 
-Run: `pnpm --filter @mil/workflow test sse-streamer`
+Run: `pnpm --filter @dagents/workflow test sse-streamer`
 Expected: PASS — all 5 tests green.
 
 - [ ] **Step 5: Commit**
@@ -985,7 +985,7 @@ describe('resolveVariables', () => {
 
 - [ ] **Step 2: Run test to verify it fails**
 
-Run: `pnpm --filter @mil/workflow test variables`
+Run: `pnpm --filter @dagents/workflow test variables`
 Expected: FAIL with "Cannot find module '../utils/variables.js'"
 
 - [ ] **Step 3: Implement resolveVariables**
@@ -1043,7 +1043,7 @@ function getByPath(obj: Record<string, unknown>, path: string): unknown {
 
 - [ ] **Step 4: Run test to verify it passes**
 
-Run: `pnpm --filter @mil/workflow test variables`
+Run: `pnpm --filter @dagents/workflow test variables`
 Expected: PASS — all 8 tests green.
 
 - [ ] **Step 5: Commit**
@@ -1259,7 +1259,7 @@ describe('DagExecutor (linear)', () => {
 
 - [ ] **Step 2: Run test to verify it fails**
 
-Run: `pnpm --filter @mil/workflow test executor`
+Run: `pnpm --filter @dagents/workflow test executor`
 Expected: FAIL with "Cannot find module '../engine/executor.js'"
 
 - [ ] **Step 3: Implement DagExecutor**
@@ -1501,7 +1501,7 @@ export * from './stream.js'
 
 - [ ] **Step 5: Run test to verify it passes**
 
-Run: `pnpm --filter @mil/workflow test executor`
+Run: `pnpm --filter @dagents/workflow test executor`
 Expected: PASS — all 6 tests green.
 
 - [ ] **Step 6: Commit**
@@ -1601,7 +1601,7 @@ describe('DirectReplyNode', () => {
 
 - [ ] **Step 2: Run test to verify it fails**
 
-Run: `pnpm --filter @mil/workflow test direct-reply`
+Run: `pnpm --filter @dagents/workflow test direct-reply`
 Expected: FAIL with "Cannot find module './direct-reply.node.js'"
 
 - [ ] **Step 3: Implement DirectReplyNode**
@@ -1661,7 +1661,7 @@ export class DirectReplyNode implements INode {
 
 - [ ] **Step 4: Run test to verify it passes**
 
-Run: `pnpm --filter @mil/workflow test direct-reply`
+Run: `pnpm --filter @dagents/workflow test direct-reply`
 Expected: PASS — all 5 tests green.
 
 - [ ] **Step 5: Commit**
@@ -1743,7 +1743,7 @@ describe('IterationNode', () => {
 
 - [ ] **Step 2: Run test to verify it fails**
 
-Run: `pnpm --filter @mil/workflow test iteration`
+Run: `pnpm --filter @dagents/workflow test iteration`
 Expected: FAIL with "Cannot find module './iteration.node.js'"
 
 - [ ] **Step 3: Implement IterationNode**
@@ -1817,7 +1817,7 @@ export class IterationNode implements INode {
 
 - [ ] **Step 4: Run test to verify it passes**
 
-Run: `pnpm --filter @mil/workflow test iteration`
+Run: `pnpm --filter @dagents/workflow test iteration`
 Expected: PASS — all 6 tests green.
 
 - [ ] **Step 5: Commit**
@@ -1903,7 +1903,7 @@ describe('LoopNode', () => {
 
 - [ ] **Step 2: Run test to verify it fails**
 
-Run: `pnpm --filter @mil/workflow test loop`
+Run: `pnpm --filter @dagents/workflow test loop`
 Expected: FAIL with "Cannot find module './loop.node.js'"
 
 - [ ] **Step 3: Implement LoopNode**
@@ -1967,7 +1967,7 @@ export class LoopNode implements INode {
 
 - [ ] **Step 4: Run test to verify it passes**
 
-Run: `pnpm --filter @mil/workflow test loop`
+Run: `pnpm --filter @dagents/workflow test loop`
 Expected: PASS — all 7 tests green.
 
 - [ ] **Step 5: Commit**
@@ -2055,7 +2055,7 @@ describe('CustomFunctionNode', () => {
 
 - [ ] **Step 2: Run test to verify it fails**
 
-Run: `pnpm --filter @mil/workflow test custom-function`
+Run: `pnpm --filter @dagents/workflow test custom-function`
 Expected: FAIL with "Cannot find module './custom-function.node.js'"
 
 - [ ] **Step 3: Implement CustomFunctionNode**
@@ -2136,7 +2136,7 @@ export class CustomFunctionNode implements INode {
 
 - [ ] **Step 4: Run test to verify it passes**
 
-Run: `pnpm --filter @mil/workflow test custom-function`
+Run: `pnpm --filter @dagents/workflow test custom-function`
 Expected: PASS — all 6 tests green.
 
 - [ ] **Step 5: Commit**
@@ -2285,7 +2285,7 @@ describe('HttpNode', () => {
 
 - [ ] **Step 2: Run test to verify it fails**
 
-Run: `pnpm --filter @mil/workflow test http`
+Run: `pnpm --filter @dagents/workflow test http`
 Expected: FAIL with "Cannot find module './http.node.js'"
 
 - [ ] **Step 3: Implement HttpNode**
@@ -2390,7 +2390,7 @@ export class HttpNode implements INode {
 
 - [ ] **Step 4: Run test to verify it passes**
 
-Run: `pnpm --filter @mil/workflow test http`
+Run: `pnpm --filter @dagents/workflow test http`
 Expected: PASS — all 6 tests green.
 
 - [ ] **Step 5: Commit**
@@ -2483,7 +2483,7 @@ describe('ConditionNode', () => {
 
 - [ ] **Step 2: Run test to verify it fails**
 
-Run: `pnpm --filter @mil/workflow test condition`
+Run: `pnpm --filter @dagents/workflow test condition`
 Expected: FAIL with "Cannot find module './condition.node.js'"
 
 - [ ] **Step 3: Implement ConditionNode**
@@ -2586,7 +2586,7 @@ function evaluateOperator(left: string, operator: string, right: string): boolea
 
 - [ ] **Step 4: Run test to verify it passes**
 
-Run: `pnpm --filter @mil/workflow test condition`
+Run: `pnpm --filter @dagents/workflow test condition`
 Expected: PASS — all 5 tests green.
 
 - [ ] **Step 5: Commit**
@@ -2691,7 +2691,7 @@ describe('RetrieverNode (stub)', () => {
 
 - [ ] **Step 3: Run tests to verify they fail**
 
-Run: `pnpm --filter @mil/workflow test tool retriever`
+Run: `pnpm --filter @dagents/workflow test tool retriever`
 Expected: FAIL with "Cannot find module './tool.node.js'" and "./retriever.node.js"
 
 - [ ] **Step 4: Implement ToolNode (stub)**
@@ -2704,7 +2704,7 @@ import type { INode, INodeData, INodeOutput, IExecutionContext } from '../../typ
 /**
  * Tool node — stub for Plan A.
  *
- * Full implementation (tool execution via @mil/contracts AgentBackend) is in
+ * Full implementation (tool execution via @dagents/contracts AgentBackend) is in
  * Plan B. For now, this node validates the tool name is configured and returns
  * a placeholder so graphs containing Tool nodes can be executed linearly.
  *
@@ -2812,7 +2812,7 @@ export class RetrieverNode implements INode {
 
 - [ ] **Step 6: Run tests to verify they pass**
 
-Run: `pnpm --filter @mil/workflow test tool retriever`
+Run: `pnpm --filter @dagents/workflow test tool retriever`
 Expected: PASS — all 6 tests green.
 
 - [ ] **Step 7: Commit**
@@ -2879,17 +2879,17 @@ export function allNodes(): INode[] {
 
 - [ ] **Step 2: Verify typecheck passes**
 
-Run: `pnpm --filter @mil/workflow typecheck`
+Run: `pnpm --filter @dagents/workflow typecheck`
 Expected: PASS — no errors.
 
 - [ ] **Step 3: Verify build passes**
 
-Run: `pnpm --filter @mil/workflow build`
+Run: `pnpm --filter @dagents/workflow build`
 Expected: PASS — `dist/` directory created with ESM + dts.
 
 - [ ] **Step 4: Run all tests**
 
-Run: `pnpm --filter @mil/workflow test`
+Run: `pnpm --filter @dagents/workflow test`
 Expected: PASS — all tests across all files green.
 
 - [ ] **Step 5: Commit**
@@ -3111,17 +3111,17 @@ describe('integration: linear DAG with mixed nodes', () => {
 
 - [ ] **Step 3: Run integration test**
 
-Run: `pnpm --filter @mil/workflow test integration`
+Run: `pnpm --filter @dagents/workflow test integration`
 Expected: PASS — all 3 integration tests green.
 
 - [ ] **Step 4: Run full test suite**
 
-Run: `pnpm --filter @mil/workflow test`
+Run: `pnpm --filter @dagents/workflow test`
 Expected: PASS — all tests across all files green.
 
 - [ ] **Step 5: Run typecheck + build**
 
-Run: `pnpm --filter @mil/workflow typecheck && pnpm --filter @mil/workflow build`
+Run: `pnpm --filter @dagents/workflow typecheck && pnpm --filter @dagents/workflow build`
 Expected: Both PASS.
 
 - [ ] **Step 6: Commit**
@@ -3147,7 +3147,7 @@ git commit -m "feat(workflow): add memory stub and integration tests for linear 
 | §9.6 migration phases 1-3 | Phase 1 (Tasks 1-7), Phase 2 partial (Tasks 8-14: 8 simple nodes), Phase 3 partial (Condition evaluate only) | ✅ |
 | §9.6 phase 4 (advanced nodes) | ❌ Out of scope (Plan B: Start/LLM/Agent/ConditionAgent) | — |
 | §9.6 phases 5-7 | ❌ Out of scope (Plan C: API + frontend + cleanup) | — |
-| §9.7 dependency chain | Task 1 package.json has no @mil/* deps (self-contained types) | ✅ |
+| §9.7 dependency chain | Task 1 package.json has no @dagents/* deps (self-contained types) | ✅ |
 
 ### Placeholder scan
 

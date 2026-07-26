@@ -68,7 +68,7 @@ import {
  * ## Prerequisites
  *
  * True end-to-end: every `/api/*` call the page makes is proxied through the
- * gateway, so the full mil-agents dev stack must be up — Postgres (:15432),
+ * gateway, so the full dagents dev stack must be up — Postgres (:15432),
  * Redis (:16479), gateway (:8080), dispatch (:8081), scheduler (for @flow
  * fanout, when wired), and Flowise (:3100, the current prediction upstream the
  * stream route pipes to). The `playwright.config.ts` `webServer` only owns the

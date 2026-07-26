@@ -14,7 +14,7 @@ import {
  * `<DirectoriesView />`, which talks to the console's thin proxy
  * `/api/directories` → gateway `/api/v1/directories` (Hono routes in
  * `apps/gateway/src/routes/directories.ts`). The gateway reads/writes the
- * `directories` table via `@mil/db` `runQuery`; `chats.directory_id` has
+ * `directories` table via `@dagents/db` `runQuery`; `chats.directory_id` has
  * `ON DELETE CASCADE` so deleting a directory drops its chats.
  *
  * UC range & status (from gap-analysis §3):
@@ -40,7 +40,7 @@ import {
  *   - gateway  :8080   (owns `/api/v1/directories` + `/api/v1/chats`)
  * The `playwright.config.ts` webServer only owns the Next dev process
  * (baseURL, :3000 by default — override with `E2E_PORT`). `beforeAll` self-
- * seeds directories/chats via `@mil/db` `runQuery` (same layer gateway uses);
+ * seeds directories/chats via `@dagents/db` `runQuery` (same layer gateway uses);
  * `afterAll` calls `ctx.dispose()` which deletes seeded rows in FK-safe order
  * (messages → chats → directories).
  *

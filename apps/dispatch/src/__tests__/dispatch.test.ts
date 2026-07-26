@@ -1,12 +1,12 @@
 import { describe, it, expect, beforeAll, afterAll, beforeEach } from 'vitest'
 import { app, bootstrap } from '../app.js'
-import { AppDataSource } from '@mil/db'
+import { AppDataSource } from '@dagents/db'
 import { randomUUID } from 'node:crypto'
 
 /**
  * Integration tests for the dispatch protocol (M2.2).
  *
- * Drives the Hono app in-process via `app.request()` against the real milagents
+ * Drives the Hono app in-process via `app.request()` against the real dagents
  * Postgres (docker-compose stack on 127.0.0.1:15432). Each test seeds an
  * `agent_daemons` row (invoke's FK target) and cleans the dispatch tables
  * between runs so state never leaks across tests.

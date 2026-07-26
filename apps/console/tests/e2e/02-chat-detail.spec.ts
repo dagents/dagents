@@ -39,11 +39,11 @@ import {
  * ## Prerequisites
  *
  * True end-to-end: every `/api/*` call the page makes is proxied through the
- * gateway, so the full mil-agents dev stack must be up — Postgres (:15432),
+ * gateway, so the full dagents dev stack must be up — Postgres (:15432),
  * Redis (:16479), and the gateway (:8080). The `playwright.config.ts`
  * `webServer` only owns the Next dev process (baseURL, :3000 by default —
  * override with `E2E_PORT`). The seed helpers talk to Postgres directly via
- * `@mil/db`'s `runQuery` (`POSTGRES_URL` defaults to the :15432 dev-stack DSN)
+ * `@dagents/db`'s `runQuery` (`POSTGRES_URL` defaults to the :15432 dev-stack DSN)
  * and register the seed daemon through the real dispatch API proxied at
  * `/api/v1/dispatch/*`.
  *

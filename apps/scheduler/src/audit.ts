@@ -1,5 +1,5 @@
-import { runQuery } from '@mil/db'
-import { createLogger } from '@mil/shared'
+import { runQuery } from '@dagents/db'
+import { createLogger } from '@dagents/shared'
 
 /**
  * Version-lock audit helper (plan M6.6 / P1.4.T6; risk R15).
@@ -9,8 +9,8 @@ import { createLogger } from '@mil/shared'
  * version-lock the spec calls out as a sensitive operation ("版本锁定"), so each
  * successful snapshot writes one audit row here.
  *
- * Kept in the scheduler package (not `@mil/gateway`) because the snapshot site
- * is in the scheduler, and `@mil/gateway` is not a dependency of the scheduler
+ * Kept in the scheduler package (not `@dagents/gateway`) because the snapshot site
+ * is in the scheduler, and `@dagents/gateway` is not a dependency of the scheduler
  * (the dependency runs the other way: the gateway proxies to services, the
  * scheduler is its own app). The row shape matches the gateway's `recordAudit`
  * — same `audit_log` table, same `pipeline_version.lock` action — so audit

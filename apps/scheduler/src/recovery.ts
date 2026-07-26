@@ -1,6 +1,6 @@
-import type { RedisClient, Logger } from '@mil/shared'
-import { createLogger } from '@mil/shared'
-import { runQuery } from '@mil/db'
+import type { RedisClient, Logger } from '@dagents/shared'
+import { createLogger } from '@dagents/shared'
+import { runQuery } from '@dagents/db'
 import { TASK_QUEUE_KEY, type ScheduleTask } from './queue.js'
 import type { Semaphore } from './semaphore.js'
 import { completeParentRun, listSettledPendingParents } from './runs-repo.js'
@@ -11,7 +11,7 @@ import { completeParentRun, listSettledPendingParents } from './runs-repo.js'
  * When the scheduler process is killed mid-run, two pieces of in-memory /
  * Redis state are left dangling:
  *
- * - **Leaked semaphore slots** — the worker acquires a `mil:sem` slot *before*
+ * - **Leaked semaphore slots** — the worker acquires a `dagents:sem` slot *before*
  *   it dequeues (see `worker.ts`) and releases it in a `finally` once the run
  *   settles. A SIGKILL bypasses that `finally`, so the slot's INCR is never
  *   balanced by a DECR. The counter lives in Redis for the process lifetime,
@@ -23,7 +23,7 @@ import { completeParentRun, listSettledPendingParents } from './runs-repo.js'
  *   (`markRunning`) before calling Flowise, and stamps it `completed`/`failed`
  *   only after the prediction returns. A kill between those leaves the row
  *   `running` forever: the queue task that started it was already BRPOP'd
- *   (BRPOP is atomic — the message is gone from `mil:tasks` the moment it was
+ *   (BRPOP is atomic — the message is gone from `dagents:tasks` the moment it was
  *   dequeued), so the worker will never pick it up again on its own.
  *   `listStaleRuns` finds these rows and `recoverStaleRuns` re-enqueues each
  *   as a fresh `ScheduleTask` so the worker re-runs it end to end.
@@ -76,7 +76,7 @@ import { completeParentRun, listSettledPendingParents } from './runs-repo.js'
  *
  * ## Single-instance assumption
  *
- * `resetSemaphore` clears the shared `mil:sem` key unconditionally — correct
+ * `resetSemaphore` clears the shared `dagents:sem` key unconditionally — correct
  * for the MVP single-process scheduler, where the only holder of slots is the
  * process being (re)started. A multi-instance deployment (M3.3 `MODE=QUEUE`)
  * would need TTL/heartbeat-based slot expiry so one instance can't zero out
@@ -106,7 +106,7 @@ export async function listStaleRuns(): Promise<StaleRun[]> {
 }
 
 /**
- * Clear the `mil:sem` counter so the restarted process starts with the full
+ * Clear the `dagents:sem` counter so the restarted process starts with the full
  * `maxConcurrent` budget. The `Semaphore` interface exposes `reset()` (a raw
  * DEL on the prefixed key) for exactly this; wrapping it here keeps the
  * recovery module the single place that decides *when* a reset is safe.
@@ -122,7 +122,7 @@ export interface RecoverDeps {
 }
 
 export interface RecoverResult {
-  /** Number of stuck runs re-enqueued onto `mil:tasks`. */
+  /** Number of stuck runs re-enqueued onto `dagents:tasks`. */
   recovered: number
   /** The run ids that were re-enqueued, in enqueue order. */
   runIds: string[]

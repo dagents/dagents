@@ -29,22 +29,22 @@ For the in-process backend e2e (gateway → dispatch → scheduler → daemon �
 ```bash
 # 1. Bring up the dev stack (Postgres, Redis, gateway, dispatch, Flowise)
 docker compose up -d
-pnpm --filter @mil/gateway dev &
-pnpm --filter @mil/dispatch dev &
+pnpm --filter @dagents/gateway dev &
+pnpm --filter @dagents/dispatch dev &
 # (Flowise on :3100 — only needed for /flows and prediction paths)
 
 # 2. Run the full e2e suite (boots Next dev on :3000 automatically)
-pnpm --filter @mil/console test:e2e
+pnpm --filter @dagents/console test:e2e
 
 # 3. Or run a single module
-pnpm --filter @mil/console exec playwright test tests/e2e/03-directories.spec.ts
+pnpm --filter @dagents/console exec playwright test tests/e2e/03-directories.spec.ts
 ```
 
 ---
 
 ## Prerequisites
 
-The e2e suite needs the **full mil-agents dev stack** up:
+The e2e suite needs the **full dagents dev stack** up:
 
 | Service | Port | Why |
 |---------|------|-----|
@@ -60,7 +60,7 @@ The e2e suite needs the **full mil-agents dev stack** up:
 
 | Var | Default | When to override |
 |-----|---------|------------------|
-| `POSTGRES_URL` | `postgresql://milagents:milagents_dev@localhost:15432/milagents` | Pointing at a non-default stack |
+| `POSTGRES_URL` | `postgresql://dagents:dagents_dev@localhost:15432/dagents` | Pointing at a non-default stack |
 | `E2E_GATEWAY_URL` | `http://localhost:8080` | Gateway on a different port |
 | `E2E_PORT` | `3000` | Console on a different port (avoids conflicts with another Next app on :3000) |
 
@@ -74,22 +74,22 @@ The dev stack runs **auth-free** when `SSO_SESSION_SECRET` is unset (the open de
 
 ```bash
 # Full suite (all 10 spec files, serial — workers:1 in config)
-pnpm --filter @mil/console test:e2e
+pnpm --filter @dagents/console test:e2e
 
 # Single spec file
-pnpm --filter @mil/console exec playwright test tests/e2e/01-chat-home.spec.ts
+pnpm --filter @dagents/console exec playwright test tests/e2e/01-chat-home.spec.ts
 
 # Single UC (by test name substring)
-pnpm --filter @mil/console exec playwright test -g "UC-CHAT-04"
+pnpm --filter @dagents/console exec playwright test -g "UC-CHAT-04"
 
 # With UI mode (interactive watcher — recommended when writing new tests)
-pnpm --filter @mil/console exec playwright test --ui
+pnpm --filter @dagents/console exec playwright test --ui
 
 # Headed mode (watch the browser)
-pnpm --filter @mil/console exec playwright test --headed
+pnpm --filter @dagents/console exec playwright test --headed
 
 # Generate HTML report
-pnpm --filter @mil/console exec playwright test --reporter=html
+pnpm --filter @dagents/console exec playwright test --reporter=html
 ```
 
 The config is at [`../playwright.config.ts`](../playwright.config.ts):
@@ -185,10 +185,10 @@ Prefer semantic locators in this order:
 
 ```bash
 # Typecheck
-pnpm --filter @mil/console exec tsc --noEmit
+pnpm --filter @dagents/console exec tsc --noEmit
 
 # Run your new test
-pnpm --filter @mil/console exec playwright test tests/e2e/your-file.spec.ts
+pnpm --filter @dagents/console exec playwright test tests/e2e/your-file.spec.ts
 ```
 
 ---
@@ -201,7 +201,7 @@ All shared seed/cleanup logic lives in [`helpers/seed.ts`](helpers/seed.ts).
 
 | Function | Returns | Purpose |
 |----------|---------|---------|
-| `createSeedContext()` | `SeedContext` | Initialize `@mil/db`, return a context tracking seeded IDs |
+| `createSeedContext()` | `SeedContext` | Initialize `@dagents/db`, return a context tracking seeded IDs |
 | `seedDirectory(ctx, opts?)` | `directoryId: string` | Insert a `directories` row |
 | `seedChat(ctx, opts)` | `chatId: string` | Insert a `chats` row (bind `agentId`/`flowId` to exercise routing) |
 | `seedMessage(ctx, opts)` | `messageId: string` | Insert a `chat_messages` row (any role) |
@@ -210,8 +210,8 @@ All shared seed/cleanup logic lives in [`helpers/seed.ts`](helpers/seed.ts).
 
 ### Design notes
 
-- **Dynamic import of `@mil/db`:** `@mil/db` is not a declared console dependency (the console app itself never touches the DB layer — only the gateway does). The helpers dynamically import it inside `createSeedContext()` so the console's build graph stays clean. This mirrors the pattern in `v0.3-design.spec.ts`.
-- **`POSTGRES_URL` must be set before the dynamic import:** `AppDataSource` captures the env at module-construction time. `createSeedContext()` sets it on `process.env` *before* `await import('@mil/db')`.
+- **Dynamic import of `@dagents/db`:** `@dagents/db` is not a declared console dependency (the console app itself never touches the DB layer — only the gateway does). The helpers dynamically import it inside `createSeedContext()` so the console's build graph stays clean. This mirrors the pattern in `v0.3-design.spec.ts`.
+- **`POSTGRES_URL` must be set before the dynamic import:** `AppDataSource` captures the env at module-construction time. `createSeedContext()` sets it on `process.env` *before* `await import('@dagents/db')`.
 - **Cleanup is idempotent:** `dispose()` uses `DELETE ... WHERE id = ANY($1::uuid[])` on each tracked ID array. Empty arrays are skipped. Safe to call multiple times.
 - **FK-safe order:** messages → chats → directories; agent_daemons → daemons.
 
@@ -265,7 +265,7 @@ When you activate any of these fixmes, **update the gap-analysis doc** to reflec
 Failed local runs write a trace (config: `trace: 'retain-on-failure'`):
 
 ```bash
-pnpm --filter @mil/console exec playwright show-trace test-results/<spec>/.playwright-traces/trace.zip
+pnpm --filter @dagents/console exec playwright show-trace test-results/<spec>/.playwright-traces/trace.zip
 ```
 
 ### Screenshots
@@ -285,14 +285,14 @@ test('debug a page', async ({ page }) => {
 ### Slow motion
 
 ```bash
-pnpm --filter @mil/console exec playwright test --headed --workers=1
+pnpm --filter @dagents/console exec playwright test --headed --workers=1
 ```
 
 ### Common failures
 
 | Symptom | Likely cause | Fix |
 |---------|--------------|-----|
-| `net::ERR_CONNECTION_REFUSED` on `/api/*` | Gateway (:8080) or dispatch (:8081) not running | `pnpm --filter @mil/gateway dev &` etc. |
+| `net::ERR_CONNECTION_REFUSED` on `/api/*` | Gateway (:8080) or dispatch (:8081) not running | `pnpm --filter @dagents/gateway dev &` etc. |
 | `ECONNREFUSED 127.0.0.1:15432` | Postgres not up | `docker compose up -d postgres` |
 | `agent_daemons insert did not RETURNING an id` | Dispatch API down (daemon register failed silently) | Check dispatch logs, restart |
 | 401 on `/api/*` | SSO gated on dev stack | Run against an SSO-gated-off stack |
@@ -334,7 +334,7 @@ If the docker-compose port mappings change (e.g. Postgres moves from :15432 to :
 3. Add `beforeAll`/`afterAll` with seed/cleanup.
 4. Write one `test()` or `test.fixme()` per UC.
 5. Update the Test Inventory table in this README.
-6. Run `pnpm --filter @mil/console exec tsc --noEmit` to verify.
+6. Run `pnpm --filter @dagents/console exec tsc --noEmit` to verify.
 
 ### Relationship to other test suites
 

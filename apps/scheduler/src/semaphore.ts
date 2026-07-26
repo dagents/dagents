@@ -1,5 +1,5 @@
-import type { RedisClient } from '@mil/shared'
-import { createLogger } from '@mil/shared'
+import type { RedisClient } from '@dagents/shared'
+import { createLogger } from '@dagents/shared'
 
 /**
  * Concurrency gate for the fan-out / single-run execution path (P1.7.T3).
@@ -8,7 +8,7 @@ import { createLogger } from '@mil/shared'
  * runs child predictions concurrently to recover throughput (architecture v0.2
  * §6.5). Unbounded concurrency would saturate the LLM gateway and blow cost
  * budgets (R7), so every prediction call passes through a bounded semaphore
- * before it starts. M3.1 defined this surface (Redis `mil:sem`); M3.2 reuses
+ * before it starts. M3.1 defined this surface (Redis `dagents:sem`); M3.2 reuses
  * the same interface so single-run and batch paths share one gate.
  *
  * Implementation: a Redis-backed counting semaphore keyed by `semKey`. Lua
@@ -50,7 +50,7 @@ export interface Semaphore {
  * `/health` reports this so an operator can see concurrency headroom without
  * doing the subtraction. Counted from the live Redis counter, so it reflects
  * slots held by *both* the worker (M3.1) and any in-flight fan-out (M3.2) —
- * the two paths share one `mil:sem` gate.
+ * the two paths share one `dagents:sem` gate.
  *
  * Takes `maxConcurrent` explicitly rather than reading it off the semaphore
  * object: the `Semaphore` interface deliberately does not expose its cap (a
@@ -88,12 +88,12 @@ export interface RedisSemaphoreOpts {
   redis: RedisClient
   /** Max concurrent slots across the gate. */
   maxConcurrent: number
-  /** Redis key under the `mil:` prefix. Defaults to `sem` → `mil:sem`. */
+  /** Redis key under the `dagents:` prefix. Defaults to `sem` → `dagents:sem`. */
   semKey?: string
   /**
    * Key prefix applied to `semKey`. Must match the `createRedis` prefix so the
    * semaphore's raw `EVAL` lands on the same key the prefixed helpers
-   * (`redis.get`/`redis.del`) use. Defaults to `mil:` (the `@mil/shared`
+   * (`redis.get`/`redis.del`) use. Defaults to `dagents:` (the `@dagents/shared`
    * default). Raw `EVAL` does not apply the prefix automatically, so the
    * semaphore composes the full key itself.
    */
@@ -101,13 +101,13 @@ export interface RedisSemaphoreOpts {
 }
 
 /**
- * Build a Redis-backed semaphore. `redis` is the `@mil/shared` prefixed client;
- * the full key is `${prefix}${semKey}` (default `mil:sem`) so raw `EVAL`
+ * Build a Redis-backed semaphore. `redis` is the `@dagents/shared` prefixed client;
+ * the full key is `${prefix}${semKey}` (default `dagents:sem`) so raw `EVAL`
  * operations and the prefixed `redis.get`/`redis.del` helpers hit the same key.
  */
 export function createRedisSemaphore(opts: RedisSemaphoreOpts): Semaphore {
   const { redis, maxConcurrent } = opts
-  const prefix = opts.prefix ?? 'mil:'
+  const prefix = opts.prefix ?? 'dagents:'
   const key = `${prefix}${opts.semKey ?? 'sem'}`
   const log = createLogger({ svc: 'scheduler:sem' })
 

@@ -1,5 +1,5 @@
 {
-  "name": "@mil/console",
+  "name": "@dagents/console",
   "version": "0.0.0",
   "private": true,
   "scripts": {
@@ -11,8 +11,8 @@
     "test:e2e": "playwright test"
   },
   "dependencies": {
-    "@mil/contracts": "workspace:*",
-    "@mil/shared": "workspace:*",
+    "@dagents/contracts": "workspace:*",
+    "@dagents/shared": "workspace:*",
     "next": "^15.5.20",
     "react": "^19.2.0",
     "react-dom": "^19.2.0",
@@ -20,7 +20,7 @@
     "zod": "^4.4.3"
   },
   "devDependencies": {
-    "@mil/db": "workspace:*",
+    "@dagents/db": "workspace:*",
     "@playwright/test": "^1.49.0",
     "@testing-library/jest-dom": "^6.6.3",
     "@testing-library/react": "^16.1.0",

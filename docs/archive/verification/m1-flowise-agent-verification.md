@@ -15,7 +15,7 @@
 
 ## 实现
 
-### 1. 起 Flowise（指向 mil-agents Postgres + Redis）
+### 1. 起 Flowise（指向 dagents Postgres + Redis）
 
 `vendor/flowise/packages/server/.env`：
 
@@ -23,16 +23,16 @@
 PORT=3101
 DATABASE_TYPE=postgres
 DATABASE_HOST=127.0.0.1
-DATABASE_PORT=15432      # mil-agents-postgres-1 主机映射
-DATABASE_NAME=flowise    # 在 mil-agents Postgres 实例新建
-DATABASE_USER=milagents
-DATABASE_PASSWORD=milagents_dev
-REDIS_URL=redis://default:@127.0.0.1:16479   # mil-agents-redis-1 主机映射
+DATABASE_PORT=15432      # dagents-postgres-1 主机映射
+DATABASE_NAME=flowise    # 在 dagents Postgres 实例新建
+DATABASE_USER=dagents
+DATABASE_PASSWORD=dagents_dev
+REDIS_URL=redis://default:@127.0.0.1:16479   # dagents-redis-1 主机映射
 DISABLE_FLOWISE_TELEMETRY=true
 CORS_ORIGINS=*
 ```
 
-> 端口说明：plan 默认 `FLOWISE_PORT=3100`，但本机 3100 已被 `million-agents-loki-1` 占用，故改用 3101。Postgres/Redis 复用 mil-agents 栈（`docker compose` 项目 `mil-agents`），主机端口分别映射到 15432 / 16479。
+> 端口说明：plan 默认 `FLOWISE_PORT=3100`，但本机 3100 已被 `million-agents-loki-1` 占用，故改用 3101。Postgres/Redis 复用 dagents 栈（`docker compose` 项目 `dagents`），主机端口分别映射到 15432 / 16479。
 
 启动（在 `~/Projects/Flowise` 已构建的 fork 上，源码与 `vendor/flowise` 同源 commit `bb773ffa`）：
 
@@ -62,7 +62,7 @@ curl -c /tmp/fw.cookie -X POST http://localhost:3101/api/v1/auth/login \
 curl -H 'x-request-from: internal' -H "Cookie: $(cat /tmp/fw.cookiehdr)" \
   -X POST http://localhost:3101/api/v1/apikey \
   -H 'Content-Type: application/json' \
-  -d '{"keyName":"mil-agents-m1","permissions":[...]}'
+  -d '{"keyName":"dagents-m1","permissions":[...]}'
 # -> apiKey: <your-flowise-api-key>   (Bearer，用于脚本 FLOWISE_API_KEY)
 ```
 
@@ -130,7 +130,7 @@ Calculator 是 LangChain 内置工具（本地 JS 求值器），不产生单独
 > 出处澄清（回应复审）：上一版把 trace 归到"Flowise 的 `ConsoleCallbackHandler`"是错的——ReAct 路径用的是 `@langchain/core` 的 `LCConsoleCallbackHandler`（`@langchain/core/tracers/console`），由 `executor.verbose=true` 经 `CallbackManager.configure` 自动 attach。两者 `name` 都叫 `console_callback_handler`（`console.cjs:46` vs `handler.ts:210`），格式也都带 `[tool/start]/[tool/end]` 前缀，容易混淆；区别在 Flowise 那个走 winston `logger.verbose`、ReAct 这个走裸 `console.log`。复审还担心 `LOG_LEVEL=info` 会 suppress `verbose`——那只对 Flowise handler（winston）成立，LCConsoleCallbackHandler 是直接 `console.log`、不经 winston 级别过滤，所以 `DEBUG=true` 即可看到，与 `LOG_LEVEL` 无关。原始未编辑 stdout 见 `/tmp/flowise-debug.log`（裸 `console.log` 行无时间戳/JSON 前缀，与 winston 的 `{"level":"info",...}` 行交错）。
 
 ```bash
-# 重启 Flowise 时带 DEBUG=true（与 .env.mil-agents 同库同 chatflow）
+# 重启 Flowise 时带 DEBUG=true（与 .env.dagents 同库同 chatflow）
 cd ~/Projects/Flowise && DEBUG=true pnpm exec flowise start   # :3101
 # 再跑 scripts/flowise-m1-setup.py 的 probe B（17 * 23）与一次大数 probe
 # server stdout 会交错出现 winston 请求行与裸 console.log 的 ReAct trace
@@ -196,7 +196,7 @@ ReAct 循环也反映在 new-api 日志里（一次 agent turn 产生 2 条 `glm
 
 ## 产出
 
-- `vendor/flowise/packages/server/.env.mil-agents` — Flowise 指向 mil-agents PG/Redis + 端口 3101
+- `vendor/flowise/packages/server/.env.dagents` — Flowise 指向 dagents PG/Redis + 端口 3101
 - `scripts/flowise-m1-setup.py` — 程序化建 chatflow + 跑通的脚本
 - `docs/m1-flowise-agent-verification.md` — 本文档
 

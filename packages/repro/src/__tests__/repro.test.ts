@@ -1,5 +1,5 @@
 import { describe, it, expect, beforeAll, afterAll, beforeEach } from 'vitest'
-import { AppDataSource, runQuery } from '@mil/db'
+import { AppDataSource, runQuery } from '@dagents/db'
 import {
   snapshotPipeline,
   bindRunToVersion,
@@ -17,7 +17,7 @@ import {
 /**
  * Repro integration test (plan M4.1 / spec §1.8 acceptance).
  *
- * Drives the real milagents Postgres (127.0.0.1:15432) + MinIO (127.0.0.1:9000)
+ * Drives the real dagents Postgres (127.0.0.1:15432) + MinIO (127.0.0.1:9000)
  * docker-compose stack. The flow fetcher is a stub (no live Flowise) so the
  * suite asserts the repro contract — snapshot dedup, bind, archive round-trip,
  * structural reproduce — without a live flow engine.
@@ -38,9 +38,9 @@ import {
 // keeps the test's default aligned with prod's even if `setup.ts` is bypassed.
 const minioOpts = () => ({
   endpoint: process.env.MINIO_ENDPOINT ?? 'http://localhost:9000',
-  accessKeyId: process.env.MINIO_ACCESS_KEY ?? 'milagents',
-  secretAccessKey: process.env.MINIO_SECRET_KEY ?? 'milagents_dev',
-  bucket: process.env.MINIO_BUCKET ?? 'milagents',
+  accessKeyId: process.env.MINIO_ACCESS_KEY ?? 'dagents',
+  secretAccessKey: process.env.MINIO_SECRET_KEY ?? 'dagents_dev',
+  bucket: process.env.MINIO_BUCKET ?? 'dagents',
 })
 
 let store: ArtifactStore
@@ -200,7 +200,7 @@ describe('archiveArtifact — artifact 可存可取', () => {
     }
 
     const result = await archiveArtifact(runId, artifact, store)
-    expect(result.uri).toMatch(/^s3:\/\/milagents\/runs\//)
+    expect(result.uri).toMatch(/^s3:\/\/dagents\/runs\//)
     expect(result.sha256).toMatch(/^[0-9a-f]{64}$/)
 
     // runs.artifact_uri was written

@@ -1,5 +1,5 @@
-import type { RedisClient, Logger } from '@mil/shared'
-import { createLogger, getTracer } from '@mil/shared'
+import type { RedisClient, Logger } from '@dagents/shared'
+import { createLogger, getTracer } from '@dagents/shared'
 import { context, trace } from '@opentelemetry/api'
 import { parseScheduleTask, TASK_QUEUE_KEY, type ScheduleTask } from './queue.js'
 import type { PredictionClient, PredictionResult } from './prediction-client.js'
@@ -27,10 +27,10 @@ import { ingestNodeSpansBestEffort } from './node-span-ingest.js'
  * workers hit the cap, excess workers park on `acquire()` until a running task
  * releases.
  *
- * ## Concurrency gate — two paths, one `mil:sem`
+ * ## Concurrency gate — two paths, one `dagents:sem`
  *
  * M3.2's HTTP fan-out and M3.1's queue worker share a single Redis key
- * `mil:sem` (main's `createRedisSemaphore`, Lua INCR/DECR counter). The
+ * `dagents:sem` (main's `createRedisSemaphore`, Lua INCR/DECR counter). The
  * semaphore here is the *same* `Semaphore` interface the fan-out path uses
  * (`acquire()`/`release()`), so a worker process and a fan-out request pool
  * their slots against one counter. The worker blocks on `acquire()` via its
@@ -61,7 +61,7 @@ const ACQUIRE_POLL_MS = 10
 
 export interface WorkerDeps {
   redis: RedisClient
-  /** Shared concurrency gate (`mil:sem`); same instance the fan-out path uses. */
+  /** Shared concurrency gate (`dagents:sem`); same instance the fan-out path uses. */
   semaphore: Semaphore
   /** Gateway-facing prediction client (single-run path posts one prediction). */
   prediction: PredictionClient

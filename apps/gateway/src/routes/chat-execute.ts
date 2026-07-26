@@ -1,8 +1,8 @@
 import { Hono, type Context } from 'hono'
 import type { ContentfulStatusCode } from 'hono/utils/http-status'
 import { randomUUID } from 'node:crypto'
-import { runQuery } from '@mil/db'
-import { createLogger } from '@mil/shared'
+import { runQuery } from '@dagents/db'
+import { createLogger } from '@dagents/shared'
 
 const log = createLogger({ svc: 'gateway:chat-execute' })
 

@@ -1,5 +1,5 @@
 {
-  "name": "@mil/agent-adapters",
+  "name": "@dagents/agent-adapters",
   "version": "0.0.0",
   "private": true,
   "type": "module",
@@ -12,8 +12,8 @@
     "test": "vitest run"
   },
   "dependencies": {
-    "@mil/contracts": "workspace:*",
-    "@mil/shared": "workspace:*"
+    "@dagents/contracts": "workspace:*",
+    "@dagents/shared": "workspace:*"
   },
   "devDependencies": {
     "tsup": "^8.0.0",

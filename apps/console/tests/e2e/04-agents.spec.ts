@@ -37,7 +37,7 @@ import { createSeedContext, seedAgent, type SeedContext } from './helpers/seed'
  *
  * Agent seed requires the dispatch API for daemon registration: `seedAgent`
  * POSTs `/api/v1/dispatch/daemons/register` (creating the `daemons` host row)
- * and inserts the `agent_daemons` catalogue row via `@mil/db`'s `runQuery`
+ * and inserts the `agent_daemons` catalogue row via `@dagents/db`'s `runQuery`
  * (no create-agent API route exists today — see seed.ts header). `afterAll`
  * calls `ctx.dispose()` which deletes messages → chats → directories →
  * agent_daemons → daemons in FK-safe order.

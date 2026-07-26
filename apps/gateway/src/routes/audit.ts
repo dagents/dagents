@@ -1,9 +1,9 @@
 import { Hono, type Context } from 'hono'
 import type { ContentfulStatusCode } from 'hono/utils/http-status'
 import { z } from 'zod'
-import { runQuery } from '@mil/db'
-import type { AuditActorType, AuditTargetType } from '@mil/db'
-import { createLogger } from '@mil/shared'
+import { runQuery } from '@dagents/db'
+import type { AuditActorType, AuditTargetType } from '@dagents/db'
+import { createLogger } from '@dagents/shared'
 
 /**
  * `GET /api/v1/audit` — audit log query endpoint (plan M6.6 / spec §1.4 职责 #5).
@@ -48,7 +48,7 @@ const querySchema = z.object({
   actorType: z.enum(['user', 'system']).optional(),
   actorId: z.string().max(256).optional(),
   action: z.string().max(128).optional(),
-  targetType: z.enum(['token', 'pipeline_version']).optional(),
+  targetType: z.enum(['token', 'pipeline_version', 'llm_provider']).optional(),
   targetId: z.string().max(256).optional(),
   runId: z.string().max(128).optional(),
   workspaceId: z.string().uuid().optional(),

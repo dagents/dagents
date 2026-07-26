@@ -1,6 +1,6 @@
 import { describe, it, expect, beforeAll, afterAll, beforeEach } from 'vitest'
 import { app, bootstrap } from '../app.js'
-import { AppDataSource } from '@mil/db'
+import { AppDataSource } from '@dagents/db'
 import { randomUUID } from 'node:crypto'
 
 /**
@@ -9,7 +9,7 @@ import { randomUUID } from 'node:crypto'
  *   GET /agents/:id        → detail (agent + recent task history + bound runs)
  *   GET /agents/:id/logs   → mapped log lines from dispatch_task_events
  *
- * Drives the Hono app in-process via `app.request()` against the real milagents
+ * Drives the Hono app in-process via `app.request()` against the real dagents
  * Postgres on 127.0.0.1:15432, matching dispatch.test.ts's setup. Each test
  * seeds a daemon + agent_daemon (+ tasks/events) and wipes state between runs.
  *

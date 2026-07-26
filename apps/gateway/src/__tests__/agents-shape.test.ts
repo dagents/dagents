@@ -1,6 +1,6 @@
 import { describe, it, expect, beforeAll, afterAll, afterEach } from 'vitest'
 import { app } from '../app.js'
-import { AppDataSource, runQuery } from '@mil/db'
+import { AppDataSource, runQuery } from '@dagents/db'
 import { randomUUID } from 'node:crypto'
 
 /**
@@ -12,7 +12,7 @@ import { randomUUID } from 'node:crypto'
  * nested under a `capability` sub-object, not `owner_id`).
  *
  * Drives the gateway via Hono's in-process `app.request()` against the real
- * milagents Postgres (the platform-owned `agents` + `workspaces` +
+ * dagents Postgres (the platform-owned `agents` + `workspaces` +
  * `workspace_members` tables created by the domain migration). Each test seeds
  * its own workspace + agent (+ optional owner member) and wipes them so
  * assertions are on the rows this test wrote — never the shared dev rows other
@@ -36,10 +36,10 @@ import { randomUUID } from 'node:crypto'
  */
 
 const PG_URL =
-  process.env.POSTGRES_URL ?? 'postgresql://milagents:milagents_dev@localhost:15432/milagents'
+  process.env.POSTGRES_URL ?? 'postgresql://dagents:dagents_dev@localhost:15432/dagents'
 
 beforeAll(async () => {
-  // `@mil/db`'s DataSource captures POSTGRES_URL at module construction; set
+  // `@dagents/db`'s DataSource captures POSTGRES_URL at module construction; set
   // it defensively for the dev stack remap (:15432), matching lab.test.ts.
   process.env.POSTGRES_URL ??= PG_URL
   if (!AppDataSource.isInitialized) await AppDataSource.initialize()

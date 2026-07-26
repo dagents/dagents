@@ -1,5 +1,5 @@
 /**
- * @mil/workflow — Workflow engine core (Plan A).
+ * @dagents/workflow — Workflow engine core (Plan A).
  *
  * Provides the DAG execution engine and node contract for the Chat-First
  * workflow system. Replaces the Flowise agentflow engine dependency.
