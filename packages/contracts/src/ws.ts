@@ -20,7 +20,13 @@
  * re-derive it. The view still keeps its existing `deriveAvailability` for the
  * initial REST fetch (where the payload carries `daemon_status`); the WS delta
  * is applied on top.
+ *
+ * The `chat:done` variant carries the run's final `usage` / `durationMs` /
+ * `cost` so the console can render a usage footer without a follow-up REST
+ * fetch. The gateway's `persistComplete` already broadcasts these fields on
+ * its `ChatEvent`; the type just declares them so the client can read them.
  */
+import type { TokenUsage } from './agent.js'
 
 /** Presence vocabulary the agent-detail live-presence pill renders.
  *  Mirrors `apps/console/src/lib/agent-detail.ts:AgentAvailability`. */
@@ -45,7 +51,7 @@ export type ConsoleWsFrame =
  *  `chat:done` (or surface an error on `chat:error`). */
 export type ChatWsFrame =
   | { type: 'chat:message'; chatId: string; runId?: string; role: 'assistant'; content: string; streaming: true }
-  | { type: 'chat:done'; chatId: string; runId?: string; role: 'assistant'; content: string; streaming: false; status?: string }
+  | { type: 'chat:done'; chatId: string; runId?: string; role: 'assistant'; content: string; streaming: false; status?: string; usage?: TokenUsage; durationMs?: number; cost?: number }
   | { type: 'chat:error'; chatId: string; runId?: string; role: 'assistant'; content: string; streaming: false; error?: string }
 
 /** Type guard: any chat:* frame. Useful for filters that want to demux chat

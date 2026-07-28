@@ -23,7 +23,7 @@ import Link from 'next/link'
 import { Icon } from '@/components/icon'
 import { ChatComposer } from '@/components/chat-composer'
 import { ChatContextPanel } from '@/components/chat-context-panel'
-import { AssistantContent } from '@/components/assistant-content'
+import { AssistantContent, extractMeta } from '@/components/assistant-content'
 import {
   type Chat,
   type ChatMessage,
@@ -150,11 +150,20 @@ export function ChatDetail({ chatId }: ChatDetailProps): React.ReactElement {
       })
       setSending(false) // first chunk arrived — request succeeded
     } else if (frame.type === 'chat:done') {
+      // Carry the run's telemetry (tokens / duration / cost) on the message's
+      // metadata so the usage footer renders without a follow-up REST fetch.
+      // The gateway's persistComplete already broadcasts these on the WS frame.
+      const doneMetadata: Record<string, unknown> = {}
+      if (frame.usage) doneMetadata.usage = frame.usage
+      if (frame.durationMs != null) doneMetadata.durationMs = frame.durationMs
+      if (frame.cost != null) doneMetadata.cost = frame.cost
       setMessages((prev) => {
         const existing = prev.find((m) => m.id.startsWith('stream-'))
         if (existing) {
           return prev.map((m) =>
-            m.id === existing.id ? { ...m, content: frame.content || m.content } : m,
+            m.id === existing.id
+              ? { ...m, content: frame.content || m.content, metadata: { ...m.metadata, ...doneMetadata } }
+              : m,
           )
         }
         // No streaming bubble (executor finished before any chunk) — append.
@@ -166,7 +175,7 @@ export function ChatDetail({ chatId }: ChatDetailProps): React.ReactElement {
             role: 'assistant',
             content: frame.content,
             runId: frame.runId ?? null,
-            metadata: {},
+            metadata: doneMetadata,
             createdAt: new Date().toISOString(),
           },
         ]
@@ -331,7 +340,11 @@ export function ChatDetail({ chatId }: ChatDetailProps): React.ReactElement {
                       </div>
                     )}
                     {m.role === 'assistant' ? (
-                      <AssistantContent content={m.content} streaming={isStreaming} />
+                      <AssistantContent
+                        content={m.content}
+                        streaming={isStreaming}
+                        meta={extractMeta(m.metadata)}
+                      />
                     ) : (
                       <div className="chat-msg-content">{m.content}</div>
                     )}

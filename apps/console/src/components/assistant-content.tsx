@@ -37,6 +37,46 @@ export interface Segment {
 }
 
 /**
+ * Per-message run telemetry rendered in the assistant footer. Mirrors the
+ * `chat:done` WS frame's `usage` / `durationMs` / `cost` and the persisted
+ * `metadata.usage` / `metadata.durationMs` / `metadata.cost` shape. Either
+ * field is optional — the footer renders whatever is present.
+ */
+export interface AssistantMessageMeta {
+  usage?: { inputTokens?: number; outputTokens?: number; cacheReadTokens?: number; cacheWriteTokens?: number }
+  durationMs?: number
+  cost?: number
+}
+
+/**
+ * Extract an `AssistantMessageMeta` from a chat message's `metadata` blob
+ * (DB-loaded messages carry `metadata.usage` / `metadata.durationMs` /
+ * `metadata.cost`). Returns `undefined` when nothing useful is present so
+ * callers can pass the result straight through to `<AssistantContent meta=… />`
+ * without conditionals. Shared between `chat-detail` and `floating-chat` to
+ * avoid duplicating the (typed) field-picking logic.
+ */
+export function extractMeta(metadata: Record<string, unknown> | null | undefined): AssistantMessageMeta | undefined {
+  if (!metadata || Object.keys(metadata).length === 0) return undefined
+  const meta: AssistantMessageMeta = {}
+  const usage = metadata.usage
+  if (usage && typeof usage === 'object') {
+    const u = usage as Record<string, unknown>
+    meta.usage = {
+      inputTokens: typeof u.inputTokens === 'number' ? u.inputTokens : undefined,
+      outputTokens: typeof u.outputTokens === 'number' ? u.outputTokens : undefined,
+      cacheReadTokens: typeof u.cacheReadTokens === 'number' ? u.cacheReadTokens : undefined,
+      cacheWriteTokens: typeof u.cacheWriteTokens === 'number' ? u.cacheWriteTokens : undefined,
+    }
+  }
+  if (typeof metadata.durationMs === 'number') meta.durationMs = metadata.durationMs
+  if (typeof metadata.cost === 'number') meta.cost = metadata.cost
+  if (!meta.usage && meta.durationMs == null && meta.cost == null) return undefined
+  return meta
+}
+
+
+/**
  * Parse the tagged-content format produced by inline-executor's eventToText.
  *
  * Grammar (each tag is a closed label):
@@ -205,15 +245,22 @@ interface AssistantContentProps {
   content: string
   /** True while the assistant bubble is still accumulating WS chunks. */
   streaming?: boolean
+  /** Run telemetry for the usage footer. Hidden while `streaming` is true. */
+  meta?: AssistantMessageMeta
 }
 
-export function AssistantContent({ content, streaming }: AssistantContentProps): React.ReactElement {
+export function AssistantContent({ content, streaming, meta }: AssistantContentProps): React.ReactElement {
   const segments = parseAssistantContent(content)
 
   // No segments parsed (e.g. empty content or only whitespace) → render
-  // a placeholder while streaming, or nothing when settled.
+  // a placeholder while streaming, or just the footer when settled.
   if (segments.length === 0) {
-    return <>{streaming ? <span className="assistant-cursor">▋</span> : null}</>
+    return (
+      <>
+        {streaming ? <span className="assistant-cursor">▋</span> : null}
+        {meta && !streaming ? <UsageFooter meta={meta} /> : null}
+      </>
+    )
   }
 
   const { preface, middle, final } = splitSegments(segments)
@@ -258,8 +305,41 @@ export function AssistantContent({ content, streaming }: AssistantContentProps):
           />
         </Fragment>
       ))}
+
+      {/* Usage footer — tokens / duration / cost. Only shown after the
+          message settles (otherwise incomplete data would flash mid-stream). */}
+      {meta && !streaming ? <UsageFooter meta={meta} /> : null}
     </div>
   )
+}
+
+/**
+ * Usage footer — small muted line below the assistant's reply showing token
+ * count, run duration, and $ cost. Renders only the parts that are present
+ * (`input + output` tokens; cost as 4-decimal USD). Returns `null` when
+ * nothing useful is in `meta`, so callers can always render the wrapper.
+ */
+function UsageFooter({ meta }: { meta: AssistantMessageMeta }): React.ReactElement | null {
+  const parts: string[] = []
+  const usage = meta.usage
+  if (usage) {
+    const total = (usage.inputTokens ?? 0) + (usage.outputTokens ?? 0)
+    if (total > 0) parts.push(formatTokens(total))
+  }
+  if (meta.durationMs != null) parts.push(formatDuration(meta.durationMs))
+  if (meta.cost != null) parts.push(`$${meta.cost.toFixed(4)}`)
+  if (parts.length === 0) return null
+  return <div className="assistant-usage-footer">{parts.join(' · ')}</div>
+}
+
+function formatTokens(n: number): string {
+  if (n >= 1000) return `${(n / 1000).toFixed(1)}k tokens`
+  return `${n} tokens`
+}
+
+function formatDuration(ms: number): string {
+  if (ms < 1000) return `${ms}ms`
+  return `${(ms / 1000).toFixed(1)}s`
 }
 
 /** Plain text block — the assistant's main reply (preface / final). */

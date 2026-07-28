@@ -31,7 +31,7 @@ import { usePathname } from 'next/navigation'
 import { Icon } from '@/components/icon'
 import { ChatComposer } from '@/components/chat-composer'
 import { DirectorySelector } from '@/components/directory-selector'
-import { AssistantContent } from '@/components/assistant-content'
+import { AssistantContent, extractMeta, type AssistantMessageMeta } from '@/components/assistant-content'
 import {
   createChat,
   createMessage,
@@ -52,6 +52,8 @@ interface DisplayMessage {
   streaming?: boolean
   /** True if this is a local-only optimistic bubble (not yet persisted). */
   optimistic?: boolean
+  /** Run telemetry for the usage footer (tokens / duration / cost). */
+  meta?: AssistantMessageMeta
 }
 
 function formatTime(dateStr: string): string {
@@ -194,13 +196,29 @@ function FloatingChatWindow({ onClose }: FloatingChatWindowProps): React.ReactEl
       setSending(false) // WS chunk arrived → request succeeded, hide "sending"
     } else if (frame.type === 'chat:done') {
       // Seal the streaming bubble (or append a complete message if no chunk
-      // arrived before the executor finished).
+      // arrived before the executor finished). Carry the run's telemetry
+      // (tokens / duration / cost) so the usage footer can render.
+      const doneMeta: AssistantMessageMeta | undefined =
+        frame.usage || frame.durationMs != null || frame.cost != null
+          ? {
+              usage: frame.usage
+                ? {
+                    inputTokens: frame.usage.inputTokens,
+                    outputTokens: frame.usage.outputTokens,
+                    cacheReadTokens: frame.usage.cacheReadTokens,
+                    cacheWriteTokens: frame.usage.cacheWriteTokens,
+                  }
+                : undefined,
+              durationMs: frame.durationMs,
+              cost: frame.cost,
+            }
+          : undefined
       setMessages((prev) => {
         const existing = prev.find((m) => m.streaming)
         if (existing) {
           return prev.map((m) =>
             m.id === existing.id
-              ? { ...m, content: frame.content || m.content, streaming: false }
+              ? { ...m, content: frame.content || m.content, streaming: false, meta: doneMeta }
               : m,
           )
         }
@@ -211,6 +229,7 @@ function FloatingChatWindow({ onClose }: FloatingChatWindowProps): React.ReactEl
             role: 'assistant',
             content: frame.content,
             createdAt: new Date().toISOString(),
+            meta: doneMeta,
           },
         ]
       })
@@ -356,6 +375,7 @@ function FloatingChatWindow({ onClose }: FloatingChatWindowProps): React.ReactEl
             role: m.role as 'user' | 'assistant' | 'system',
             content: m.content,
             createdAt: m.createdAt,
+            meta: extractMeta(m.metadata),
           })),
         )
       } catch (err) {
@@ -422,7 +442,7 @@ function FloatingChatWindow({ onClose }: FloatingChatWindowProps): React.ReactEl
               className={`floating-chat-msg floating-chat-msg-${m.role}${m.role === 'assistant' ? ' floating-chat-msg-flat' : ''}`}
             >
               {m.role === 'assistant' ? (
-                <AssistantContent content={m.content} streaming={m.streaming} />
+                <AssistantContent content={m.content} streaming={m.streaming} meta={m.meta} />
               ) : (
                 <div className="floating-chat-msg-content">
                   {m.content}
