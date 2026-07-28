@@ -84,6 +84,25 @@ test.describe('Chat Detail (UC-CHAT-07 ~ 13)', () => {
     await seedMessage(c, { chatId: chatWithMessages, role: 'system', content: '路由到 @claude agent' })
     await seedMessage(c, { chatId: chatWithMessages, role: 'tool', content: '{"tool":"ls","result":[]}' })
 
+    // Assistant message carrying usage metadata — covers UC-CHAT usage footer
+    // (Phase 4 Task 4.4). Tests the historical message path: the footer must
+    // render from persisted metadata on page reload, without any live agent
+    // execution. `extractMeta` reads metadata.usage / metadata.durationMs /
+    // metadata.cost; the AssistantContent footer formats them as
+    // "{N}k tokens · {M}s · ${C}".
+    await seedMessage(c, {
+      chatId: chatWithMessages,
+      role: 'assistant',
+      content: '扫描完成,共 3 个文件',
+      metadata: {
+        runId: 'e2e-run-usage',
+        status: 'completed',
+        usage: { inputTokens: 1234, outputTokens: 567 },
+        durationMs: 2100,
+        cost: 0.0123,
+      },
+    })
+
     chatForSend = await seedChat(c, { directoryId, title: 'E2E 发送消息', agentId })
 
     chatWithAgent = await seedChat(c, { directoryId, title: 'E2E 右栏上下文', agentId })
@@ -293,5 +312,37 @@ test.describe('Chat Detail (UC-CHAT-07 ~ 13)', () => {
     // PATCH /api/chats/:id or a daemon run starting) and assert the badge
     // flips to 'Running' WITHOUT a page reload — requires a polling/SSE/WS
     // refresh mechanism that does not exist today.
+  })
+
+  // ── Usage footer (Phase 4 Task 4.4) ─────────────────────────────────────
+  //
+  // Verifies the `.assistant-usage-footer` renders on a persisted assistant
+  // message that carries usage metadata (the historical path users see on
+  // page reload). Avoids the live-streaming path (send + wait for chat:done)
+  // which would require the `claude` CLI on the gateway — fragile and
+  // environment-dependent. `extractMeta` reads metadata.usage /
+  // metadata.durationMs / metadata.cost; AssistantContent's UsageFooter
+  // formats them as "{N}k tokens · {M}s · ${C}".
+
+  test('UC-CHAT-usage: assistant message with metadata renders usage footer', async ({ page }) => {
+    await page.goto(`/chats/${chatWithMessages}`)
+    // Wait for messages to load
+    await expect(page.locator('.chat-msg-assistant').first()).toBeVisible({ timeout: 10_000 })
+
+    // The seeded assistant message with usage metadata
+    const usageAssistant = page.locator('.chat-msg-assistant').filter({ hasText: '扫描完成,共 3 个文件' })
+    await expect(usageAssistant).toBeVisible({ timeout: 10_000 })
+
+    // The footer renders inside .assistant-content
+    const footer = usageAssistant.locator('.assistant-usage-footer')
+    await expect(footer).toBeVisible({ timeout: 5_000 })
+
+    // Footer contains token count (1234 + 567 = 1801 → "1.8k tokens")
+    const footerText = await footer.textContent()
+    expect(footerText).toMatch(/tokens/)
+    // Footer also contains duration (2100ms → "2.1s")
+    expect(footerText).toMatch(/2\.1s/)
+    // Footer contains cost ($0.0123)
+    expect(footerText).toMatch(/\$0\.0123/)
   })
 })

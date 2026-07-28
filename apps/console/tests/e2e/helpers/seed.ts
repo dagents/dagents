@@ -140,13 +140,19 @@ export async function seedChat(
  */
 export async function seedMessage(
   ctx: SeedContext,
-  opts: { chatId: string; role: 'user' | 'assistant' | 'system' | 'tool'; content: string; runId?: string | null },
+  opts: {
+    chatId: string
+    role: 'user' | 'assistant' | 'system' | 'tool'
+    content: string
+    runId?: string | null
+    metadata?: Record<string, unknown>
+  },
 ): Promise<string> {
   const id = randomUUID()
   await ctx.db.runQuery(
     `INSERT INTO chat_messages (id, chat_id, role, content, run_id, metadata)
      VALUES ($1, $2, $3, $4, $5, $6)`,
-    [id, opts.chatId, opts.role, opts.content, opts.runId ?? null, '{}'],
+    [id, opts.chatId, opts.role, opts.content, opts.runId ?? null, JSON.stringify(opts.metadata ?? {})],
   )
   ctx.messageIds.push(id)
   return id
