@@ -285,7 +285,7 @@ test.describe('Chat trigger mechanism (UC-TRG-01 ~ 06)', () => {
     // Use .last() — chatForCommands is shared and system acks accumulate.
     const ack = page.locator('.chat-msg-system').last()
     await expect(ack).toBeVisible({ timeout: 10_000 })
-    await expect(ack.locator('.chat-msg-content')).toHaveText(/Routed to agent:/)
+    await expect(ack.locator('.chat-msg-content')).toHaveText(new RegExp(`Routed to agent: ${agentName}`))
 
     // --- API contract: POST @agent returns mode='json' with runId ---
     const res = await request.post(`/api/chats/${chatForCommands}/messages`, {
@@ -295,7 +295,7 @@ test.describe('Chat trigger mechanism (UC-TRG-01 ~ 06)', () => {
     const body = await res.json()
     expect(body.success).toBe(true)
     expect(body.data.mode).toBe('json')
-    expect(body.data.payload?.ack).toMatch(/Routed to agent:/)
+    expect(body.data.payload?.ack).toMatch(new RegExp(`Routed to agent: ${agentName}`))
     expect(body.data.payload?.command?.kind).toBe('agent')
     expect(body.data.payload?.command?.target).toBe(agentName)
     expect(typeof body.data.payload?.runId).toBe('string')
