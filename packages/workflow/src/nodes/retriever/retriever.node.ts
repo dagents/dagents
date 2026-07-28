@@ -15,8 +15,8 @@ export class RetrieverNode implements INode {
   name = 'retrieverAgentflow'
   version = 1
   type = 'Retriever'
-  category = 'Agent Flows'
-  color = '#0891B2'
+  category = 'data'
+  color = '#06b6d4'
   inputs = [
     {
       label: 'Query',

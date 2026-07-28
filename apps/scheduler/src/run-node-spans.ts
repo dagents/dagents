@@ -104,8 +104,8 @@ export interface RunNodeSpanRow {
 
 /**
  * List a run's node spans, in first-seen order (creation order). Used by the
- * console read API (M6.4 front-end) to render the DAG node inspector without
- * re-reading Flowise's live `executionData` on every render.
+ * console read API to render the DAG node inspector without re-reading live
+ * execution data on every render.
  */
 export async function listRunNodeSpans(runId: string): Promise<RunNodeSpanRow[]> {
   const { records } = await runQuery<RunNodeSpanRow>(

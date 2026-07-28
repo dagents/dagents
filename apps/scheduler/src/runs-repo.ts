@@ -210,20 +210,20 @@ export async function failRun(runId: string, failure: unknown): Promise<void> {
 
 /**
  * The comparable identity of a run — exactly the fields a rerun must preserve
- * to satisfy "同一 pipeline_version_hash 重跑指定子 run, 结果可比对" (plan M3.4).
+ * to satisfy "同一 pipeline_version_hash 重跑指定子 run, 结果可比对".
  *
- * `flowId` is the Flowise flow id; the scheduler stored it on the parent run's
- * `input.flowId` (M3.2 fan-out writes `{ flowId, inputs }` there), so a child
- * run has no direct `flow_id` column — `loadRunForRerun` resolves it by
- * walking to the parent. `pipelineId` (the run's own column) is kept alongside
- * because the rerun re-stamps it on the new row for consistency, even though
- * it equals `flowId` in the current architecture.
+ * `flowId` is the workflow / pipeline id; the scheduler stored it on the
+ * parent run's `input.flowId` (fan-out writes `{ flowId, inputs }` there), so
+ * a child run has no direct `flow_id` column — `loadRunForRerun` resolves it
+ * by walking to the parent. `pipelineId` (the run's own column) is kept
+ * alongside because the rerun re-stamps it on the new row for consistency,
+ * even though it equals `flowId` in the current architecture.
  */
 export interface RerunSource {
   id: string
   identifier: string
   pipelineId: string
-  /** Flowise flow id, resolved from the parent's `input.flowId` for a child. */
+  /** Workflow / pipeline id, resolved from the parent's `input.flowId` for a child. */
   flowId: string
   status: RunStatus
   input: unknown
@@ -292,7 +292,7 @@ export interface CreateRerunRunInput {
 }
 
 /**
- * The reproducible identity + baseline of a run (plan M4.3 / P1.8.T5).
+ * The reproducible identity + baseline of a run.
  *
  * Extends the rerun comparable identity with the two fields a reproduce
  * comparison needs on top of "re-execute with the same hash + input":
@@ -306,7 +306,7 @@ export interface ReproduceSource {
   id: string
   identifier: string
   pipelineId: string
-  /** Flowise flow id, resolved from the parent's `input.flowId` for a child. */
+  /** Workflow / pipeline id, resolved from the parent's `input.flowId` for a child. */
   flowId: string
   status: RunStatus
   input: unknown

@@ -131,8 +131,6 @@ export function DirectoriesView(): React.ReactElement {
 
   return (
     <PageShell
-      title="项目目录"
-      subtitle="管理 agent 工作区目录映射。每个目录对应一个本地路径，关联的对话会在该目录下执行。"
       actions={
         <button type="button" className="btn btn-accent btn-sm" onClick={openCreate}>
           + 新建目录

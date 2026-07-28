@@ -1,19 +1,17 @@
 import { describe, it, expect } from 'vitest'
-import { readAgentflowTrace } from '../node-span-ingest.js'
+import { readNodeTrace } from '../node-span-ingest.js'
 import { mapNodeSpanStatus, projectNodeSpans, type NodeSpanInput } from '../node-spans.js'
 
 /**
- * Unit tests for the Flowise → run_node_spans projection (plan M6.4 /
- * P1.11.T5). Pure transforms: no DB, no gateway.
+ * Unit tests for the node-span projection. Pure transforms: no DB, no gateway.
  *
  * These pin the shape contract the scheduler ingest + the console read rely on:
- * map Flowise `ExecutionState` → span status, project an agentflow trace array
- * into one span per node (last entry wins), and read the trace out of a
- * prediction response.
+ * map execution state → span status, project a node trace array into one span
+ * per node (last entry wins), and read the trace out of a prediction response.
  */
 
 describe('mapNodeSpanStatus', () => {
-  it('maps Flowise states to span statuses', () => {
+  it('maps execution states to span statuses', () => {
     expect(mapNodeSpanStatus('INPROGRESS')).toBe('running')
     expect(mapNodeSpanStatus('FINISHED')).toBe('done')
     expect(mapNodeSpanStatus('ERROR')).toBe('failed')
@@ -23,8 +21,6 @@ describe('mapNodeSpanStatus', () => {
   })
 
   it('maps unknown / missing states to unknown (NOT done)', () => {
-    // `unknown` is distinct from `done` so the inspector can flag an
-    // unrecognised outcome rather than silently green-lighting a node.
     expect(mapNodeSpanStatus(undefined)).toBe('unknown')
     expect(mapNodeSpanStatus('WHATEVER')).toBe('unknown')
   })
@@ -36,8 +32,7 @@ describe('projectNodeSpans (pure projection)', () => {
       runId: 'r1',
       flowId: 'f1',
       executionId: 'ex1',
-      // n1 appears twice — INPROGRESS then FINISHED; the last (done) wins.
-      agentFlowExecutedData: [
+      nodeTrace: [
         { nodeId: 'n1', nodeLabel: 'Start', status: 'INPROGRESS' },
         { nodeId: 'n2', nodeLabel: 'Agent', status: 'INPROGRESS' },
         { nodeId: 'n1', nodeLabel: 'Start', status: 'FINISHED' },
@@ -54,28 +49,19 @@ describe('projectNodeSpans (pure projection)', () => {
     expect(n2.runId).toBe('r1')
   })
 
-  it('reads token usage + cost + nodeType from the real Flowise output shape', () => {
-    // Flowise pushes `nodeResult = node.run()` as each entry's `data`. For an
-    // Agent/LLM node that return is `{ id, name, input, output: { content,
-    // timeMetadata, usageMetadata } }` (vendor/.../agentflow/Agent/Agent.ts
-    // `prepareOutputObject`). usageMetadata carries token counts AND, when cost
-    // accounting is on, `input_cost`/`total_cost`. This fixture mirrors that
-    // real shape — NOT a synthetic `{ usage, cost }` — so the projection's
-    // read path (`data.output.usageMetadata`) is actually exercised. (Flowise's
-    // own evaluation runner reads the same path — the cross-check that pinned
-    // this shape during code review.)
+  it('reads token usage + cost + nodeType from the engine output shape', () => {
     const spans = projectNodeSpans({
       runId: 'r1',
       flowId: 'f1',
       executionId: null,
-      agentFlowExecutedData: [
+      nodeTrace: [
         {
           nodeId: 'n2',
           nodeLabel: 'Agent',
           status: 'ERROR',
           data: {
             id: 'n2',
-            name: 'agentAgentflow',
+            name: 'agentNode',
             input: { messages: [] },
             output: {
               content: '',
@@ -97,7 +83,6 @@ describe('projectNodeSpans (pure projection)', () => {
     expect(spans).toHaveLength(1)
     const s = spans[0]!
     expect(s.status).toBe('failed')
-    // tokens is the whole usageMetadata blob (the per-node token/cost map)
     expect(s.tokens).toEqual({
       input_tokens: 100,
       output_tokens: 50,
@@ -106,47 +91,40 @@ describe('projectNodeSpans (pure projection)', () => {
       output_cost: 0.25,
       total_cost: 1.25,
     })
-    // cost is read from usageMetadata.total_cost
     expect(s.cost).toBe(1.25)
-    // nodeType falls back to the Flowise node `name` (no React Flow type in data)
-    expect(s.nodeType).toBe('agentAgentflow')
-    // error is read from data.error (ERROR nodes carry it at top level of data)
+    expect(s.nodeType).toBe('agentNode')
     expect(s.error).toBe('boom')
   })
 
-  it('leaves tokens/cost null for a non-agent node (no output.usageMetadata)', () => {
-    // Start / Condition / Direct Reply nodes don't call an LLM, so their
-    // `data.output` has no `usageMetadata`. The projection must leave
-    // tokens/cost null for them (not crash, not fabricate).
+  it('leaves tokens/cost null for nodes without output.usageMetadata', () => {
     const spans = projectNodeSpans({
       runId: 'r1',
       flowId: 'f1',
       executionId: 'ex1',
-      agentFlowExecutedData: [
+      nodeTrace: [
         {
           nodeId: 'n1',
           nodeLabel: 'Start',
           status: 'FINISHED',
-          data: { id: 'n1', name: 'startAgentflow', input: {}, output: { content: 'ok' } },
+          data: { id: 'n1', name: 'startNode', input: {}, output: { content: 'ok' } },
         },
       ],
     })
     expect(spans).toHaveLength(1)
     expect(spans[0]!.tokens).toBeNull()
     expect(spans[0]!.cost).toBeNull()
-    expect(spans[0]!.nodeType).toBe('startAgentflow')
+    expect(spans[0]!.nodeType).toBe('startNode')
   })
 
-  it('leaves timing null (Flowise records no per-node timestamps)', () => {
+  it('leaves timing null when trace has no per-node timestamps', () => {
     const spans = projectNodeSpans({
       runId: 'r1',
       flowId: 'f1',
       executionId: 'ex1',
-      agentFlowExecutedData: [{ nodeId: 'n1', status: 'FINISHED' }],
+      nodeTrace: [{ nodeId: 'n1', status: 'FINISHED' }],
     })
     expect(spans[0]!.startedAt).toBeNull()
     expect(spans[0]!.durationMs).toBeNull()
-    // finishedAt is caller-supplied; defaults to null in the pure projection.
     expect(spans[0]!.finishedAt).toBeNull()
   })
 
@@ -156,7 +134,7 @@ describe('projectNodeSpans (pure projection)', () => {
       runId: 'r1',
       flowId: 'f1',
       executionId: 'ex1',
-      agentFlowExecutedData: [{ nodeId: 'n1', status: 'FINISHED' }],
+      nodeTrace: [{ nodeId: 'n1', status: 'FINISHED' }],
       traceId: 'trace-abc',
       finishedAt,
     })
@@ -166,13 +144,13 @@ describe('projectNodeSpans (pure projection)', () => {
 
   it('returns [] for a non-array / empty trace', () => {
     expect(
-      projectNodeSpans({ runId: 'r1', flowId: 'f1', executionId: null, agentFlowExecutedData: [] }),
+      projectNodeSpans({ runId: 'r1', flowId: 'f1', executionId: null, nodeTrace: [] }),
     ).toEqual([])
     expect(
-      projectNodeSpans({ runId: 'r1', flowId: 'f1', executionId: null, agentFlowExecutedData: null }),
+      projectNodeSpans({ runId: 'r1', flowId: 'f1', executionId: null, nodeTrace: null }),
     ).toEqual([])
     expect(
-      projectNodeSpans({ runId: 'r1', flowId: 'f1', executionId: null, agentFlowExecutedData: 'not-array' }),
+      projectNodeSpans({ runId: 'r1', flowId: 'f1', executionId: null, nodeTrace: 'not-array' }),
     ).toEqual([])
   })
 
@@ -181,10 +159,10 @@ describe('projectNodeSpans (pure projection)', () => {
       runId: 'r1',
       flowId: 'f1',
       executionId: null,
-      agentFlowExecutedData: [
-        { status: 'FINISHED' }, // no nodeId — skipped
+      nodeTrace: [
+        { status: 'FINISHED' },
         { nodeId: 'n1', status: 'FINISHED' },
-        'garbage', // not an object — skipped
+        'garbage',
       ],
     })
     expect(spans).toHaveLength(1)
@@ -192,39 +170,31 @@ describe('projectNodeSpans (pure projection)', () => {
   })
 })
 
-describe('readAgentflowTrace', () => {
-  it('reads executionId + agentFlowExecutedData from a prediction response', () => {
-    const trace = readAgentflowTrace({
+describe('readNodeTrace', () => {
+  it('reads executionId + nodeTrace from a prediction response (legacy agentFlowExecutedData shape)', () => {
+    const trace = readNodeTrace({
       executionId: 'ex1',
       agentFlowExecutedData: [{ nodeId: 'n1', status: 'FINISHED' }],
       sessionId: 'r1',
     })
     expect(trace).not.toBeNull()
     expect(trace!.executionId).toBe('ex1')
-    expect(Array.isArray(trace!.agentFlowExecutedData)).toBe(true)
+    expect(Array.isArray(trace!.nodeTrace)).toBe(true)
   })
 
-  it('returns null when the response carries no agentflow trace', () => {
-    expect(readAgentflowTrace({ text: 'a chatflow reply' })).toBeNull()
-    expect(readAgentflowTrace(null)).toBeNull()
-    expect(readAgentflowTrace(undefined)).toBeNull()
+  it('returns null when the response carries no node trace', () => {
+    expect(readNodeTrace({ text: 'a chatflow reply' })).toBeNull()
+    expect(readNodeTrace(null)).toBeNull()
+    expect(readNodeTrace(undefined)).toBeNull()
   })
 
   it('falls back to executionData as the trace key (legacy shape)', () => {
-    // The DB-side `Execution.executionData` is a JSON string, but the
-    // prediction-response path (the only path that reaches `ingestRunNodeSpans`)
-    // hands us an already-parsed array. `readAgentflowTrace` does NOT JSON.parse
-    // a string, so a string-valued `executionData` is surfaced as-is and the
-    // projection's `Array.isArray` guard skips it. This test pins that the key
-    // is still *recognized* (not null) even when the value is a string — the
-    // caller decides what to do with it.
-    const trace = readAgentflowTrace({
+    const trace = readNodeTrace({
       executionId: 'ex1',
       executionData: '[{"nodeId":"n1","status":"FINISHED"}]',
     })
     expect(trace).not.toBeNull()
     expect(trace!.executionId).toBe('ex1')
-    // a string is surfaced verbatim (not parsed); projectNodeSpans skips it
-    expect(typeof trace!.agentFlowExecutedData).toBe('string')
+    expect(typeof trace!.nodeTrace).toBe('string')
   })
 })

@@ -82,6 +82,27 @@ daemonsRoutes.post('/daemons/heartbeat', async (c) => {
   return c.body(null, 204)
 })
 
+/**
+ * GET /daemons — list all registered daemons (for the create-agent dialog's
+ * daemon selector). Returns id/label/status/capabilities. Ordered by label
+ * so the dropdown is stable. Light query (daemons table is small by design).
+ */
+daemonsRoutes.get('/daemons', async (c) => {
+  const { records } = await runQuery<{
+    id: string
+    label: string
+    status: string
+    endpoint: string | null
+    capabilities: unknown
+    last_heartbeat_at: Date | null
+  }>(
+    `SELECT id, label, status, endpoint, capabilities, last_heartbeat_at
+       FROM daemons
+       ORDER BY label ASC`,
+  )
+  return ok(c, { daemons: records })
+})
+
 daemonsRoutes.delete('/daemons/:id', async (c) => {
   const id = c.req.param('id')
   const { affected } = await runQuery(`DELETE FROM daemons WHERE id = $1`, [id])

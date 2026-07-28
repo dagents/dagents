@@ -7,15 +7,15 @@ import {
   toFlowDetailView,
   summarizeFlows,
   groupExecutionsByFlow,
-  type FlowiseChatflow,
-  type FlowiseExecution,
+  type Chatflow,
+  type Execution,
 } from './flows'
 
 /**
- * Unit tests for the Flowise → console flow transforms (P1.10.T5).
+ * Unit tests for the gateway → console flow transforms.
  *
  * These pin the shape contract the API routes + DAG view rely on, without a
- * gateway: parse/normalize Flowise rows into the console's domain types, map
+ * gateway: parse/normalize backend rows into the console's domain types, map
  * execution states onto node-card statuses, and pick the latest execution.
  */
 
@@ -33,7 +33,7 @@ const sampleFlowData = JSON.stringify({
 })
 
 describe('mapExecutionState', () => {
-  it('maps Flowise states to node-card statuses', () => {
+  it('maps execution states to node-card statuses', () => {
     expect(mapExecutionState('INPROGRESS')).toBe('running')
     expect(mapExecutionState('FINISHED')).toBe('done')
     expect(mapExecutionState('ERROR')).toBe('failed')
@@ -54,7 +54,7 @@ describe('parseFlowData', () => {
     expect(dag.nodes).toHaveLength(3)
     expect(dag.nodes[0]).toMatchObject({ id: 'n1', type: 'Start' })
     expect(dag.edges).toHaveLength(2)
-    // the sample nests the edge label in data.label (Flowise's shape)
+    // the sample nests the edge label in data.label
     expect(dag.edges[1]!.data?.label).toBe('ok')
   })
 
@@ -79,7 +79,7 @@ describe('parseFlowData', () => {
 
 describe('nodeStatusFromExecution', () => {
   it('takes the LAST entry per nodeId (most recent status)', () => {
-    const exec: FlowiseExecution = {
+    const exec: Execution = {
       id: 'ex1',
       agentflowId: 'f1',
       sessionId: 's1',
@@ -95,7 +95,7 @@ describe('nodeStatusFromExecution', () => {
   })
 
   it('parses executionData when it is a JSON string', () => {
-    const exec: FlowiseExecution = {
+    const exec: Execution = {
       id: 'ex1',
       agentflowId: 'f1',
       sessionId: 's1',
@@ -116,7 +116,7 @@ describe('nodeStatusFromExecution', () => {
 
 describe('latestExecution', () => {
   it('picks the execution with the highest updatedDate', () => {
-    const execs: FlowiseExecution[] = [
+    const execs: Execution[] = [
       { id: 'old', agentflowId: 'f', sessionId: 's', state: 'FINISHED', createdDate: '2026-07-01T00:00:00Z', updatedDate: '2026-07-01T00:00:00Z' },
       { id: 'new', agentflowId: 'f', sessionId: 's', state: 'INPROGRESS', createdDate: '2026-07-09T00:00:00Z', updatedDate: '2026-07-09T00:00:00Z' },
     ]
@@ -124,7 +124,7 @@ describe('latestExecution', () => {
   })
 
   it('falls back to createdDate when updatedDate is absent', () => {
-    const execs: FlowiseExecution[] = [
+    const execs: Execution[] = [
       { id: 'a', agentflowId: 'f', sessionId: 's', state: 'FINISHED', createdDate: '2026-07-05T00:00:00Z' },
       { id: 'b', agentflowId: 'f', sessionId: 's', state: 'FINISHED', createdDate: '2026-07-01T00:00:00Z' },
     ]
@@ -137,7 +137,7 @@ describe('latestExecution', () => {
 })
 
 describe('toFlowDetailView', () => {
-  const flow: FlowiseChatflow = {
+  const flow: Chatflow = {
     id: 'f1',
     name: '论文复现',
     type: 'AGENTFLOW',
@@ -147,7 +147,7 @@ describe('toFlowDetailView', () => {
   }
 
   it('paints node statuses from the latest execution', () => {
-    const execs: FlowiseExecution[] = [
+    const execs: Execution[] = [
       {
         id: 'ex1',
         agentflowId: 'f1',
@@ -173,7 +173,7 @@ describe('toFlowDetailView', () => {
   })
 
   it('uses node data.label, falling back to the id when absent', () => {
-    const flowNoLabels: FlowiseChatflow = {
+    const flowNoLabels: Chatflow = {
       ...flow,
       flowData: JSON.stringify({
         nodes: [
@@ -188,8 +188,8 @@ describe('toFlowDetailView', () => {
     expect(view.nodes.find((n) => n.id === 'x2')?.label).toBe('x2')
   })
 
-  it('synthesizes edge ids when Flowise omits them', () => {
-    const flowNoEdgeIds: FlowiseChatflow = {
+  it('synthesizes edge ids when they are omitted', () => {
+    const flowNoEdgeIds: Chatflow = {
       ...flow,
       flowData: JSON.stringify({
         nodes: [],
@@ -211,11 +211,11 @@ describe('toFlowDetailView', () => {
 })
 
 describe('summarizeFlows + groupExecutionsByFlow', () => {
-  const flows: FlowiseChatflow[] = [
+  const flows: Chatflow[] = [
     { id: 'f1', name: 'A', type: 'AGENTFLOW', flowData: sampleFlowData, createdDate: '2026-07-01T00:00:00Z', updatedDate: '2026-07-09T00:00:00Z' },
     { id: 'f2', name: 'B', type: 'AGENTFLOW', flowData: '{}', createdDate: '2026-07-01T00:00:00Z', updatedDate: '2026-07-08T00:00:00Z' },
   ]
-  const execs: FlowiseExecution[] = [
+  const execs: Execution[] = [
     { id: 'e1', agentflowId: 'f1', sessionId: 's', state: 'INPROGRESS', createdDate: '2026-07-09T00:00:00Z', updatedDate: '2026-07-09T00:00:00Z' },
   ]
 
@@ -234,12 +234,12 @@ describe('summarizeFlows + groupExecutionsByFlow', () => {
   it('derives list-page fidelity fields: archived / runCount / latestRunId / versionHash / owner (M2.1)', () => {
     // f1 running (1 execution, has a latest run id), f2 idle (0 executions),
     // plus a failed/paused flow exercises the `archived` derivation.
-    const archFlows: FlowiseChatflow[] = [
+    const archFlows: Chatflow[] = [
       { id: 'f1', name: 'A', type: 'AGENTFLOW', flowData: sampleFlowData, createdDate: '2026-07-01T00:00:00Z', updatedDate: '2026-07-09T00:00:00Z' },
       { id: 'f2', name: 'B', type: 'AGENTFLOW', flowData: '{}', createdDate: '2026-07-01T00:00:00Z', updatedDate: '2026-07-08T00:00:00Z' },
       { id: 'f3', name: 'C', type: 'AGENTFLOW', flowData: '{}', createdDate: '2026-07-01T00:00:00Z', updatedDate: '2026-07-08T00:00:00Z' },
     ]
-    const archExecs: FlowiseExecution[] = [
+    const archExecs: Execution[] = [
       { id: 'e1', agentflowId: 'f1', sessionId: 's1', state: 'INPROGRESS', createdDate: '2026-07-09T00:00:00Z', updatedDate: '2026-07-09T00:00:00Z' },
       { id: 'e0', agentflowId: 'f1', sessionId: 's0', state: 'FINISHED', createdDate: '2026-07-08T00:00:00Z', updatedDate: '2026-07-08T00:00:00Z' },
       { id: 'e3', agentflowId: 'f3', sessionId: 's3', state: 'TERMINATED', createdDate: '2026-07-08T00:00:00Z', updatedDate: '2026-07-08T00:00:00Z' },

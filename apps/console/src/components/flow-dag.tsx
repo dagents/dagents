@@ -1,13 +1,11 @@
 'use client'
 
 /**
- * React Flow read-only DAG canvas (P1.10.T5).
+ * React Flow read-only DAG canvas.
  *
  * Renders a flow's nodes + edges from the console `FlowDetailView`. This is a
- * BROWSE canvas, not the Flowise editor — nodes are not draggable, edges are
- * not rewireable; the user can pan/zoom and click a node to inspect it. That
- * keeps us out of the "edit canvas" lane the design defers to Flowise's native
- * UI (spec §1.10: "画布编辑仍用 Flowise 原生 UI，console 只做浏览/监控/管理").
+ * BROWSE canvas, not an editor — nodes are not draggable, edges are
+ * not rewireable; the user can pan/zoom and click a node to inspect it.
  *
  * Node status coloring: each node card gets a `.status-<state>` class (the
  * accent strip + dot in shell.css). Edges whose source is running/done AND

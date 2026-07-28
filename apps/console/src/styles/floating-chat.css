@@ -1,0 +1,272 @@
+/* ============================================================
+   floating-chat.css — multica-style FAB + window overlay.
+   Layout-only; visual tokens come from tokens.css.
+   ============================================================ */
+
+/* ─── FAB ───────────────────────────────────────────────────── */
+.floating-chat-fab {
+  position: fixed;
+  right: var(--space-6);
+  bottom: var(--space-6);
+  z-index: 50;
+  width: 48px;
+  height: 48px;
+  border-radius: 50%;
+  border: none;
+  background: var(--accent);
+  color: var(--accent-on);
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  cursor: pointer;
+  box-shadow: var(--elev-overlay);
+  transition: transform var(--motion-fast) var(--ease-standard),
+              background var(--motion-fast) var(--ease-standard);
+}
+
+.floating-chat-fab:hover {
+  background: var(--accent-hover);
+  transform: translateY(-1px);
+}
+
+.floating-chat-fab:active {
+  transform: translateY(0);
+}
+
+.floating-chat-fab:focus-visible {
+  outline: none;
+  box-shadow: var(--elev-overlay), var(--focus-ring);
+}
+
+/* ─── Window ────────────────────────────────────────────────── */
+.floating-chat-window {
+  position: fixed;
+  right: var(--space-6);
+  bottom: var(--space-6);
+  z-index: 50;
+  width: 380px;
+  height: 560px;
+  max-height: calc(100vh - var(--space-12));
+  display: flex;
+  flex-direction: column;
+  background: var(--bg);
+  border: 1px solid var(--border);
+  border-radius: var(--radius-lg);
+  box-shadow: var(--elev-overlay);
+  overflow: hidden;
+  animation: floating-chat-enter var(--motion-base) var(--ease-standard);
+}
+
+@keyframes floating-chat-enter {
+  from {
+    opacity: 0;
+    transform: translateY(8px) scale(0.98);
+  }
+  to {
+    opacity: 1;
+    transform: translateY(0) scale(1);
+  }
+}
+
+/* ─── Header ────────────────────────────────────────────────── */
+.floating-chat-header {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: var(--space-2);
+  padding: var(--space-3);
+  border-bottom: 1px solid var(--border-soft);
+  flex-shrink: 0;
+}
+
+.floating-chat-header-left {
+  flex: 1;
+  min-width: 0;
+}
+
+.floating-chat-header-right {
+  display: flex;
+  align-items: center;
+  gap: var(--space-1);
+  flex-shrink: 0;
+}
+
+.floating-chat-header-btn {
+  width: 28px;
+  height: 28px;
+  border-radius: var(--radius-sm);
+  border: none;
+  background: transparent;
+  color: var(--muted);
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  cursor: pointer;
+  transition: background var(--motion-fast), color var(--motion-fast);
+}
+
+.floating-chat-header-btn:hover {
+  background: var(--surface);
+  color: var(--fg);
+}
+
+/* ─── Connection warning ───────────────────────────────────── */
+.floating-chat-conn-warning {
+  padding: var(--space-1) var(--space-3);
+  background: var(--warn-soft);
+  color: var(--warn);
+  font-size: var(--text-xs);
+  text-align: center;
+  flex-shrink: 0;
+}
+
+/* ─── Messages ──────────────────────────────────────────────── */
+.floating-chat-messages {
+  flex: 1;
+  min-height: 0;
+  overflow-y: auto;
+  padding: var(--space-3);
+  display: flex;
+  flex-direction: column;
+  gap: var(--space-3);
+}
+
+.floating-chat-empty {
+  flex: 1;
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  justify-content: center;
+  gap: var(--space-2);
+  color: var(--meta);
+  text-align: center;
+  padding: var(--space-6);
+}
+
+.floating-chat-empty-icon {
+  width: 48px;
+  height: 48px;
+  border-radius: 50%;
+  background: var(--accent-soft);
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  margin-bottom: var(--space-2);
+}
+
+.floating-chat-empty-title {
+  font-size: var(--text-base);
+  font-weight: 500;
+  color: var(--fg);
+}
+
+.floating-chat-empty-desc {
+  font-size: var(--text-sm);
+  color: var(--muted);
+  line-height: 1.5;
+}
+
+/* ─── Message rows ──────────────────────────────────────────── */
+.floating-chat-msg {
+  display: flex;
+  flex-direction: column;
+  gap: var(--space-1);
+  max-width: 85%;
+}
+
+.floating-chat-msg-user {
+  align-self: flex-end;
+  align-items: flex-end;
+}
+
+.floating-chat-msg-assistant,
+.floating-chat-msg-system {
+  align-self: flex-start;
+  align-items: flex-start;
+}
+
+/* multica-style: assistant messages have NO bubble shell —
+   they render as a "content stream" (like ChatGPT/Claude). The
+   AssistantContent component handles its own internal layout. */
+.floating-chat-msg-flat {
+  max-width: 100%;
+  width: 100%;
+}
+
+.floating-chat-msg-content {
+  padding: var(--space-2) var(--space-3);
+  border-radius: var(--radius-md);
+  font-size: var(--text-sm);
+  line-height: 1.5;
+  color: var(--fg);
+  white-space: pre-wrap;
+  word-wrap: break-word;
+  overflow-wrap: anywhere;
+}
+
+.floating-chat-msg-user .floating-chat-msg-content {
+  background: var(--accent);
+  color: var(--accent-on);
+  border-bottom-right-radius: var(--space-1);
+}
+
+.floating-chat-msg-system .floating-chat-msg-content {
+  background: transparent;
+  color: var(--muted);
+  font-style: italic;
+  font-size: var(--text-xs);
+}
+
+.floating-chat-msg-meta {
+  font-size: var(--text-xs);
+  color: var(--meta);
+  padding: 0 var(--space-1);
+}
+
+/* Streaming cursor (blink) */
+.floating-chat-cursor {
+  display: inline-block;
+  margin-left: 1px;
+  color: var(--accent);
+  animation: floating-chat-blink 1s steps(2) infinite;
+}
+
+@keyframes floating-chat-blink {
+  0%, 50% { opacity: 1; }
+  51%, 100% { opacity: 0; }
+}
+
+/* ─── Error toast ──────────────────────────────────────────── */
+.floating-chat-error {
+  padding: var(--space-2) var(--space-3);
+  background: var(--danger-soft);
+  color: var(--danger);
+  font-size: var(--text-xs);
+  flex-shrink: 0;
+}
+
+/* ─── Composer overrides ───────────────────────────────────── */
+/* The ChatComposer has its own wrap padding; tighten it for the
+   floating window's narrower frame. */
+.floating-chat-window .chat-composer-wrap {
+  padding: 0 var(--space-3) var(--space-3);
+}
+
+.floating-chat-window .chat-composer-card {
+  max-width: none;
+}
+
+/* ─── Responsive ───────────────────────────────────────────── */
+@media (max-width: 480px) {
+  .floating-chat-window {
+    width: calc(100vw - var(--space-6) * 2);
+    height: calc(100vh - var(--space-12) * 2);
+    right: var(--space-3);
+    bottom: var(--space-3);
+  }
+
+  .floating-chat-fab {
+    right: var(--space-4);
+    bottom: var(--space-4);
+  }
+}

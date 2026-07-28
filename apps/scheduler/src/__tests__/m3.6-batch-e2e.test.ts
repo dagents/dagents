@@ -122,7 +122,7 @@ describe('M3.6 — 中途重启 → 续跑完成 (the acceptance case)', () => {
    *
    * Uses the real repo functions so the rows match what a killed `fanOut`
    * leaves behind. `flowId == pipelineId` (the realistic shape: the fan-out
-   * caller's pipeline_id is the Flowise flow id — see queue.ts).
+   * caller's pipeline_id is the workflow id — see queue.ts).
    */
   async function seedPartialBatch(opts: {
     flowId: string

@@ -1,0 +1,195 @@
+/* ============================================================
+   assistant-content.css — multica-style rendering of assistant
+   message segments (text / thinking / tool / error).
+
+   Design principles (mirrors multica's chat-message-list.tsx):
+   - Assistant messages have NO bubble shell — they render as a
+     "content stream" (like ChatGPT/Claude), not a chat bubble.
+   - The agent's "process" (thinking + tool calls + tool results +
+     errors) is wrapped in a single outer collapsible group ("N
+     steps"). The main reply (preface + final) renders above and
+     below the fold at full prose size.
+   - Inside the fold, each item is its own row with hover bg +
+     independent collapse.
+   - Status/log are suppressed (noise).
+   ============================================================ */
+
+.assistant-content {
+  display: flex;
+  flex-direction: column;
+  gap: var(--space-2);
+  font-size: var(--text-sm);
+  line-height: 1.6;
+  color: var(--fg);
+  word-break: break-word;
+}
+
+/* ─── Main reply text (preface / final) ─────────────────────── */
+.assistant-text {
+  white-space: pre-wrap;
+  overflow-wrap: anywhere;
+}
+
+/* ─── Outer process fold ("N steps") ────────────────────────── */
+.assistant-process {
+  display: flex;
+  flex-direction: column;
+  gap: var(--space-1);
+}
+
+.assistant-process-trigger {
+  display: inline-flex;
+  align-items: center;
+  gap: var(--space-1);
+  padding: 2px 0;
+  border: none;
+  background: transparent;
+  cursor: pointer;
+  color: var(--muted);
+  font-size: var(--text-xs);
+  text-align: left;
+  transition: color var(--motion-fast);
+  align-self: flex-start;
+}
+
+.assistant-process-trigger:hover {
+  color: var(--fg);
+}
+
+/* Bordered card holding the per-item rows — mirrors multica's
+   `rounded-lg border bg-muted/20 p-2 space-y-0.5`. */
+.assistant-process-body {
+  margin: 0;
+  padding: var(--space-2);
+  background: var(--surface);
+  border: 1px solid var(--border-soft);
+  border-radius: var(--radius-sm);
+  display: flex;
+  flex-direction: column;
+  gap: 2px;
+}
+
+/* Intermediate text inside the fold — down-shifted (xs / muted) so it
+   reads as part of the agent's process, not the final answer. Mirrors
+   multica's `MiddleTextRow`. */
+.assistant-process-text {
+  padding: 2px var(--space-1);
+  margin: 0 calc(var(--space-1) * -1);
+  font-size: var(--text-xs);
+  color: var(--muted);
+  white-space: pre-wrap;
+  word-break: break-word;
+}
+
+/* ─── Per-item row (thinking / tool-use / tool-result) ──────── */
+.assistant-row {
+  display: flex;
+  flex-direction: column;
+  gap: 2px;
+}
+
+/* Trigger: full-width row with hover bg. Mirrors multica's
+   `flex w-full items-center gap-1.5 rounded px-1 -mx-1 py-0.5 text-xs
+   hover:bg-accent/30 transition-colors`. */
+.assistant-row-trigger {
+  display: flex;
+  width: 100%;
+  align-items: center;
+  gap: 6px;
+  padding: 2px var(--space-1);
+  margin: 0 calc(var(--space-1) * -1);
+  border: none;
+  border-radius: 6px;
+  background: transparent;
+  cursor: pointer;
+  color: var(--fg);
+  font-size: var(--text-xs);
+  text-align: left;
+  transition: background var(--motion-fast), color var(--motion-fast);
+  font-family: var(--font-mono);
+}
+
+.assistant-row-trigger:hover {
+  background: var(--surface-warm);
+  color: var(--fg);
+}
+
+/* Tool name — bold, foreground colour. Mirrors multica's
+   `font-medium text-foreground shrink-0`. */
+.assistant-row-toolname {
+  font-weight: 600;
+  color: var(--fg);
+  flex-shrink: 0;
+  font-family: var(--font-mono);
+}
+
+/* Summary / preview — muted, truncated. Mirrors multica's
+   `truncate text-muted-foreground`. */
+.assistant-row-summary,
+.assistant-row-preview {
+  flex: 1;
+  min-width: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+  color: var(--muted);
+  font-family: var(--font-mono);
+}
+
+/* Thinking row — italic preview, sans-serif (it's prose, not code). */
+.assistant-row-thinking .assistant-row-preview {
+  font-style: italic;
+  font-family: var(--font-body);
+}
+
+/* Tool-result row — sans-serif, italic-less, slightly more muted. */
+.assistant-row-result .assistant-row-preview {
+  font-family: var(--font-body);
+  color: var(--meta);
+}
+
+/* Expanded body — bordered pre block. Mirrors multica's
+   `ml-[18px] mt-0.5 max-h-32 overflow-auto rounded bg-muted/50 p-2
+   text-xs text-muted-foreground whitespace-pre-wrap break-all`. */
+.assistant-row-body {
+  margin: 2px 0 2px 18px;
+  padding: var(--space-2);
+  background: var(--surface-warm);
+  border-radius: 6px;
+  font-size: var(--text-xs);
+  font-family: var(--font-mono);
+  color: var(--muted);
+  white-space: pre-wrap;
+  word-break: break-all;
+  max-height: 160px;
+  overflow-y: auto;
+}
+
+/* ─── Error ─────────────────────────────────────────────────── */
+.assistant-error {
+  display: flex;
+  align-items: flex-start;
+  gap: 6px;
+  padding: 2px var(--space-1);
+  margin: 0 calc(var(--space-1) * -1);
+  color: var(--danger);
+  font-size: var(--text-xs);
+  font-family: var(--font-body);
+}
+
+.assistant-error > span {
+  flex: 1;
+}
+
+/* ─── Streaming cursor ──────────────────────────────────────── */
+.assistant-cursor {
+  display: inline-block;
+  margin-left: 1px;
+  color: var(--accent);
+  animation: assistant-blink 1s steps(2) infinite;
+}
+
+@keyframes assistant-blink {
+  0%, 50% { opacity: 1; }
+  51%, 100% { opacity: 0; }
+}

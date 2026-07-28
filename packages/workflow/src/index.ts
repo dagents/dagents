@@ -14,6 +14,7 @@ export type { INode, INodeData, INodeParams, INodeOutput, INodeOptionsValue } fr
 export type { FlowNode, FlowEdge, FlowData } from './types/flow.js'
 export type { ExecutionStatus, IExecutedNode, IExecutionContext } from './types/execution.js'
 export type { IServerSideEventStreamer, StreamEvent } from './types/stream.js'
+export type { CanvasNodeMeta } from './nodes/node-registry-canvas.js'
 
 // Engine (Task 3+ — uncomment when modules land)
 export { NodeRegistry } from './engine/node-registry.js'

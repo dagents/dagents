@@ -117,10 +117,14 @@
   color: #fff;
 }
 
-.chat-msg-assistant {
-  align-self: flex-start;
-  background: var(--surface);
-  color: var(--fg);
+/* multica-style: assistant messages have NO bubble shell —
+   they render as a "content stream". The AssistantContent component
+   handles its own internal layout (text / thinking / tool / error). */
+.chat-msg-assistant.chat-msg-flat {
+  max-width: 100%;
+  width: 100%;
+  padding: 0;
+  background: transparent;
 }
 
 .chat-msg-system {

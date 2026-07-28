@@ -1,28 +1,27 @@
 /**
- * Flow browse domain types + Flowise → console transforms (P1.10.T5).
+ * Flow browse domain types + gateway → console transforms.
  *
  * The console's AgentFlows browse page is read-only: it lists flows, renders a
- * flow's DAG (the React Flow nodes/edges Flowise already stores as `flowData`),
+ * flow's DAG (the React Flow nodes/edges stored as `flowData`),
  * colors each node by its run status, and shows per-node run metrics
  * (duration / budget / tokens / cost / logs) in an inspector.
  *
- * The data comes from two Flowise endpoints, proxied read-only by the gateway
- * (see `apps/gateway/src/app.ts` `proxyFlowiseRead`):
+ * The data comes from gateway endpoints:
  *
- *   GET /api/v1/chatflows?type=AGENTFLOW   → flow list (rows incl. `flowData`)
- *   GET /api/v1/chatflows/:id              → one flow (incl. `flowData` DAG JSON)
- *   GET /api/v1/executions?agentflowId=…   → recent executions for that flow
+ *   GET /api/v1/workflows                 → flow list (rows incl. `flowData`)
+ *   GET /api/v1/workflows/:id              → one flow (incl. `flowData` DAG JSON)
+ *   GET /api/v1/executions?workflowId=…   → recent executions for that flow
  *
  * `flowData` is a JSON string; parsed it is `{ nodes: IReactFlowNode[], edges:
  * IReactFlowEdge[], viewport }` — exactly the shape React Flow consumes. We
  * surface node position/label and the edge source/target; the rest of the
- * Flowise node payload (params, credentials, handle bounds) stays opaque.
+ * node payload (params, credentials, handle bounds) stays opaque.
  *
  * ## Run state → node status coloring
  *
- * Flowise records an execution's per-node trace in `Execution.executionData`:
- * an array of `IAgentflowExecutedData` (`{ nodeLabel, nodeId, data, status }`).
- * Each entry carries an `ExecutionState` (`INPROGRESS | FINISHED | ERROR |
+ * An execution's per-node trace is recorded in `executionData`:
+ * an array of executed node data (`{ nodeLabel, nodeId, data, status }`).
+ * Each entry carries a state (`INPROGRESS | FINISHED | ERROR |
  * TERMINATED | TIMEOUT | STOPPED`). We map that onto the node-card status the
  * design colors (`running | done | failed | queued | idle | paused`), taking
  * the most recent entry per nodeId so a re-run doesn't paint a node with a
@@ -31,43 +30,43 @@
  * ## Why pure transforms (no fetch here)
  *
  * Keeping the mapping as pure functions means the shape contract is unit-
- * testable without a gateway, and the Next API routes (`/api/flows/…`) own the
- * fetch + zod boundary. The browser fetches the console's own routes, which in
- * turn fetch the gateway — so the Flowise API key never leaves the server and
- * the Flowise shapes never reach the client bundle.
+ * testable without a gateway, and the Next API routes (`/api/workflows/…`) own
+ * the fetch + zod boundary. The browser fetches the console's own routes,
+ * which in turn fetch the gateway — so backend API keys never leave the server
+ * and backend shapes never reach the client bundle.
  */
 
 import { z } from 'zod'
 
-// ─── Flowise source shapes (only the fields we read) ───────────────────────
+// ─── Gateway source shapes (only the fields we read) ───────────────────────
 
-/** One entry in an execution's per-node trace (Flowise `IAgentflowExecutedData`). */
-const flowiseExecutedNodeSchema = z.object({
+/** One entry in an execution's per-node trace. */
+const executedNodeSchema = z.object({
   nodeId: z.string(),
   nodeLabel: z.string().optional(),
   status: z.string().optional(),
   data: z.unknown().optional(),
   previousNodeIds: z.array(z.string()).optional(),
 })
-type FlowiseExecutedNode = z.infer<typeof flowiseExecutedNodeSchema>
+type ExecutedNode = z.infer<typeof executedNodeSchema>
 
-/** A Flowise `Execution` row (only the fields the browse page reads). */
-export const flowiseExecutionSchema = z.object({
+/** An `Execution` row (only the fields the browse page reads). */
+export const executionSchema = z.object({
   id: z.string(),
   agentflowId: z.string(),
   sessionId: z.string(),
   state: z.string(),
   // executionData is a JSON string in the DB; the service layer JSON.parses it
   // before returning. It may also arrive already-parsed (object) or null.
-  executionData: z.union([z.string(), z.array(flowiseExecutedNodeSchema), z.null()]).optional(),
+  executionData: z.union([z.string(), z.array(executedNodeSchema), z.null()]).optional(),
   action: z.string().nullable().optional(),
   createdDate: z.union([z.string(), z.date()]),
   updatedDate: z.union([z.string(), z.date()]).optional(),
   stoppedDate: z.union([z.string(), z.date(), z.null()]).optional(),
 })
-export type FlowiseExecution = z.infer<typeof flowiseExecutionSchema>
+export type Execution = z.infer<typeof executionSchema>
 
-/** A React Flow node as Flowise stores it in `flowData`. */
+/** A React Flow node as stored in `flowData`. */
 const flowDataNodeSchema = z.object({
   id: z.string(),
   position: z.object({ x: z.number(), y: z.number() }),
@@ -75,7 +74,7 @@ const flowDataNodeSchema = z.object({
   data: z
     .object({
       label: z.string().optional(),
-      // Flowise nodes carry an `id` inside `data` too (the node instance id);
+      // Nodes carry an `id` inside `data` too (the node instance id);
       // it can differ from the React Flow `id`. We read `label` for display and
       // ignore the rest of the params/credentials payload.
     })
@@ -83,7 +82,7 @@ const flowDataNodeSchema = z.object({
     .optional(),
 })
 
-/** A React Flow edge as Flowise stores it in `flowData`. */
+/** A React Flow edge as stored in `flowData`. */
 const flowDataEdgeSchema = z.object({
   id: z.string().optional(),
   source: z.string(),
@@ -105,8 +104,8 @@ export const flowDataSchema = z.object({
 })
 export type FlowData = z.infer<typeof flowDataSchema>
 
-/** A Flowise `ChatFlow` row (only the fields the browse page reads). */
-export const flowiseChatflowSchema = z.object({
+/** A `ChatFlow` row (only the fields the browse page reads). */
+export const chatflowSchema = z.object({
   id: z.string(),
   name: z.string(),
   type: z.string().optional(),
@@ -116,7 +115,7 @@ export const flowiseChatflowSchema = z.object({
   createdDate: z.union([z.string(), z.date()]),
   updatedDate: z.union([z.string(), z.date()]),
 })
-export type FlowiseChatflow = z.infer<typeof flowiseChatflowSchema>
+export type Chatflow = z.infer<typeof chatflowSchema>
 
 // ─── Console domain types ───────────────────────────────────────────────────
 
@@ -124,7 +123,7 @@ export type FlowiseChatflow = z.infer<typeof flowiseChatflowSchema>
 export type NodeRunStatus = 'running' | 'done' | 'failed' | 'queued' | 'idle' | 'paused'
 
 /**
- * Flowise `ExecutionState` → console node-card status.
+ * Execution state → console node-card status.
  *
  * `INPROGRESS` → running; `FINISHED` → done; `ERROR`/`TERMINATED`/`TIMEOUT` →
  * failed; `STOPPED` → paused. Anything unrecognized maps to `idle` (the default
@@ -170,7 +169,7 @@ export function parseFlowData(flowData: string | undefined | null): FlowData {
 /** A node in the rendered DAG, with its run status attached. */
 export interface FlowNodeView {
   id: string
-  /** Display label (Flowise `data.label`, falling back to the node id). */
+  /** Display label (`data.label`, falling back to the node id). */
   label: string
   /** React Flow node `type` (e.g. `customNode`, `Agent`…). */
   type: string
@@ -183,7 +182,7 @@ export interface FlowEdgeView {
   id: string
   source: string
   target: string
-  /** Optional edge label (Flowise `data.label`). */
+  /** Optional edge label (`data.label`). */
   label?: string
 }
 
@@ -239,7 +238,7 @@ export interface FlowSummary {
    */
   versionHash: string
   /**
-   * Owner display name. Flowise chatflows carry no owner field; the design
+   * Owner display name. Chatflows carry no owner field; the design
    * assigns owners from a fixed list for the scope-tabs `mine` filter. With no
    * upstream source today this is `null` — the `mine` scope then matches no
    * flow, matching the pre-M2.1 reality (no ownership concept). Surfaced so the
@@ -259,7 +258,7 @@ export interface FlowSummary {
    */
   runCount: number
   /**
-   * The latest execution's id (Flowise `Execution.id`), shown as a chip on the
+   * The latest execution's id, shown as a chip on the
    * card when the flow has a current run. `undefined` when the flow has no
    * execution.
    */
@@ -272,15 +271,15 @@ export interface FlowSummary {
  * the last is the most recent status). `executionData` may be a JSON string or
  * an already-parsed array; both are handled. A malformed value yields `{}`.
  */
-export function nodeStatusFromExecution(exec: FlowiseExecution): Record<string, NodeRunStatus> {
+export function nodeStatusFromExecution(exec: Execution): Record<string, NodeRunStatus> {
   const data = exec.executionData
-  let arr: FlowiseExecutedNode[] = []
+  let arr: ExecutedNode[] = []
   if (Array.isArray(data)) {
-    arr = data as FlowiseExecutedNode[]
+    arr = data as ExecutedNode[]
   } else if (typeof data === 'string') {
     try {
       const parsed: unknown = JSON.parse(data)
-      if (Array.isArray(parsed)) arr = parsed as FlowiseExecutedNode[]
+      if (Array.isArray(parsed)) arr = parsed as ExecutedNode[]
     } catch {
       arr = []
     }
@@ -300,7 +299,7 @@ export function nodeStatusFromExecution(exec: FlowiseExecution): Record<string, 
  * (from JSON) or Date objects (from the pg driver); both compare correctly
  * after `new Date()`.
  */
-export function latestExecution(execs: readonly FlowiseExecution[]): FlowiseExecution | undefined {
+export function latestExecution(execs: readonly Execution[]): Execution | undefined {
   if (execs.length === 0) return undefined
   let best = execs[0]!
   let bestTs = toMs(best.updatedDate ?? best.createdDate)
@@ -328,8 +327,8 @@ function toMs(d: string | Date): number {
  * latest run's logs.
  */
 export function toFlowDetailView(
-  flow: FlowiseChatflow,
-  executions: readonly FlowiseExecution[],
+  flow: Chatflow,
+  executions: readonly Execution[],
   versionHash = '',
 ): FlowDetailView {
   const dag = parseFlowData(flow.flowData)
@@ -348,7 +347,7 @@ export function toFlowDetailView(
     id: e.id ?? `e-${e.source}-${e.target}-${i}`,
     source: e.source,
     target: e.target,
-    // Flowise stores the edge label either at top-level `label` or nested in
+    // Edge label may be stored either at top-level `label` or nested in
     // `data.label` (both shapes appear across versions); surface whichever is set.
     label: e.label ?? e.data?.label,
   }))
@@ -398,14 +397,14 @@ export function toFlowDetailView(
  * state colors the row. Callers pass executions grouped by flow id.
  *
  * v0.3-M2.1: the summary now carries the list-page fidelity fields —
- * `versionHash` (repro snapshot, '' when none), `owner` (null; Flowise has no
+ * `versionHash` (repro snapshot, '' when none), `owner` (null; chatflows have no
  * owner column), `archived` (derived from the latest status: failed/paused →
  * archived, matching `agentflows.html:238`), `runCount` (the execution count),
  * and `latestRunId` (the latest execution's id, for the card's run chip).
  */
 export function summarizeFlows(
-  flows: readonly FlowiseChatflow[],
-  executionsByFlow: Readonly<Record<string, readonly FlowiseExecution[]>>,
+  flows: readonly Chatflow[],
+  executionsByFlow: Readonly<Record<string, readonly Execution[]>>,
   versionHashes: Readonly<Record<string, string>> = {},
 ): FlowSummary[] {
   return flows.map((f) => {
@@ -431,23 +430,23 @@ export function summarizeFlows(
 
 /**
  * Pull per-node log lines out of an execution's `executionData` entry. The
- * executed-node `data` blob is opaque (`INodeExecutionData`); Flowise stores
- * node outputs there, which for agent/LLM nodes often include a `logs` or
- * `text` field. We surface a best-effort single log line per node; anything we
+ * executed-node `data` blob is opaque; node outputs are stored there,
+ * which for agent/LLM nodes often include a `logs` or `text` field.
+ * We surface a best-effort single log line per node; anything we
  * can't read yields an empty array (the inspector shows "暂无日志").
  */
 function extractLogs(
-  exec: FlowiseExecution,
+  exec: Execution,
   nodeId: string,
 ): Array<{ ts: string; level: string; msg: string }> {
   const data = exec.executionData
-  let arr: FlowiseExecutedNode[] = []
+  let arr: ExecutedNode[] = []
   if (Array.isArray(data)) {
-    arr = data as FlowiseExecutedNode[]
+    arr = data as ExecutedNode[]
   } else if (typeof data === 'string') {
     try {
       const parsed: unknown = JSON.parse(data)
-      if (Array.isArray(parsed)) arr = parsed as FlowiseExecutedNode[]
+      if (Array.isArray(parsed)) arr = parsed as ExecutedNode[]
     } catch {
       arr = []
     }
@@ -456,7 +455,7 @@ function extractLogs(
   if (!entry?.data || typeof entry.data !== 'object') return []
   const d = entry.data as Record<string, unknown>
   const ts = toIso(exec.updatedDate ?? exec.createdDate)
-  // Common Flowise node-output keys; not exhaustive — degrade gracefully.
+  // Common node-output keys; not exhaustive — degrade gracefully.
   const msg =
     typeof d.text === 'string' ? d.text
     : typeof d.logs === 'string' ? d.logs
@@ -472,9 +471,9 @@ function toIso(d: string | Date): string {
 
 /** Group a flat list of executions by `agentflowId` (the flow id). */
 export function groupExecutionsByFlow(
-  execs: readonly FlowiseExecution[],
-): Record<string, FlowiseExecution[]> {
-  const out: Record<string, FlowiseExecution[]> = {}
+  execs: readonly Execution[],
+): Record<string, Execution[]> {
+  const out: Record<string, Execution[]> = {}
   for (const e of execs) {
     const key = e.agentflowId
     if (!out[key]) out[key] = []

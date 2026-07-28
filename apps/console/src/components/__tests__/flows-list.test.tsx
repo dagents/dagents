@@ -4,7 +4,7 @@
  * These pin the design/agentflows.html list-page DOM + interactions the
  * redesign moves `flows-view.tsx` onto — scope tabs, status filter chips, the
  * expandable flow-card with its run history, and the per-card edit/run action
- * buttons. The fetch to `/api/flows` is stubbed so the suite runs without a
+ * buttons. The fetch to `/api/workflows` is stubbed so the suite runs without a
  * gateway; `next/navigation`'s `useRouter` is mocked so the edit button's
  * `router.push('/flows/'+fid+'/edit')` wiring can be asserted (the route
  * itself lands in M2.3).
@@ -28,8 +28,8 @@ vi.mock('next/navigation', () => ({
   usePathname: () => '/flows',
 }))
 
-// Stub `/api/flows` (list) + `/api/flows/:id` (detail) + node-spans so the
-// component's mount effects resolve without a gateway. The list fixture is
+// Stub `/api/workflows` (list) + `/api/workflows/:id` (detail) + node-spans so
+// the component's mount effects resolve without a gateway. The list fixture is
 // the surface under test; the detail fixture is only there so the run-button
 // → showDetail path doesn't 404 mid-click.
 const FLOWS_FIXTURE = [
@@ -86,19 +86,19 @@ describe('FlowsView list-page (M2.1 fidelity)', () => {
     pushMock.mockReset()
     globalThis.fetch = (async (input: RequestInfo | URL) => {
       const url = typeof input === 'string' ? input : input.toString()
-      if (url.startsWith('/api/flows/runs/')) {
+      if (url.startsWith('/api/workflows/runs/')) {
         return new Response(JSON.stringify({ success: true, data: { runId: 'R-8821', spans: [] } }), {
           status: 200,
           headers: { 'content-type': 'application/json' },
         })
       }
-      if (/^\/api\/flows\/[^/]+$/.test(url)) {
+      if (/^\/api\/workflows\/[^/]+$/.test(url)) {
         return new Response(JSON.stringify({ success: true, data: FLOW_DETAIL_FIXTURE }), {
           status: 200,
           headers: { 'content-type': 'application/json' },
         })
       }
-      // /api/flows (list)
+      // /api/workflows (list)
       return new Response(JSON.stringify({ success: true, data: FLOWS_FIXTURE }), {
         status: 200,
         headers: { 'content-type': 'application/json' },

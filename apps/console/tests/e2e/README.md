@@ -27,11 +27,11 @@ For the in-process backend e2e (gateway → dispatch → scheduler → daemon �
 ## Quick Start
 
 ```bash
-# 1. Bring up the dev stack (Postgres, Redis, gateway, dispatch, Flowise)
+# 1. Bring up the dev stack (Postgres, Redis, gateway, dispatch, workflow engine)
 docker compose up -d
 pnpm --filter @dagents/gateway dev &
 pnpm --filter @dagents/dispatch dev &
-# (Flowise on :3100 — only needed for /flows and prediction paths)
+# (workflow engine — only needed for /flows and prediction paths)
 
 # 2. Run the full e2e suite (boots Next dev on :3000 automatically)
 pnpm --filter @dagents/console test:e2e
@@ -53,7 +53,7 @@ The e2e suite needs the **full dagents dev stack** up:
 | Gateway | `:8080` | `/api/v1/chats/*`, `/api/v1/directories/*`, `/api/v1/dispatch/*` |
 | Dispatch | `:8081` | `/daemons/register` (seed helper registers a daemon host) |
 | Scheduler | (optional) | Only needed for `@flow` fanout tests (currently all `fixme`) |
-| Flowise | `:3100` | `/flows` browse + `/flows/:id/edit` canvas iframe + prediction SSE (current Flowise-proxy paths) |
+| Workflow Engine | — | `/flows` browse + `/workflows/:id/canvas` canvas + prediction SSE (current proxy paths) |
 | Console (Next) | `:3000` | Auto-booted by Playwright's `webServer` config — no need to start manually |
 
 ### Environment variables
@@ -296,7 +296,7 @@ pnpm --filter @dagents/console exec playwright test --headed --workers=1
 | `ECONNREFUSED 127.0.0.1:15432` | Postgres not up | `docker compose up -d postgres` |
 | `agent_daemons insert did not RETURNING an id` | Dispatch API down (daemon register failed silently) | Check dispatch logs, restart |
 | 401 on `/api/*` | SSO gated on dev stack | Run against an SSO-gated-off stack |
-| 502/503 on `/api/flows/*` | Flowise (:3100) not running | `cd vendor/flowise && pnpm start` — only needed for `/flows` specs |
+| 502/503 on `/api/flows/*` | Workflow engine not running | Start the workflow engine — only needed for `/flows` specs |
 | Timeout on `goto('/')` | Console dev server failed to boot | Check `next dev` logs; try `E2E_PORT=3001` to avoid :3000 conflicts |
 
 ---

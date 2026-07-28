@@ -1,9 +1,5 @@
-/* Daemons three-column page (Task 11).
- *   .daemons-view  → toolbar (filter chips) + three-column grid + error banner
- *   .daemons-grid  → queue (320px) | timeline (1fr) | stats (280px)
- * Ported from design/daemon-execution.html. Shared tokens (.mono / .page /
- * .page-head / .status swatches) come from shell.css; only the daemons-specific
- * layout lives here. All CSS vars reference tokens.css (no inline hex). */
+/* daemons.css — multica-inspired clean two-column layout.
+   Design principles: 克制即高级, 层次靠灰度, 字号纪律, 间距 > 分割线. */
 
 .daemons-view {
   display: flex;
@@ -12,7 +8,15 @@
   height: 100%;
 }
 
-.daemons-toolbar {
+/* ─── header bar: filters + inline stats ─── */
+.daemons-header {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: var(--space-4);
+  flex-shrink: 0;
+}
+.daemons-filters {
   display: flex;
   gap: var(--space-2);
 }
@@ -25,29 +29,65 @@
   font-size: var(--text-xs);
   font-weight: 500;
   cursor: pointer;
-  text-transform: capitalize;
+  transition: all var(--motion-fast);
 }
 .daemons-filter:hover {
   background: var(--surface);
   color: var(--fg);
 }
 .daemons-filter.active {
-  background: var(--accent);
-  color: var(--accent-on);
-  border-color: var(--accent);
+  background: var(--fg);
+  color: var(--bg);
+  border-color: var(--fg);
 }
 
+/* inline stats — compact, no separate panel */
+.daemons-stats-inline {
+  display: flex;
+  align-items: center;
+  gap: var(--space-4);
+  font-size: var(--text-xs);
+  color: var(--muted);
+}
+.stat-item {
+  display: inline-flex;
+  align-items: center;
+  gap: 4px;
+}
+.stat-item.muted { color: var(--meta); }
+.stat-val {
+  font-size: var(--text-sm);
+  font-weight: 500;
+  color: var(--fg);
+}
+
+/* ─── status dots (shared) ─── */
+.status-dot {
+  width: 6px;
+  height: 6px;
+  border-radius: 50%;
+  flex-shrink: 0;
+  background: var(--meta);
+}
+.status-dot.dot-running {
+  background: var(--accent);
+  box-shadow: 0 0 0 2px var(--accent-soft);
+}
+.status-dot.dot-queued { background: var(--warn); }
+.status-dot.dot-done { background: var(--meta); }
+.status-dot.dot-failed { background: var(--danger); }
+
+/* ─── two-column grid ─── */
 .daemons-grid {
   display: grid;
-  grid-template-columns: 320px 1fr 280px;
+  grid-template-columns: 300px 1fr;
   gap: var(--space-4);
   flex: 1;
   min-height: 0;
 }
 
-.daemons-queue,
-.daemons-timeline,
-.daemons-stats {
+/* ─── queue column ─── */
+.daemons-queue {
   display: flex;
   flex-direction: column;
   background: var(--bg);
@@ -56,238 +96,242 @@
   overflow: hidden;
   min-height: 0;
 }
-
-.daemons-col-header {
+.daemons-queue-head {
   display: flex;
   align-items: center;
   gap: var(--space-2);
   padding: var(--space-3) var(--space-4);
-  border-bottom: 1px solid var(--border-soft);
   font-size: var(--text-sm);
-  font-weight: 600;
+  font-weight: 500;
   color: var(--fg);
+  border-bottom: 1px solid var(--border-soft);
+  flex-shrink: 0;
 }
-.daemons-col-count {
+.daemons-count {
   margin-left: auto;
-  font-family: var(--font-mono);
-  font-size: var(--text-xs);
+  font-size: 10px;
   color: var(--meta);
   background: var(--surface);
   padding: 1px 6px;
   border-radius: var(--radius-pill);
 }
-
-.daemons-empty {
-  padding: var(--space-8);
-  text-align: center;
-  color: var(--meta);
-  font-size: var(--text-sm);
-}
-
 .daemons-queue-list {
   flex: 1;
   overflow-y: auto;
   padding: var(--space-2);
 }
 
+/* task card — clean, hover-light */
 .daemons-task-card {
   display: flex;
   flex-direction: column;
   gap: 6px;
   width: 100%;
   padding: var(--space-3);
-  margin-bottom: 6px;
+  margin-bottom: 4px;
   background: transparent;
-  border: 1px solid var(--border-soft);
+  border: 1px solid transparent;
   border-radius: var(--radius-sm);
   cursor: pointer;
   text-align: left;
-  transition: border-color var(--motion-fast), background var(--motion-fast);
+  transition: background var(--motion-fast), border-color var(--motion-fast);
 }
 .daemons-task-card:hover {
   background: var(--surface-warm);
-  border-color: var(--border);
+  border-color: var(--border-soft);
 }
 .daemons-task-card.selected {
-  border-color: var(--accent);
-  background: var(--accent-soft);
+  background: var(--surface-warm);
+  border-color: var(--border);
 }
-
-.daemons-task-card-head {
+.task-card-top {
   display: flex;
   align-items: center;
   gap: 6px;
 }
-.daemons-task-status {
-  width: 8px;
-  height: 8px;
-  border-radius: 50%;
-  background: var(--meta);
-  flex-shrink: 0;
-}
-.daemons-task-status.status-running {
-  background: var(--accent);
-  box-shadow: 0 0 0 3px var(--accent-soft);
-}
-.daemons-task-status.status-queued {
-  background: var(--warn);
-}
-.daemons-task-status.status-done {
-  background: var(--meta);
-}
-.daemons-task-status.status-failed {
-  background: var(--danger);
-}
-
-.daemons-task-type {
+.task-type {
   font-size: var(--text-sm);
   font-weight: 500;
   color: var(--fg);
   flex: 1;
+  min-width: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
 }
-.daemons-task-priority {
-  font-family: var(--font-mono);
+.task-priority {
   font-size: 10px;
   color: var(--meta);
   background: var(--surface);
   padding: 1px 5px;
   border-radius: var(--radius-pill);
 }
-.daemons-task-desc {
+.task-card-desc {
   font-size: var(--text-xs);
   color: var(--muted);
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
 }
-.daemons-task-meta {
+.task-card-meta {
   display: flex;
   justify-content: space-between;
   font-size: 10px;
   color: var(--meta);
 }
 
-.daemons-timeline-body {
+/* ─── detail column ─── */
+.daemons-detail {
+  background: var(--bg);
+  border: 1px solid var(--border-soft);
+  border-radius: var(--radius-md);
+  overflow: hidden;
+  min-height: 0;
+  display: flex;
+  flex-direction: column;
+}
+.daemons-detail-body {
   flex: 1;
   overflow-y: auto;
   padding: var(--space-4);
 }
-.daemons-timeline-task-head {
+
+/* detail head */
+.detail-head {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  margin-bottom: var(--space-6);
+}
+.detail-head-left {
   display: flex;
   align-items: center;
   gap: var(--space-2);
-  margin-bottom: var(--space-4);
 }
-.daemons-timeline-steps {
+.detail-id {
+  font-size: var(--text-sm);
+  color: var(--fg);
+  font-weight: 500;
+}
+.detail-status {
+  font-size: 10px;
+  color: var(--muted);
+  background: var(--surface);
+  padding: 2px 8px;
+  border-radius: var(--radius-pill);
+}
+.detail-status.running { color: var(--accent); }
+.detail-status.failed { color: var(--danger); }
+.detail-type {
+  font-size: var(--text-xs);
+  color: var(--meta);
+}
+
+/* timeline — clean, vertical */
+.detail-timeline {
   display: flex;
   flex-direction: column;
   gap: var(--space-3);
-  margin-bottom: var(--space-4);
+  margin-bottom: var(--space-6);
+  padding-left: var(--space-2);
 }
-.daemons-timeline-step {
+.timeline-step {
   display: flex;
   align-items: center;
   gap: var(--space-2);
   font-size: var(--text-sm);
   color: var(--muted);
+  position: relative;
 }
-.daemons-timeline-step.queued {
-  color: var(--meta);
+.timeline-step::before {
+  content: '';
+  position: absolute;
+  left: 3px;
+  top: 12px;
+  bottom: -12px;
+  width: 1px;
+  background: var(--border-soft);
 }
-.daemons-timeline-step.running {
-  color: var(--accent);
-}
-.daemons-timeline-step.done {
-  color: var(--fg);
-}
-.daemons-timeline-step.failed {
-  color: var(--danger);
-}
-.daemons-timeline-step-dot {
-  width: 8px;
-  height: 8px;
+.timeline-step:last-child::before { display: none; }
+.timeline-dot {
+  width: 7px;
+  height: 7px;
   border-radius: 50%;
   background: var(--meta);
+  flex-shrink: 0;
+  z-index: 1;
 }
-.daemons-timeline-step.queued .daemons-timeline-step-dot {
-  background: var(--meta);
-}
-.daemons-timeline-step.running .daemons-timeline-step-dot {
+.timeline-step.queued .timeline-dot { background: var(--meta); }
+.timeline-step.running .timeline-dot {
   background: var(--accent);
-  box-shadow: 0 0 0 3px var(--accent-soft);
+  box-shadow: 0 0 0 2px var(--accent-soft);
 }
-.daemons-timeline-step.done .daemons-timeline-step-dot {
-  background: var(--accent);
-}
-.daemons-timeline-step.failed .daemons-timeline-step-dot {
-  background: var(--danger);
-}
-.daemons-timeline-step-label {
+.timeline-step.done .timeline-dot { background: var(--accent); }
+.timeline-step.failed .timeline-dot { background: var(--danger); }
+.timeline-step.queued { color: var(--meta); }
+.timeline-step.running { color: var(--fg); }
+.timeline-step.done { color: var(--fg); }
+.timeline-step.failed { color: var(--danger); }
+.timeline-label {
   flex: 1;
 }
-.daemons-timeline-step-time {
-  font-family: var(--font-mono);
+.timeline-time {
   font-size: var(--text-xs);
   color: var(--meta);
 }
 
-.daemons-timeline-logs {
+/* meta rows */
+.detail-meta {
+  margin-bottom: var(--space-6);
+}
+.meta-row {
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+  padding: var(--space-2) 0;
+  font-size: var(--text-sm);
+  border-bottom: 1px solid var(--border-soft);
+}
+.meta-row:last-child { border-bottom: 0; }
+.meta-label {
+  color: var(--meta);
+  font-size: var(--text-xs);
+}
+.meta-row .mono {
+  font-size: var(--text-xs);
+  color: var(--fg-2);
+}
+
+/* logs */
+.detail-logs {
   background: var(--surface-warm);
   border: 1px solid var(--border-soft);
   border-radius: var(--radius-sm);
 }
-.daemons-timeline-logs-head {
+.detail-logs-head {
   padding: var(--space-2) var(--space-3);
   border-bottom: 1px solid var(--border-soft);
-  font-size: var(--text-xs);
+  font-size: 11px;
   color: var(--meta);
+  letter-spacing: var(--tracking-label);
   text-transform: uppercase;
-  letter-spacing: 0.02em;
 }
-.daemons-timeline-logs-body {
+.detail-logs-body {
   padding: var(--space-3);
   font-family: var(--font-mono);
   font-size: var(--text-xs);
-  color: var(--fg);
+  color: var(--fg-2);
   white-space: pre-wrap;
+  line-height: 1.6;
 }
 
-.daemons-stats-grid {
-  display: grid;
-  grid-template-columns: 1fr 1fr;
-  gap: var(--space-2);
-  padding: var(--space-3);
-}
-.daemons-stat {
-  padding: var(--space-3);
-  background: var(--surface-warm);
-  border-radius: var(--radius-sm);
-}
-.daemons-stat-label {
-  font-size: var(--text-xs);
+/* ─── shared ─── */
+.daemons-empty {
+  padding: var(--space-12);
+  text-align: center;
   color: var(--meta);
-  margin-bottom: 4px;
-}
-.daemons-stat-value {
-  font-family: var(--font-mono);
-  font-size: var(--text-xl);
-  font-weight: 500;
-  color: var(--fg);
-}
-
-.daemons-stats-breakdown {
-  padding: var(--space-3);
-  border-top: 1px solid var(--border-soft);
-}
-.daemons-stats-breakdown-row {
-  display: flex;
-  align-items: center;
-  gap: var(--space-2);
-  padding: 4px 0;
   font-size: var(--text-sm);
 }
-.daemons-stats-breakdown-row span:nth-child(2) {
-  flex: 1;
-  color: var(--muted);
-}
-
 .daemons-error {
   padding: var(--space-3);
   color: var(--danger);

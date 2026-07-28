@@ -11,8 +11,14 @@
     "test:e2e": "playwright test"
   },
   "dependencies": {
+    "@dagents/agentflow": "workspace:*",
     "@dagents/contracts": "workspace:*",
     "@dagents/shared": "workspace:*",
+    "@emotion/react": "^11.10.0",
+    "@emotion/styled": "^11.10.0",
+    "@mui/icons-material": "^5.0.0",
+    "@mui/material": "^5.15.0",
+    "@tabler/icons-react": "^3.7.0",
     "next": "^15.5.20",
     "react": "^19.2.0",
     "react-dom": "^19.2.0",

@@ -121,6 +121,10 @@ export async function createMessage(
     content: string
     runId?: string
     metadata?: Record<string, unknown>
+    /** Optional agent id — overrides chat.agentId for this message only. */
+    agentIdOverride?: string
+    /** Optional flow id — overrides chat.flowId for this message only. */
+    flowIdOverride?: string
   },
 ): Promise<ChatMessage> {
   const data = await unwrap<{ message: ChatMessage }>(

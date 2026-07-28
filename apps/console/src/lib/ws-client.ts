@@ -77,8 +77,9 @@ function emitFrame(frame: ConsoleWsFrame): void {
   for (const l of frameListeners) {
     try {
       l(frame)
-    } catch {
-      // A listener throwing must not break sibling listeners or the socket.
+    } catch (err) {
+      // eslint-disable-next-line no-console
+      console.error('[ws-client] listener threw', err)
     }
   }
 }
@@ -117,6 +118,12 @@ function ensureSocket(): void {
     reconnectAttempt = 0
     connected = true
     notifyStore()
+    // Re-arm subscriptions on every (re)connect: the server forgets the
+    // socket's subscription set on close, so a reconnect would silently
+    // stop receiving chat frames for any chatId registered before the drop.
+    for (const chatId of chatSubscriptionCounts.keys()) {
+      sendControlFrame({ type: 'subscribe', chatId })
+    }
   }
   ws.onclose = () => {
     connected = false
@@ -131,6 +138,53 @@ function ensureSocket(): void {
   ws.onmessage = (ev: MessageEvent) => {
     const parsed = parseFrame(ev.data)
     if (parsed != null) emitFrame(parsed)
+  }
+}
+
+/** Send a control frame (subscribe/unsubscribe) to the server. No-ops when
+ *  the socket isn't OPEN; `ensureSocket` + onopen re-arm handles re-subscribe
+ *  on reconnect, so a drop here is recoverable. */
+function sendControlFrame(msg: { type: 'subscribe' | 'unsubscribe'; chatId: string }): void {
+  if (socket == null) return
+  if (socket.readyState !== WebSocket.OPEN) return
+  try {
+    socket.send(JSON.stringify(msg))
+  } catch {
+    // Swallow — a failed send just means the server will miss this control
+    // frame; the next subscribe call (or reconnect re-arm) re-sends it.
+  }
+}
+
+// --- chat subscription registry -------------------------------------------
+
+/** Refcounted chat subscriptions. Multiple hooks (floating chat + chat-detail
+ *  tab + a test stub) can subscribe to the same chatId; we only send one
+ *  `subscribe` frame to the server on the first caller, and only send
+ *  `unsubscribe` when the last caller goes away. Reconnects re-arm by
+ *  iterating `counts` keys. */
+const chatSubscriptionCounts = new Map<string, number>()
+
+/** Subscribe to chat:* frames for `chatId`. Idempotent + refcounted — safe
+ *  to call from multiple hooks for the same chatId. */
+export function subscribeChat(chatId: string): void {
+  const count = chatSubscriptionCounts.get(chatId) ?? 0
+  if (count === 0) {
+    chatSubscriptionCounts.set(chatId, 1)
+    sendControlFrame({ type: 'subscribe', chatId })
+  } else {
+    chatSubscriptionCounts.set(chatId, count + 1)
+  }
+}
+
+/** Unsubscribe from chat:* frames for `chatId`. Decrements the refcount;
+ *  only sends `unsubscribe` when the last consumer goes away. */
+export function unsubscribeChat(chatId: string): void {
+  const count = chatSubscriptionCounts.get(chatId) ?? 0
+  if (count <= 1) {
+    chatSubscriptionCounts.delete(chatId)
+    sendControlFrame({ type: 'unsubscribe', chatId })
+  } else {
+    chatSubscriptionCounts.set(chatId, count - 1)
   }
 }
 
@@ -227,5 +281,6 @@ export const __testing = {
     connected = false
     reconnectAttempt = 0
     clearReconnect()
+    chatSubscriptionCounts.clear()
   },
 }

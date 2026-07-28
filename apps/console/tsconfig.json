@@ -22,7 +22,24 @@
     "paths": {
       "@/*": [
         "./src/*"
-      ]
+      ],
+      "@dagents/agentflow": [
+        "../../vendor/agentflow/src/index.ts"
+      ],
+      "@dagents/agentflow/*": [
+        "../../vendor/agentflow/src/*"
+      ],
+      "@agentflow/core": ["../../vendor/agentflow/src/core"],
+      "@agentflow/core/*": ["../../vendor/agentflow/src/core/*"],
+      "@agentflow/atoms": ["../../vendor/agentflow/src/atoms"],
+      "@agentflow/atoms/*": ["../../vendor/agentflow/src/atoms/*"],
+      "@agentflow/infrastructure": ["../../vendor/agentflow/src/infrastructure"],
+      "@agentflow/infrastructure/*": ["../../vendor/agentflow/src/infrastructure/*"],
+      "@agentflow/features": ["../../vendor/agentflow/src/features"],
+      "@agentflow/features/*": ["../../vendor/agentflow/src/features/*"],
+      "@agentflow/assets/*": ["../../vendor/agentflow/src/assets/*"],
+      "@agentflow/canvas": ["../../vendor/agentflow/src/features/canvas"],
+      "@agentflow/canvas/*": ["../../vendor/agentflow/src/features/canvas/*"]
     },
     "isolatedModules": true
   },

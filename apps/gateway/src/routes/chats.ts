@@ -4,6 +4,7 @@ import type { ContentfulStatusCode } from 'hono/utils/http-status'
 import { z } from 'zod'
 import { runQuery } from '@dagents/db'
 import { createLogger } from '@dagents/shared'
+import { DagExecutor, NodeRegistry, allNodes, SseStreamer, type FlowData } from '@dagents/workflow'
 import {
   parseCommand,
   routeMessage,
@@ -451,15 +452,134 @@ chatRoutes.post('/:id/messages', async (c) => {
 })
 
 /**
+ * Agent-based execution: dispatch a task to the agent via the dispatch
+ * service and stream the output back as SSE.
+ *
+ * When the user selects an agent in the chat UI (e.g. claude-code), the
+ * chat has agent_id but no flow_id. We POST a task to dispatch, then poll
+ * dispatch_task_events and stream them as SSE tokens to the client.
+ */
+const DISPATCH_URL = (): string => process.env.DISPATCH_URL ?? 'http://localhost:8081'
+
+async function streamAgentExecution(
+  c: Context,
+  chatId: string,
+  agentId: string,
+  prompt: string | null,
+): Promise<Response> {
+  const runId = randomUUID()
+
+  // 1. Create a dispatch task for this agent.
+  let taskId: string
+  try {
+    const res = await fetch(`${DISPATCH_URL()}/api/v1/dispatch/invoke`, {
+      method: 'POST',
+      headers: { 'content-type': 'application/json' },
+      body: JSON.stringify({
+        agentDaemonId: agentId,
+        runId,
+        prompt: prompt ?? '',
+      }),
+    })
+    if (!res.ok) {
+      const detail = await res.text().catch(() => '')
+      log.error('dispatch invoke failed', { agentId, status: res.status, detail: detail.slice(0, 200) })
+      return c.json({ success: false, error: 'dispatch invoke failed', detail }, 502 as ContentfulStatusCode)
+    }
+    const body = (await res.json()) as { success: boolean; data?: { taskId?: string }; error?: string }
+    taskId = body.data?.taskId ?? runId
+  } catch (err) {
+    log.error('dispatch invoke fetch failed', { agentId, error: String(err) })
+    return c.json({ success: false, error: 'dispatch unavailable' }, 502 as ContentfulStatusCode)
+  }
+
+  log.info('dispatched agent task', { chatId, agentId, taskId, runId })
+
+  // 2. Build a live ReadableStream that polls dispatch_task_events and
+  //    yields SSE frames. This is a proper live stream (not the buffered
+  //    SseStreamer which drains once), suitable for long-running agents.
+  const encoder = new TextEncoder()
+  let lastSeq = 0
+
+  const readable = new ReadableStream<Uint8Array>({
+    async start(controller) {
+      const POLL_INTERVAL = 500
+      let terminal = false
+
+      while (!terminal) {
+        try {
+          // Check task status
+          const statusRes = await fetch(
+            `${DISPATCH_URL()}/api/v1/dispatch/tasks/${encodeURIComponent(taskId)}`,
+          )
+          if (statusRes.ok) {
+            const statusBody = (await statusRes.json()) as {
+              success: boolean
+              data?: { task?: { status: string } }
+            }
+            const taskStatus = statusBody.data?.task?.status
+            if (taskStatus === 'done' || taskStatus === 'failed' || taskStatus === 'cancelled') {
+              terminal = true
+            }
+          }
+
+          // Fetch new events since lastSeq
+          const eventsRes = await fetch(
+            `${DISPATCH_URL()}/api/v1/dispatch/tasks/${encodeURIComponent(taskId)}/events?after=${lastSeq}`,
+          )
+          if (eventsRes.ok) {
+            const eventsBody = (await eventsRes.json()) as {
+              success: boolean
+              data?: { events?: Array<{ seq: number; kind: string; payload: unknown }> }
+            }
+            const events = eventsBody.data?.events ?? []
+            for (const evt of events) {
+              if (evt.seq <= lastSeq) continue
+              lastSeq = evt.seq
+              const p = (evt.payload ?? {}) as Record<string, unknown>
+              const text =
+                typeof p.content === 'string' ? p.content
+                : typeof p.output === 'string' ? p.output
+                : typeof p.status === 'string' ? p.status
+                : JSON.stringify(p)
+              controller.enqueue(encoder.encode(`event: token\ndata: ${text}\n\n`))
+            }
+          }
+        } catch (err) {
+          log.warn('agent event poll error', { taskId, error: String(err) })
+        }
+
+        if (!terminal) {
+          await new Promise((r) => setTimeout(r, POLL_INTERVAL))
+        }
+      }
+
+      // Send end event
+      controller.enqueue(encoder.encode('event: end\ndata: [DONE]\n\n'))
+      controller.close()
+
+      // Update chat status
+      try {
+        await runQuery(
+          `UPDATE chats SET status = 'idle', updated_at = NOW() WHERE id = $1::uuid`,
+          [chatId],
+        )
+      } catch {}
+    },
+  })
+
+  c.header('content-type', 'text/event-stream')
+  c.header('cache-control', 'no-cache')
+  c.header('x-run-id', runId)
+
+  return c.body(readable)
+}
+
+/**
  * GET /api/v1/chats/:id/stream — SSE stream of the chat's active run.
  *
- * This is a thin pass-through to Flowise prediction. The chat-execute route
- * marked the chat as 'running' and the caller (console) subscribes here to
- * receive the assistant's token stream.
- *
- * The chat's flow_id (or agent_id → resolved flow) is used as the upstream
- * prediction target. sessionId = chatId so Flowise's Flow State resumes the
- * correct memory.
+ * Executes the chat's bound workflow using the internal @dagents/workflow engine
+ * and streams token events via SSE.
  */
 chatRoutes.get('/:id/stream', async (c) => {
   const id = c.req.param('id')
@@ -467,58 +587,87 @@ chatRoutes.get('/:id/stream', async (c) => {
     return fail(c, 400, 'invalid chat id', { id })
   }
 
-  // Resolve chat → flowId
+  // Fetch the latest user message (the prompt for execution) alongside chat metadata.
   let chat: { flow_id: string | null; agent_id: string | null } | null
+  let lastUserMsg: string | null = null
   try {
-    const { records } = await runQuery<{ flow_id: string | null; agent_id: string | null }>(
+    const { records: chatRows } = await runQuery<{ flow_id: string | null; agent_id: string | null }>(
       `SELECT flow_id, agent_id FROM chats WHERE id = $1::uuid`,
       [id],
     )
-    chat = records[0] ?? null
+    chat = chatRows[0] ?? null
+    if (chat) {
+      const { records: msgRows } = await runQuery<{ content: string }>(
+        `SELECT content FROM chat_messages WHERE chat_id = $1::uuid AND role = 'user' ORDER BY created_at DESC LIMIT 1`,
+        [id],
+      )
+      lastUserMsg = msgRows[0]?.content ?? null
+    }
   } catch (err) {
     log.error('chat stream lookup failed', { id, error: String(err) })
     return fail(c, 502, 'chat stream failed')
   }
   if (!chat) return fail(c, 404, 'chat not found', { id })
+
+  // ─── Agent-based execution (no flow_id, but agent_id is set) ───
+  // When the user selects an agent in the chat UI (e.g. claude-code),
+  // chat.agent_id is set but flow_id may be null. We dispatch a task
+  // to the agent via the dispatch service and stream the output back.
+  if (!chat.flow_id && chat.agent_id) {
+    return await streamAgentExecution(c, id, chat.agent_id, lastUserMsg)
+  }
+
+  // ─── Flow-based execution ───
   if (!chat.flow_id) {
     return fail(c, 400, 'chat has no flow_id — bind a flow via PATCH /chats/:id first', { id })
   }
 
-  // Build the upstream prediction URL — same shape as /api/chat/route.ts used.
-  const runId = c.req.header('x-run-id')?.trim() || randomUUID()
-  const upstreamUrl = `${process.env.FLOWISE_URL ?? 'http://localhost:3101'}/api/v1/prediction/${encodeURIComponent(chat.flow_id)}`
-
-  let upstream: Response
+  let flowRow: { flow_data: unknown } | null
   try {
-    upstream = await fetch(upstreamUrl, {
-      method: 'POST',
-      headers: {
-        'content-type': 'application/json',
-        'x-run-id': runId,
-      },
-      body: JSON.stringify({
-        question: '', // stream continuation — no new question, just subscribe
-        streaming: true,
-        overrideConfig: { sessionId: id },
-      }),
-    })
+    const { records } = await runQuery<{ flow_data: unknown }>(
+      `SELECT flow_data FROM flows WHERE id = $1::uuid`,
+      [chat.flow_id],
+    )
+    flowRow = records[0] ?? null
   } catch (err) {
-    log.error('chat stream upstream failed', { id, flowId: chat.flow_id, error: String(err) })
-    return fail(c, 502, 'upstream unavailable')
+    log.error('chat stream flow lookup failed', { id, flowId: chat.flow_id, error: String(err) })
+    return fail(c, 502, 'chat stream failed')
+  }
+  if (!flowRow) {
+    return fail(c, 404, 'flow not found', { flowId: chat.flow_id })
   }
 
-  if (!upstream.ok || !upstream.body) {
-    const detail = await upstream.text().catch(() => '')
-    return fail(c, 502, 'prediction failed', { status: upstream.status, detail: detail.slice(0, 500) })
+  const flowData = flowRow.flow_data as FlowData
+  if (!flowData || !Array.isArray(flowData.nodes) || !Array.isArray(flowData.edges)) {
+    return fail(c, 400, 'invalid flow data', { flowId: chat.flow_id })
   }
 
-  // Pipe the SSE body through. Preserve content-type so the browser sees text/event-stream.
-  const respHeaders = new Headers()
-  const ct = upstream.headers.get('content-type')
-  if (ct) respHeaders.set('content-type', ct)
-  respHeaders.set('x-run-id', runId)
-  respHeaders.set('cache-control', 'no-cache')
-  return new Response(upstream.body, { status: 200, headers: respHeaders })
+  const runId = c.req.header('x-run-id')?.trim() || randomUUID()
+  const streamer = new SseStreamer(id)
+
+  const registry = new NodeRegistry()
+  registry.registerMany(allNodes())
+  const executor = new DagExecutor(registry)
+
+  c.header('content-type', 'text/event-stream')
+  c.header('cache-control', 'no-cache')
+  c.header('x-run-id', runId)
+
+  ;(async () => {
+    try {
+      await executor.execute(flowData, {}, {
+        chatId: id,
+        runId,
+        state: {},
+        isLastNode: true,
+        sseStreamer: streamer,
+      })
+    } catch (err) {
+      log.error('chat stream execution failed', { id, error: String(err) })
+    }
+  })()
+
+  return c.body(streamer.toReadableStream())
 })
 
 interface RunRow {

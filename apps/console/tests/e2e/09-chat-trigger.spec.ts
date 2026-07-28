@@ -53,8 +53,8 @@ import {
  *     `agentIdOverride` / `flowIdOverride`.
  *   - `apps/console/src/lib/chat-stream.ts` `sendChatMessage()` (not
  *     `streamMessage`) DOES subscribe to `/api/chats/:id/stream` SSE. But the
- *     stream route requires `chat.flow_id` and proxies to Flowise
- *     (`FLOWISE_URL`); a chat bound only to an agentId (no flow) makes
+ *     stream route requires `chat.flow_id` and proxies to the workflow engine;
+ *     a chat bound only to an agentId (no flow) makes
  *     `routeMessage` return `mode:'stream'` while `GET /stream` returns 400 —
  *     the agent→flow resolution that would feed the stream is missing.
  *
@@ -70,8 +70,8 @@ import {
  * True end-to-end: every `/api/*` call the page makes is proxied through the
  * gateway, so the full dagents dev stack must be up — Postgres (:15432),
  * Redis (:16479), gateway (:8080), dispatch (:8081), scheduler (for @flow
- * fanout, when wired), and Flowise (:3100, the current prediction upstream the
- * stream route pipes to). The `playwright.config.ts` `webServer` only owns the
+ * fanout, when wired), and the workflow engine (the current prediction upstream
+ * the stream route pipes to). The `playwright.config.ts` `webServer` only owns the
  * Next dev process (baseURL, :3000 by default — override with `E2E_PORT`).
  *
  * Setup: `beforeAll` seeds one directory + one agent (via the real dispatch
@@ -129,7 +129,7 @@ test.describe('Chat trigger mechanism (UC-TRG-01 ~ 06)', () => {
   // `sendChatMessage` (chat-stream.ts) which POSTs `/api/chats/:id/messages`
   // and the gateway's `routeMessage` returns `mode:'stream'` when an agent is
   // bound. BUT the subsequent `GET /api/chats/:id/stream` requires
-  // `chat.flow_id` and proxies to Flowise — a chat bound only to an agentId
+  // `chat.flow_id` and proxies to the workflow engine — a chat bound only to an agentId
   // (no flow) makes the stream route 400, so the assistant token stream never
   // reaches the browser. The agent→flow resolution feeding the stream is the
   // missing piece. Activate when agent-bound chats resolve to a prediction
@@ -312,10 +312,10 @@ test.describe('Chat trigger mechanism (UC-TRG-01 ~ 06)', () => {
   // Gap: `sendChatMessage` (chat-stream.ts — named sendChatMessage, not
   // streamMessage) + `GET /api/chats/:id/stream` exist, and chat-detail.tsx
   // iterates `result.events` token-by-token. But the stream route requires
-  // `chat.flow_id` and pipes to Flowise (`FLOWISE_URL`); an agent-bound chat
+  // `chat.flow_id` and pipes to the workflow engine; an agent-bound chat
   // with no flow makes `GET /stream` return 400, so no token event ever
   // reaches the browser. The agent→flow resolution feeding the stream, plus a
-  // reachable Flowise upstream, is the missing piece. Activate when the stream
+  // reachable workflow upstream, is the missing piece. Activate when the stream
   // route resolves a prediction target for agent-bound chats.
   test.fixme('UC-TRG-06: assistant reply streams token-by-token over SSE', async ({ page, request }) => {
     // --- Browser: tokens accumulate into the assistant message ---

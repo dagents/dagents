@@ -1,0 +1,147 @@
+/**
+ * ws-hub — gateway WebSocket hub for chat realtime events.
+ *
+ * 设计参考 multica server/internal/realtime/hub.go：
+ *   - 浏览器连到 /ws，可选在 URL query 带 ?chat=<id> 订阅特定 chat
+ *   - hub 维护 WebSocket Set，每个 socket 声明自己订阅的 chatId 集合
+ *   - broadcastChat(chatId, event) 只推给订阅了该 chatId 的 sockets
+ *   - 未声明订阅的 socket 不收到任何 chat 事件（避免噪音）
+ *
+ * 事件协议（参考 multica protocol.EventChatMessage 等）：
+ *   - chat:message  — 流式 token 片段（streaming=true）
+ *   - chat:done     — 任务完成，携带完整内容
+ *   - chat:error    — 执行失败
+ *   - chat:session_updated — chat 状态变化（可选）
+ *
+ * 每个 frame 是 JSON 字符串：{ type, chatId, runId, role, content, ... }
+ * 浏览器端用 useWsClient hook 订阅。
+ */
+import { WebSocketServer, WebSocket } from 'ws'
+import { createLogger } from '@dagents/shared'
+import type { IncomingMessage } from 'node:http'
+import type { Server } from 'node:http'
+
+const log = createLogger({ svc: 'gateway:ws-hub' })
+
+/** 推送给浏览器的 chat 事件类型。 */
+export type ChatEventType = 'chat:message' | 'chat:done' | 'chat:error' | 'chat:session_updated'
+
+/** 推送给浏览器的 chat 事件 payload。 */
+export interface ChatEvent {
+  type: ChatEventType
+  chatId: string
+  runId?: string
+  role: 'assistant' | 'user' | 'system'
+  content: string
+  /** true 表示这是流式片段（chat:message），false 表示完整消息（chat:done）。 */
+  streaming?: boolean
+  /** 任务状态（仅 chat:done 携带）。 */
+  status?: string
+  /** 错误信息（仅 chat:error 携带）。 */
+  error?: string
+}
+
+interface ClientConn {
+  ws: WebSocket
+  /** 该 socket 订阅的 chatId 集合。空集合 = 不收任何 chat 事件。 */
+  subscribedChats: Set<string>
+}
+
+class WsHub {
+  private clients = new Set<ClientConn>()
+  private wss: WebSocketServer | null = null
+
+  /** 把 WebSocketServer 挂到已有的 HTTP server 上，处理 /ws 升级请求。 */
+  attachToServer(server: Server): void {
+    this.wss = new WebSocketServer({ noServer: true })
+
+    server.on('upgrade', (req: IncomingMessage, socket, head) => {
+      const url = new URL(req.url ?? '/', `http://${req.headers.host ?? 'localhost'}`)
+      if (url.pathname !== '/ws') {
+        // 不是 /ws 的升级请求，交给其他 handler（或拒绝）
+        return
+      }
+      this.wss!.handleUpgrade(req, socket, head, (ws) => {
+        this.wss!.emit('connection', ws, req)
+      })
+    })
+
+    this.wss.on('connection', (ws, req) => {
+      const url = new URL(req.url ?? '/', `http://${req.headers.host ?? 'localhost'}`)
+      // 初始订阅：从 ?chat=id1&id2 query 解析（支持多个）
+      const initialChats = url.searchParams.getAll('chat')
+      const conn: ClientConn = {
+        ws,
+        subscribedChats: new Set(initialChats),
+      }
+      this.clients.add(conn)
+      log.info('ws client connected', {
+        count: this.clients.size,
+        initialChats: initialChats.length,
+      })
+
+      ws.on('message', (raw) => {
+        // 客户端可发 subscribe/unsubscribe 帧动态切换订阅
+        try {
+          const msg = JSON.parse(raw.toString())
+          if (msg.type === 'subscribe' && typeof msg.chatId === 'string') {
+            conn.subscribedChats.add(msg.chatId)
+            log.info('ws subscribe', {
+              chatId: msg.chatId,
+              clientSubs: [...conn.subscribedChats],
+              totalClients: this.clients.size,
+            })
+          } else if (msg.type === 'unsubscribe' && typeof msg.chatId === 'string') {
+            conn.subscribedChats.delete(msg.chatId)
+            log.info('ws unsubscribe', { chatId: msg.chatId })
+          }
+        } catch {
+          // 忽略非 JSON 或格式错误的消息
+        }
+      })
+
+      ws.on('close', () => {
+        this.clients.delete(conn)
+        log.info('ws client disconnected', { count: this.clients.size })
+      })
+
+      ws.on('error', (err) => {
+        log.warn('ws client error', { error: err.message })
+        this.clients.delete(conn)
+      })
+    })
+  }
+
+  /** 广播 chat 事件给所有订阅了该 chatId 的客户端。 */
+  broadcastChat(chatId: string, event: ChatEvent): void {
+    const frame = JSON.stringify(event)
+    const subscribedClients = []
+    for (const conn of this.clients) {
+      if (conn.subscribedChats.has(chatId) && conn.ws.readyState === WebSocket.OPEN) {
+        subscribedClients.push(conn)
+      }
+    }
+    if (subscribedClients.length === 0) {
+      log.warn('broadcastChat: no subscribed client', {
+        chatId,
+        eventType: event.type,
+        totalClients: this.clients.size,
+      })
+    }
+    for (const conn of subscribedClients) {
+      try {
+        conn.ws.send(frame)
+      } catch (err) {
+        log.warn('ws send failed', { error: String(err) })
+      }
+    }
+  }
+
+  /** 当前连接数（测试用）。 */
+  get clientCount(): number {
+    return this.clients.size
+  }
+}
+
+/** 全局单例。inline-executor 和 routes 都用它广播事件。 */
+export const wsHub = new WsHub()

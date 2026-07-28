@@ -256,6 +256,37 @@ tasksRoutes.post('/tasks/:id/fail', async (c) => {
 })
 
 /**
+ * GET /tasks/:id/events — read task events (for SSE streaming in chat).
+ *
+ * Optional `?after=N` query param returns only events with seq > N,
+ * enabling incremental polling without re-fetching the full history.
+ * Ordered by seq ascending.
+ */
+tasksRoutes.get('/tasks/:id/events', async (c) => {
+  const id = c.req.param('id')
+  const after = Number(c.req.query('after') ?? '0')
+  if (!Number.isFinite(after) || after < 0) {
+    return fail(c, 400, 'invalid after param', { after: c.req.query('after') })
+  }
+
+  const { records } = await runQuery<{
+    seq: number
+    kind: string
+    payload: unknown
+    created_at: Date
+  }>(
+    `SELECT seq, kind, payload, created_at
+       FROM dispatch_task_events
+      WHERE task_id = $1 AND seq > $2
+      ORDER BY seq ASC
+      LIMIT 200`,
+    [id, after],
+  )
+
+  return ok(c, { events: records })
+})
+
+/**
  * Append the terminal usage to `runs.agent_daemon_calls` (M6.2 / P1.11.T3).
  *
  * Best-effort: the task's terminal UPDATE has already committed when this runs,

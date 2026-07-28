@@ -15,8 +15,8 @@ export class ToolNode implements INode {
   name = 'toolAgentflow'
   version = 1
   type = 'Tool'
-  category = 'Agent Flows'
-  color = '#16A34A'
+  category = 'tools'
+  color = '#3b82f6'
   inputs = [
     {
       label: 'Tool Name',

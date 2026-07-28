@@ -3,6 +3,7 @@ import type { ContentfulStatusCode } from 'hono/utils/http-status'
 import { randomUUID } from 'node:crypto'
 import { runQuery } from '@dagents/db'
 import { createLogger } from '@dagents/shared'
+import { executeInline } from '../inline-executor.js'
 
 const log = createLogger({ svc: 'gateway:chat-execute' })
 
@@ -46,8 +47,9 @@ export function parseCommand(content: string): ParsedCommand | null {
  *
  * The function does NOT execute the flow itself — it only resolves the routing
  * decision and (for @-commands) writes a system message + kicks off the
- * downstream call. The SSE stream route owns the actual gateway→Flowise
- * prediction pipe so the client gets token-by-token rendering.
+ * downstream call. The SSE stream route owns the actual workflow execution
+ * using the internal @dagents/workflow engine so the client gets token-by-token
+ * rendering.
  */
 export async function routeMessage(
   chatId: string,
@@ -75,14 +77,79 @@ export async function routeMessage(
     return await routeCommand(chatId, cmd, opts)
   }
 
-  // 3. Default: stream mode — caller subscribes to /chats/:id/stream
+  // 3. Default routing: agent_id → inline executor (WS push);
+  //    flow_id → SSE stream (caller pulls /chats/:id/stream).
   const flowId = opts.flowIdOverride ?? chat.flow_id
   const agentId = opts.agentIdOverride ?? chat.agent_id
   if (!flowId && !agentId) {
     return { mode: 'json', error: 'no agent or flow bound to chat — set chat.agentId or chat.flowId, or use @agent' }
   }
 
-  // Mark chat running; client will poll or refresh on stream end.
+  // Persist agent/flow overrides onto the chat row so subsequent reads
+  // (stream endpoint, WS subscribers) see the same binding.
+  const updates: string[] = []
+  const params: unknown[] = []
+  if (opts.agentIdOverride && opts.agentIdOverride !== chat.agent_id) {
+    params.push(opts.agentIdOverride)
+    updates.push(`agent_id = $${params.length}::uuid`)
+  }
+  if (opts.flowIdOverride && opts.flowIdOverride !== chat.flow_id) {
+    params.push(opts.flowIdOverride)
+    updates.push(`flow_id = $${params.length}::uuid`)
+  }
+  if (updates.length > 0) {
+    params.push(chatId)
+    try {
+      await runQuery(
+        `UPDATE chats SET ${updates.join(', ')}, updated_at = NOW() WHERE id = $${params.length}::uuid`,
+        params,
+      )
+    } catch (err) {
+      log.warn('routeMessage override persist failed', { chatId, error: String(err) })
+    }
+  }
+
+  // ─── Agent path: spawn claude CLI inline, push tokens via WebSocket ───
+  // Browser subscribes to /ws?chat=<id> (or sends {type:'subscribe',chatId})
+  // and receives chat:message / chat:done / chat:error frames. The HTTP
+  // response returns immediately with mode='json' so the client can render
+  // an optimistic assistant bubble and let WS fill it in.
+  if (agentId) {
+    // Resolve cwd from the chat's directory binding so claude runs against
+    // the user's project (matches the directory selector in the UI).
+    let cwd: string | undefined
+    try {
+      const { records } = await runQuery<{ directory_path: string | null }>(
+        `SELECT d.path AS directory_path
+           FROM chats c
+           JOIN directories d ON d.id = c.directory_id
+          WHERE c.id = $1::uuid`,
+        [chatId],
+      )
+      cwd = records[0]?.directory_path ?? undefined
+    } catch (err) {
+      log.warn('routeMessage directory lookup failed', { chatId, error: String(err) })
+    }
+
+    const runId = randomUUID()
+    // Fire-and-forget — the executor writes the assistant message and
+    // pushes chat:done when finished. We don't await here so the HTTP
+    // response returns immediately.
+    void executeInline(chatId, agentId, content, { cwd }).catch((err) => {
+      log.error('executeInline failed', { chatId, agentId, runId, error: String(err) })
+    })
+
+    return {
+      mode: 'json',
+      payload: {
+        status: 'executing',
+        message: 'Agent task started; streaming via WebSocket',
+        runId,
+      },
+    }
+  }
+
+  // ─── Flow path: caller pulls SSE from /chats/:id/stream ───
   try {
     await runQuery(
       `UPDATE chats SET status = 'running', updated_at = NOW() WHERE id = $1::uuid`,

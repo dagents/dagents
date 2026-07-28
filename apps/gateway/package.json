@@ -15,6 +15,10 @@
     "hono": "^4.5.0",
     "@dagents/db": "workspace:*",
     "@dagents/shared": "workspace:*",
+    "@dagents/workflow": "workspace:*",
+    "@dagents/contracts": "workspace:*",
+    "@dagents/agent-adapters": "workspace:*",
+    "ws": "^8.18.0",
     "zod": "^4.4.3"
   },
   "devDependencies": {
@@ -22,6 +26,7 @@
     "tsup": "^8.0.0",
     "typescript": "^5.5.0",
     "@types/node": "^20.0.0",
+    "@types/ws": "^8.5.0",
     "vitest": "^2.0.0"
   }
 }

@@ -1,4 +1,6 @@
 import { Hono } from 'hono'
+import { z } from 'zod'
+import { randomUUID } from 'node:crypto'
 import { runQuery } from '@dagents/db'
 import { ok, fail } from '../app.js'
 
@@ -109,6 +111,70 @@ agentsRoutes.get('/agents', async (c) => {
   )
 
   return ok(c, { agents: records, truncated: records.length >= LIST_LIMIT })
+})
+
+/**
+ * POST /agents — register a new agent daemon.
+ *
+ * Creates a row in `agent_daemons` linked to an existing daemon (the host that
+ * will serve this agent). `kind` is free text but the catalogue UI exposes
+ * prompt / claude / codex / remote. `capability_descriptor` is built from the
+ * summary/tags the dialog collects. `daemon_id` must reference an existing
+ * daemons row (FK constraint). Returns the new agent's id.
+ */
+const createAgentSchema = z.object({
+  name: z.string().min(1).max(128),
+  kind: z.string().min(1).max(64),
+  daemonId: z.string().uuid(),
+  executablePath: z.string().max(512).optional().nullable(),
+  visibility: z.enum(['workspace', 'public']).optional().nullable(),
+  summary: z.string().max(2000).optional().nullable(),
+  tags: z.array(z.string()).optional(),
+})
+
+agentsRoutes.post('/agents', async (c) => {
+  let parsed: z.infer<typeof createAgentSchema>
+  try {
+    parsed = createAgentSchema.parse(await c.req.json())
+  } catch (err) {
+    return fail(c, 400, 'invalid create body', { detail: String(err) })
+  }
+
+  // Verify the daemon exists (FK would 500 otherwise; we want a clean 404).
+  const { records: daemonRows } = await runQuery<{ id: string }>(
+    `SELECT id FROM daemons WHERE id = $1`,
+    [parsed.daemonId],
+  )
+  if (!daemonRows[0]) {
+    return fail(c, 404, 'daemon not found', { daemonId: parsed.daemonId })
+  }
+
+  const id = randomUUID()
+  const capabilityDescriptor = {
+    name: parsed.name,
+    summary: parsed.summary ?? '',
+    tags: parsed.tags ?? [],
+  }
+
+  try {
+    await runQuery(
+      `INSERT INTO agent_daemons (id, name, kind, daemon_id, capability_descriptor, executable_path, visibility, created_at, updated_at)
+       VALUES ($1, $2, $3, $4, $5, $6, $7, NOW(), NOW())`,
+      [
+        id,
+        parsed.name,
+        parsed.kind,
+        parsed.daemonId,
+        JSON.stringify(capabilityDescriptor),
+        parsed.executablePath ?? null,
+        parsed.visibility ?? null,
+      ],
+    )
+  } catch (err) {
+    return fail(c, 422, 'create failed', { detail: String(err) })
+  }
+
+  return ok(c, { id })
 })
 
 /**

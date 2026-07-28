@@ -9,7 +9,7 @@
  *   - LIST page: scope tabs (mine / all / archived) + a toolbar (search +
  *     status filter chips) + a vertical list of `.flow-card`s, each expanding
  *     to reveal its `.flow-runs` (run history). The per-card edit button
- *     routes to `/flows/:id/edit` (the Flowise-iframe editor route from M2.3).
+ *     routes to `/workflows/:id/canvas` (the workflow canvas editor).
  *     The run button opens the inline detail by calling `showDetail`.
  *   - DETAIL page: rendered when BOTH `selectedFlowId` and `selectedRunId` are
  *     set. It mounts the read-only React Flow DAG (`FlowDag`) of the selected
@@ -24,14 +24,13 @@
  * detail flow changes and auto-selects the first node on detail mount (mirrors
  * `showDetail`'s "select first node" in design L454-461).
  *
- * Data: the list is fetched from `/api/flows` (→ gateway → Flowise AGENTFLOW
- * chatflows + recent executions). A flow's run history is built from the same
- * executions the summary already counted (the Flowise executions endpoint
- * returns newest-first); expanding a card does NOT re-fetch — it just reveals
- * the rows the summary carried. The detail page fetches the flow
- * (`/api/flows/:id`) for its DAG + the run's node-level spans
- * (`/api/flows/runs/:runId/node-spans`) for the inspector's persisted
- * token/cost/error/trace data.
+ * Data: the list is fetched from `/api/workflows` (→ gateway → workflows
+ * table). A flow's run history is built from the same executions the summary
+ * already counted (the executions endpoint returns newest-first); expanding a
+ * card does NOT re-fetch — it just reveals the rows the summary carried. The
+ * detail page fetches the flow (`/api/workflows/:id`) for its DAG + the run's
+ * node-level spans (`/api/workflows/runs/:runId/node-spans`) for the
+ * inspector's persisted token/cost/error/trace data.
  *
  * DOM + class names are 1:1 with design/agentflows.html (ported to React):
  * `.flow-list-page` > `.scope-tabs` / `.flow-toolbar` / `.flow-card`s, and
@@ -46,7 +45,7 @@ import { PageShell } from '@/components/page-shell'
 import { Icon } from '@/components/icon'
 import { FlowDag } from '@/components/flow-dag'
 import { fetchRunNodeSpans, type RunNodeSpan } from '@/lib/node-spans'
-import type { FlowSummary, FlowDetailView, NodeRunStatus } from '@/lib/flows'
+import { parseFlowData, type FlowSummary, type FlowDetailView, type NodeRunStatus } from '@/lib/flows'
 import '@/styles/flows.css'
 
 const STATUS_CN: Record<NodeRunStatus, string> = {
@@ -86,15 +85,121 @@ const STATUS_FILTERS: NodeRunStatus[] = ['running', 'done', 'paused', 'failed']
 /** The three scope tabs (agentflows.html:157-161). */
 type Scope = 'mine' | 'all' | 'archived'
 
+/** A single row in the gateway's `/api/v1/workflows` list response. */
+interface GatewayFlowListItem {
+  id: string
+  name: string
+  description: string | null
+  status: string
+  nodeCount: number
+  updatedAt: string
+}
+
+/** The gateway's `/api/v1/workflows/:id` detail response (flowData is an object). */
+interface GatewayFlowDetail {
+  id: string
+  name: string
+  description: string | null
+  flowData: unknown
+  status: string
+  createdAt: string
+  updatedAt: string
+}
+
 interface FlowListResponse {
   success: boolean
-  data?: FlowSummary[]
+  /**
+   * The gateway returns `{ flows: [...] }`; component tests stub `FlowSummary[]`
+   * directly. Both shapes are accepted — `mapFlowList` normalizes either onto
+   * `FlowSummary[]`.
+   */
+  data?: FlowSummary[] | { flows: GatewayFlowListItem[] }
   error?: string
 }
 interface FlowDetailResponse {
   success: boolean
-  data?: FlowDetailView
+  /**
+   * The gateway returns `{ flow: {...} }`; component tests stub `FlowDetailView`
+   * directly. Both shapes are accepted — `mapFlowDetail` normalizes either onto
+   * `FlowDetailView`.
+   */
+  data?: FlowDetailView | { flow: GatewayFlowDetail }
   error?: string
+}
+
+/**
+ * Map the gateway's list response onto `FlowSummary[]`. The gateway's workflows
+ * table has no type/owner/runCount/latestRunId/versionHash columns, so those are
+ * defaulted (type='CHATFLOW', status='idle', owner=null, archived=false,
+ * runCount=0, latestRunId=undefined) — the initial version surfaces the flow
+ * identity + node count + updatedAt; the rest of the list-page fidelity fields
+ * will be wired when executions are surfaced. A `FlowSummary[]` payload
+ * (e.g. from a test stub) is passed through unchanged.
+ */
+function mapFlowList(data: FlowListResponse['data']): FlowSummary[] {
+  if (!data) return []
+  if (Array.isArray(data)) return data
+  if ('flows' in data && Array.isArray(data.flows)) {
+    return data.flows.map((f) => ({
+      id: f.id,
+      name: f.name,
+      type: 'CHATFLOW',
+      status: 'idle',
+      nodeCount: f.nodeCount,
+      updatedAt: f.updatedAt,
+      versionHash: '',
+      owner: null,
+      archived: false,
+      runCount: 0,
+    }))
+  }
+  return []
+}
+
+/**
+ * Map the gateway's detail response onto `FlowDetailView`. The gateway returns
+ * the raw `flowData` object (React Flow's `{ nodes, edges, viewport }`), which
+ * we parse into the DAG the detail page renders. The gateway has no executions,
+ * versionHash, or latestRunId, so those are defaulted. A `FlowDetailView`
+ * payload (e.g. from a test stub) is passed through unchanged.
+ */
+function mapFlowDetail(data: FlowDetailResponse['data']): FlowDetailView | null {
+  if (!data) return null
+  // Already a FlowDetailView (test stub) — pass through.
+  if ('nodes' in data && 'edges' in data) return data
+  if ('flow' in data) {
+    const f = data.flow
+    // `parseFlowData` expects a JSON string; the gateway returns flowData as a
+    // parsed object, so stringify it first. A missing/malformed value degrades
+    // to an empty DAG (parseFlowData handles both).
+    const flowDataStr = typeof f.flowData === 'string' ? f.flowData : JSON.stringify(f.flowData ?? null)
+    const dag = parseFlowData(flowDataStr)
+    return {
+      id: f.id,
+      name: f.name,
+      type: 'CHATFLOW',
+      versionHash: '',
+      status: 'idle',
+      latestExecutionId: undefined,
+      latestRunId: null,
+      nodes: dag.nodes.map((n) => ({
+        id: n.id,
+        label: n.data?.label || n.id,
+        type: n.type ?? 'customNode',
+        position: n.position,
+        status: 'idle',
+      })),
+      edges: dag.edges.map((e, i) => ({
+        id: e.id ?? `e-${e.source}-${e.target}-${i}`,
+        source: e.source,
+        target: e.target,
+        label: e.label ?? e.data?.label,
+      })),
+      nodeMetrics: {},
+      updatedAt: f.updatedAt,
+    }
+  }
+  return null
 }
 
 export function FlowsView(): React.ReactElement {
@@ -137,14 +242,14 @@ export function FlowsView(): React.ReactElement {
       setLoadingList(true)
       setListError(null)
       try {
-        const res = await fetch('/api/flows', { cache: 'no-store' })
+        const res = await fetch('/api/workflows', { cache: 'no-store' })
         const json = (await res.json()) as FlowListResponse
         if (cancelled) return
         if (!res.ok || !json.success || !json.data) {
           setListError(json.error ?? `flows list failed (${res.status})`)
           setFlows([])
         } else {
-          setFlows(json.data)
+          setFlows(mapFlowList(json.data))
         }
       } catch (err) {
         if (!cancelled) setListError(err instanceof Error ? err.message : String(err))
@@ -176,14 +281,14 @@ export function FlowsView(): React.ReactElement {
       setDetailError(null)
       setSelectedNodeId(null)
       try {
-        const res = await fetch(`/api/flows/${encodeURIComponent(selectedFlowId)}`, { cache: 'no-store' })
+        const res = await fetch(`/api/workflows/${encodeURIComponent(selectedFlowId)}`, { cache: 'no-store' })
         const json = (await res.json()) as FlowDetailResponse
         if (cancelled) return
         if (!res.ok || !json.success || !json.data) {
           setDetailError(json.error ?? `flow fetch failed (${res.status})`)
           setDetail(null)
         } else {
-          setDetail(json.data)
+          setDetail(mapFlowDetail(json.data))
         }
       } catch (err) {
         if (!cancelled) setDetailError(err instanceof Error ? err.message : String(err))
@@ -204,7 +309,7 @@ export function FlowsView(): React.ReactElement {
   // points (run-row, run button) always set `selectedRunId`. Empty when the run
   // has no node trace (non-agentflow / not yet recorded). Best-effort: a fetch
   // failure degrades to an empty map, so the inspector falls back to the
-  // Flowise-derived status rather than erroring.
+  // execution status rather than erroring.
   const activeRunId = selectedRunId ?? detail?.latestRunId ?? null
   const [spansByNode, setSpansByNode] = useState<Record<string, RunNodeSpan>>({})
   useEffect(() => {
@@ -268,7 +373,7 @@ export function FlowsView(): React.ReactElement {
   }, [showDetail, hideDetail, selectedFlowId])
 
   // Scope counts — mine / all / archived over the full flow set (the design's
-  // `updateScopeCounts`). `mine` is always 0 today: Flowise chatflows carry no
+  // `updateScopeCounts`). `mine` is always 0 today: chatflows carry no
   // owner field, so `owner` is null on every summary. The tab still renders so
   // the design's scope affordance is present; a later task wires ownership.
   const scopeCounts = useMemo(() => {
@@ -321,11 +426,7 @@ export function FlowsView(): React.ReactElement {
   const inDetail = Boolean(selectedFlowId && selectedRunId)
 
   return (
-    <PageShell
-      title="AgentFlows"
-      subtitle="Agentflow V2 DAG 流水线。每个 flow 可有多次运行记录，点击展开查看历史 run，点击 run 进入 DAG 详情。"
-      fullBleed
-    >
+    <PageShell fullBleed>
       {/* LIST page — shown when no run is selected (design .flow-list-page).
           Scope tabs + toolbar (search + status filter chips) + a vertical list
           of `.flow-card`s, each expanding to reveal its `.flow-runs`. A run-row
@@ -458,10 +559,10 @@ export function FlowsView(): React.ReactElement {
                         className="btn btn-secondary btn-sm"
                         data-action="edit"
                         data-flow-id={f.id}
-                        title="在 Flowise 中编辑画布"
+                        title="在画布中编辑"
                         onClick={(e) => {
                           e.stopPropagation()
-                          router.push(`/flows/${encodeURIComponent(f.id)}/edit`)
+                          router.push(`/workflows/${encodeURIComponent(f.id)}/canvas`)
                         }}
                       >
                         编辑画布
@@ -651,11 +752,11 @@ function NodeInspector({
 
   const spanStatus = span ? SPAN_STATUS_CN[span.status] ?? span.status : null
   const tokenTotal = sumTokens(span?.tokens)
-  // Best-effort input/output text from the span's opaque `data` blob (Flowise
-  // stores `IAgentflowExecutedData.data` there — for Agent/LLM nodes that's
-  // `{ input, output: { content, … } }`). We surface a single string per box,
-  // capped, falling back to "—" when nothing readable is present — mirroring
-  // the design's `n.input || '—'` / `n.output || '—'` (L528 / L532).
+  // Best-effort input/output text from the span's opaque `data` blob
+  // (for Agent/LLM nodes that's `{ input, output: { content, … } }`).
+  // We surface a single string per box, capped, falling back to "—" when
+  // nothing readable is present — mirroring the design's `n.input || '—'` /
+  // `n.output || '—'` (L528 / L532).
   const { input, output } = extractIo(span)
   return (
     <>
@@ -795,7 +896,7 @@ function FlowOverview({ detail }: { detail: FlowDetailView | null }): React.Reac
         <div className="lbl">提示</div>
         <p className="muted" style={{ fontSize: 11, lineHeight: 1.6 }}>
           点击 DAG 中的节点查看其状态与日志。画布只读浏览；编排请在
-          <code className="mono"> Flowise </code>原生画布完成。
+          <code className="mono"> Workflow </code>画布完成。
         </p>
       </div>
     </>
@@ -803,8 +904,8 @@ function FlowOverview({ detail }: { detail: FlowDetailView | null }): React.Reac
 }
 
 /**
- * Sum the total tokens across models from a node span's `tokens` blob (M6.4).
- * The scheduler stores the per-model usage map Flowise reported
+ * Sum the total tokens across models from a node span's `tokens` blob.
+ * The scheduler stores the per-model usage map
  * (`Record<string, TokenUsage>`); each value may carry
  * `prompt_tokens`/`completion_tokens` or `input`/`output`. We sum every numeric
  * leaf so the inspector shows a single "已用 tokens" figure without coupling to
@@ -847,7 +948,7 @@ function formatDuration(ms: number): string {
  * io-boxes (design L526-533). The persisted `RunNodeSpan` does not carry the
  * node's full `data` blob — only the projected fields (tokens/cost/error/…),
  * so the source of input/output is `span.tokens` when it carries a recognizable
- * io shape (Flowise's `usageMetadata` nests `input_tokens`/`output_tokens`),
+ * io shape (`usageMetadata` nests `input_tokens`/`output_tokens`),
  * which we render as a compact summary. Absent that, the box shows "—" — the
  * design's placeholder for a node whose io wasn't recorded. This keeps the
  * io-box DOM present (the audit's fidelity gap was the missing section, not a

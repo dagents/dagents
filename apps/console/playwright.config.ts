@@ -7,7 +7,7 @@ import { defineConfig, devices } from '@playwright/test'
  * flows the audit pinned as acceptance for v0.3: the new-task composer's
  * Path B (direct-agent dispatch) → gateway POST contract + agent-detail
  * presence-pill render (the WS-refresh e2e is deferred — see the spec header),
- * and the flows edit button opening the Flowise canvas editor in an iframe.
+ * and the flows edit button opening the workflow canvas editor.
  * The webServer block boots `next dev` on :3000 and reuses an already-running
  * instance so a developer's `pnpm --filter @dagents/console dev` is not killed
  * between runs.
@@ -15,7 +15,7 @@ import { defineConfig, devices } from '@playwright/test'
  * These are **true end-to-end** tests, not the in-process `app.request()`
  * suites under `__tests__/`. They need the dagents dev stack up: Postgres
  * (:15432), Redis (:16479), and the gateway (:8080) + dispatch (:8081) +
- * Flowise (:3100) services the console proxies into. See the issue brief and
+ * workflow services the console proxies into. See the issue brief and
  * `infra/README.md` for bring-up. The webServer here only owns the Next dev
  * process — the rest is expected to already be running (reuseExistingServer
  * makes a shared dev stack the happy path).

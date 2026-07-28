@@ -2,14 +2,14 @@ import type { RedisClient } from '@dagents/shared'
 import { createLogger } from '@dagents/shared'
 
 /**
- * Concurrency gate for the fan-out / single-run execution path (P1.7.T3).
+ * Concurrency gate for the fan-out / single-run execution path.
  *
- * Flowise Iteration processes arrays serially, so the scheduler's fan-out
- * runs child predictions concurrently to recover throughput (architecture v0.2
- * §6.5). Unbounded concurrency would saturate the LLM gateway and blow cost
- * budgets (R7), so every prediction call passes through a bounded semaphore
- * before it starts. M3.1 defined this surface (Redis `dagents:sem`); M3.2 reuses
- * the same interface so single-run and batch paths share one gate.
+ * The workflow engine processes runs serially per execution, so the scheduler's
+ * fan-out runs child predictions concurrently to recover throughput.
+ * Unbounded concurrency would saturate the LLM gateway and blow cost budgets,
+ * so every prediction call passes through a bounded semaphore before it starts.
+ * The queue worker and fan-out path share the same interface so both paths
+ * share one gate.
  *
  * Implementation: a Redis-backed counting semaphore keyed by `semKey`. Lua
  * scripts make acquire/release atomic — acquire INCRs the counter and rejects

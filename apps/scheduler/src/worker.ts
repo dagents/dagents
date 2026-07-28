@@ -9,8 +9,10 @@ import { createRun, markRunning, completeRun, failRun, closeParentIfSettled } fr
 import { ingestNodeSpansBestEffort } from './node-span-ingest.js'
 
 /**
- * Scheduler worker (plan M3.1 / P1.7): consume the Redis task queue and run
- * each task through Flowise under a concurrency gate.
+ * Scheduler worker.
+ *
+ * Consume the Redis task queue and run each task through the Workflow Engine
+ * under a concurrency gate.
  *
  * ## Concurrency model — acquire *before* dequeue
  *
@@ -20,7 +22,7 @@ import { ingestNodeSpansBestEffort } from './node-span-ingest.js'
  * acquire a slot *first* (waiting until one is free), and only then BRPOP a
  * task. This guarantees a dequeued task always has a slot to run in, so no
  * task is orphaned by a crash, and the queue is the single source of pending
- * work (M3.5 restart re-scans the queue + `runs` table, not in-memory state).
+ * work (restart re-scans the queue + `runs` table, not in-memory state).
  *
  * Each iteration: `semaphore.acquire()` (poll until a slot opens) →
  * `BRPOP tasks` (blocks) → run → `semaphore.release()`. When `maxConcurrent`
@@ -29,9 +31,9 @@ import { ingestNodeSpansBestEffort } from './node-span-ingest.js'
  *
  * ## Concurrency gate — two paths, one `dagents:sem`
  *
- * M3.2's HTTP fan-out and M3.1's queue worker share a single Redis key
- * `dagents:sem` (main's `createRedisSemaphore`, Lua INCR/DECR counter). The
- * semaphore here is the *same* `Semaphore` interface the fan-out path uses
+ * HTTP fan-out and the queue worker share a single Redis key `dagents:sem`
+ * (main's `createRedisSemaphore`, Lua INCR/DECR counter). The semaphore here
+ * is the *same* `Semaphore` interface the fan-out path uses
  * (`acquire()`/`release()`), so a worker process and a fan-out request pool
  * their slots against one counter. The worker blocks on `acquire()` via its
  * own bounded poll loop: the semaphore's `acquire()` is non-blocking (it
@@ -42,9 +44,9 @@ import { ingestNodeSpansBestEffort } from './node-span-ingest.js'
  * ## Backpressure
  *
  * Because slots gate dequeue, the worker naturally applies backpressure: if
- * Flowise is slow, slots stay checked out, BRPOP stops draining, and the Redis
- * list grows — exactly the desired buffer. Producers see a growing queue, not
- * an unbounded fan-out.
+ * the workflow engine is slow, slots stay checked out, BRPOP stops draining,
+ * and the Redis list grows — exactly the desired buffer. Producers see a
+ * growing queue, not an unbounded fan-out.
  *
  * ## Graceful shutdown
  *
@@ -164,10 +166,10 @@ export function startWorker(deps: WorkerDeps): Worker {
 
 /**
  * Execute a single dequeued task end-to-end: parse → create run → mark running
- * → call Flowise → stamp completed/failed → release the slot.
+ * → call prediction API → stamp completed/failed → release the slot.
  *
  * The slot is released in a `finally` so it is always returned to the
- * pool, even when the run fails or the Flowise call throws — a leaked slot
+ * pool, even when the run fails or the prediction call throws — a leaked slot
  * would permanently shrink the concurrency cap.
  */
 async function runTask(
@@ -191,9 +193,9 @@ async function runTask(
   const { runId, pipelineId, input } = task
 
   // M6.1: wrap the run in a span tagged `run.id` so the prediction hop (and
-  // its gateway→flowise→daemon→LLM downstream) join one trace. The undici
-  // instrumentation injects `traceparent` into the outbound fetch from the
-  // active span; `currentRunId()` reads `run.id` back for log correlation.
+  // its gateway→workflow-engine→daemon→LLM downstream) join one trace. The
+  // undici instrumentation injects `traceparent` into the outbound fetch from
+  // the active span; `currentRunId()` reads `run.id` back for log correlation.
   const tracer = getTracer('scheduler')
   const span = tracer.startSpan('scheduler.run', {
     attributes: { 'run.id': runId, 'pipeline.id': pipelineId },
@@ -282,16 +284,17 @@ async function runTaskInner(
       await archiveBestEffort(deps.repro, runId, result.output, log)
     }
 
-    // M6.4: ingest the run's node-level trace. The agentflow prediction
-    // response carries `agentFlowExecutedData` (Flowise's per-node trace), so
-    // the scheduler projects it into `run_node_spans` for the AgentFlows browse
-    // page. Best-effort + best-effort-only: a failure logs and never re-fails
-    // the (already completed) run — node-level trace is an observability
-    // projection, not a run-lifecycle concern (same posture as the archive
-    // hook above). `ingestNodeSpansBestEffort` defaults `traceId` to the active
-    // span's traceId (M6.1, this run runs inside `scheduler.run` span) and
-    // `finishedAt` to now — wiring the M6.1↔M6.4 end-to-end trace correlation
-    // + the inspector's per-node finished timestamp without per-call plumbing.
+    // M6.4: ingest the run's node-level trace. The workflow prediction
+    // response carries the node trace, so the scheduler projects it into
+    // `run_node_spans` for the AgentFlows browse page. Best-effort +
+    // best-effort-only: a failure logs and never re-fails the (already
+    // completed) run — node-level trace is an observability projection, not a
+    // run-lifecycle concern (same posture as the archive hook above).
+    // `ingestNodeSpansBestEffort` defaults `traceId` to the active span's
+    // traceId (M6.1, this run runs inside `scheduler.run` span) and
+    // `finishedAt` to now — wiring the M6.1↔M6.4 end-to-end trace
+    // correlation + the inspector's per-node finished timestamp without
+    // per-call plumbing.
     await ingestNodeSpansBestEffort({
       runId,
       flowId: pipelineId,

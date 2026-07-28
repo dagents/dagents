@@ -15,10 +15,10 @@ import { startWorker } from '../worker.js'
  *
  * Drives the scheduler against the real dagents Postgres (`runs` +
  * `pipeline_versions`) + Redis (`dagents:tasks`, `dagents:sem`) docker-compose stack.
- * Flowise + MinIO are stubbed: a `ReproClient` stub records calls and returns
- * deterministic hashes/URIs, so the suite asserts the integration contract —
- * snapshot → bind → archive across fan-out / worker / rerun — without a live
- * Flowise or object store.
+ * The workflow engine + MinIO are stubbed: a `ReproClient` stub records calls
+ * and returns deterministic hashes/URIs, so the suite asserts the integration
+ * contract — snapshot → bind → archive across fan-out / worker / rerun —
+ * without a live workflow engine or object store.
  *
  * Acceptance (issue description): "任一 run 都绑定 version + 归档 artifact."
  *

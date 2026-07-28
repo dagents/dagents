@@ -12,7 +12,7 @@ import { createRedisSemaphore } from '../semaphore.js'
  * Postgres (127.0.0.1:15432) + Redis (127.0.0.1:16479) docker-compose stack.
  * The Prediction client is a stub — it records every call and returns a canned
  * output keyed by the run id — so the test asserts the N→N child mapping and
- * parent aggregation without a live Flowise.
+ * parent aggregation without a live workflow engine.
  *
  * Acceptance (issue description): N=5 inputs → 5 child runs + parent
  * aggregation. Plus: concurrency is bounded, a failed child is recorded as

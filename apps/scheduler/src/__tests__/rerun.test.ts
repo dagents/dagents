@@ -12,7 +12,7 @@ import { createRedisSemaphore } from '../semaphore.js'
  * Postgres (127.0.0.1:15432) + Redis (127.0.0.1:16479) docker-compose stack,
  * same harness as fanout.test.ts. The Prediction client is a stub so the test
  * asserts the rerun identity contract (same hash + input + parent) without a
- * live Flowise.
+ * live workflow engine.
  *
  * Acceptance (issue description): "失败子 run 可单独重跑, 结果可比对" — a failed
  * child reruns into a NEW run that shares the source's pipeline_version_hash +

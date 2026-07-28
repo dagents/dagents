@@ -5,7 +5,7 @@ import type { INodeData, IExecutionContext } from '../../types/index.js'
 function makeNodeData(overrides: Record<string, unknown> = {}): INodeData {
   return {
     id: 'n1',
-    name: 'httpRequestAgentflow',
+    name: 'httpAgentflow',
     inputs: {
       method: 'GET',
       url: 'https://api.example.com/test',
@@ -118,8 +118,8 @@ describe('HttpNode', () => {
 
   it('has correct static metadata', () => {
     const node = new HttpNode()
-    expect(node.name).toBe('httpRequestAgentflow')
-    expect(node.type).toBe('HTTP Request')
+    expect(node.name).toBe('httpAgentflow')
+    expect(node.type).toBe('HTTP')
     expect(node.inputs.length).toBeGreaterThan(0)
   })
 })

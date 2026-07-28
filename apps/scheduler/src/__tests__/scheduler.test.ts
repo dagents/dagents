@@ -13,9 +13,10 @@ import type { PredictionClient, PredictionRequest, PredictionResult } from '../p
  * Integration tests for the scheduler worker (plan M3.1 / P1.7).
  *
  * Uses the real dagents Postgres (runs table) + Redis (dagents:tasks queue +
- * dagents:sem semaphore) from the docker-compose stack. Flowise is mocked with an
- * in-process PredictionClient so no gateway is required — the test asserts the
- * scheduler's queue→semaphore→run→persist loop, not Flowise itself.
+ * dagents:sem semaphore) from the docker-compose stack. The workflow engine is
+ * mocked with an in-process PredictionClient so no gateway is required — the
+ * test asserts the scheduler's queue→semaphore→run→persist loop, not the
+ * workflow engine itself.
  *
  * The semaphore is main's `createRedisSemaphore` (Lua INCR/DECR counter on
  * `dagents:sem`) — the same gate the fan-out path uses — so this also verifies the
@@ -25,7 +26,7 @@ import type { PredictionClient, PredictionRequest, PredictionResult } from '../p
  * - a single run is dequeued, executed, and stamped completed in `runs`
  * - the concurrency gate caps in-flight runs at maxConcurrent: with 5 enqueued
  *   and maxConcurrent=2, at most 2 predictions run simultaneously
- * - a Flowise failure stamps the run `failed` with the reason
+ * - a workflow engine failure stamps the run `failed` with the reason
  * - a malformed queue payload is dropped (no run created, slot released)
  * - graceful stop awaits in-flight runs
  */
@@ -33,7 +34,7 @@ import type { PredictionClient, PredictionRequest, PredictionResult } from '../p
 const redisUrl =
   process.env.REDIS_URL ?? 'redis://localhost:16479'
 let redis: RedisClient
-// Predictions observed by the mock Flowise client, for concurrency assertions.
+// Predictions observed by the mock client, for concurrency assertions.
 let activePredictions = 0
 let maxObservedConcurrency = 0
 // Blocked predictions register their gate resolver here; `releaseGate()`
@@ -71,7 +72,7 @@ function mockPrediction({
         const finish = (): void => {
           activePredictions -= 1
           if (failRunIds.has(runId)) {
-            reject(new Error('mock flowise failure'))
+            reject(new Error('mock prediction failure'))
           } else {
             resolve({
               runId,
@@ -150,7 +151,7 @@ async function enqueue(tasks: ScheduleTask[], max: number): Promise<void> {
 }
 
 describe('scheduler worker — single run execution', () => {
-  it('dequeues one task, calls Flowise, and stamps the run completed', async () => {
+  it('dequeues one task, calls prediction client, and stamps the run completed', async () => {
     const prediction = mockPrediction()
     const runId = randomUUID()
     const sem = buildSem(4)
@@ -180,7 +181,7 @@ describe('scheduler worker — single run execution', () => {
     }
   })
 
-  it('stamps the run failed when Flowise rejects', async () => {
+  it('stamps the run failed when prediction rejects', async () => {
     const runId = randomUUID()
     const prediction = mockPrediction({ failRunIds: new Set([runId]) })
     const sem = buildSem(4)
@@ -191,9 +192,9 @@ describe('scheduler worker — single run execution', () => {
       const run = await waitForRun(runId, 'failed', 2000)
       expect(run).not.toBeNull()
       expect(run!.status).toBe('failed')
-      expect(run!.failureReason).toBe('mock flowise failure')
+      expect(run!.failureReason).toBe('mock prediction failure')
       // failure detail is wrapped in `output.error` (runs has no failure_reason col)
-      expect(run!.output).toEqual({ error: 'mock flowise failure' })
+      expect(run!.output).toEqual({ error: 'mock prediction failure' })
       expect(run!.finishedAt).not.toBeNull()
     } finally {
       await worker.stop()
@@ -228,7 +229,7 @@ describe('scheduler worker — single run execution', () => {
 })
 
 describe('scheduler worker — concurrency gate', () => {
-  it('caps in-flight Flowise calls at maxConcurrent', async () => {
+  it('caps in-flight prediction calls at maxConcurrent', async () => {
     // 5 tasks, maxConcurrent=2 → at most 2 predictions run at once.
     const tasks: ScheduleTask[] = [0, 1, 2, 3, 4].map(() => ({
       runId: randomUUID(),

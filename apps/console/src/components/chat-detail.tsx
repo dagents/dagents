@@ -9,6 +9,13 @@
  *   - Right: context panel (directory, agent, flow, stats, runs)
  *
  * The sidebar is global (ChatNavSidebar in ChatLayout) — not rendered here.
+ *
+ * Realtime: assistant tokens arrive via WebSocket (`useWsChat`). The HTTP
+ * POST /chats/:id/messages returns immediately (mode='json') once the
+ * gateway's InlineAgentExecutor has spawned claude; we then accumulate
+ * chat:message / chat:done / chat:error frames into the trailing assistant
+ * bubble. SSE stream mode is no longer used here — the FloatingChat widget
+ * shares the same WS hub, so a chat open in both surfaces stays in sync.
  */
 
 import { useCallback, useEffect, useRef, useState } from 'react'
@@ -16,17 +23,19 @@ import Link from 'next/link'
 import { Icon } from '@/components/icon'
 import { ChatComposer } from '@/components/chat-composer'
 import { ChatContextPanel } from '@/components/chat-context-panel'
+import { AssistantContent } from '@/components/assistant-content'
 import {
   type Chat,
   type ChatMessage,
   fetchChat,
   fetchMessages,
   createMessage,
-  updateChat,
 } from '@/lib/chats'
-import { sendChatMessage } from '@/lib/chat-stream'
 import { fetchDirectory, type Directory } from '@/lib/directories'
+import { useWsChat } from '@/lib/use-ws-chat'
+import type { ChatWsFrame } from '@dagents/contracts'
 import '@/styles/chat-detail.css'
+import '@/styles/assistant-content.css'
 
 interface ChatDetailProps {
   chatId: string
@@ -53,6 +62,11 @@ export function ChatDetail({ chatId }: ChatDetailProps): React.ReactElement {
   const [selectedAgentId, setSelectedAgentId] = useState<string | null>(chat?.agentId ?? null)
   const messagesEndRef = useRef<HTMLDivElement>(null)
 
+  // We identify the streaming assistant bubble by its `stream-` id prefix
+  // (persisted messages have UUID ids). This lets the setMessages updater
+  // stay pure — no ref writes inside — which is required for React 18
+  // StrictMode (dev double-invokes updaters; a ref write inside would
+  // corrupt the result on the second invoke).
   useEffect(() => {
     let cancelled = false
     setLoading(true)
@@ -107,6 +121,87 @@ export function ChatDetail({ chatId }: ChatDetailProps): React.ReactElement {
     return () => window.removeEventListener('chat-updated', handler)
   }, [chatId])
 
+  // ─── WebSocket subscription for this chat ───
+  // Receives chat:message / chat:done / chat:error frames from the gateway's
+  // InlineAgentExecutor and patches the trailing assistant bubble.
+  const handleWsFrame = useCallback((frame: ChatWsFrame) => {
+    if (frame.type === 'chat:message') {
+      // Pure updater: find the streaming bubble by `stream-` id prefix.
+      // Safe under StrictMode double-invoke (no side effects inside).
+      setMessages((prev) => {
+        const existing = prev.find((m) => m.id.startsWith('stream-'))
+        if (existing) {
+          return prev.map((m) =>
+            m.id === existing.id ? { ...m, content: m.content + frame.content } : m,
+          )
+        }
+        return [
+          ...prev,
+          {
+            id: `stream-${Date.now()}`,
+            chatId,
+            role: 'assistant',
+            content: frame.content,
+            runId: frame.runId ?? null,
+            metadata: {},
+            createdAt: new Date().toISOString(),
+          },
+        ]
+      })
+      setSending(false) // first chunk arrived — request succeeded
+    } else if (frame.type === 'chat:done') {
+      setMessages((prev) => {
+        const existing = prev.find((m) => m.id.startsWith('stream-'))
+        if (existing) {
+          return prev.map((m) =>
+            m.id === existing.id ? { ...m, content: frame.content || m.content } : m,
+          )
+        }
+        // No streaming bubble (executor finished before any chunk) — append.
+        return [
+          ...prev,
+          {
+            id: `done-${Date.now()}`,
+            chatId,
+            role: 'assistant',
+            content: frame.content,
+            runId: frame.runId ?? null,
+            metadata: {},
+            createdAt: new Date().toISOString(),
+          },
+        ]
+      })
+      setSending(false)
+      setChat((prev) => (prev ? { ...prev, status: 'done' } : prev))
+    } else if (frame.type === 'chat:error') {
+      setMessages((prev) => {
+        const existing = prev.find((m) => m.id.startsWith('stream-'))
+        if (existing) {
+          return prev.map((m) =>
+            m.id === existing.id ? { ...m, content: frame.content || m.content } : m,
+          )
+        }
+        return [
+          ...prev,
+          {
+            id: `err-${Date.now()}`,
+            chatId,
+            role: 'assistant',
+            content: frame.content,
+            runId: frame.runId ?? null,
+            metadata: {},
+            createdAt: new Date().toISOString(),
+          },
+        ]
+      })
+      setError(frame.error ?? frame.content)
+      setSending(false)
+      setChat((prev) => (prev ? { ...prev, status: 'failed' } : prev))
+    }
+  }, [chatId])
+
+  const { connected } = useWsChat(chatId, handleWsFrame)
+
   const handleSend = useCallback(async (text: string) => {
     if (sending) return
     setSending(true)
@@ -129,84 +224,36 @@ export function ChatDetail({ chatId }: ChatDetailProps): React.ReactElement {
     setChat((prev) => (prev ? { ...prev, status: 'running' } : prev))
 
     try {
-      const result = await sendChatMessage(chatId, text)
+      // createMessage writes the user row + triggers routeMessage, which
+      // (when agentId is set) spawns the InlineAgentExecutor and returns
+      // mode='json'. Assistant tokens arrive via WS.
+      const persisted = await createMessage(chatId, {
+        content: text,
+        role: 'user',
+        ...(selectedAgentId ? { agentIdOverride: selectedAgentId } : {}),
+      })
 
       // Replace optimistic with persisted user message
       setMessages((prev) =>
-        prev.map((m) =>
-          m.id === optimisticId
-            ? {
-                ...result.userMessage,
-                chatId,
-                role: 'user',
-                runId: null,
-                metadata: {},
-              }
-            : m,
-        ),
+        prev.map((m) => (m.id === optimisticId ? persisted : m)),
       )
 
-      if (result.mode === 'stream' && result.events) {
-        // Append an empty assistant message we'll fill token-by-token.
-        const assistantId = `ast-${Date.now()}`
-        setMessages((prev) => [
-          ...prev,
-          {
-            id: assistantId,
-            chatId,
-            role: 'assistant',
-            content: '',
-            runId: null,
-            metadata: {},
-            createdAt: new Date().toISOString(),
-          },
-        ])
-
-        let accumulated = ''
-        for await (const ev of result.events) {
-          if (ev.event === 'token') {
-            accumulated += ev.data
-            setMessages((prev) =>
-              prev.map((m) => (m.id === assistantId ? { ...m, content: accumulated } : m)),
-            )
-          } else if (ev.event === 'error') {
-            setError(ev.data)
-          }
-        }
-
-        // Stream ended — mark chat done and persist assistant message
-        setChat((prev) => (prev ? { ...prev, status: 'done' } : prev))
-        // Persist the assistant message via the existing createMessage API
-        // (role='assistant'); the gateway writes it into chat_messages.
-        try {
-          const persisted = await createMessage(chatId, {
-            role: 'assistant',
-            content: accumulated,
-          })
-          setMessages((prev) => prev.map((m) => (m.id === assistantId ? persisted : m)))
-        } catch (err) {
-          // Persist failed — leave the optimistic assistant message in place.
-          console.warn('assistant message persist failed', err)
-        }
-      } else if (result.mode === 'json') {
-        // @-command ack or routing error — system message already written by gateway
-        if (result.error) setError(result.error)
-        // Refresh chat to reflect any system message + status change
-        try {
-          const refreshed = await fetchChat(chatId)
-          setChat(refreshed)
-          const msgs = await fetchMessages(chatId)
-          setMessages(msgs)
-        } catch {}
+      // If WS is disconnected, the assistant bubble may never arrive via
+      // WS. Clear `sending` after a short timeout so the user can retry
+      // or navigate. The next WS reconnect will pick up in-flight frames.
+      if (!connected) {
+        setTimeout(() => setSending(false), 1500)
       }
+      // Note: `sending` is cleared on the first WS chunk (or chat:done /
+      // chat:error). Don't clear it here — the user should see the
+      // "executing…" state while the agent runs.
     } catch (err) {
       setError(err instanceof Error ? err.message : String(err))
       setMessages((prev) => prev.filter((m) => m.id !== optimisticId))
       setChat((prev) => (prev ? { ...prev, status: 'failed' } : prev))
-    } finally {
       setSending(false)
     }
-  }, [chatId, sending])
+  }, [chatId, sending, selectedAgentId, connected])
 
   return (
     <div className="chat-detail-body">
@@ -227,6 +274,11 @@ export function ChatDetail({ chatId }: ChatDetailProps): React.ReactElement {
             {STATUS_LABEL[chat.status]}
           </span>
         )}
+        {!connected ? (
+          <span className="chat-detail-breadcrumb-status status-disconnected" title="实时连接断开">
+            实时断开
+          </span>
+        ) : null}
       </div>
 
       {/* Main split: messages + context */}
@@ -243,19 +295,29 @@ export function ChatDetail({ chatId }: ChatDetailProps): React.ReactElement {
             ) : messages.length === 0 ? (
               <div className="chat-detail-empty">No messages yet. Send a message to start.</div>
             ) : (
-              messages.map((m) => (
-                <div key={m.id} className={`chat-msg chat-msg-${m.role}`}>
-                  {m.role === 'system' && (
-                    <div className="chat-msg-system-icon">
-                      <Icon name="zap" style={{ width: 12, height: 12 }} />
-                    </div>
-                  )}
-                  <div className="chat-msg-content">{m.content}</div>
-                  {m.role !== 'system' && (
-                    <div className="chat-msg-meta">{formatTime(m.createdAt)}</div>
-                  )}
-                </div>
-              ))
+              messages.map((m) => {
+                const isStreaming = m.id.startsWith('stream-')
+                return (
+                  <div
+                    key={m.id}
+                    className={`chat-msg chat-msg-${m.role}${m.role === 'assistant' ? ' chat-msg-flat' : ''}`}
+                  >
+                    {m.role === 'system' && (
+                      <div className="chat-msg-system-icon">
+                        <Icon name="zap" style={{ width: 12, height: 12 }} />
+                      </div>
+                    )}
+                    {m.role === 'assistant' ? (
+                      <AssistantContent content={m.content} streaming={isStreaming} />
+                    ) : (
+                      <div className="chat-msg-content">{m.content}</div>
+                    )}
+                    {m.role !== 'system' && (
+                      <div className="chat-msg-meta">{formatTime(m.createdAt)}</div>
+                    )}
+                  </div>
+                )
+              })
             )}
             <div ref={messagesEndRef} />
           </div>

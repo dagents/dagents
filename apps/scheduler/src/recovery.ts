@@ -6,7 +6,7 @@ import type { Semaphore } from './semaphore.js'
 import { completeParentRun, listSettledPendingParents } from './runs-repo.js'
 
 /**
- * Restart recovery (plan M3.5 / P1.7.T8).
+ * Restart recovery.
  *
  * When the scheduler process is killed mid-run, two pieces of in-memory /
  * Redis state are left dangling:
@@ -20,13 +20,14 @@ import { completeParentRun, listSettledPendingParents } from './runs-repo.js'
  *   saturating at `maxConcurrent` and blocking all work. `resetSemaphore`
  *   clears it back to 0.
  * - **Stuck `running` runs** — `worker.runTask` flips a run to `running`
- *   (`markRunning`) before calling Flowise, and stamps it `completed`/`failed`
- *   only after the prediction returns. A kill between those leaves the row
- *   `running` forever: the queue task that started it was already BRPOP'd
- *   (BRPOP is atomic — the message is gone from `dagents:tasks` the moment it was
- *   dequeued), so the worker will never pick it up again on its own.
- *   `listStaleRuns` finds these rows and `recoverStaleRuns` re-enqueues each
- *   as a fresh `ScheduleTask` so the worker re-runs it end to end.
+ *   (`markRunning`) before calling the prediction API, and stamps it
+ *   `completed`/`failed` only after the prediction returns. A kill between
+ *   those leaves the row `running` forever: the queue task that started it
+ *   was already BRPOP'd (BRPOP is atomic — the message is gone from
+ *   `dagents:tasks` the moment it was dequeued), so the worker will never pick
+ *   it up again on its own. `listStaleRuns` finds these rows and
+ *   `recoverStaleRuns` re-enqueues each as a fresh `ScheduleTask` so the
+ *   worker re-runs it end to end.
  *
  * ## What gets recovered
  *

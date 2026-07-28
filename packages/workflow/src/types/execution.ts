@@ -58,4 +58,18 @@ export interface IExecutionContext {
   componentNodes?: Record<string, unknown>
   /** The runtime state container (deprecated alias — use `state` directly). */
   agentflowRuntime?: { state: Record<string, unknown> }
+  /** LLM client for LLM and Agent nodes. */
+  llmClient?: {
+    chat(params: {
+      model: string
+      messages: Array<{ role: string; content: string }>
+      temperature?: number
+    }): Promise<{ text: string }>
+  }
+  /** Tool registry for Agent nodes. */
+  toolRegistry?: Record<string, unknown>
+  /** Human input resolver for HumanInputNode. */
+  humanInputResolver?: (prompt: string, inputType: string, options?: unknown[]) => Promise<string>
+  /** Flow executor for ExecuteFlowNode. */
+  flowExecutor?: (flowId: string, input: unknown) => Promise<Record<string, unknown>>
 }

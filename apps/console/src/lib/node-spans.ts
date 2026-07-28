@@ -1,17 +1,18 @@
 /**
- * Run node-span client + types (plan M6.4 / P1.11.T5).
+ * Run node-span client + types.
  *
  * The console AgentFlows browse page reads a run's node-level trace from the
  * gateway → scheduler passthrough
  * (`/api/v1/scheduler/runs/:runId/node-spans` → scheduler). This module owns
  * the console domain type for a node span + the pure mapping from the
  * scheduler's row shape onto it, kept separate from `flows.ts` because the
- * source is the platform's own DB (via scheduler), not Flowise's live
- * `executionData` — different trust boundary, different fetch path.
+ * source is the platform's own DB (via scheduler), not live execution data
+ * — different trust boundary, different fetch path.
  *
- * The browser hits the console's own `/api/flows/[id]/runs/:runId/node-spans`
- * route (server-side), which fetches the gateway; the gateway URL + the
- * scheduler's row shape never reach the client bundle.
+ * The browser hits the console's own
+ * `/api/workflows/runs/:runId/node-spans` route (server-side), which fetches
+ * the gateway; the gateway URL + the scheduler's row shape never reach the
+ * client bundle.
  */
 
 /** Console node-span status — the same domain as `NodeRunStatus` in flows.ts. */
@@ -106,13 +107,13 @@ export function toRunNodeSpan(row: SchedulerNodeSpanRow): RunNodeSpan {
 
 /** Fetch a run's node spans through the console's own API route (server-side). */
 export async function fetchRunNodeSpans(runId: string): Promise<RunNodeSpan[]> {
-  const res = await fetch(`/api/flows/runs/${encodeURIComponent(runId)}/node-spans`, {
+  const res = await fetch(`/api/workflows/runs/${encodeURIComponent(runId)}/node-spans`, {
     headers: { accept: 'application/json' },
     cache: 'no-store',
   })
   if (!res.ok) {
     // 404 (run has no spans / not found) + 5xx both degrade to an empty list —
-    // the inspector shows the Flowise-derived status + "—" rather than crashing.
+    // the inspector shows the execution-derived status + "—" rather than crashing.
     return []
   }
   const json = (await res.json()) as NodeSpansEnvelope

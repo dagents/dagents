@@ -90,7 +90,7 @@ const MS_PER_MIN = 60 * MS_PER_SEC
 export const ACTIVITY_BUCKET_COUNT = 30
 
 const KIND_RUNTIME_PREFIX: Record<AgentKind, string> = {
-  prompt: 'flowise-native',
+  prompt: 'workflow-native',
   claude: 'claude-code',
   codex: 'codex',
   remote: 'remote',

@@ -26,8 +26,8 @@ export class ConditionNode implements INode {
   name = 'conditionAgentflow'
   version = 1
   type = 'Condition'
-  category = 'Agent Flows'
-  color = '#F0A500'
+  category = 'logic'
+  color = '#f59e0b'
   inputs = [
     {
       label: 'Conditions',

@@ -31,7 +31,7 @@ import { createSeedContext, type SeedContext } from './helpers/seed'
  * (new-api token CRUD); the other five are faithful read-only shells of
  * design/settings.html. Deep data integration per tab is out of scope for the
  * Chat-First redesign — see `docs/superpowers/specs/2026-07-08-prototype-
- * coverage-analysis.md` §2.2/2.3 for the deferred milestones (默认模型→Flowise
+ * coverage-analysis.md` §2.2/2.3 for the deferred milestones (默认模型→workflow
  * config, 熔断→scheduler, 成本→资源面板聚合 API, 通知/账户/团队推迟到 MVP 后).
  *
  * These tests verify the page renders and tabs switch — they do NOT verify

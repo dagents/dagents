@@ -34,9 +34,9 @@ async function renderView(): Promise<void> {
  * setup-file polyfill so the canvas mounts without erroring.
  *
  * The three console routes the view fetches are stubbed via `global.fetch`:
- *   GET /api/flows                            → flow list
- *   GET /api/flows/:id                        → flow detail (DAG)
- *   GET /api/flows/runs/:runId/node-spans     → node-level spans (inspector)
+ *   GET /api/workflows                        → flow list
+ *   GET /api/workflows/:id                    → flow detail (DAG)
+ *   GET /api/workflows/runs/:runId/node-spans → node-level spans (inspector)
  */
 
 const flows: FlowSummary[] = [
@@ -117,11 +117,11 @@ function stubFetch(): { calls: string[] } {
     const req = input instanceof Request ? input : new Request(new URL(String(input), BASE), init)
     const path = new URL(req.url).pathname
     calls.push(path)
-    if (path === '/api/flows') return jsonResponse({ success: true, data: flows })
-    if (path.startsWith('/api/flows/') && path.endsWith('/node-spans')) {
+    if (path === '/api/workflows') return jsonResponse({ success: true, data: flows })
+    if (path.startsWith('/api/workflows/') && path.endsWith('/node-spans')) {
       return jsonResponse(spansEnvelope)
     }
-    if (path.startsWith('/api/flows/')) {
+    if (path.startsWith('/api/workflows/')) {
       return jsonResponse({ success: true, data: detail })
     }
     return jsonResponse({ success: false, error: 'not found' }, { status: 404 })

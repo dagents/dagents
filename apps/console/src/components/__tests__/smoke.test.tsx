@@ -15,10 +15,12 @@ import { render, screen } from '@testing-library/react'
 import { PageShell } from '@/components/page-shell'
 
 describe('component-test harness (M0.2 smoke)', () => {
-  it('renders the PageShell title and subtitle into the document', () => {
-    render(<PageShell title="T" subtitle="S">body</PageShell>)
+  it('renders the PageShell actions and children into the document', () => {
+    render(
+      <PageShell actions={<button type="button">刷新</button>}>body</PageShell>,
+    )
 
-    expect(screen.getByText('T')).toBeInTheDocument()
-    expect(screen.getByText('S')).toBeInTheDocument()
+    expect(screen.getByText('body')).toBeInTheDocument()
+    expect(screen.getByRole('button', { name: '刷新' })).toBeInTheDocument()
   })
 })

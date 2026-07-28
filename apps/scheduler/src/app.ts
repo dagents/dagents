@@ -206,17 +206,17 @@ export function buildApp(deps: AppDeps): Hono {
    * `GET /api/v1/scheduler/runs/:runId/node-spans` — a run's node-level trace
    * (plan M6.4 / P1.11.T5): the "节点级状态可查" acceptance gate.
    *
-   * Returns the run's `run_node_spans` rows — one per DAG node the Flowise
-   * agentflow executed, with status + timing + token/cost + error + the OTel
+   * Returns the run's `run_node_spans` rows — one per DAG node the workflow
+   * engine executed, with status + timing + token/cost + error + the OTel
    * traceId (M6.1) for end-to-end correlation. The console AgentFlows browse
-   * page reads this to render the node inspector without re-reading Flowise's
-   * live `executionData` on every render.
+   * page reads this to render the node inspector without re-reading live
+   * execution data on every render.
    *
    * `runId` is a UUID; we validate the shape (400) so a mistyped id is a clean
    * client error rather than a 404 that looks like "run exists but has no
    * spans". 200 + empty `spans` when the run has no node trace yet (a
-   * non-agentflow run, or a run whose prediction hasn't been recorded by
-   * Flowise); 404 when the run id matches no `runs` row.
+   * run whose prediction hasn't produced node spans); 404 when the run id
+   * matches no `runs` row.
    */
   app.get('/api/v1/scheduler/runs/:runId/node-spans', async (c) => {
     const runId = c.req.param('runId')

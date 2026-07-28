@@ -25,7 +25,7 @@ export type AuditActorType = 'user' | 'system'
  * same extensibility reason as `actor_type` — new audited resources (workspace,
  * agent_daemon, …) land without a migration.
  */
-export type AuditTargetType = 'token' | 'pipeline_version' | 'llm_provider'
+export type AuditTargetType = 'token' | 'pipeline_version' | 'llm_provider' | 'workflow'
 
 /**
  * One durable audit record for a sensitive operation (spec §1.4 gateway 职责 #5;

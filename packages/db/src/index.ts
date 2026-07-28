@@ -11,5 +11,6 @@ export type { AuditActorType, AuditTargetType } from './entities/audit-log.entit
 export { Directory } from './entities/directory.entity.js'
 export { Chat } from './entities/chat.entity.js'
 export type { ChatStatus } from './entities/chat.entity.js'
+export { Flow } from './entities/flow.entity.js'
 export { ChatMessage } from './entities/chat-message.entity.js'
 export type { ChatMessageRole } from './entities/chat-message.entity.js'

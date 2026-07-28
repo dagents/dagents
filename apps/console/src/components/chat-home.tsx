@@ -24,6 +24,7 @@ export function ChatHome(): React.ReactElement {
   const router = useRouter()
   const [directories, setDirectories] = useState<Directory[]>([])
   const [selectedDirId, setSelectedDirId] = useState<string | null>(null)
+  const [selectedAgentId, setSelectedAgentId] = useState<string | null>(null)
   const [sending, setSending] = useState(false)
   const [error, setError] = useState<string | null>(null)
 
@@ -54,6 +55,7 @@ export function ChatHome(): React.ReactElement {
       const chat = await createChat({
         directoryId,
         title: text.slice(0, 50),
+        ...(selectedAgentId ? { agentId: selectedAgentId } : {}),
       })
       await createMessage(chat.id, { content: text, role: 'user' })
       router.push(`/chats/${chat.id}`)
@@ -61,7 +63,7 @@ export function ChatHome(): React.ReactElement {
       setError(err instanceof Error ? err.message : String(err))
       setSending(false)
     }
-  }, [selectedDirId, directories, router])
+  }, [selectedDirId, directories, selectedAgentId, router])
 
   return (
     <div className="chat-home-body">
@@ -83,7 +85,12 @@ export function ChatHome(): React.ReactElement {
       </div>
 
       {/* Composer */}
-      <ChatComposer onSend={handleSend} disabled={sending} />
+      <ChatComposer
+        onSend={handleSend}
+        disabled={sending}
+        agentId={selectedAgentId}
+        onAgentChange={setSelectedAgentId}
+      />
       {error && (
         <div style={{ textAlign: 'center', color: 'var(--danger)', fontSize: 'var(--text-sm)', paddingBottom: 'var(--space-4)' }}>
           {error}

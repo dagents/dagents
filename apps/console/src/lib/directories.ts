@@ -34,6 +34,20 @@ export async function fetchDirectories(signal?: AbortSignal): Promise<Directory[
   return data.items
 }
 
+/**
+ * Open the OS-native directory picker (gateway spawns osascript / zenity /
+ * PowerShell) and resolve with the chosen absolute path, or null if the
+ * user cancelled. The browser cannot read absolute paths itself, so this
+ * proxies to the locally-running gateway which has filesystem access.
+ */
+export async function pickDirectory(): Promise<string | null> {
+  const data = await unwrap<{ path: string | null }>(
+    await fetch('/api/directories/pick', { cache: 'no-store' }),
+    'directory pick',
+  )
+  return data.path
+}
+
 export async function fetchDirectory(id: string, signal?: AbortSignal): Promise<Directory> {
   const data = await unwrap<{ directory: Directory }>(
     await fetch(`/api/directories/${encodeURIComponent(id)}`, { cache: 'no-store', signal }),

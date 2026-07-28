@@ -213,7 +213,7 @@ export function ChatNavSidebar({ collapsed }: ChatNavSidebarProps): React.ReactE
 
       {/* User footer */}
       <div className="chat-nav-footer">
-        <Link href="/settings" className="chat-nav-user">
+        <Link href="/" className="chat-nav-user">
           <div className="chat-nav-user-avatar">
             {user ? user.name.slice(0, 1).toUpperCase() : 'R'}
           </div>
@@ -221,6 +221,15 @@ export function ChatNavSidebar({ collapsed }: ChatNavSidebarProps): React.ReactE
             <span className="chat-nav-user-name">{user?.name ?? '未登录'}</span>
             <span className="chat-nav-user-plan">Pro Plan</span>
           </div>
+        </Link>
+        <Link
+          href="/settings"
+          className="chat-nav-settings-btn"
+          aria-label="设置"
+          title="设置"
+          aria-current={isActive(pathname, '/settings') ? 'page' : undefined}
+        >
+          <Icon name="settings" className="nav-icon" style={{ width: 16, height: 16 }} />
         </Link>
       </div>
     </div>

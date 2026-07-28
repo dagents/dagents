@@ -441,3 +441,46 @@ export async function fetchAgentLogs(id: string): Promise<AgentLogLine[]> {
     msg: l.msg,
   }))
 }
+
+// ─── create-agent (dialog backing) ──────────────────────────────────────
+
+/** A registered daemon host, for the create-agent dialog's daemon selector. */
+export interface DaemonOption {
+  id: string
+  label: string
+  status: string
+  capabilities: unknown
+}
+
+/** Fetch the daemons list (for the create-agent dialog). */
+export async function fetchDaemons(): Promise<DaemonOption[]> {
+  const data = await unwrap<{ daemons: DaemonOption[] }>(
+    await fetch('/api/daemons', { cache: 'no-store' }),
+    'daemons list',
+  )
+  return data.daemons
+}
+
+/** Request body for createAgent — matches dispatch POST /agents schema. */
+export interface CreateAgentRequest {
+  name: string
+  kind: AgentKind
+  daemonId: string
+  executablePath?: string | null
+  visibility?: 'workspace' | 'public' | null
+  summary?: string | null
+  tags?: string[]
+}
+
+/** Create a new agent. Returns the new agent's id. */
+export async function createAgent(req: CreateAgentRequest): Promise<string> {
+  const data = await unwrap<{ id: string }>(
+    await fetch('/api/agents', {
+      method: 'POST',
+      headers: { 'content-type': 'application/json' },
+      body: JSON.stringify(req),
+    }),
+    'create agent',
+  )
+  return data.id
+}

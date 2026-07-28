@@ -2,9 +2,9 @@ import { describe, it, expect } from 'vitest'
 import { parseFrame, consumeStream } from './sse'
 
 /**
- * SSE parser tests (P1.10.T2).
+ * SSE parser tests.
  *
- * Flowise frames look like `message:\ndata:{"event":"token","data":"hi"}\n\n`.
+ * Frames look like `message:\ndata:{"event":"token","data":"hi"}\n\n`.
  * These tests pin the framing + event typing so the chat view can rely on it.
  */
 

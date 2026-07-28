@@ -17,8 +17,8 @@ export class IterationNode implements INode {
   name = 'iterationAgentflow'
   version = 1
   type = 'Iteration'
-  category = 'Agent Flows'
-  color = '#9C89B8'
+  category = 'flow'
+  color = '#ec4899'
   inputs = [
     {
       label: 'Array Input',

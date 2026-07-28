@@ -55,3 +55,41 @@ export async function GET(req: NextRequest): Promise<NextResponse> {
     headers: { 'content-type': upstream.headers.get('content-type') ?? 'application/json' },
   })
 }
+
+/**
+ * POST /api/agents — proxy agent creation to dispatch.
+ *
+ * Forwards the JSON body verbatim to `${gatewayUrl()}/api/v1/dispatch/agents`,
+ * which the dispatch server's POST /agents handler validates + inserts. The
+ * response carries the new agent's id in `{ success, data: { id } }`.
+ */
+export async function POST(req: NextRequest): Promise<NextResponse> {
+  const upstreamUrl = `${gatewayUrl()}/api/v1/dispatch/agents`
+  const headers = forwardSessionHeaders(req, resolveRunId(req.headers.get('x-run-id')), true)
+
+  let body: string
+  try {
+    body = JSON.stringify(await req.json())
+  } catch {
+    return NextResponse.json(
+      { success: false, error: 'invalid JSON body' },
+      { status: 400 },
+    )
+  }
+
+  let upstream: Response
+  try {
+    upstream = await fetch(upstreamUrl, { method: 'POST', headers, body })
+  } catch (err) {
+    return NextResponse.json(
+      { success: false, error: 'gateway unavailable', detail: String(err) },
+      { status: 502 },
+    )
+  }
+
+  const text = await upstream.text()
+  return new NextResponse(text, {
+    status: upstream.status,
+    headers: { 'content-type': upstream.headers.get('content-type') ?? 'application/json' },
+  })
+}

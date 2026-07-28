@@ -17,8 +17,8 @@ export class DirectReplyNode implements INode {
   name = 'directReplyAgentflow'
   version = 1
   type = 'DirectReply'
-  category = 'Agent Flows'
-  color = '#4DDBBB'
+  category = 'agent'
+  color = '#8b5cf6'
   inputs = [
     {
       label: 'Message',

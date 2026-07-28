@@ -64,7 +64,7 @@ describe('DirectReplyNode', () => {
     const node = new DirectReplyNode()
     expect(node.name).toBe('directReplyAgentflow')
     expect(node.type).toBe('DirectReply')
-    expect(node.category).toBe('Agent Flows')
+    expect(node.category).toBe('agent')
     expect(node.inputs).toHaveLength(1)
     expect(node.inputs[0].name).toBe('directReplyMessage')
   })

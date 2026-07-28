@@ -1,23 +1,21 @@
 /**
- * Flowise SSE stream parsing (P1.10.T2).
+ * SSE stream parsing for prediction streams.
  *
- * Flowise streams predictions as Server-Sent Events. Each frame is:
+ * The gateway streams predictions as Server-Sent Events. Each frame is:
  *
  *   message:\n
  *   data:<json>\n\n
  *
- * where `<json>` is `{"event": "<type>", "data": <payload>}`. The full event
- * vocabulary lives in `vendor/flowise/packages/server/src/utils/SSEStreamer.ts`
- * (`streamTokenEvent`, `streamMetadataEvent`, `streamEndEvent`, …). This
- * module turns that byte stream into a typed async iterator of `StreamEvent`s
- * so the chat view (and any future consumer) doesn't reimplement the framing.
+ * where `<json>` is `{"event": "<type>", "data": <payload>}`. This module
+ * turns that byte stream into a typed async iterator of `StreamEvent`s so
+ * the chat view (and any future consumer) doesn't reimplement the framing.
  *
- * Non-normative frames Flowise emits and we deliberately ignore at the chat
- * layer: `agentReasoning`, `sourceDocuments`, `usedTools`, `calledTools`,
+ * Non-normative frames we deliberately ignore at the chat layer:
+ * `agentReasoning`, `sourceDocuments`, `usedTools`, `calledTools`,
  * `fileAnnotations`, `artifacts`, `tts_*`, `action`, `agentFlow*`. They are
  * surfaced as `custom` so a richer view can still see them; the basic chat
  * view only consumes `metadata`, `token`, and `error`. `end` carries the
- * literal `[DONE]` sentinel (see `SSEStreamer.removeClient`).
+ * literal `[DONE]` sentinel.
  *
  * Heartbeat comment lines (`:heartbeat\n\n`) and stray comments are ignored.
  * `data:` payloads are JSON; the rare non-JSON `data:` line (e.g. the raw
@@ -43,7 +41,7 @@ export type StreamEvent =
   | { event: 'abort'; data: string }
   | { event: 'custom'; rawEvent: string; data: unknown }
 
-/** Metadata payload Flowise sends once at the start of a streamed prediction. */
+/** Metadata payload sent once at the start of a streamed prediction. */
 export interface PredictionMetadata {
   chatId?: string
   chatMessageId?: string
@@ -58,7 +56,7 @@ export interface PredictionMetadata {
 /**
  * Parse one SSE frame's `data:` payload into a typed `StreamEvent`.
  *
- * Flowise always wraps payloads as `{ event, data }`, so we expect that shape.
+ * Payloads are always wrapped as `{ event, data }`, so we expect that shape.
  * A non-object JSON value (e.g. a bare `[DONE]`) degrades to `custom` with the
  * raw string — callers that only care about `token`/`metadata`/`error`/`end`
  * can ignore it.
@@ -74,7 +72,7 @@ export function parseFrame(dataLine: string): StreamEvent | null {
   try {
     parsed = JSON.parse(trimmed)
   } catch {
-    // Flowise's `end` path writes `data:[DONE]` inside the envelope, but a few
+    // The `end` path writes `data:[DONE]` inside the envelope, but a few
     // integrations emit a bare `[DONE]`. Surface it as `end` either way.
     if (trimmed === '[DONE]') return { event: 'end', data: '[DONE]' }
     return { event: 'custom', rawEvent: 'raw', data: trimmed }
@@ -127,7 +125,7 @@ export function parseFrame(dataLine: string): StreamEvent | null {
  * The function is transport-agnostic: pass anything `getReader()` works on
  * (a `fetch().body` web stream, a `Response` in a route handler, …). It
  * buffers bytes, splits on `\n\n` frame boundaries, and within each frame
- * reads the `data:` line — matching Flowise's `message:\ndata:<json>\n\n`
+ * reads the `data:` line — matching the standard `message:\ndata:<json>\n\n`
  * framing. Comment/heartbeat lines (`:heartbeat`) and the `message:` event
  * label are ignored.
  */

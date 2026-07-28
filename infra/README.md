@@ -72,8 +72,5 @@ docker compose down -v        # stop AND wipe volumes (fresh start)
 
 ## Notes
 
-- Flowise is vendored separately under `vendor/flowise/` and run from source
-  (`pnpm start` on port 3100), so it is deliberately not part of this compose
-  stack. `FLOWISE_PORT=3100` is documented in `.env.example` for the host app.
 - All long-lived services set `restart: unless-stopped`; the two `*-init`
   helpers set `restart: "no"` (they run once and exit).

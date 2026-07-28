@@ -22,8 +22,8 @@ export class CustomFunctionNode implements INode {
   name = 'customFunctionAgentflow'
   version = 1
   type = 'CustomFunction'
-  category = 'Agent Flows'
-  color = '#FF9F1C'
+  category = 'tools'
+  color = '#3b82f6'
   inputs = [
     {
       label: 'Function Code',

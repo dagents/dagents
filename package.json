@@ -4,11 +4,11 @@
   "version": "0.0.0",
   "packageManager": "pnpm@10.26.0",
   "scripts": {
-    "build": "turbo run build --filter='!flowise'",
-    "dev": "turbo run dev --parallel --filter='!flowise' --filter='!@dagents/daemon'",
-    "test": "turbo run test --filter='!flowise'",
-    "lint": "turbo run lint --filter='!flowise'",
-    "typecheck": "turbo run typecheck --filter='!flowise'"
+    "build": "turbo run build",
+    "dev": "turbo run dev --parallel --filter='!@dagents/daemon'",
+    "test": "turbo run test",
+    "lint": "turbo run lint",
+    "typecheck": "turbo run typecheck"
   },
   "devDependencies": {
     "turbo": "^2.0.0",

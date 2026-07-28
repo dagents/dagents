@@ -11,12 +11,12 @@ import type { INode, INodeData, INodeOutput, IExecutionContext } from '../../typ
  * Uses Node 20+'s built-in `fetch` — no `axios` dependency.
  */
 export class HttpNode implements INode {
-  label = 'HTTP Request'
-  name = 'httpRequestAgentflow'
+  label = 'HTTP'
+  name = 'httpAgentflow'
   version = 1
-  type = 'HTTP Request'
-  category = 'Agent Flows'
-  color = '#5A3EBA'
+  type = 'HTTP'
+  category = 'tools'
+  color = '#3b82f6'
   inputs = [
     { label: 'Method', name: 'method', type: 'options' as const, options: [
       { label: 'GET', name: 'GET' },

@@ -1,17 +1,15 @@
 /**
  * Page shell (M5a.1).
  *
- * Thin server-component wrapper around `.page > .page-head + children`, the
+ * Thin server-component wrapper around `.page > .page-actions + children`, the
  * layout every design screen shares (design/css/shell.css). Routes pass their
- * title / subtitle / breadcrumb / actions; the shell renders the consistent
- * page head so each route body is just its domain content.
+ * breadcrumb / actions; the shell renders the consistent page actions slot so
+ * each route body is just its domain content.
  */
 
 import type { ReactNode } from 'react'
 
 export interface PageShellProps {
-  title: string
-  subtitle?: string
   crumb?: string
   actions?: ReactNode
   children: ReactNode
@@ -20,31 +18,29 @@ export interface PageShellProps {
   fullBleed?: boolean
 }
 
-export function PageShell({ title, subtitle, crumb, actions, children, fullBleed }: PageShellProps) {
+export function PageShell({ crumb, actions, children, fullBleed }: PageShellProps) {
   if (fullBleed) {
     return (
-      <div className="page" style={{ padding: 'var(--space-4) var(--space-8) var(--space-8)', maxWidth: 'none' }}>
-        <div className="page-head">
-          <div className="page-head-title">
-            <h1 className="page-title">{title}</h1>
-            {subtitle ? <p className="page-subtitle">{subtitle}</p> : null}
+      <div className="page" style={{ padding: 'var(--space-4) var(--space-8) var(--space-8)', maxWidth: 'none', marginInline: 0, width: '100%', height: '100%', display: 'flex', flexDirection: 'column', minHeight: 0 }}>
+        {actions ? (
+          <div className="page-head" style={{ flexShrink: 0 }}>
+            <div className="page-actions">{actions}</div>
           </div>
-          {actions ? <div className="page-actions">{actions}</div> : null}
+        ) : null}
+        <div style={{ flex: 1, minHeight: 0 }}>
+          {children}
         </div>
-        {children}
       </div>
     )
   }
 
   return (
     <div className="page">
-      <div className="page-head">
-        <div className="page-head-title">
-          <h1 className="page-title">{title}</h1>
-          {subtitle ? <p className="page-subtitle">{subtitle}</p> : null}
+      {actions ? (
+        <div className="page-head">
+          <div className="page-actions">{actions}</div>
         </div>
-        {actions ? <div className="page-actions">{actions}</div> : null}
-      </div>
+      ) : null}
       {crumb ? <div className="hidden">{crumb}</div> : null}
       {children}
     </div>

@@ -5,7 +5,7 @@ import { test, expect } from '@playwright/test'
  *
  * Module status: ❌ 0/12 implemented. The `packages/workflow/` package does not
  * exist; 14 nodes not migrated; DAG engine not built; new `flows` table not
- * built; new `/api/v1/workflows/*` API not built; Flowise proxy code not
+ * built; new `/api/v1/workflows/*` API not built; legacy proxy code not
  * removed. See architecture §9 and gap-analysis §10.
  *
  * All twelve user cases are marked `test.fixme` with the gap. This file is
@@ -37,7 +37,7 @@ test.describe('Workflow engine module (UC-WF-01 ~ 12) — architecture §9', () 
   })
 
   test.fixme('UC-WF-01: execute workflow (SSE streaming)', async ({ request }) => {
-    // Gap: 路由不存在;当前仍用 /api/v1/flows/:id/prediction (Flowise)。
+    // Gap: 路由不存在;当前仍用 /api/v1/flows/:id/prediction (workflow proxy)。
     // 期望: POST /api/v1/workflows/:id/run 返回 SSE,
     //       推送 token / 工具调用 / 思考过程事件。
     const res = await request.post('/api/v1/workflows/test-flow-id/run', {

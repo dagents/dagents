@@ -1,12 +1,12 @@
 /**
- * Agent catalogue for the chat view's agent selector (P1.10.T3).
+ * Agent catalogue for the chat view's agent selector.
  *
  * "agent 切换（提示词 agent / 异构 agent）". The console talks to two families
  * of agents:
  *
- *  - **Prompt agents** — Flowise chatflows (type `CHATFLOW`). The chat view
+ *  - **Prompt agents** — workflow chatflows (type `CHATFLOW`). The chat view
  *    drives them via the gateway's `/api/v1/flows/<id>/prediction` proxy. Each
- *    has a `flowId` (the Flowise chatflow id) and a short description.
+ *    has a `flowId` (the workflow chatflow id) and a short description.
  *
  *  - **Heterogeneous CLI agents** — `claude`, `codex`, … (the 14-type
  *    whitelist in `@dagents/contracts` `AgentType`). These are dispatched through
@@ -30,7 +30,7 @@ export interface ChatAgent {
   label: string
   description: string
   runtime: AgentRuntime
-  /** Flowise chatflow id — present for `prompt` agents. */
+  /** Workflow chatflow id — present for `prompt` agents. */
   flowId?: string
   /** CLI agent type — present for `cli` agents. */
   agentType?: AgentType
@@ -61,12 +61,12 @@ const CLI_AGENTS: ChatAgent[] = [
   },
 ]
 
-/** Prompt agents bound to Flowise chatflows. */
+/** Prompt agents bound to workflow chatflows. */
 const PROMPT_AGENTS: ChatAgent[] = [
   {
     id: 'prompt:default',
     label: 'M1 Demo Agent',
-    description: '提示词 agent — ReAct Agent + Calculator，经 gateway 调 Flowise。',
+    description: '提示词 agent — ReAct Agent + Calculator，经 gateway 调用。',
     runtime: 'prompt',
     flowId: DEFAULT_FLOW_ID,
   },

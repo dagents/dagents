@@ -1,6 +1,8 @@
 import { Hono, type Context } from 'hono'
 import type { ContentfulStatusCode } from 'hono/utils/http-status'
 import { z } from 'zod'
+import { spawn } from 'node:child_process'
+import { platform } from 'node:os'
 import { runQuery } from '@dagents/db'
 import { createLogger } from '@dagents/shared'
 
@@ -17,6 +19,107 @@ const fail = (
 ) => c.json({ success: false, error, ...extra }, status)
 
 const UUID_RE = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i
+
+/**
+ * Spawn a native OS directory picker and resolve with the chosen absolute
+ * path (or null if the user cancelled). Used by the console's chat composer
+ * DirectorySelector — the browser cannot read absolute paths via
+ * `showDirectoryPicker()` (web security boundary), but the gateway runs
+ * locally on the user's machine, so it can shell out to the OS's native
+ * dialog and return the real path.
+ *
+ * Per-platform:
+ *   - darwin : `osascript -e 'choose folder'` → "alias macOS:Users:rowan:…"
+ *   - linux  : `zenity --file-selection --directory` (GTK; widely available)
+ *   - win32  : PowerShell + Windows.Forms.FolderBrowserDialog
+ *
+ * The picked path is validated to be absolute + exist on disk before return.
+ */
+function pickDirectoryNative(): Promise<string | null> {
+  const os = platform()
+  return new Promise((resolve) => {
+    let cmd: string
+    let args: string[]
+    let parse: (stdout: string) => string | null
+
+    if (os === 'darwin') {
+      // Use `choose folder` from Standard Additions (no `tell application`
+      // needed — avoids "permission violation" errors when the frontmost
+      // app doesn't support Apple Events). `POSIX path of` converts the
+      // HFS alias to a POSIX path directly, eliminating manual parsing.
+      cmd = 'osascript'
+      args = ['-e', 'POSIX path of (choose folder with prompt "选择项目目录")']
+      parse = (out) => {
+        const p = out.trim()
+        return p || null
+      }
+    } else if (os === 'win32') {
+      // PowerShell FolderBrowserDialog writes the selected path to stdout.
+      const ps = `
+        Add-Type -AssemblyName System.Windows.Forms
+        $dlg = New-Object System.Windows.Forms.FolderBrowserDialog
+        $dlg.Description = 'Select project directory'
+        $dlg.ShowNewFolderButton = $false
+        if ($dlg.ShowDialog() -eq 'OK') { Write-Output $dlg.SelectedPath }
+      `.replace(/\n/g, ' ')
+      cmd = 'powershell'
+      args = ['-NoProfile', '-NonInteractive', '-Command', ps]
+      parse = (out) => {
+        const p = out.trim()
+        return p || null
+      }
+    } else {
+      // Linux / other: zenity is the de-facto GTK dialog. If absent, fail
+      // gracefully — the caller surfaces the error to the UI.
+      cmd = 'zenity'
+      args = ['--file-selection', '--directory', '--title=选择项目目录']
+      parse = (out) => {
+        const p = out.trim()
+        return p || null
+      }
+    }
+
+    const child = spawn(cmd, args, { stdio: ['ignore', 'pipe', 'pipe'] })
+    let stdout = ''
+    let stderr = ''
+    child.stdout.on('data', (d) => { stdout += d.toString() })
+    child.stderr.on('data', (d) => { stderr += d.toString() })
+    child.on('error', (err) => {
+      log.warn('native directory picker spawn failed', {
+        os,
+        cmd,
+        error: String(err),
+      })
+      resolve(null)
+    })
+    child.on('close', (code) => {
+      // Exit code 1 typically means user cancelled (osascript / zenity).
+      if (code !== 0) {
+        log.debug('native directory picker exited non-zero', {
+          os,
+          code,
+          stderr: stderr.slice(0, 200),
+        })
+        resolve(null)
+        return
+      }
+      const path = parse(stdout)
+      resolve(path)
+    })
+  })
+}
+
+/** Validate that a path is absolute and exists. Used by /pick before
+ *  returning the path to the client, so the client never sees a bogus path. */
+async function pathExists(p: string): Promise<boolean> {
+  try {
+    const fs = await import('node:fs/promises')
+    const stat = await fs.stat(p)
+    return stat.isDirectory()
+  } catch {
+    return false
+  }
+}
 
 const listQuerySchema = z.object({
   limit: z.coerce.number().int().min(1).max(200).default(100),
@@ -86,6 +189,41 @@ directoryRoutes.get('/', async (c) => {
   return ok(c, {
     items: rows.map((r) => normalizeDir(r)),
   })
+})
+
+/**
+ * GET /pick — open the OS-native directory picker and return the chosen
+ * absolute path. Resolves with `{ path: null }` when the user cancels.
+ *
+ * This bypasses the browser's absolute-path restriction by running the
+ * picker on the gateway (which is a local process on the user's machine,
+ * not a remote server). The console's DirectorySelector calls this and
+ * then POSTs the returned path to create a directory record.
+ *
+ * No auth on this route beyond the gateway's standard session check — it
+ * only returns a path string, never reads directory contents.
+ */
+directoryRoutes.get('/pick', async (c) => {
+  let path: string | null
+  try {
+    path = await pickDirectoryNative()
+  } catch (err) {
+    log.warn('native directory picker threw', { error: String(err) })
+    return fail(c, 502, 'directory picker failed', { detail: String(err) })
+  }
+  if (!path) {
+    // User cancelled or picker unavailable. 200 with null path so the
+    // client can distinguish "cancelled" from "picker broken".
+    return ok(c, { path: null })
+  }
+  // Validate the path actually exists on disk before returning — guards
+  // against any parser quirks across OS versions.
+  const exists = await pathExists(path)
+  if (!exists) {
+    log.warn('picker returned non-existent path', { path })
+    return fail(c, 500, 'picked path does not exist', { path })
+  }
+  return ok(c, { path })
 })
 
 directoryRoutes.get('/:id', async (c) => {

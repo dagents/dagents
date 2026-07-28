@@ -73,7 +73,7 @@ describe('integration: linear DAG with mixed nodes', () => {
           {
             id: 'http1',
             data: {
-              name: 'httpRequestAgentflow',
+              name: 'httpAgentflow',
               method: 'GET',
               url: 'https://api.weather.example/current',
             },
@@ -135,7 +135,7 @@ describe('integration: linear DAG with mixed nodes', () => {
           {
             id: 'http1',
             data: {
-              name: 'httpRequestAgentflow',
+              name: 'httpAgentflow',
               method: 'GET',
               url: 'https://this-domain-does-not-exist.invalid',
             },

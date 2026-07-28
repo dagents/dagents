@@ -37,7 +37,6 @@ export const NAV: readonly NavSection[] = [
       { id: 'agents', label: 'Agents', href: '/agents', icon: 'agents' },
       { id: 'flows', label: 'AgentFlows', href: '/flows', icon: 'flows' },
       { id: 'daemons', label: 'Daemons', href: '/daemons', icon: 'daemons' },
-      { id: 'settings', label: 'Settings', href: '/settings', icon: 'settings' },
     ],
   },
 ] as const

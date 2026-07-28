@@ -18,8 +18,8 @@ export class LoopNode implements INode {
   name = 'loopAgentflow'
   version = 1
   type = 'Loop'
-  category = 'Agent Flows'
-  color = '#9C89B8'
+  category = 'flow'
+  color = '#ec4899'
   inputs = [
     {
       label: 'Loop Count',

@@ -9,7 +9,7 @@
  * M8.2 对齐 design/settings.html 全 690 行：其余 5 tab（默认模型 / 预算配额
  * / 通知 / 账户与团队 / 危险区）按 design 的 DOM 形状逐一回填 — model-row /
  * toggle-row / kv / danger-zone 原语 + design 的占位数据。数据接线延后但形状
- * 在（coverage analysis §2.2/2.3 明确推迟通知与账户/团队，默认模型→Flowise
+ * 在（coverage analysis §2.2/2.3 明确推迟通知与账户/团队，默认模型→workflow
  * 配置、熔断→scheduler、成本→资源面板聚合 API）。
  *
  * 各 tab 的占位数据来自 design 的静态 HTML / tokens-data.js，标注待接入
@@ -102,10 +102,7 @@ export function SettingsView(): React.ReactElement {
   const [tab, setTab] = useState<TabId>('keys')
 
   return (
-    <PageShell
-      title="设置"
-      subtitle="LLM Provider 管理、默认模型、预算配额与熔断、通知。Provider 配置经网关统一管理，上游渠道由平台维护。"
-    >
+    <PageShell>
       <div className="settings-layout">
         <nav className="settings-nav" aria-label="设置分组" role="tablist">
           {TAB_GROUPS.map((g) => (
@@ -677,7 +674,7 @@ function DeleteModal(props: {
 // The five tabs below are faithful read-only shapes of design/settings.html's
 // <section> bodies (model-row / toggle-row / kv / danger-zone primitives +
 // the design's sample rows). Data wiring is deferred per the coverage
-// analysis (默认模型→Flowise config, 熔断→scheduler, 成本→资源面板聚合 API,
+// analysis (默认模型→workflow config, 熔断→scheduler, 成本→资源面板聚合 API,
 // 通知/账户/团队推迟到 MVP 后), but the DOM shape is in place so all six
 // tabs are available and visually consistent with the design. The sample rows
 // are the design's own placeholder values, not live data.

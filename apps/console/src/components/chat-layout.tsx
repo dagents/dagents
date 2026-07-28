@@ -11,14 +11,24 @@
  * Based on design-redo-open-webui/pages/main.html `.app-shell` layout.
  */
 
-import { useState, useCallback, useEffect } from 'react'
+import { useState, useCallback, useEffect, useMemo } from 'react'
 import { usePathname } from 'next/navigation'
 import { ChatNavSidebar } from '@/components/chat-nav-sidebar'
+import { FloatingChat } from '@/components/floating-chat'
 import { Icon } from '@/components/icon'
+import { crumbsFor } from '@/components/nav'
 import { useSession } from '@/lib/auth-client'
 import '@/styles/chat-layout.css'
 
 const COLLAPSE_KEY = 'od:chat-sidebar'
+
+/** Derive the navbar title from the current pathname via the crumbs trail.
+ *  Returns null for the root (Chat) — no title there. */
+function titleFor(pathname: string): string | null {
+  const segments = crumbsFor(pathname)
+  if (segments.length === 0) return null
+  return segments[segments.length - 1].label
+}
 
 export function ChatLayout({ children }: { children: React.ReactNode }) {
   const pathname = usePathname() ?? '/'
@@ -42,6 +52,8 @@ export function ChatLayout({ children }: { children: React.ReactNode }) {
     })
   }, [])
 
+  const title = useMemo(() => titleFor(pathname), [pathname])
+
   return (
     <div className="chat-layout">
       <aside className={`chat-layout-sidebar${collapsed ? ' collapsed' : ''}`}>
@@ -59,6 +71,7 @@ export function ChatLayout({ children }: { children: React.ReactNode }) {
             >
               <Icon name="collapse" style={{ transform: collapsed ? 'rotate(180deg)' : '', transition: 'transform var(--motion-fast)' }} />
             </button>
+            {title ? <h1 className="chat-layout-navbar-title">{title}</h1> : null}
           </div>
           <div className="chat-layout-navbar-right">
             <div className="account-menu-wrap" style={{ position: 'relative' }}>
@@ -88,6 +101,9 @@ export function ChatLayout({ children }: { children: React.ReactNode }) {
           {children}
         </div>
       </div>
+      {/* Floating chat overlay — multica-style FAB + window. Hidden on
+          /chats/[id] (the full-page chat owns the conversation there). */}
+      <FloatingChat />
     </div>
   )
 }

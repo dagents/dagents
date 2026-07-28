@@ -36,3 +36,20 @@ export type AgentLifecycleStatus = 'running' | 'queued' | 'idle' | 'failed' | 'p
 export type ConsoleWsFrame =
   | { type: 'agent-updated'; agentId: string; availability: AgentPresence; status: AgentLifecycleStatus }
   | { type: 'run-updated'; runId: string; status: string }
+  | ChatWsFrame
+
+/** Chat realtime frame variants. Emitted by the gateway's InlineAgentExecutor
+ *  and broadcast to clients subscribed (via WS `subscribe` message or
+ *  `?chat=<id>` query) to the corresponding chatId. Clients accumulate
+ *  `chat:message` chunks into the active assistant bubble, then seal it on
+ *  `chat:done` (or surface an error on `chat:error`). */
+export type ChatWsFrame =
+  | { type: 'chat:message'; chatId: string; runId?: string; role: 'assistant'; content: string; streaming: true }
+  | { type: 'chat:done'; chatId: string; runId?: string; role: 'assistant'; content: string; streaming: false; status?: string }
+  | { type: 'chat:error'; chatId: string; runId?: string; role: 'assistant'; content: string; streaming: false; error?: string }
+
+/** Type guard: any chat:* frame. Useful for filters that want to demux chat
+ *  traffic from agent-updated / run-updated frames. */
+export function isChatFrame(f: ConsoleWsFrame): f is ChatWsFrame {
+  return f.type === 'chat:message' || f.type === 'chat:done' || f.type === 'chat:error'
+}

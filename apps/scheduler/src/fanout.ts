@@ -16,14 +16,13 @@ import {
 import { ingestNodeSpansBestEffort } from './node-span-ingest.js'
 
 /**
- * Batch fan-out (P1.7.T4 / plan M3.2).
+ * Batch fan-out.
  *
- * Flowise Iteration processes arrays serially, so for throughput-sensitive
- * batches ("run N papers through a flow") the scheduler fans the batch out
- * itself (architecture v0.2 §6.5): one parent run + N child runs, each child a
- * single Prediction API call, executed concurrently up to the semaphore's
- * `maxConcurrent`. The parent aggregates child outcomes once every child has
- * settled (success or failure).
+ * For throughput-sensitive batches ("run N papers through a workflow") the
+ * scheduler fans the batch out itself: one parent run + N child runs, each
+ * child a single Prediction API call, executed concurrently up to the
+ * semaphore's `maxConcurrent`. The parent aggregates child outcomes once every
+ * child has settled (success or failure).
  *
  * Shape of a fan-out:
  *   1. create parent run (status=pending, input = the whole batch)
@@ -46,14 +45,14 @@ import { ingestNodeSpansBestEffort } from './node-span-ingest.js'
 const log = createLogger({ svc: 'scheduler:fanout' })
 
 export interface FanOutInputItem {
-  /** Per-child input shipped to Flowise as the prediction body. */
+  /** Per-child input shipped to the prediction API as the prediction body. */
   body: unknown
   /** Optional human label for the child run's `identifier`. */
   label?: string
 }
 
 export interface FanOutRequest {
-  /** Flowise flow id each child predicts against. */
+  /** Workflow / pipeline id each child predicts against. */
   flowId: string
   /** The batch — one child run per item. */
   inputs: FanOutInputItem[]
@@ -246,8 +245,9 @@ export async function runChild(
   deps: FanOutDeps,
 ): Promise<FanOutChildResult> {
   // M6.1: wrap the child run in a span tagged `run.id` so its prediction hop
-  // (gateway→flowise→daemon→LLM) joins one trace. The undici instrumentation
-  // injects `traceparent` from this active span into the outbound fetch.
+  // (gateway→workflow-engine→daemon→LLM) joins one trace. The undici
+  // instrumentation injects `traceparent` from this active span into the
+  // outbound fetch.
   const tracer = getTracer('scheduler')
   const span = tracer.startSpan('scheduler.child-run', {
     attributes: { 'run.id': runId, 'flow.id': flowId },
@@ -295,8 +295,8 @@ async function runChildInner(
     await archiveBestEffort(deps.repro, runId, result.output, log)
   }
 
-  // M6.4: ingest the child run's node-level trace (agentflow prediction
-  // response carries `agentFlowExecutedData`). Best-effort — a failure logs and
+  // M6.4: ingest the child run's node-level trace (prediction
+  // response carries node trace). Best-effort — a failure logs and
   // never re-fails the (already completed) child. The shared helper defaults
   // `traceId` to the active span's traceId (M6.1, this child runs inside the
   // `scheduler.child-run` span) and `finishedAt` to now, wiring the

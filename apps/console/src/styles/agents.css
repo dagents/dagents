@@ -1,98 +1,683 @@
-/* agents.css — page-local styles for the Agents 管理页 (M5a.2 / P1.10.T4).
-   Ported from design/agents.html's <style> block. Reuses shell.css component
-   classes (.kpi-row/.kpi/.toolbar/.chip/.segmented/.drawer/.kv/.bar/.status/
-   .log/.section-label) — only the agents-specific pieces live here.
+/* agents.css — multica-inspired clean list layout.
+   Design principles: 克制即高级, 层次靠灰度, 字号纪律 (text-sm primary),
+   间距 > 分割线, hover vs active distinction. */
 
-   v0.3-M5.1 adds the design's scope-tabs + sortable list-header + result-count
-   surface (agents.html:11-15, 57-61, 125, 169-172, 228-239). The scope-tabs +
-   result-count rules mirror flows.css (same design source); duplicated here so
-   agents.css is self-contained when the flows page isn't loaded. */
-
-/* scope tabs — agents.html:11-15 (same as flows.css) */
-.scope-tabs { display: inline-flex; gap: 2px; background: var(--surface); border-radius: var(--radius-sm); padding: 3px; }
-.scope-tabs button { border: 0; background: transparent; padding: 6px var(--space-3); border-radius: 9px; font-size: var(--text-xs); font-weight: 500; color: var(--muted); cursor: pointer; transition: background var(--motion-fast), color var(--motion-fast); display: inline-flex; align-items: center; gap: 5px; }
-.scope-tabs button:hover { color: var(--fg); }
-.scope-tabs button[aria-selected="true"] { background: var(--bg); color: var(--fg); box-shadow: var(--elev-ring); }
-.scope-tabs .cnt { font-family: var(--font-mono); font-size: 10px; opacity: 0.7; }
-
-/* sortable list-header button (agents.html:57-61, 471-477). The design sorts
-   on a .h.sortable div and rotates its `.sort-ic` SVG by sortDir; the React
-   port renders a <button class="sortable-head"> inside the <th> for keyboard
-   a11y, carrying the same data-sort/data-active and a data-dir (asc|desc) that
-   the ::after glyph rotates on — so the active column's direction is visible
-   (▾ desc, ▴ asc) and mirrored nowhere else. */
-.sortable-head { display: inline-flex; align-items: center; gap: 4px; border: 0; background: transparent; padding: 0; font: inherit; color: var(--meta); letter-spacing: var(--tracking-label); text-transform: uppercase; cursor: pointer; transition: color var(--motion-fast); }
-.sortable-head:hover { color: var(--fg); }
-.sortable-head[data-active="true"] { color: var(--fg); }
-.sortable-head[data-active="true"]::after { content: '▾'; font-size: 9px; opacity: 0.8; transition: transform var(--motion-fast); }
-/* asc flips the arrow (▾ → ▴); desc keeps it down. Matches agents.html:476's
-   rotate(180deg) when sortDir === 'asc' && active. */
-.sortable-head[data-active="true"][data-dir="asc"]::after { transform: rotate(180deg); }
-
-/* result count — agents.html:125 (same as flows.css) */
-.result-count { font-size: 11px; color: var(--meta); font-family: var(--font-mono); }
-
-.toolbar { display: flex; align-items: center; gap: var(--space-3); margin-bottom: var(--space-4); flex-wrap: wrap; }
-.filter-chip {
-  display: inline-flex; align-items: center; gap: 6px;
-  height: 32px; padding: 0 var(--space-3);
-  background: var(--bg); border: 1px solid var(--border);
+/* ─── scope tabs ─── */
+.scope-tabs {
+  display: inline-flex;
+  gap: 2px;
+  background: var(--surface);
   border-radius: var(--radius-sm);
-  font-size: var(--text-xs); color: var(--fg-2); font-weight: 500;
-  cursor: pointer; transition: all var(--motion-fast);
+  padding: 3px;
+  margin-bottom: var(--space-4);
 }
-.filter-chip:hover { border-color: #d4d4d4; }
-.filter-chip[aria-pressed="true"] { background: var(--fg); color: var(--bg); border-color: var(--fg); }
-.filter-chip .cnt { font-family: var(--font-mono); opacity: 0.7; }
-.filter-group { display: inline-flex; gap: var(--space-2); flex-wrap: wrap; align-items: center; }
-.filter-label { font-size: 11px; color: var(--meta); letter-spacing: var(--tracking-label); text-transform: uppercase; margin-right: 2px; }
+.scope-tabs button {
+  border: 0;
+  background: transparent;
+  padding: 6px var(--space-3);
+  border-radius: 9px;
+  font-size: var(--text-xs);
+  font-weight: 500;
+  color: var(--muted);
+  cursor: pointer;
+  transition: background var(--motion-fast), color var(--motion-fast);
+  display: inline-flex;
+  align-items: center;
+  gap: 5px;
+}
+.scope-tabs button:hover { color: var(--fg); }
+.scope-tabs button[aria-selected="true"] {
+  background: var(--bg);
+  color: var(--fg);
+  box-shadow: var(--elev-ring);
+}
+.scope-tabs .cnt {
+  font-family: var(--font-mono);
+  font-size: 10px;
+  opacity: 0.7;
+}
 
-.agent-cell { display: flex; align-items: center; gap: var(--space-3); }
+/* ─── toolbar ─── */
+.agents-toolbar {
+  display: flex;
+  align-items: center;
+  gap: var(--space-3);
+  margin-bottom: var(--space-4);
+  flex-wrap: wrap;
+}
+.filter-group {
+  display: inline-flex;
+  gap: var(--space-2);
+  flex-wrap: wrap;
+  align-items: center;
+}
+.filter-chip {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  height: 30px;
+  padding: 0 var(--space-3);
+  background: var(--bg);
+  border: 1px solid var(--border);
+  border-radius: var(--radius-sm);
+  font-size: var(--text-xs);
+  color: var(--muted);
+  font-weight: 500;
+  cursor: pointer;
+  transition: all var(--motion-fast);
+}
+.filter-chip:hover {
+  border-color: var(--border);
+  color: var(--fg);
+  background: var(--surface-warm);
+}
+.filter-chip[aria-pressed="true"] {
+  background: var(--fg);
+  color: var(--bg);
+  border-color: var(--fg);
+}
+.agents-search {
+  width: 220px;
+  height: 30px;
+  font-size: var(--text-xs);
+}
+.result-count {
+  font-size: 11px;
+  color: var(--meta);
+  font-family: var(--font-mono);
+}
+
+/* ─── error ─── */
+.agents-error {
+  display: flex;
+  align-items: center;
+  gap: var(--space-3);
+  padding: var(--space-3) var(--space-4);
+  color: var(--danger);
+  font-size: var(--text-sm);
+  margin-bottom: var(--space-4);
+}
+
+/* ─── list ─── */
+.agents-list {
+  flex: 1;
+  min-height: 0;
+  overflow-y: auto;
+}
+
+/* list header — sticky, subtle */
+.agents-list-header {
+  display: grid;
+  grid-template-columns: 1fr 100px 100px 120px 100px 80px;
+  gap: var(--space-3);
+  align-items: center;
+  padding: 0 var(--space-2);
+  height: 36px;
+  position: sticky;
+  top: 0;
+  background: var(--bg);
+  z-index: 5;
+  border-bottom: 1px solid var(--border-soft);
+}
+.list-header-cell {
+  font-size: 11px;
+  font-weight: 500;
+  color: var(--meta);
+  letter-spacing: var(--tracking-label);
+  text-transform: uppercase;
+  display: inline-flex;
+  align-items: center;
+  gap: 4px;
+}
+.list-header-cell.sortable {
+  border: 0;
+  background: transparent;
+  padding: 0;
+  font: inherit;
+  cursor: pointer;
+  transition: color var(--motion-fast);
+}
+.list-header-cell.sortable:hover { color: var(--fg); }
+.list-header-cell.sortable.active { color: var(--fg); }
+.list-header-cell.sortable.active::after {
+  content: '▾';
+  font-size: 9px;
+  opacity: 0.8;
+}
+.list-header-cell.sortable.active[data-dir="asc"]::after {
+  transform: rotate(180deg);
+}
+
+/* list row — clean, hover-light */
+.agents-row {
+  display: grid;
+  grid-template-columns: 1fr 100px 100px 120px 100px 80px;
+  gap: var(--space-3);
+  align-items: center;
+  padding: 0 var(--space-2);
+  height: 52px;
+  cursor: pointer;
+  transition: background var(--motion-fast);
+  border-bottom: 1px solid var(--border-soft);
+}
+.agents-row:hover {
+  background: var(--surface-warm);
+}
+
+/* name cell */
+.cell-name {
+  display: flex;
+  align-items: center;
+  gap: var(--space-3);
+  min-width: 0;
+}
 .agent-glyph {
-  width: 30px; height: 30px; border-radius: 8px;
-  background: var(--surface); color: var(--fg);
-  display: grid; place-items: center;
-  font-family: var(--font-mono); font-size: 12px; font-weight: 600;
-  flex-shrink: 0; border: 1px solid var(--border-soft);
+  width: 28px;
+  height: 28px;
+  border-radius: 7px;
+  background: var(--surface);
+  color: var(--fg);
+  display: grid;
+  place-items: center;
+  font-family: var(--font-mono);
+  font-size: 11px;
+  font-weight: 600;
+  flex-shrink: 0;
+  border: 1px solid var(--border-soft);
 }
 .agent-glyph.kind-claude { background: #f4eee6; color: #8b5a2b; }
 .agent-glyph.kind-codex { background: #eef4ee; color: #1f6b3f; }
 .agent-glyph.kind-prompt { background: var(--accent-soft); color: var(--accent-hover); }
 .agent-glyph.kind-remote { background: var(--info-soft); color: var(--info); }
-.agent-name { font-weight: 500; color: var(--fg); }
-.agent-id { font-family: var(--font-mono); font-size: 11px; color: var(--meta); }
-.agent-tags { display: flex; gap: 4px; flex-wrap: wrap; }
-
-/* kanban */
-.kanban { display: grid; grid-template-columns: repeat(5, 1fr); gap: var(--space-4); }
-.kanban-col { background: var(--surface-warm); border: 1px solid var(--border-soft); border-radius: var(--radius-md); padding: var(--space-3); min-height: 420px; }
-.kanban-head { display: flex; align-items: center; justify-content: space-between; padding: 0 var(--space-2) var(--space-3); }
-.kanban-head .t { font-size: var(--text-xs); font-weight: 600; color: var(--fg-2); display: inline-flex; align-items: center; gap: 6px; }
-.kanban-head .cnt { font-family: var(--font-mono); font-size: 11px; color: var(--muted); }
-.kanban-card {
-  background: var(--bg); border: 1px solid var(--border-soft); border-radius: var(--radius-sm);
-  padding: var(--space-3); margin-bottom: var(--space-2); cursor: pointer;
-  transition: box-shadow var(--motion-fast), border-color var(--motion-fast);
+.name-info {
+  display: flex;
+  flex-direction: column;
+  min-width: 0;
 }
-.kanban-card:hover { box-shadow: var(--elev-raised); border-color: var(--border); }
-.kanban-card .top { display: flex; align-items: center; gap: var(--space-2); margin-bottom: 6px; }
-.kanban-card .nm { font-size: var(--text-sm); font-weight: 500; color: var(--fg); flex: 1; min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
-.kanban-card .meta { font-size: 11px; color: var(--muted); display: flex; justify-content: space-between; }
+.name-info .name {
+  font-size: var(--text-sm);
+  font-weight: 500;
+  color: var(--fg);
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+.name-info .id {
+  font-family: var(--font-mono);
+  font-size: 10px;
+  color: var(--meta);
+}
 
-.role-block { display: flex; align-items: flex-start; gap: var(--space-3); padding: var(--space-3) 0; border-top: 1px solid var(--border-soft); }
-.role-block:first-child { border-top: 0; }
-.role-block .glyph { width: 34px; height: 34px; border-radius: 8px; background: var(--surface); display: grid; place-items: center; flex-shrink: 0; font-family: var(--font-mono); font-weight: 600; font-size: 13px; }
-.role-block .nm { font-size: var(--text-sm); font-weight: 500; color: var(--fg); }
-.role-block .ds { font-size: 12px; color: var(--muted); margin-top: 2px; line-height: 1.5; }
+/* kind cell */
+.cell-kind .kind-label {
+  font-size: var(--text-xs);
+  color: var(--muted);
+}
 
-.mini-spark { width: 100%; height: 36px; }
+/* status cell */
+.cell-status {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+}
+.status-dot {
+  width: 6px;
+  height: 6px;
+  border-radius: 50%;
+  flex-shrink: 0;
+  background: var(--meta);
+}
+.status-dot.dot-running {
+  background: var(--accent);
+  box-shadow: 0 0 0 2px var(--accent-soft);
+}
+.status-dot.dot-queued { background: var(--warn); }
+.status-dot.dot-idle { background: var(--meta); }
+.status-dot.dot-failed { background: var(--danger); }
+.status-dot.dot-paused { background: var(--info); }
+.status-dot.dot-done { background: var(--meta); }
+.status-label {
+  font-size: var(--text-xs);
+  color: var(--muted);
+}
 
-.view-toggle .kanban { display: none; }
-.view-toggle[data-view="kanban"] .table-wrap { display: none; }
-.view-toggle[data-view="kanban"] .kanban { display: grid; }
+/* run cell */
+.cell-run {
+  font-size: var(--text-xs);
+  color: var(--muted);
+}
 
-/* the agents page doesn't use full-bleed; keep it on the standard .page grid */
-.agents-search { width: 220px; }
+/* load cell */
+.cell-load {
+  display: flex;
+  align-items: center;
+  gap: var(--space-2);
+}
+.load-bar {
+  width: 48px;
+  height: 4px;
+  background: var(--surface);
+  border-radius: 2px;
+  overflow: hidden;
+}
+.load-fill {
+  display: block;
+  height: 100%;
+  background: var(--accent);
+  border-radius: 2px;
+  transition: width var(--motion-fast);
+}
+.load-fill.warn { background: var(--warn); }
+.load-fill.danger { background: var(--danger); }
+.load-val {
+  font-size: 10px;
+  color: var(--meta);
+}
 
-@media (max-width: 1100px) { .kanban { grid-template-columns: repeat(3, 1fr); } }
-@media (max-width: 760px) { .kanban { grid-template-columns: 1fr; } }
+/* cost cell */
+.cell-cost {
+  font-size: var(--text-xs);
+  color: var(--muted);
+}
+
+/* ─── empty ─── */
+.agents-empty {
+  padding: var(--space-12);
+  text-align: center;
+  color: var(--meta);
+  font-size: var(--text-sm);
+}
+
+/* ─── drawer (shared with shell.css, only new pieces here) ─── */
+.drawer-loading,
+.drawer-error {
+  padding: var(--space-4);
+  color: var(--meta);
+  font-size: var(--text-sm);
+}
+.drawer-error { color: var(--danger); }
+
+/* capability card */
+.capability-card {
+  background: var(--surface-warm);
+  border: 1px solid var(--border-soft);
+  border-radius: var(--radius-sm);
+  padding: var(--space-3);
+  margin-bottom: var(--space-4);
+}
+.cap-row {
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+  margin-bottom: var(--space-2);
+  font-size: var(--text-xs);
+}
+.cap-label {
+  color: var(--meta);
+}
+.cap-row .mono {
+  font-size: 11px;
+  color: var(--fg-2);
+}
+.cap-desc {
+  font-size: var(--text-xs);
+  color: var(--muted);
+  margin-top: var(--space-2);
+  line-height: 1.5;
+}
+
+/* task card */
+.task-card {
+  background: var(--surface-warm);
+  border: 1px solid var(--border-soft);
+  border-radius: var(--radius-sm);
+  padding: var(--space-3);
+  margin-bottom: var(--space-4);
+}
+.task-head {
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+  margin-bottom: var(--space-2);
+}
+.task-name {
+  font-size: var(--text-sm);
+  font-weight: 500;
+  color: var(--fg);
+}
+.task-status-chip {
+  font-size: 10px;
+  color: var(--muted);
+  background: var(--surface);
+  padding: 2px 8px;
+  border-radius: var(--radius-pill);
+}
+.task-progress {
+  height: 3px;
+  background: var(--surface);
+  border-radius: 2px;
+  overflow: hidden;
+  margin-bottom: var(--space-2);
+}
+.task-progress span {
+  display: block;
+  height: 100%;
+  background: var(--accent);
+  border-radius: 2px;
+  transition: width var(--motion-fast);
+}
+.task-meta {
+  font-size: 11px;
+  color: var(--meta);
+}
+
+/* resource summary */
+.resource-summary {
+  font-size: 11px;
+  color: var(--meta);
+  margin-bottom: var(--space-4);
+}
+.mini-spark {
+  width: 100%;
+  height: 36px;
+  margin-bottom: var(--space-2);
+}
+
+/* ─── create-agent modal ─── */
+.modal-dialog {
+  position: fixed;
+  top: 50%;
+  left: 50%;
+  transform: translate(-50%, -48%);
+  width: 560px;
+  max-width: 92vw;
+  max-height: 88vh;
+  background: var(--bg);
+  border: 1px solid var(--border);
+  border-radius: var(--radius-md);
+  box-shadow: var(--elev-overlay);
+  z-index: 100;
+  display: flex;
+  flex-direction: column;
+  opacity: 0;
+  pointer-events: none;
+  transition: opacity var(--motion-base), transform var(--motion-base) var(--ease-standard);
+}
+.modal-dialog.open {
+  opacity: 1;
+  pointer-events: auto;
+  transform: translate(-50%, -50%);
+}
+.modal-head {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  padding: var(--space-4) var(--space-6);
+  border-bottom: 1px solid var(--border-soft);
+  flex-shrink: 0;
+}
+.modal-title {
+  font-size: var(--text-base);
+  font-weight: 600;
+  color: var(--fg);
+  margin: 0;
+}
+.modal-body {
+  flex: 1;
+  overflow-y: auto;
+  padding: var(--space-6);
+}
+.modal-foot {
+  display: flex;
+  justify-content: flex-end;
+  gap: var(--space-2);
+  padding: var(--space-4) var(--space-6);
+  border-top: 1px solid var(--border-soft);
+  flex-shrink: 0;
+}
+.modal-loading,
+.modal-empty,
+.modal-error {
+  padding: var(--space-4);
+  font-size: var(--text-sm);
+  color: var(--muted);
+}
+.modal-error {
+  color: var(--danger);
+  background: var(--danger-soft);
+  border-radius: var(--radius-sm);
+  margin-top: var(--space-4);
+}
+
+/* form sections inside modal */
+.form-section {
+  margin-bottom: var(--space-6);
+}
+.form-section:last-child {
+  margin-bottom: 0;
+}
+.form-section-label {
+  font-size: 11px;
+  font-weight: 500;
+  color: var(--meta);
+  letter-spacing: var(--tracking-label);
+  text-transform: uppercase;
+  margin-bottom: var(--space-3);
+}
+.form-section .field {
+  margin-bottom: var(--space-3);
+}
+.form-section .field:last-child {
+  margin-bottom: 0;
+}
+
+/* kind / visibility option chips */
+.kind-options {
+  display: flex;
+  flex-wrap: wrap;
+  gap: var(--space-2);
+}
+.kind-option {
+  padding: 6px var(--space-3);
+  border: 1px solid var(--border);
+  border-radius: var(--radius-sm);
+  background: var(--bg);
+  font-size: var(--text-xs);
+  color: var(--muted);
+  font-weight: 500;
+  cursor: pointer;
+  transition: all var(--motion-fast);
+}
+.kind-option:hover {
+  border-color: var(--border);
+  color: var(--fg);
+  background: var(--surface-warm);
+}
+.kind-option.active {
+  background: var(--fg);
+  color: var(--bg);
+  border-color: var(--fg);
+}
+
+.modal-empty {
+  padding: var(--space-6);
+  text-align: center;
+  color: var(--muted);
+  font-size: var(--text-sm);
+}
+
+/* ─── agent detail (multica-style tabbed drawer) ─── */
+.drawer-wide {
+  width: 640px;
+  max-width: 92vw;
+}
+
+.agent-detail-head {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: var(--space-4);
+  padding: var(--space-4) var(--space-6);
+  border-bottom: 1px solid var(--border-soft);
+  flex-shrink: 0;
+}
+.agent-detail-head-left {
+  display: flex;
+  align-items: center;
+  gap: var(--space-3);
+  min-width: 0;
+  flex: 1;
+}
+.agent-detail-head .agent-glyph {
+  width: 36px;
+  height: 36px;
+  font-size: 13px;
+}
+.agent-detail-head-info {
+  display: flex;
+  flex-direction: column;
+  gap: 2px;
+  min-width: 0;
+}
+.agent-detail-name-row {
+  display: flex;
+  align-items: center;
+  gap: var(--space-2);
+}
+.agent-detail-name {
+  font-size: var(--text-base);
+  font-weight: 600;
+  color: var(--fg);
+  margin: 0;
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  max-width: 320px;
+}
+.agent-detail-status {
+  font-size: var(--text-xs);
+  color: var(--muted);
+}
+.agent-detail-meta {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  font-size: 11px;
+  color: var(--meta);
+}
+.agent-detail-meta .sep {
+  opacity: 0.6;
+}
+
+.agent-detail-tabs {
+  display: flex;
+  border-bottom: 1px solid var(--border-soft);
+  flex-shrink: 0;
+}
+.agent-detail-tab {
+  padding: var(--space-3) var(--space-4);
+  font-size: var(--text-sm);
+  color: var(--muted);
+  font-weight: 500;
+  cursor: pointer;
+  border: 0;
+  background: transparent;
+  border-bottom: 2px solid transparent;
+  transition: color var(--motion-fast), border-color var(--motion-fast);
+}
+.agent-detail-tab:hover {
+  color: var(--fg);
+}
+.agent-detail-tab.active {
+  color: var(--fg);
+  border-bottom-color: var(--accent);
+  font-weight: 600;
+}
+
+/* drawer body needs vertical scroll + spacing for section-labels */
+.drawer .drawer-body {
+  display: flex;
+  flex-direction: column;
+  gap: var(--space-5);
+}
+
+/* ─── instructions tab ─── */
+.instructions-preview {
+  margin-bottom: var(--space-2);
+}
+.instructions-block {
+  background: var(--surface-warm);
+  border: 1px solid var(--border-soft);
+  border-radius: var(--radius-sm);
+  padding: var(--space-3) var(--space-4);
+  font-family: var(--font-mono);
+  font-size: 12px;
+  color: var(--fg-2);
+  white-space: pre-wrap;
+  word-break: break-word;
+  line-height: 1.55;
+  margin: 0;
+  max-height: 320px;
+  overflow-y: auto;
+}
+.instructions-empty {
+  padding: var(--space-4);
+  font-size: var(--text-sm);
+  color: var(--meta);
+  background: var(--surface-warm);
+  border-radius: var(--radius-sm);
+  text-align: center;
+}
+
+/* ─── tag list ─── */
+.tag-list {
+  display: flex;
+  flex-wrap: wrap;
+  gap: var(--space-2);
+  margin-bottom: var(--space-2);
+}
+.tag-list .muted {
+  font-size: var(--text-xs);
+  color: var(--meta);
+}
+
+/* ─── task history table (activity tab) ─── */
+.task-history-table {
+  border: 1px solid var(--border-soft);
+  border-radius: var(--radius-sm);
+  overflow: hidden;
+  margin-bottom: var(--space-2);
+}
+.task-history-head,
+.task-history-row {
+  display: grid;
+  grid-template-columns: 1fr 1fr 100px 80px 100px;
+  gap: var(--space-3);
+  align-items: center;
+  padding: var(--space-2) var(--space-3);
+  font-size: var(--text-xs);
+}
+.task-history-head {
+  background: var(--surface-warm);
+  color: var(--meta);
+  font-weight: 500;
+  letter-spacing: var(--tracking-label);
+  text-transform: uppercase;
+  font-size: 10px;
+}
+.task-history-row {
+  border-top: 1px solid var(--border-soft);
+  color: var(--fg-2);
+}
+.task-history-row:hover {
+  background: var(--surface-warm);
+}
+.task-history-status {
+  font-weight: 500;
+  text-transform: capitalize;
+}
+.task-history-status.status-running { color: var(--accent-hover); }
+.task-history-status.status-claimed { color: var(--info); }
+.task-history-status.status-done { color: var(--meta); }
+.task-history-status.status-failed { color: var(--danger); }
+.task-history-status.status-queued { color: var(--warn); }

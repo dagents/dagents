@@ -10,26 +10,26 @@ import {
 import { recordVersionLockAudit } from './audit.js'
 
 /**
- * Scheduler → `@dagents/repro` adapter (plan M4.2 / spec §1.8).
+ * Scheduler → `@dagents/repro` adapter.
  *
  * `@dagents/repro` exposes the four repro primitives — `snapshotPipeline`,
  * `bindRunToVersion`, `archiveArtifact`, `reproduce` — as standalone functions
  * that take their dependencies (flow fetcher, artifact store) as arguments.
  * The scheduler only needs two of them wired into its run lifecycle, and it
- * wants them as an injected interface (so tests swap in a stub the same way they
- * stub `PredictionClient`) rather than a bag of functions. This module is that
- * interface + the production factory.
+ * wants them as an injected interface (so tests swap in a stub the same way
+ * they stub `PredictionClient`) rather than a bag of functions. This module
+ * is that interface + the production factory.
  *
  * ## Best-effort contract
  *
- * Both operations are best-effort by design (confirmed M4.2 review, 03:37): a
- * Flowise flow-fetch or MinIO PUT failure must NOT block or fail a run — the run
- * still executes and records its outcome. A failed snapshot leaves the run
- * unbound (`pipeline_version_hash = null`); a failed archive leaves
- * `artifact_uri = null`. Each failure emits a `warn` log so an operator can see
- * how many runs landed unbound/unarchived — "未绑定 run" stays observable without
- * being a hard error. This matches the existing `failRun(...).catch(() =>
- * undefined)` tolerance in `worker.ts`.
+ * Both operations are best-effort by design: a gateway flow-fetch or MinIO
+ * PUT failure must NOT block or fail a run — the run still executes and
+ * records its outcome. A failed snapshot leaves the run unbound
+ * (`pipeline_version_hash = null`); a failed archive leaves
+ * `artifact_uri = null`. Each failure emits a `warn` log so an operator can
+ * see how many runs landed unbound/unarchived — "未绑定 run" stays observable
+ * without being a hard error. This matches the existing `failRun(...).catch(()
+ * => undefined)` tolerance in `worker.ts`.
  *
  * ## Binding is inline, not via `bindRunToVersion`
  *
@@ -79,7 +79,7 @@ export interface ReproClientOpts {
  * Production repro client: real flow fetch (through the gateway) + the injected
  * artifact store. The store is created lazily by `@dagents/repro`'s
  * `createS3ArtifactStore`, so constructing this client does not require MinIO to
- * be up — mirroring how `createFlowisePredictionClient` defers its first fetch.
+ * be up — mirroring how `createWorkflowPredictionClient` defers its first fetch.
  */
 export function createReproClient(opts: ReproClientOpts): ReproClient {
   const log = opts.logger ?? createLogger({ svc: 'scheduler:repro' })
@@ -102,7 +102,7 @@ export function createReproClient(opts: ReproClientOpts): ReproClient {
         })
         return snap.versionHash
       } catch (err) {
-        // Flowise unreachable / gateway 4xx / DB write failed. Best-effort: the
+        // Gateway unreachable / gateway 4xx / DB write failed. Best-effort: the
         // caller creates the run unbound (hash=null) and continues. A warn (not
         // error) keeps the run green while making the gap observable.
         log.warn('snapshot failed; run will be created unbound', {

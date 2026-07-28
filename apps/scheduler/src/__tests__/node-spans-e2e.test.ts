@@ -7,10 +7,11 @@ import { ingestRunNodeSpans } from '../node-span-ingest.js'
  * M6.4 node-span ingest + read integration (plan §Task M6.4 / P1.11.T5).
  *
  * Drives the real `run_node_spans` table (docker-compose Postgres) through the
- * scheduler's ingest path: insert a run row, ingest a Flowise-shaped agentflow
- * prediction output, assert the projected spans land one-per-node (last entry
- * wins) with token/cost/error best-effort, and that a re-ingest REPLACES rather
- * than appends. No gateway / no Flowise — the prediction output is a fixture.
+ * scheduler's ingest path: insert a run row, ingest a workflow engine prediction
+ * output with node trace, assert the projected spans land one-per-node (last
+ * entry wins) with token/cost/error best-effort, and that a re-ingest REPLACES
+ * rather than appends. No gateway / no live engine — the prediction output is a
+ * fixture.
  */
 describe('M6.4 node-span ingest + read', () => {
   beforeAll(async () => {
@@ -31,24 +32,23 @@ describe('M6.4 node-span ingest + read', () => {
       [runId, runId, flowId],
     )
 
-    // Real Flowise agentflow prediction-output shape: each executed-node entry's
-    // `data` is `node.run()`'s return (`{ id, name, input, output: { content,
-    // timeMetadata, usageMetadata } }`). usageMetadata carries token counts +
-    // `total_cost` when cost accounting is on. ERROR nodes carry `data.error`.
-    // (Cross-checked against vendor/.../evaluation/EvaluationRunner.ts, which
-    // reads `data.output.usageMetadata.input_tokens`.)
+    // Workflow engine prediction-output shape: each executed-node entry's
+    // `data` is the node's execution result (`{ id, name, input, output: {
+    // content, timeMetadata, usageMetadata } }`). usageMetadata carries token
+    // counts + `total_cost` when cost accounting is on. ERROR nodes carry
+    // `data.error`.
     const output = {
       executionId: 'ex-1',
       sessionId: runId,
       agentFlowExecutedData: [
-        { nodeId: 'n1', nodeLabel: 'Start', status: 'INPROGRESS', data: { id: 'n1', name: 'startAgentflow', output: { content: 'ok' } } },
+        { nodeId: 'n1', nodeLabel: 'Start', status: 'INPROGRESS', data: { id: 'n1', name: 'startNode', output: { content: 'ok' } } },
         {
           nodeId: 'n2',
           nodeLabel: 'Agent',
           status: 'ERROR',
           data: {
             id: 'n2',
-            name: 'agentAgentflow',
+            name: 'agentNode',
             output: {
               content: '',
               usageMetadata: { input_tokens: 10, output_tokens: 5, total_tokens: 15, total_cost: 0.42 },
@@ -56,7 +56,7 @@ describe('M6.4 node-span ingest + read', () => {
             error: 'boom',
           },
         },
-        { nodeId: 'n1', nodeLabel: 'Start', status: 'FINISHED', data: { id: 'n1', name: 'startAgentflow', output: { content: 'ok' } } },
+        { nodeId: 'n1', nodeLabel: 'Start', status: 'FINISHED', data: { id: 'n1', name: 'startNode', output: { content: 'ok' } } },
       ],
     }
     const n = await ingestRunNodeSpans({ runId, flowId, output, traceId: 'trace-xyz', finishedAt: new Date('2026-07-10T01:00:00Z') })
@@ -78,7 +78,7 @@ describe('M6.4 node-span ingest + read', () => {
     expect(Number(n2.cost)).toBe(0.42)
     expect(n2.trace_id).toBe('trace-xyz')
     expect(n2.tokens).toEqual({ input_tokens: 10, output_tokens: 5, total_tokens: 15, total_cost: 0.42 })
-    expect(n2.node_type).toBe('agentAgentflow') // data.name, the closest type-like field
+    expect(n2.node_type).toBe('agentNode') // data.name, the closest type-like field
     // n1 (Start) has no usageMetadata → tokens/cost null
     expect(n1.tokens).toBeNull()
     expect(n1.cost).toBeNull()
@@ -98,7 +98,7 @@ describe('M6.4 node-span ingest + read', () => {
     await ingestRunNodeSpans({
       runId,
       flowId,
-      output: { executionId: 'ex-1', agentFlowExecutedData: [{ nodeId: 'n1', status: 'FINISHED', data: { name: 'startAgentflow' } }, { nodeId: 'n2', status: 'FINISHED', data: { name: 'agentAgentflow' } }] },
+      output: { executionId: 'ex-1', agentFlowExecutedData: [{ nodeId: 'n1', status: 'FINISHED', data: { name: 'startNode' } }, { nodeId: 'n2', status: 'FINISHED', data: { name: 'agentNode' } }] },
       // traceId=null keeps the row deterministic (no active span in this test)
       traceId: null,
     })
@@ -109,7 +109,7 @@ describe('M6.4 node-span ingest + read', () => {
     await ingestRunNodeSpans({
       runId,
       flowId,
-      output: { executionId: 'ex-2', agentFlowExecutedData: [{ nodeId: 'n3', status: 'FINISHED', data: { name: 'directReplyAgentflow' } }] },
+      output: { executionId: 'ex-2', agentFlowExecutedData: [{ nodeId: 'n3', status: 'FINISHED', data: { name: 'directReplyNode' } }] },
       traceId: null,
     })
     const { records: second } = await runQuery<{ n: number }>(`SELECT count(*)::int AS n FROM run_node_spans WHERE run_id=$1`, [runId])
@@ -119,7 +119,7 @@ describe('M6.4 node-span ingest + read', () => {
     await runQuery(`DELETE FROM runs WHERE id=$1`, [runId])
   })
 
-  it('no-op when the prediction output carries no agentflow trace', async () => {
+  it('no-op when the prediction output carries no node trace', async () => {
     const runId = randomUUID()
     const n = await ingestRunNodeSpans({ runId, flowId: 'f', output: { text: 'a chatflow reply' } })
     expect(n).toBe(0)
