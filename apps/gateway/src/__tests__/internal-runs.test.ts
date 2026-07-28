@@ -97,6 +97,10 @@ describe('POST /internal/runs/:runId/complete', () => {
     expect(body.success).toBe(true)
     expect(body.data.messageId).toBeTypeOf('string')
 
+    // Register the messageId for cleanup IMMEDIATELY so an assertion failure
+    // below can't leak the row (cleanup runs in afterEach regardless).
+    seededMessageIds.push(body.data.messageId)
+
     // The returned messageId should be a persisted assistant message row.
     const { records } = await runQuery<{ id: string; role: string; content: string }>(
       `SELECT id, role, content FROM chat_messages WHERE id = $1::uuid`,
@@ -104,6 +108,14 @@ describe('POST /internal/runs/:runId/complete', () => {
     )
     expect(records[0]?.role).toBe('assistant')
     expect(records[0]?.content).toBe('flow result: 42')
-    seededMessageIds.push(body.data.messageId)
+  })
+
+  it('returns 400 for invalid chatId (zod validation)', async () => {
+    const res = await app.request('/internal/runs/' + randomUUID() + '/complete', {
+      method: 'POST',
+      headers: { 'content-type': 'application/json', 'x-internal-token': 'test-internal-token' },
+      body: JSON.stringify({ chatId: 'not-a-uuid', output: 'hi', status: 'completed' }),
+    })
+    expect(res.status).toBe(400)
   })
 })

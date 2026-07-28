@@ -78,8 +78,13 @@ app.route('/api/v1/auth', authRoutes)
  * dial these after an async run completes to write the assistant message +
  * broadcast chat:done. Mounted before the SSO session gate because internal
  * services authenticate via `x-internal-token` (matching INTERNAL_CALLBACK_TOKEN
- * env), not a browser session — and the gateway already binds loopback by
- * default, so the surface isn't externally reachable.
+ * env), not a browser session.
+ *
+ * ⚠️ Security: internal routes BYPASS SSO and rely SOLELY on `x-internal-token`
+ * for auth. The gateway binds 0.0.0.0 by default (see index.ts), so this surface
+ * IS reachable from the network — operators MUST restrict `/internal/*` at the
+ * network layer (firewall / service mesh / reverse-proxy allowlist) in
+ * production, and `INTERNAL_CALLBACK_TOKEN` must be a strong random secret.
  */
 app.route('/internal', internalRunsRoutes)
 

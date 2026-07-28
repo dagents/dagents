@@ -1,5 +1,6 @@
 import { Hono } from 'hono'
 import { randomUUID } from 'node:crypto'
+import { z } from 'zod'
 import { runQuery } from '@dagents/db'
 import { createLogger } from '@dagents/shared'
 import { wsHub } from '../ws-hub.js'
@@ -18,12 +19,33 @@ interface CompleteBody {
   cost?: number
 }
 
+const completeBodySchema = z.object({
+  chatId: z.string().uuid(),
+  output: z.string().min(1),
+  status: z.enum(['completed', 'failed']),
+  usage: z
+    .object({
+      inputTokens: z.number().int().nonnegative(),
+      outputTokens: z.number().int().nonnegative(),
+      totalTokens: z.number().int().nonnegative().optional(),
+    })
+    .optional(),
+  durationMs: z.number().int().nonnegative().optional(),
+  cost: z.number().nonnegative().optional(),
+})
+
 /**
  * Internal endpoint called by scheduler/dispatch after a run completes.
  * Writes the assistant message + broadcasts chat:done via WS.
  *
  * Auth: requires x-internal-token header matching INTERNAL_CALLBACK_TOKEN env.
- * Bind to 127.0.0.1 in production (gateway already binds loopback by default).
+ *
+ * ⚠️ Security note: the gateway listens on 0.0.0.0 by default (see index.ts:
+ * `serve({ fetch, port })` with no `hostname`), so this endpoint IS externally
+ * reachable — `x-internal-token` is the ONLY application-layer protection.
+ * Therefore `INTERNAL_CALLBACK_TOKEN` MUST be a strong random secret, and
+ * operators SHOULD restrict `/internal/*` at the network layer (firewall /
+ * service mesh / reverse-proxy allowlist) in production.
  */
 internalRunsRoutes.post('/runs/:runId/complete', async (c) => {
   const token = c.req.header('x-internal-token')
@@ -33,16 +55,16 @@ internalRunsRoutes.post('/runs/:runId/complete', async (c) => {
   }
 
   const runId = c.req.param('runId')
-  let body: CompleteBody
+  let parsed
   try {
-    body = await c.req.json()
+    parsed = completeBodySchema.safeParse(await c.req.json())
   } catch {
     return c.json({ success: false, error: 'invalid json' }, 400)
   }
-
-  if (!body.chatId || !body.output) {
-    return c.json({ success: false, error: 'chatId and output required' }, 400)
+  if (!parsed.success) {
+    return c.json({ success: false, error: 'invalid body', details: parsed.error.flatten() }, 400)
   }
+  const body: CompleteBody = parsed.data
 
   const messageId = randomUUID()
   const metadata: Record<string, unknown> = {
