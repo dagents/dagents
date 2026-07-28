@@ -12,6 +12,7 @@
 
 import { useEffect, useState, useCallback } from 'react'
 import { useRouter } from 'next/navigation'
+import Link from 'next/link'
 import { Icon } from '@/components/icon'
 import { SuggestionCards } from '@/components/suggestion-cards'
 import { ChatComposer } from '@/components/chat-composer'
@@ -64,8 +65,10 @@ export function ChatHome(): React.ReactElement {
       const path = await pickDirectory()
       if (!path) return // user cancelled the OS dialog
       const dir = await createDirectory({ path })
-      await reload()
+      // Set selection BEFORE reload so the empty state hides immediately,
+      // even if reload() fails (reload swallows errors internally).
       setSelectedDirId(dir.id)
+      await reload()
     } catch (err) {
       setAddError(err instanceof Error ? err.message : String(err))
     } finally {
@@ -78,7 +81,7 @@ export function ChatHome(): React.ReactElement {
       <div className="chat-home-topbar">
         <DirectorySelector value={selectedDirId} onChange={setSelectedDirId} />
       </div>
-      {directories.length === 0 && !loading ? (
+      {directories.length === 0 && !loading && !selectedDirId ? (
         <div className="chat-home-empty">
           <div className="chat-home-empty-icon">
             <Icon name="folder" style={{ width: 48, height: 48, color: 'var(--accent)' }} />
@@ -99,9 +102,9 @@ export function ChatHome(): React.ReactElement {
           {addError ? (
             <div className="chat-home-empty-error">{addError}</div>
           ) : null}
-          <a className="chat-home-empty-secondary" href="/directories">
+          <Link className="chat-home-empty-secondary" href="/directories">
             或前往目录管理页 →
-          </a>
+          </Link>
         </div>
       ) : (
         <div className="chat-home-placeholder">
@@ -121,7 +124,7 @@ export function ChatHome(): React.ReactElement {
       {/* Composer */}
       <ChatComposer
         onSend={handleSend}
-        disabled={sending || directories.length === 0}
+        disabled={sending || (directories.length === 0 && !selectedDirId)}
         agentId={selectedAgentId}
         onAgentChange={setSelectedAgentId}
       />
