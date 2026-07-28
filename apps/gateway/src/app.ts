@@ -9,6 +9,7 @@ import { agentsRoutes } from './routes/agents.js'
 import { llmProviderRoutes } from './routes/llm-providers.js'
 import { workflowsRoutes } from './routes/workflows.js'
 import { authRoutes, currentUser } from './routes/auth.js'
+import { internalRunsRoutes } from './routes/internal-runs.js'
 import { requireLogin, stampSsoUser, type SsoContextVars } from './auth.js'
 
 // `app` is exported separately from the `serve()` entry so tests can drive it
@@ -71,6 +72,16 @@ app.get('/health', (c) => c.json({ ok: true, svc: 'gateway' }))
 // Auth routes (M5b.4 / P1.4.T2) mount before the session gate so login/session/
 // logout are reachable without a session — otherwise nobody could ever log in.
 app.route('/api/v1/auth', authRoutes)
+
+/**
+ * Internal callback endpoints (Phase 1 / trial-readiness): scheduler/dispatch
+ * dial these after an async run completes to write the assistant message +
+ * broadcast chat:done. Mounted before the SSO session gate because internal
+ * services authenticate via `x-internal-token` (matching INTERNAL_CALLBACK_TOKEN
+ * env), not a browser session — and the gateway already binds loopback by
+ * default, so the surface isn't externally reachable.
+ */
+app.route('/internal', internalRunsRoutes)
 
 /**
  * SSO session middleware (M5b.4 / P1.4.T2).

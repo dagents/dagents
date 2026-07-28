@@ -18,6 +18,7 @@
  */
 import { WebSocketServer, WebSocket } from 'ws'
 import { createLogger } from '@dagents/shared'
+import type { TokenUsage } from '@dagents/contracts'
 import type { IncomingMessage } from 'node:http'
 import type { Server } from 'node:http'
 
@@ -39,6 +40,12 @@ export interface ChatEvent {
   status?: string
   /** 错误信息（仅 chat:error 携带）。 */
   error?: string
+  /** Token 用量（chat:done 由内部回调携带；Task 4.1 将正式纳入协议）。 */
+  usage?: TokenUsage
+  /** 运行耗时毫秒（chat:done 携带）。 */
+  durationMs?: number
+  /** 运行成本（chat:done 携带）。 */
+  cost?: number
 }
 
 interface ClientConn {
