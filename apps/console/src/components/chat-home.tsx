@@ -112,9 +112,9 @@ export function ChatHome(): React.ReactElement {
             <div className="chat-home-bot-avatar">
               <Icon name="bot" style={{ width: 20, height: 20, color: 'var(--accent)' }} />
             </div>
-            <h1 className="chat-home-welcome-title">DAgent Console</h1>
+            <h1 className="chat-home-welcome-title">DAgent 控制台</h1>
             <p className="chat-home-welcome-desc">
-              Multi-agent orchestration with reasoning, tool use, and parallel execution support.
+              多 Agent 编排平台，支持推理、工具调用与并行执行。
             </p>
             <SuggestionCards onPick={(text) => void handleSend(text)} />
           </div>
