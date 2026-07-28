@@ -80,7 +80,7 @@ export function ChatHome(): React.ReactElement {
         agentId={selectedAgentId}
         onAgentChange={setSelectedAgentId}
       />
-      {(error || sendError) && (
+      {(error ?? sendError) && (
         <div style={{ textAlign: 'center', color: 'var(--danger)', fontSize: 'var(--text-sm)', paddingBottom: 'var(--space-4)' }}>
           {error ?? sendError}
         </div>
