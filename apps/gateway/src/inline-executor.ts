@@ -23,11 +23,75 @@
 import { claudeBackend } from '@dagents/agent-adapters'
 import { runQuery } from '@dagents/db'
 import { createLogger } from '@dagents/shared'
-import type { AgentEvent, AgentResult } from '@dagents/contracts'
+import type { AgentEvent, AgentResult, TokenUsage } from '@dagents/contracts'
 import { randomUUID } from 'node:crypto'
 import { wsHub, type ChatEvent } from './ws-hub.js'
+import { persistComplete } from './routes/internal-runs-helpers.js'
 
 const log = createLogger({ svc: 'gateway:inline-executor' })
+
+/** Hardcoded price table (USD per 1M tokens) — replace with LLM Provider CRUD lookup in follow-up. */
+const MODEL_PRICES: Record<string, { input: number; output: number }> = {
+  sonnet: { input: 3, output: 15 },
+  opus: { input: 15, output: 75 },
+  haiku: { input: 0.25, output: 1.25 },
+}
+const DEFAULT_PRICE = { input: 3, output: 15 } // default to sonnet pricing
+
+/**
+ * Aggregate per-model token usage into a single summed `TokenUsage`.
+ * Returns `undefined` when the map is empty (no usage to report).
+ */
+export function aggregateUsage(
+  usage: Record<string, TokenUsage> | undefined | null,
+): TokenUsage | undefined {
+  if (!usage) return undefined
+  const models = Object.keys(usage)
+  if (models.length === 0) return undefined
+  let inputTokens = 0
+  let outputTokens = 0
+  let cacheReadTokens = 0
+  let cacheWriteTokens = 0
+  let hasCacheRead = false
+  let hasCacheWrite = false
+  for (const model of models) {
+    const u = usage[model]
+    if (!u) continue
+    inputTokens += u.inputTokens ?? 0
+    outputTokens += u.outputTokens ?? 0
+    if (u.cacheReadTokens != null) {
+      cacheReadTokens += u.cacheReadTokens
+      hasCacheRead = true
+    }
+    if (u.cacheWriteTokens != null) {
+      cacheWriteTokens += u.cacheWriteTokens
+      hasCacheWrite = true
+    }
+  }
+  const result: TokenUsage = { inputTokens, outputTokens }
+  if (hasCacheRead) result.cacheReadTokens = cacheReadTokens
+  if (hasCacheWrite) result.cacheWriteTokens = cacheWriteTokens
+  return result
+}
+
+/**
+ * Compute USD cost from token usage and model name. Returns `undefined`
+ * when usage is missing (no tokens to price).
+ */
+export function computeCost(
+  usage: { inputTokens?: number; outputTokens?: number } | undefined | null,
+  model?: string,
+): number | undefined {
+  if (!usage) return undefined
+  // `model && MODEL_PRICES[model]` returns `""` when model is an empty string
+  // and `undefined` for unknown models — use `||` (not `??`) so both fall back
+  // to DEFAULT_PRICE.
+  const price = (model && MODEL_PRICES[model]) || DEFAULT_PRICE
+  const input = usage.inputTokens ?? 0
+  const output = usage.outputTokens ?? 0
+  if (input === 0 && output === 0) return undefined
+  return (input * price.input + output * price.output) / 1_000_000
+}
 
 export interface InlineExecOptions {
   /** 工作目录，传给 claude CLI 的 cwd（通常是 chat 关联的 directory path）。 */
@@ -124,31 +188,24 @@ export async function executeInline(
       return
     }
 
-    // 完成：写 assistant 消息 + 推送 chat:done
+    // 完成：持久化 assistant 消息（含 usage/cost/duration）+ 推送 chat:done
+    const usage = aggregateUsage(result?.usage)
+    const durationMs = result?.durationMs
+    const cost = computeCost(usage, opts.model)
     try {
-      await runQuery(
-        `INSERT INTO chat_messages (id, chat_id, role, content, created_at)
-         VALUES ($1::uuid, $2::uuid, 'assistant', $3, NOW())`,
-        [randomUUID(), chatId, output || result?.output || ''],
-      )
-      await runQuery(
-        `UPDATE chats SET status = 'idle', updated_at = NOW() WHERE id = $1::uuid`,
-        [chatId],
-      )
+      await persistComplete({
+        chatId,
+        runId,
+        output: output || result?.output || '',
+        status: result?.status === 'failed' ? 'failed' : 'completed',
+        usage,
+        durationMs,
+        cost,
+      })
     } catch (err) {
       log.error('inline execute persist failed', { chatId, runId, error: String(err) })
     }
-
-    wsHub.broadcastChat(chatId, {
-      type: 'chat:done',
-      chatId,
-      runId,
-      role: 'assistant',
-      content: output || result?.output || '',
-      streaming: false,
-      status: result?.status ?? 'completed',
-    })
-    log.info('inline execute done', { chatId, runId, status: result?.status, outputLen: output.length })
+    log.info('inline execute done', { chatId, runId, status: result?.status, outputLen: output.length, usage, durationMs, cost })
   })().catch((err) => {
     log.error('inline execute async loop crashed', { chatId, runId, error: String(err) })
   })
