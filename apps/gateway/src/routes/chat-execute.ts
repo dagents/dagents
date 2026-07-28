@@ -479,21 +479,135 @@ async function writeErrorSystemMessage(chatId: string, text: string): Promise<vo
   })
 }
 
-// Stub — real wiring lands in Task 1.4 (dispatch.invoke for @daemon).
+/**
+ * Route a @daemon command: read the chat's bound agent_id (used as the
+ * `agentDaemonId` for dispatch) and its directory (used as `cwd`), then POST
+ * to dispatch `/api/v1/dispatch/invoke` to enqueue a task on the agent's
+ * daemon. Dispatch inserts a `dispatch_tasks` row at status `queued` and
+ * returns `{ taskId }` immediately — the daemon later pulls the task via
+ * `/daemons/:id/tasks/claim` and runs it async.
+ *
+ * Returns immediately with an ack payload containing `runId` + `taskId` so
+ * the HTTP response can render an optimistic bubble. The chat is marked
+ * `running`; completion is signalled separately:
+ *
+ *   - Dispatch's future callback to gateway `/internal/runs/:runId/complete`
+ *     (spec §5.2 — NOT yet wired on the dispatch side; tracked separately), OR
+ *   - The existing `recoverStaleRuns` cleanup mechanism resets stale chats.
+ *
+ * This fire-and-forget contract is acceptable for Task 1.4.
+ */
 async function routeDaemonCommand(
-  _chatId: string,
+  chatId: string,
   cmd: ParsedCommand,
   systemMessageId: string | undefined,
 ): Promise<RouteResult> {
-  return {
-    mode: 'json',
-    payload: {
-      ack: `⚡ Daemon invoked: ${cmd.message}`,
-      command: cmd,
+  // @daemon requires chat.agent_id (used as agentDaemonId for dispatch).
+  // LEFT JOIN directories so chats without a directory still resolve (cwd undefined).
+  let chat: { agent_id: string | null; directory_path: string | null } | undefined
+  try {
+    const { records } = await runQuery<{ agent_id: string | null; directory_path: string | null }>(
+      `SELECT c.agent_id, d.path AS directory_path
+         FROM chats c
+         LEFT JOIN directories d ON d.id = c.directory_id
+        WHERE c.id = $1::uuid`,
+      [chatId],
+    )
+    chat = records[0]
+  } catch (err) {
+    log.error('routeDaemonCommand chat lookup failed', { chatId, error: String(err) })
+    return {
+      mode: 'json',
+      payload: {
+        ack: `⚡ Daemon invoke failed: chat lookup`,
+        command: cmd,
+        systemMessageId,
+        error: 'chat lookup failed',
+      },
       systemMessageId,
-      error: 'not wired yet',
-    },
-    systemMessageId,
+    }
+  }
+
+  if (!chat?.agent_id) {
+    return {
+      mode: 'json',
+      payload: {
+        ack: `⚡ Daemon invoked: ${cmd.message}`,
+        command: cmd,
+        systemMessageId,
+        error: 'no agent bound to chat',
+      },
+      systemMessageId,
+    }
+  }
+
+  const runId = randomUUID()
+  const dispatchUrl = process.env.DISPATCH_URL ?? 'http://localhost:8081'
+  try {
+    const resp = await fetch(`${dispatchUrl}/api/v1/dispatch/invoke`, {
+      method: 'POST',
+      headers: { 'content-type': 'application/json' },
+      body: JSON.stringify({
+        agentDaemonId: chat.agent_id,
+        runId,
+        prompt: cmd.message,
+        execOptions: { cwd: chat.directory_path ?? undefined },
+      }),
+    })
+    if (!resp.ok) {
+      const text = await resp.text().catch(() => '')
+      log.error('routeDaemonCommand dispatch invoke failed', {
+        chatId,
+        runId,
+        status: resp.status,
+        body: text,
+      })
+      return {
+        mode: 'json',
+        payload: {
+          ack: `⚡ Daemon invoke failed: ${resp.status}`,
+          command: cmd,
+          systemMessageId,
+          error: 'dispatch invoke failed',
+        },
+        systemMessageId,
+      }
+    }
+    // Dispatch envelope: { success: true, data: { taskId } }
+    const json = (await resp.json()) as { data?: { taskId?: string } }
+    const taskId = json.data?.taskId
+
+    // Mark chat running — daemon will complete async (see jsdoc above).
+    await runQuery(
+      `UPDATE chats SET status = 'running', updated_at = NOW() WHERE id = $1::uuid`,
+      [chatId],
+    ).catch((err) => {
+      log.warn('routeDaemonCommand status=running update failed', { chatId, runId, error: String(err) })
+    })
+
+    return {
+      mode: 'json',
+      payload: {
+        ack: `⚡ Daemon invoked: ${cmd.message}`,
+        command: cmd,
+        systemMessageId,
+        runId,
+        taskId,
+      },
+      systemMessageId,
+    }
+  } catch (err) {
+    log.error('routeDaemonCommand fetch failed', { chatId, runId, error: String(err) })
+    return {
+      mode: 'json',
+      payload: {
+        ack: `⚡ Daemon invoke error: ${String(err)}`,
+        command: cmd,
+        systemMessageId,
+        error: String(err),
+      },
+      systemMessageId,
+    }
   }
 }
 
