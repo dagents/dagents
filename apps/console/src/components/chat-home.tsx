@@ -18,15 +18,18 @@ import { ChatComposer } from '@/components/chat-composer'
 import { DirectorySelector } from '@/components/directory-selector'
 import { useDirectories } from './use-directories'
 import { createChat, createMessage } from '@/lib/chats'
+import { pickDirectory, createDirectory } from '@/lib/directories'
 import '@/styles/chat-home.css'
 
 export function ChatHome(): React.ReactElement {
   const router = useRouter()
-  const { directories, error } = useDirectories()
+  const { directories, loading, error, reload } = useDirectories()
   const [selectedDirId, setSelectedDirId] = useState<string | null>(null)
   const [selectedAgentId, setSelectedAgentId] = useState<string | null>(null)
   const [sending, setSending] = useState(false)
   const [sendError, setSendError] = useState<string | null>(null)
+  const [addingDir, setAddingDir] = useState(false)
+  const [addError, setAddError] = useState<string | null>(null)
 
   useEffect(() => {
     if (directories.length > 0 && !selectedDirId) setSelectedDirId(directories[0]!.id)
@@ -54,29 +57,71 @@ export function ChatHome(): React.ReactElement {
     }
   }, [selectedDirId, directories, selectedAgentId, router])
 
+  const handleAddDirectory = useCallback(async (): Promise<void> => {
+    setAddError(null)
+    setAddingDir(true)
+    try {
+      const path = await pickDirectory()
+      if (!path) return // user cancelled the OS dialog
+      const dir = await createDirectory({ path })
+      await reload()
+      setSelectedDirId(dir.id)
+    } catch (err) {
+      setAddError(err instanceof Error ? err.message : String(err))
+    } finally {
+      setAddingDir(false)
+    }
+  }, [reload])
+
   return (
     <div className="chat-home-body">
       <div className="chat-home-topbar">
         <DirectorySelector value={selectedDirId} onChange={setSelectedDirId} />
       </div>
-      {/* Placeholder (centered when no active chat) */}
-      <div className="chat-home-placeholder">
-        <div className="chat-home-placeholder-inner">
-          <div className="chat-home-bot-avatar">
-            <Icon name="bot" style={{ width: 20, height: 20, color: 'var(--accent)' }} />
+      {directories.length === 0 && !loading ? (
+        <div className="chat-home-empty">
+          <div className="chat-home-empty-icon">
+            <Icon name="folder" style={{ width: 48, height: 48, color: 'var(--accent)' }} />
           </div>
-          <h1 className="chat-home-welcome-title">DAgent Console</h1>
-          <p className="chat-home-welcome-desc">
-            Multi-agent orchestration with reasoning, tool use, and parallel execution support.
+          <h2 className="chat-home-empty-title">开始前，请先添加一个项目目录</h2>
+          <p className="chat-home-empty-desc">
+            DAgent 需要知道在哪里运行 Agent。添加一个本地目录即可开始对话。
           </p>
-          <SuggestionCards onPick={(text) => void handleSend(text)} />
+          <button
+            type="button"
+            className="chat-home-empty-cta"
+            onClick={() => void handleAddDirectory()}
+            disabled={addingDir}
+          >
+            <Icon name="plus" style={{ width: 14, height: 14 }} />
+            <span>{addingDir ? '等待选择…' : '浏览本地目录…'}</span>
+          </button>
+          {addError ? (
+            <div className="chat-home-empty-error">{addError}</div>
+          ) : null}
+          <a className="chat-home-empty-secondary" href="/directories">
+            或前往目录管理页 →
+          </a>
         </div>
-      </div>
+      ) : (
+        <div className="chat-home-placeholder">
+          <div className="chat-home-placeholder-inner">
+            <div className="chat-home-bot-avatar">
+              <Icon name="bot" style={{ width: 20, height: 20, color: 'var(--accent)' }} />
+            </div>
+            <h1 className="chat-home-welcome-title">DAgent Console</h1>
+            <p className="chat-home-welcome-desc">
+              Multi-agent orchestration with reasoning, tool use, and parallel execution support.
+            </p>
+            <SuggestionCards onPick={(text) => void handleSend(text)} />
+          </div>
+        </div>
+      )}
 
       {/* Composer */}
       <ChatComposer
         onSend={handleSend}
-        disabled={sending}
+        disabled={sending || directories.length === 0}
         agentId={selectedAgentId}
         onAgentChange={setSelectedAgentId}
       />
