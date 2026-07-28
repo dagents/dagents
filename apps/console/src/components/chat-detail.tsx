@@ -46,10 +46,10 @@ function formatTime(dateStr: string): string {
 }
 
 const STATUS_LABEL: Record<string, string> = {
-  idle: 'Idle',
-  running: 'Running',
-  done: 'Done',
-  failed: 'Failed',
+  idle: '空闲',
+  running: '运行中',
+  done: '已完成',
+  failed: '失败',
 }
 
 export function ChatDetail({ chatId }: ChatDetailProps): React.ReactElement {
@@ -299,7 +299,7 @@ export function ChatDetail({ chatId }: ChatDetailProps): React.ReactElement {
         )}
         <span className="chat-detail-breadcrumb-sep">/</span>
         <span className="chat-detail-breadcrumb-title">
-          {loading ? 'Loading…' : chat?.title ?? 'Chat'}
+          {loading ? '加载中…' : chat?.title ?? '对话'}
         </span>
         {chat && (
           <span className={`chat-detail-breadcrumb-status status-${chat.status}`}>
@@ -319,13 +319,13 @@ export function ChatDetail({ chatId }: ChatDetailProps): React.ReactElement {
         <div className="chat-detail-conversation">
           <div className="chat-detail-messages">
             {loading ? (
-              <div className="chat-detail-empty">Loading chat…</div>
+              <div className="chat-detail-empty">加载对话…</div>
             ) : error && messages.length === 0 ? (
               <div className="chat-detail-empty" style={{ color: 'var(--danger)' }}>
-                Failed to load: {error}
+                加载失败：{error}
               </div>
             ) : messages.length === 0 ? (
-              <div className="chat-detail-empty">No messages yet. Send a message to start.</div>
+              <div className="chat-detail-empty">暂无消息，发送消息开始对话。</div>
             ) : (
               messages.map((m) => {
                 const isStreaming = m.id.startsWith('stream-')

@@ -239,7 +239,7 @@ export function AgentsView(): React.ReactElement {
         <input
           type="search"
           className="input agents-search"
-          placeholder="搜索 name / id / kind…"
+          placeholder="搜索名称 / ID / 类型…"
           aria-label="搜索 agents"
           value={filters.q}
           onChange={(e) => setFilters((p) => ({ ...p, q: e.target.value }))}
@@ -279,7 +279,7 @@ export function AgentsView(): React.ReactElement {
               </button>
               <span className="list-header-cell">类型</span>
               <span className="list-header-cell">状态</span>
-              <span className="list-header-cell">当前 run</span>
+              <span className="list-header-cell">当前 Run</span>
               <button
                 type="button"
                 className={`list-header-cell sortable${sort.field === 'load' ? ' active' : ''}`}

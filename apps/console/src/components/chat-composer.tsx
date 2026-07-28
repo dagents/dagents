@@ -19,7 +19,7 @@ interface ChatComposerProps {
 export function ChatComposer({
   onSend,
   disabled,
-  placeholder = 'Send a message…',
+  placeholder = '发送消息…',
   agentSelector = true,
   agentId = null,
   onAgentChange,
@@ -50,7 +50,7 @@ export function ChatComposer({
     <div className="chat-composer-wrap">
       <div className="chat-composer-card">
         <div className="chat-composer-top">
-          <button type="button" className="chat-composer-attach" title="Attach file">
+          <button type="button" className="chat-composer-attach" title="附件">
             <Icon name="plus" style={{ width: 18, height: 18 }} />
           </button>
           <textarea
@@ -76,7 +76,7 @@ export function ChatComposer({
             className="chat-composer-send"
             onClick={handleSend}
             disabled={!canSend}
-            title="Send message"
+            title="发送消息"
           >
             <Icon name="send" style={{ width: 16, height: 16 }} />
           </button>

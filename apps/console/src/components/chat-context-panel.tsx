@@ -8,6 +8,13 @@ import { AgentSelector } from '@/components/agent-selector'
 import { Icon } from '@/components/icon'
 import '@/styles/chat-context-panel.css'
 
+const STATUS_LABEL: Record<string, string> = {
+  idle: '空闲',
+  running: '运行中',
+  done: '已完成',
+  failed: '失败',
+}
+
 interface ChatContextPanelProps {
   chat: Chat | null
   directory: Directory | null
@@ -101,7 +108,7 @@ export function ChatContextPanel({ chat, directory }: ChatContextPanelProps): Re
               type="text"
               value={flowInput}
               onChange={(e) => setFlowInput(e.target.value)}
-              placeholder="flow id"
+              placeholder="Flow ID"
               className="chat-context-flow-input"
             />
             <button className="chat-context-flow-save" onClick={handleFlowSave}>保存</button>
@@ -126,7 +133,7 @@ export function ChatContextPanel({ chat, directory }: ChatContextPanelProps): Re
           <div className="chat-context-stat">
             <span className="chat-context-stat-label">状态</span>
             <span className={`chat-context-stat-value status-${chat?.status ?? 'idle'}`}>
-              {chat?.status ?? 'idle'}
+              {STATUS_LABEL[chat?.status ?? 'idle'] ?? chat?.status ?? '空闲'}
             </span>
           </div>
         </div>
@@ -144,7 +151,7 @@ export function ChatContextPanel({ chat, directory }: ChatContextPanelProps): Re
                 <span className="mono" style={{ fontSize: 'var(--text-xs)', color: 'var(--meta)' }}>
                   {r.id.slice(0, 8)}
                 </span>
-                <span className={`chat-context-run-status status-${r.status}`}>{r.status}</span>
+                <span className={`chat-context-run-status status-${r.status}`}>{STATUS_LABEL[r.status] ?? r.status}</span>
               </div>
             ))}
           </div>

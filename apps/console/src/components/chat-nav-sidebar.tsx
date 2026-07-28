@@ -114,7 +114,7 @@ export function ChatNavSidebar({ collapsed }: ChatNavSidebarProps): React.ReactE
           <div className="chat-nav-brand-mark">
             <Icon name="bot" className="nav-icon" style={{ width: 16, height: 16 }} />
           </div>
-          <span className="chat-nav-brand-name">DAgent Console</span>
+          <span className="chat-nav-brand-name">DAgent 控制台</span>
         </Link>
       </div>
 
@@ -122,7 +122,7 @@ export function ChatNavSidebar({ collapsed }: ChatNavSidebarProps): React.ReactE
       <div className="chat-nav-actions">
         <button type="button" className="chat-nav-action-btn" onClick={handleNewChat}>
           <Icon name="pencil" className="nav-icon" style={{ width: 16, height: 16 }} />
-          <span>New Chat</span>
+          <span>新建对话</span>
         </button>
         {!collapsed && (
           <div className="chat-nav-search">
@@ -156,7 +156,7 @@ export function ChatNavSidebar({ collapsed }: ChatNavSidebarProps): React.ReactE
       {/* Chat history grouped by directory */}
       <div className="chat-nav-history">
         {loading ? (
-          <div style={{ padding: 'var(--space-3)', color: 'var(--meta)', fontSize: 'var(--text-sm)' }}>Loading…</div>
+          <div style={{ padding: 'var(--space-3)', color: 'var(--meta)', fontSize: 'var(--text-sm)' }}>加载中…</div>
         ) : directories.length === 0 ? (
           <Link href="/directories" className="chat-nav-add-dir">
             <Icon name="plus" style={{ width: 14, height: 14 }} />
@@ -219,7 +219,7 @@ export function ChatNavSidebar({ collapsed }: ChatNavSidebarProps): React.ReactE
           </div>
           <div className="chat-nav-user-info">
             <span className="chat-nav-user-name">{user?.name ?? '未登录'}</span>
-            <span className="chat-nav-user-plan">Pro Plan</span>
+            <span className="chat-nav-user-plan">专业版</span>
           </div>
         </Link>
         <Link

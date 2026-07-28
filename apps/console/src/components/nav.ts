@@ -33,10 +33,10 @@ export const NAV: readonly NavSection[] = [
   {
     section: '',
     items: [
-      { id: 'chat', label: 'Chat', href: '/', icon: 'chat' },
-      { id: 'agents', label: 'Agents', href: '/agents', icon: 'agents' },
-      { id: 'flows', label: 'AgentFlows', href: '/flows', icon: 'flows' },
-      { id: 'daemons', label: 'Daemons', href: '/daemons', icon: 'daemons' },
+      { id: 'chat', label: '对话', href: '/', icon: 'chat' },
+      { id: 'agents', label: 'Agent', href: '/agents', icon: 'agents' },
+      { id: 'flows', label: 'Flow', href: '/flows', icon: 'flows' },
+      { id: 'daemons', label: 'Daemon', href: '/daemons', icon: 'daemons' },
     ],
   },
 ] as const
@@ -54,13 +54,13 @@ export interface CrumbSegment {
  * `编排 / Agents / 详情`. Resolve via `crumbsFor(pathname)`.
  */
 const CRUMBS: readonly { match: string; segments: readonly CrumbSegment[] }[] = [
-  { match: '/chats/', segments: [{ label: 'Chat' }] },
-  { match: '/agents/', segments: [{ label: 'Agents', href: '/agents' }, { label: '详情' }] },
-  { match: '/agents', segments: [{ label: 'Agents' }] },
-  { match: '/flows', segments: [{ label: 'AgentFlows' }] },
-  { match: '/daemons', segments: [{ label: 'Daemons' }] },
+  { match: '/chats/', segments: [{ label: '对话' }] },
+  { match: '/agents/', segments: [{ label: 'Agent', href: '/agents' }, { label: '详情' }] },
+  { match: '/agents', segments: [{ label: 'Agent' }] },
+  { match: '/flows', segments: [{ label: 'Flow' }] },
+  { match: '/daemons', segments: [{ label: 'Daemon' }] },
   { match: '/directories', segments: [{ label: '项目目录' }] },
-  { match: '/settings', segments: [{ label: 'Settings' }] },
+  { match: '/settings', segments: [{ label: '设置' }] },
   { match: '/', segments: [] },
 ]
 

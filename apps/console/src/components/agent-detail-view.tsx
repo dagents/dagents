@@ -75,10 +75,10 @@ const KIND_GLYPH: Record<AgentDetailPageModel['kind'], string> = {
 type TabKey = 'activity' | 'instructions' | 'skills' | 'logs'
 
 const TABS: readonly { key: TabKey; label: string }[] = [
-  { key: 'activity', label: 'Activity' },
-  { key: 'instructions', label: 'Instructions' },
+  { key: 'activity', label: '活动' },
+  { key: 'instructions', label: '指令' },
   { key: 'skills', label: 'Skills' },
-  { key: 'logs', label: 'Logs' },
+  { key: 'logs', label: '日志' },
 ]
 
 export interface AgentDetailViewProps {
@@ -203,7 +203,7 @@ export function AgentDetailView({ id, nowMs }: AgentDetailViewProps): React.Reac
           <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth={2} strokeLinecap="round" strokeLinejoin="round" aria-hidden="true">
             <path d="m15 18-6-6 6-6" />
           </svg>
-          返回 Agents
+          返回 Agent 列表
         </Link>
       </div>
 
@@ -262,12 +262,12 @@ function DetailSkeleton(): React.ReactElement {
 function NotFound({ id }: { id: string }): React.ReactElement {
   return (
     <div className="not-found" style={{ gridColumn: '1 / -1' }}>
-      <div className="h">找不到这个 agent</div>
+      <div className="h">找不到这个 Agent</div>
       <div className="d">
         id &ldquo;{id}&rdquo; 不存在，可能已被归档或删除。
       </div>
       <Link className="btn btn-secondary btn-sm" href="/agents">
-        返回 Agents 列表
+        返回 Agent 列表
       </Link>
     </div>
   )
@@ -327,7 +327,7 @@ function Inspector({ model }: InspectorProps): React.ReactElement {
       </div>
       <div>
         <div className="ins-section-label">当前任务</div>
-        <PropRow mono value={model.currentRun ?? '无活跃 run'} fullWidth />
+        <PropRow mono value={model.currentRun ?? '无活跃 Run'} fullWidth />
         {model.currentRun ? (
           <>
             <div className="bar mb-2">

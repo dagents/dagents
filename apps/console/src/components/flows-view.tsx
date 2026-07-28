@@ -650,7 +650,7 @@ export function FlowsView(): React.ReactElement {
           aria-label="返回 AgentFlows 列表"
         >
           <Icon name="arrow" style={{ width: 14, height: 14, transform: 'rotate(180deg)' }} />
-          返回 AgentFlows
+          返回 Flow 列表
         </button>
 
         <div className="flow-layout">

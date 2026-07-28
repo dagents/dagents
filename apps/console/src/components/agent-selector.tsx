@@ -73,7 +73,7 @@ export function AgentSelector({ value, onChange, disabled }: AgentSelectorProps)
         className="agent-selector-trigger"
         onClick={() => !disabled && setOpen((v) => !v)}
         disabled={disabled}
-        title="Select agent"
+        title="选择 Agent"
       >
         <Icon name="bot" style={{ width: 14, height: 14, color: 'var(--accent)' }} />
         <span>{label}</span>
