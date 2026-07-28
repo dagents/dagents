@@ -36,9 +36,9 @@ import { createSeedContext, seedDirectory, type SeedContext } from './helpers/se
  *               when `agentSelector && onAgentChange` are both truthy
  *               (chat-composer.tsx:68), so the selector is absent on Chat Home.
  *   UC-CHAT-06  查看错误提示                  ✅ implemented   — passing test
- *               "请先添加项目目录" branch asserted by intercepting
- *               /api/directories with an empty list (no DB mutation of the
- *               dev stack's real directories).
+ *               No-directory state now renders the empty-state CTA (Task 2.2)
+ *               instead of the old inline error. Asserted by intercepting
+ *               /api/directories with an empty list.
  *
  * Prerequisites: the dagents dev stack must be up — Postgres (:15432),
  * Redis (:16479), gateway (:8080), dispatch (:8081) — so /api/directories and
@@ -244,12 +244,12 @@ test.describe('Chat Home (UC-CHAT-01 ~ 06)', () => {
 
   // ── UC-CHAT-06: 查看错误提示 (✅ implemented) ───────────────────────────
 
-  test('UC-CHAT-06: shows "请先添加项目目录" error when sending with no directory', async ({ page }) => {
-    // chat-home's handleSend sets error('请先添加项目目录') when
-    // `selectedDirId ?? directories[0]?.id` is null. To exercise this branch
-    // without mutating the dev stack's real directories, intercept
-    // /api/directories (the endpoint fetchDirectories calls) with an empty list.
-    // The RegExp avoids matching /api/directories/:id.
+  test('UC-CHAT-06: no-directory state guides user to add a directory (empty state)', async ({ page }) => {
+    // Task 2.2 replaced the old inline "请先添加项目目录" error with a proper
+    // empty-state CTA. When no directories exist, the composer is disabled and
+    // the empty state renders with guidance to add a directory. Intercept
+    // /api/directories (same route pattern as UC-CHAT-01b) to simulate the
+    // no-directory state without mutating the dev stack's real directories.
     await page.route(/\/api\/directories(\?.*)?$/, async (route) => {
       await route.fulfill({
         status: 200,
@@ -259,14 +259,12 @@ test.describe('Chat Home (UC-CHAT-01 ~ 06)', () => {
     })
     await page.goto(CHAT_HOME_URL)
 
-    const textarea = page.locator('.chat-composer-textarea')
-    await expect(textarea).toBeVisible({ timeout: 10_000 })
-    await textarea.fill('e2e-uc06-no-dir')
-    await page.locator('.chat-composer-send').click()
-
-    // The error renders inline below the composer (chat-home.tsx error branch).
-    await expect(page.getByText('请先添加项目目录')).toBeVisible({ timeout: 10_000 })
+    // The empty state renders with guidance to add a directory.
+    await expect(page.locator('.chat-home-empty')).toBeVisible({ timeout: 10_000 })
+    await expect(page.locator('.chat-home-empty-title')).toHaveText(/请先添加一个项目目录/)
+    // The composer is disabled — no chat can be created without a directory.
+    await expect(page.locator('.chat-composer-send')).toBeDisabled()
     // And we stay on Chat Home (no chat was created).
-    await expect(page.locator('.chat-home-welcome-title')).toBeVisible()
+    await expect(page.locator('.chat-home-empty')).toBeVisible()
   })
 })
