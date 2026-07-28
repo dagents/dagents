@@ -77,12 +77,38 @@ test.describe('Chat Home (UC-CHAT-01 ~ 06)', () => {
     await page.goto(CHAT_HOME_URL)
 
     await expect(page.locator('.chat-home-bot-avatar')).toBeVisible({ timeout: 10_000 })
-    await expect(page.locator('.chat-home-welcome-title')).toHaveText('DAgent Console')
-    await expect(page.locator('.chat-home-welcome-desc')).toContainText('Multi-agent orchestration')
+    await expect(page.locator('.chat-home-welcome-title')).toHaveText('DAgent 控制台')
+    await expect(page.locator('.chat-home-welcome-desc')).toContainText('多 Agent 编排平台')
     // The unified composer is part of the welcome screen (bottom of Chat Home).
     await expect(page.locator('.chat-composer-wrap')).toBeVisible()
     // The suggestion grid is present too (covered in depth by UC-CHAT-03).
     await expect(page.locator('.suggestion-grid')).toBeVisible()
+  })
+
+  // ── UC-CHAT-01b: 空状态 CTA (first-time user, no directories) ───────────
+
+  test('UC-CHAT-01b: first-time user with no directories sees empty state CTA', async ({ page }) => {
+    // Intercept /api/directories to return empty list — simulates a first-time
+    // user with no directories. Same route pattern as UC-CHAT-06.
+    await page.route(/\/api\/directories(\?.*)?$/, async (route) => {
+      await route.fulfill({
+        status: 200,
+        contentType: 'application/json',
+        body: JSON.stringify({ success: true, data: { items: [] } }),
+      })
+    })
+
+    await page.goto(CHAT_HOME_URL)
+
+    // Empty state renders (not the welcome placeholder).
+    await expect(page.locator('.chat-home-empty')).toBeVisible({ timeout: 10_000 })
+    await expect(page.locator('.chat-home-empty-title')).toHaveText(/开始前，请先添加一个项目目录/)
+    await expect(page.locator('.chat-home-empty-cta')).toBeVisible()
+    // The welcome placeholder should NOT be visible.
+    await expect(page.locator('.chat-home-placeholder')).not.toBeVisible()
+    // Composer send button is disabled when no directories.
+    const sendButton = page.locator('.chat-composer-send')
+    await expect(sendButton).toBeDisabled()
   })
 
   // ── UC-CHAT-02: 顶部切换项目目录 (⚠️ partial → addressed in code) ───────
