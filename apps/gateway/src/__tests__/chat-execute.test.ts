@@ -63,6 +63,10 @@ describe('parseCommand', () => {
     expect(parseCommand('hello world')).toBeNull()
   })
 
+  it('returns null for unknown @ command', () => {
+    expect(parseCommand('@unknown foo')).toBeNull()
+  })
+
   it('returns null for empty string', () => {
     expect(parseCommand('')).toBeNull()
   })

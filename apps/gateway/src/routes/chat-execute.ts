@@ -167,10 +167,11 @@ async function routeCommand(
   cmd: ParsedCommand,
   _opts: { agentIdOverride?: string; flowIdOverride?: string },
 ): Promise<RouteResult> {
-  // For now, write a system message acknowledging the command so the user sees feedback.
-  // Real downstream invocation (scheduler.fanout / dispatch.invoke) is a follow-up —
-  // the @-command surface is contracted here, the wiring is stubbed.
+  // Write a system message acknowledging the command so the user sees feedback.
+  // The downstream invocation (executeInline for @agent; scheduler/dispatch for
+  // @flow/@daemon) is dispatched below by kind.
   const ack = formatCommandAck(cmd)
+  let systemMessageId: string | undefined
   try {
     const { records } = await runQuery<{ id: string }>(
       `INSERT INTO chat_messages (chat_id, role, content, metadata)
@@ -178,14 +179,149 @@ async function routeCommand(
        RETURNING id`,
       [chatId, ack.text, JSON.stringify({ command: cmd })],
     )
-    return {
-      mode: 'json',
-      payload: { ack: ack.text, command: cmd, systemMessageId: records[0]?.id },
-      systemMessageId: records[0]?.id,
-    }
+    systemMessageId = records[0]?.id
   } catch (err) {
     log.error('routeCommand system message insert failed', { chatId, error: String(err) })
     return { mode: 'json', error: 'command ack failed' }
+  }
+
+  switch (cmd.kind) {
+    case 'agent':
+      return routeAgentCommand(chatId, cmd, systemMessageId)
+    case 'flow':
+      return routeFlowCommand(chatId, cmd, systemMessageId)
+    case 'daemon':
+      return routeDaemonCommand(chatId, cmd, systemMessageId)
+  }
+}
+
+/**
+ * Route an @agent command: resolve the agent by name from agent_daemons,
+ * resolve the chat's cwd from its directory binding, then fire-and-forget
+ * executeInline (which spawns the claude CLI, streams tokens via WS, and
+ * writes the assistant message on completion). Returns immediately so the
+ * HTTP response can render an optimistic ack.
+ */
+async function routeAgentCommand(
+  chatId: string,
+  cmd: ParsedCommand,
+  systemMessageId: string | undefined,
+): Promise<RouteResult> {
+  // Resolve agent by name (cmd.target) → agentId.
+  // NOTE: agent_daemons has no status column as of this writing; lookup is by
+  // name only. If a status concept is needed later, add a column + filter here.
+  let agent: { id: string } | undefined
+  try {
+    const { records } = await runQuery<{ id: string }>(
+      `SELECT id FROM agent_daemons WHERE name = $1 LIMIT 1`,
+      [cmd.target],
+    )
+    agent = records[0]
+  } catch (err) {
+    log.error('routeAgentCommand agent lookup failed', {
+      chatId,
+      target: cmd.target,
+      error: String(err),
+    })
+    return {
+      mode: 'json',
+      payload: {
+        ack: `⚡ Agent not found: ${cmd.target}`,
+        command: cmd,
+        systemMessageId,
+        error: 'agent lookup failed',
+      },
+      systemMessageId,
+    }
+  }
+
+  if (!agent) {
+    return {
+      mode: 'json',
+      payload: {
+        ack: `⚡ Agent not found: ${cmd.target}`,
+        command: cmd,
+        systemMessageId,
+        error: 'agent not found',
+      },
+      systemMessageId,
+    }
+  }
+
+  // Resolve cwd from the chat's directory binding so claude runs against
+  // the user's project (matches the directory selector in the UI).
+  let cwd: string | undefined
+  try {
+    const dirRes = await runQuery<{ directory_path: string | null }>(
+      `SELECT d.path AS directory_path
+         FROM chats c
+         JOIN directories d ON d.id = c.directory_id
+        WHERE c.id = $1::uuid`,
+      [chatId],
+    )
+    cwd = dirRes.records[0]?.directory_path ?? undefined
+  } catch (err) {
+    log.warn('routeAgentCommand directory lookup failed', { chatId, error: String(err) })
+  }
+
+  // Fire-and-forget executeInline — it writes the assistant message and
+  // pushes chat:done via wsHub when finished. We don't await here so the
+  // HTTP response returns immediately with the ack.
+  const runId = randomUUID()
+  void executeInline(chatId, agent.id, cmd.message || '(no message)', { cwd }).catch((err) => {
+    log.error('routeAgentCommand executeInline failed', {
+      chatId,
+      agentId: agent.id,
+      runId,
+      error: String(err),
+    })
+  })
+
+  return {
+    mode: 'json',
+    payload: {
+      ack: `⚡ Routed to agent: ${cmd.target}`,
+      command: cmd,
+      systemMessageId,
+      runId,
+    },
+    systemMessageId,
+  }
+}
+
+// Stub — real wiring lands in Task 1.3 (scheduler.fanout for @flow).
+async function routeFlowCommand(
+  _chatId: string,
+  cmd: ParsedCommand,
+  systemMessageId: string | undefined,
+): Promise<RouteResult> {
+  return {
+    mode: 'json',
+    payload: {
+      ack: `⚡ Flow triggered: ${cmd.target}`,
+      command: cmd,
+      systemMessageId,
+      error: 'not wired yet',
+    },
+    systemMessageId,
+  }
+}
+
+// Stub — real wiring lands in Task 1.4 (dispatch.invoke for @daemon).
+async function routeDaemonCommand(
+  _chatId: string,
+  cmd: ParsedCommand,
+  systemMessageId: string | undefined,
+): Promise<RouteResult> {
+  return {
+    mode: 'json',
+    payload: {
+      ack: `⚡ Daemon invoked: ${cmd.message}`,
+      command: cmd,
+      systemMessageId,
+      error: 'not wired yet',
+    },
+    systemMessageId,
   }
 }
 
