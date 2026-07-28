@@ -115,3 +115,28 @@ describe('POST /api/v1/chats/:id/messages — default routing', () => {
     expect(body.data.error).toMatch(/no agent or flow bound/)
   })
 })
+
+describe('routeFlowCommand @flow wiring', () => {
+  it('returns error payload when flow name not found', async () => {
+    const { chatId } = await seedDirAndChat()
+
+    const res = await app.request(`/api/v1/chats/${chatId}/messages`, {
+      method: 'POST',
+      headers: { 'content-type': 'application/json' },
+      body: JSON.stringify({ content: '@flow nonexistent-flow do something' }),
+    })
+    expect(res.status).toBe(200)
+    const body = (await res.json()) as {
+      success: boolean
+      data: {
+        mode: string
+        payload?: { ack?: string; error?: string; command?: { target?: string } }
+      }
+    }
+    expect(body.success).toBe(true)
+    expect(body.data.mode).toBe('json')
+    expect(body.data.payload?.error).toBe('flow not found')
+    expect(body.data.payload?.ack).toMatch(/Flow not found: nonexistent-flow/)
+    expect(body.data.payload?.command?.target).toBe('nonexistent-flow')
+  })
+})

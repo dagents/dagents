@@ -1,10 +1,8 @@
 import { Hono } from 'hono'
-import { randomUUID } from 'node:crypto'
 import { z } from 'zod'
-import { runQuery } from '@dagents/db'
 import { createLogger } from '@dagents/shared'
-import { wsHub } from '../ws-hub.js'
 import type { TokenUsage } from '@dagents/contracts'
+import { persistComplete } from './internal-runs-helpers.js'
 
 const log = createLogger({ svc: 'gateway:internal-runs' })
 
@@ -66,43 +64,19 @@ internalRunsRoutes.post('/runs/:runId/complete', async (c) => {
   }
   const body: CompleteBody = parsed.data
 
-  const messageId = randomUUID()
-  const metadata: Record<string, unknown> = {
-    runId,
-    status: body.status,
-  }
-  if (body.usage) metadata.usage = body.usage
-  if (body.durationMs != null) metadata.durationMs = body.durationMs
-  if (body.cost != null) metadata.cost = body.cost
-
   try {
-    await runQuery(
-      `INSERT INTO chat_messages (id, chat_id, role, content, run_id, metadata, created_at)
-       VALUES ($1::uuid, $2::uuid, 'assistant', $3, $4::uuid, $5, NOW())`,
-      [messageId, body.chatId, body.output, runId, JSON.stringify(metadata)],
-    )
-    await runQuery(
-      `UPDATE chats SET status = 'idle', updated_at = NOW() WHERE id = $1::uuid`,
-      [body.chatId],
-    )
+    const messageId = await persistComplete({
+      chatId: body.chatId,
+      runId,
+      output: body.output,
+      status: body.status,
+      usage: body.usage,
+      durationMs: body.durationMs,
+      cost: body.cost,
+    })
+    return c.json({ success: true, data: { messageId } })
   } catch (err) {
     log.error('internal complete persist failed', { runId, chatId: body.chatId, error: String(err) })
     return c.json({ success: false, error: 'persist failed' }, 502)
   }
-
-  wsHub.broadcastChat(body.chatId, {
-    type: 'chat:done',
-    chatId: body.chatId,
-    runId,
-    role: 'assistant',
-    content: body.output,
-    streaming: false,
-    status: body.status,
-    usage: body.usage,
-    durationMs: body.durationMs,
-    cost: body.cost,
-  })
-
-  log.info('internal complete ok', { runId, chatId: body.chatId, messageId })
-  return c.json({ success: true, data: { messageId } })
 })

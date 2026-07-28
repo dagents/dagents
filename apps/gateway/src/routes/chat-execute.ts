@@ -3,7 +3,9 @@ import type { ContentfulStatusCode } from 'hono/utils/http-status'
 import { randomUUID } from 'node:crypto'
 import { runQuery } from '@dagents/db'
 import { createLogger } from '@dagents/shared'
+import { DagExecutor, NodeRegistry, allNodes, type FlowData } from '@dagents/workflow'
 import { executeInline } from '../inline-executor.js'
+import { persistComplete } from './internal-runs-helpers.js'
 
 const log = createLogger({ svc: 'gateway:chat-execute' })
 
@@ -289,22 +291,192 @@ async function routeAgentCommand(
   }
 }
 
-// Stub — real wiring lands in Task 1.3 (scheduler.fanout for @flow).
+/**
+ * Route a @flow command: resolve the flow by name from the `flows` table,
+ * mark the chat as running + bind the flow_id, then fire-and-forget execute
+ * the workflow via the `@dagents/workflow` engine (mirroring the pattern in
+ * `workflows.ts` POST /:id/run). The result is written back to chat via
+ * `persistComplete` (assistant message + chat:done WS broadcast).
+ *
+ * Returns immediately with an ack payload so the HTTP response can render an
+ * optimistic bubble; the actual execution happens asynchronously.
+ */
 async function routeFlowCommand(
-  _chatId: string,
+  chatId: string,
   cmd: ParsedCommand,
   systemMessageId: string | undefined,
 ): Promise<RouteResult> {
+  // Resolve flow by name (cmd.target). Exclude 'archived' flows — only
+  // draft + published are runnable from chat.
+  let flow: { id: string } | undefined
+  try {
+    const { records } = await runQuery<{ id: string }>(
+      `SELECT id FROM flows WHERE name = $1 AND status IN ('draft', 'published') LIMIT 1`,
+      [cmd.target],
+    )
+    flow = records[0]
+  } catch (err) {
+    log.error('routeFlowCommand flow lookup failed', {
+      chatId,
+      target: cmd.target,
+      error: String(err),
+    })
+    return {
+      mode: 'json',
+      payload: {
+        ack: `⚡ Flow lookup failed: ${cmd.target}`,
+        command: cmd,
+        systemMessageId,
+        error: 'flow lookup failed',
+      },
+      systemMessageId,
+    }
+  }
+
+  if (!flow) {
+    return {
+      mode: 'json',
+      payload: {
+        ack: `⚡ Flow not found: ${cmd.target}`,
+        command: cmd,
+        systemMessageId,
+        error: 'flow not found',
+      },
+      systemMessageId,
+    }
+  }
+
+  // Mark chat as running + bind flow_id (text column — accepts any string).
+  await runQuery(
+    `UPDATE chats SET status = 'running', flow_id = $1, updated_at = NOW() WHERE id = $2::uuid`,
+    [flow.id, chatId],
+  ).catch((err) => {
+    log.warn('routeFlowCommand status update failed', { chatId, flowId: flow!.id, error: String(err) })
+  })
+
+  const runId = randomUUID()
+
+  // Fire-and-forget execution — persistComplete writes the assistant message
+  // and pushes chat:done via wsHub when finished. We don't await here so the
+  // HTTP response returns immediately with the ack.
+  void (async () => {
+    const startedAt = Date.now()
+    try {
+      const { records } = await runQuery<{ flow_data: unknown }>(
+        `SELECT flow_data FROM flows WHERE id = $1::uuid`,
+        [flow.id],
+      )
+      const flowRow = records[0]
+      if (!flowRow) {
+        await writeErrorSystemMessage(chatId, `Flow execution failed: flow ${flow.id} not loadable`)
+        await persistComplete({
+          chatId,
+          runId,
+          output: `Flow execution failed: flow ${cmd.target} not loadable`,
+          status: 'failed',
+          durationMs: Date.now() - startedAt,
+        })
+        return
+      }
+
+      const flowData = flowRow.flow_data as FlowData
+      if (!flowData || !Array.isArray(flowData.nodes) || !Array.isArray(flowData.edges)) {
+        await persistComplete({
+          chatId,
+          runId,
+          output: `Flow execution failed: invalid flow data for ${cmd.target}`,
+          status: 'failed',
+          durationMs: Date.now() - startedAt,
+        })
+        return
+      }
+
+      // Mirror the engine invocation from workflows.ts POST /:id/run.
+      const registry = new NodeRegistry()
+      registry.registerMany(allNodes())
+      const executor = new DagExecutor(registry)
+
+      const result = await executor.execute(flowData, cmd.message, {
+        chatId,
+        runId,
+        state: {},
+        isLastNode: true,
+        startInput: cmd.message,
+      })
+
+      const durationMs = Date.now() - startedAt
+      if (result.status === 'success') {
+        // finalOutput is Record<string, unknown> | null — extract a string
+        // for chat rendering. DirectReply nodes emit { content: string };
+        // fall back to JSON for any other shape.
+        const out = result.finalOutput
+        const output =
+          out && typeof out.content === 'string'
+            ? out.content
+            : out != null
+              ? JSON.stringify(out)
+              : ''
+        await persistComplete({
+          chatId,
+          runId,
+          output: output || `(flow ${cmd.target} completed with no output)`,
+          status: 'completed',
+          durationMs,
+        })
+      } else {
+        await persistComplete({
+          chatId,
+          runId,
+          output: `Flow execution failed: ${result.error ?? 'unknown error'}`,
+          status: 'failed',
+          durationMs,
+        })
+      }
+    } catch (err) {
+      log.error('routeFlowCommand execution failed', {
+        chatId,
+        flowId: flow.id,
+        runId,
+        error: String(err),
+      })
+      try {
+        await persistComplete({
+          chatId,
+          runId,
+          output: `Flow execution failed: ${String(err)}`,
+          status: 'failed',
+          durationMs: Date.now() - startedAt,
+        })
+      } catch (persistErr) {
+        log.error('routeFlowCommand persistComplete failed', {
+          chatId,
+          runId,
+          error: String(persistErr),
+        })
+      }
+    }
+  })()
+
   return {
     mode: 'json',
     payload: {
       ack: `⚡ Flow triggered: ${cmd.target}`,
       command: cmd,
       systemMessageId,
-      error: 'not wired yet',
+      runId,
+      flowId: flow.id,
     },
     systemMessageId,
   }
+}
+
+async function writeErrorSystemMessage(chatId: string, text: string): Promise<void> {
+  await runQuery(
+    `INSERT INTO chat_messages (chat_id, role, content, created_at) VALUES ($1::uuid, 'system', $2, NOW())`,
+    [chatId, text],
+  ).catch((err) => {
+    log.error('writeErrorSystemMessage failed', { chatId, error: String(err) })
+  })
 }
 
 // Stub — real wiring lands in Task 1.4 (dispatch.invoke for @daemon).
