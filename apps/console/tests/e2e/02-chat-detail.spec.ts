@@ -133,10 +133,10 @@ test.describe('Chat Detail (UC-CHAT-07 ~ 13)', () => {
     await expect(page.locator('.chat-detail-breadcrumb-title')).toHaveText('E2E 多角色消息流')
 
     // Status badge renders with a status-* class and a human label from
-    // STATUS_LABEL. A freshly seeded chat is 'idle' → 'Idle'.
+    // STATUS_LABEL. A freshly seeded chat is 'idle' → '空闲'.
     const status = page.locator('.chat-detail-breadcrumb-status')
     await expect(status).toBeVisible()
-    await expect(status).toHaveText(/Idle|Running|Done|Failed/)
+    await expect(status).toHaveText(/空闲|运行中|已完成|失败/)
     await expect(status).toHaveClass(/status-(idle|running|done|failed)/)
   })
 
@@ -292,8 +292,8 @@ test.describe('Chat Detail (UC-CHAT-07 ~ 13)', () => {
     await page.goto(`/chats/${chatWithMessages}`)
     const status = page.locator('.chat-detail-breadcrumb-status')
     await expect(status).toBeVisible({ timeout: 10_000 })
-    // Freshly seeded chat is 'idle' → STATUS_LABEL maps to 'Idle'.
-    await expect(status).toHaveText('Idle')
+    // Freshly seeded chat is 'idle' → STATUS_LABEL maps to '空闲'.
+    await expect(status).toHaveText('空闲')
     // The status is mirrored in the context-panel stats section.
     await expect(page.locator('.chat-context-stat-value.status-idle')).toBeVisible()
   })
@@ -306,11 +306,11 @@ test.describe('Chat Detail (UC-CHAT-07 ~ 13)', () => {
   // manual reload. Activate when a polling/SSE/WS status-refresh mechanism lands.
   test.fixme('UC-CHAT-13: status updates in real-time when the backend changes it', async ({ page }) => {
     await page.goto(`/chats/${chatWithMessages}`)
-    // Initial status Idle.
-    await expect(page.locator('.chat-detail-breadcrumb-status')).toHaveText('Idle')
+    // Initial status 空闲.
+    await expect(page.locator('.chat-detail-breadcrumb-status')).toHaveText('空闲')
     // Flip the chat status to 'running' out-of-band (e.g. via
     // PATCH /api/chats/:id or a daemon run starting) and assert the badge
-    // flips to 'Running' WITHOUT a page reload — requires a polling/SSE/WS
+    // flips to '运行中' WITHOUT a page reload — requires a polling/SSE/WS
     // refresh mechanism that does not exist today.
   })
 
