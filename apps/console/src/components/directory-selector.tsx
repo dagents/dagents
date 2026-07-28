@@ -17,12 +17,8 @@
 
 import { useEffect, useRef, useState } from 'react'
 import { Icon } from '@/components/icon'
-import {
-  createDirectory,
-  fetchDirectories,
-  pickDirectory,
-  type Directory,
-} from '@/lib/directories'
+import { createDirectory, pickDirectory } from '@/lib/directories'
+import { useDirectories } from './use-directories'
 import '@/styles/directory-selector.css'
 
 interface DirectorySelectorProps {
@@ -34,24 +30,11 @@ export function DirectorySelector({
   value,
   onChange,
 }: DirectorySelectorProps): React.ReactElement {
-  const [directories, setDirectories] = useState<Directory[]>([])
+  const { directories, reload } = useDirectories()
   const [open, setOpen] = useState(false)
   const [picking, setPicking] = useState(false)
   const [pickerError, setPickerError] = useState<string | null>(null)
   const ref = useRef<HTMLDivElement>(null)
-
-  useEffect(() => {
-    let cancelled = false
-    void (async () => {
-      try {
-        const dirs = await fetchDirectories()
-        if (!cancelled) setDirectories(dirs)
-      } catch {}
-    })()
-    return () => {
-      cancelled = true
-    }
-  }, [])
 
   useEffect(() => {
     if (!open) return
@@ -74,8 +57,7 @@ export function DirectorySelector({
       // Register the picked path as a new directory. Backend derives a
       // default name from the leaf folder if `name` is omitted.
       const dir = await createDirectory({ path })
-      const dirs = await fetchDirectories()
-      setDirectories(dirs)
+      await reload()
       onChange(dir.id)
       setOpen(false)
     } catch (err) {

@@ -16,41 +16,30 @@ import { Icon } from '@/components/icon'
 import { SuggestionCards } from '@/components/suggestion-cards'
 import { ChatComposer } from '@/components/chat-composer'
 import { DirectorySelector } from '@/components/directory-selector'
-import { fetchDirectories, type Directory } from '@/lib/directories'
+import { useDirectories } from './use-directories'
 import { createChat, createMessage } from '@/lib/chats'
 import '@/styles/chat-home.css'
 
 export function ChatHome(): React.ReactElement {
   const router = useRouter()
-  const [directories, setDirectories] = useState<Directory[]>([])
+  const { directories, error } = useDirectories()
   const [selectedDirId, setSelectedDirId] = useState<string | null>(null)
   const [selectedAgentId, setSelectedAgentId] = useState<string | null>(null)
   const [sending, setSending] = useState(false)
-  const [error, setError] = useState<string | null>(null)
+  const [sendError, setSendError] = useState<string | null>(null)
 
   useEffect(() => {
-    let cancelled = false
-    void (async () => {
-      try {
-        const dirs = await fetchDirectories()
-        if (cancelled) return
-        setDirectories(dirs)
-        if (dirs.length > 0) setSelectedDirId(dirs[0]!.id)
-      } catch (err) {
-        if (!cancelled) setError(err instanceof Error ? err.message : String(err))
-      }
-    })()
-    return () => { cancelled = true }
-  }, [])
+    if (directories.length > 0 && !selectedDirId) setSelectedDirId(directories[0]!.id)
+  }, [directories, selectedDirId])
 
   const handleSend = useCallback(async (text: string) => {
     const directoryId = selectedDirId ?? directories[0]?.id
     if (!directoryId) {
-      setError('请先添加项目目录')
+      setSendError('请先添加项目目录')
       return
     }
     setSending(true)
-    setError(null)
+    setSendError(null)
     try {
       const chat = await createChat({
         directoryId,
@@ -60,7 +49,7 @@ export function ChatHome(): React.ReactElement {
       await createMessage(chat.id, { content: text, role: 'user' })
       router.push(`/chats/${chat.id}`)
     } catch (err) {
-      setError(err instanceof Error ? err.message : String(err))
+      setSendError(err instanceof Error ? err.message : String(err))
       setSending(false)
     }
   }, [selectedDirId, directories, selectedAgentId, router])
@@ -91,9 +80,9 @@ export function ChatHome(): React.ReactElement {
         agentId={selectedAgentId}
         onAgentChange={setSelectedAgentId}
       />
-      {error && (
+      {(error || sendError) && (
         <div style={{ textAlign: 'center', color: 'var(--danger)', fontSize: 'var(--text-sm)', paddingBottom: 'var(--space-4)' }}>
-          {error}
+          {error ?? sendError}
         </div>
       )}
     </div>
