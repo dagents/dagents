@@ -91,6 +91,11 @@ test.describe('Chat trigger mechanism (UC-TRG-01 ~ 06)', () => {
   let chatForCommands = ''
   /** Plain chat for the @ hint assertion (UC-TRG-05). */
   let chatForHint = ''
+  /** Flow id seeded for UC-TRG-02 (@flow daily-summary). Cleaned in afterAll —
+   *  SeedContext.dispose() does not delete flows. */
+  let flowId = ''
+  /** Agent name captured for UC-TRG-04 (@agent override). */
+  let agentName = ''
 
   test.beforeAll(async ({ request }) => {
     // Use a `const c` for seeding so each helper gets a definitely-assigned
@@ -101,6 +106,7 @@ test.describe('Chat trigger mechanism (UC-TRG-01 ~ 06)', () => {
     directoryId = await seedDirectory(c, { name: 'E2E Chat Trigger Dir' })
     const seeded = await seedAgent(c, request, { name: 'e2e-trigger-agent' })
     agentId = seeded.agentId
+    agentName = 'e2e-trigger-agent'
 
     chatForSend = await seedChat(c, {
       directoryId,
@@ -116,9 +122,29 @@ test.describe('Chat trigger mechanism (UC-TRG-01 ~ 06)', () => {
       directoryId,
       title: 'E2E 触发-提示',
     })
+
+    // Seed a flow named `daily-summary` for UC-TRG-02 (@flow). routeFlowCommand
+    // resolves flows by name from this table; a valid flow_data keeps the async
+    // executor path happy. SeedContext.dispose() does not delete flows, so we
+    // clean up `flowId` separately in afterAll.
+    {
+      const { records } = await c.db.runQuery<{ id: string }>(
+        `INSERT INTO flows (name, description, flow_data, status)
+         VALUES ('daily-summary', 'e2e test flow',
+                 '{"nodes":[{"id":"start","position":{"x":0,"y":0},"type":"start","data":{}}],"edges":[]}',
+                 'published')
+         RETURNING id`,
+      )
+      flowId = records[0]!.id
+    }
   })
 
   test.afterAll(async () => {
+    // SeedContext.dispose() does not delete flows — clean up the seeded
+    // `daily-summary` flow here, before disposing the rest of the context.
+    if (flowId) {
+      await ctx?.db.runQuery(`DELETE FROM flows WHERE id = $1::uuid`, [flowId])
+    }
     await ctx?.dispose()
   })
 
@@ -171,15 +197,12 @@ test.describe('Chat trigger mechanism (UC-TRG-01 ~ 06)', () => {
     expect(body.data.mode).toBe('stream')
   })
 
-  // ── UC-TRG-02: @flow <flow-name> <message> 触发 flow (❌ unimplemented) ────
+  // ── UC-TRG-02: @flow <flow-name> <message> 触发 flow ──────────────────────
 
-  // Gap: `parseCommand` in chat-execute.ts DOES parse `@flow <name> <msg>`,
-  // and `routeCommand` writes an ack system message ("⚡ Flow triggered: …").
-  // But scheduler fanout is NOT wired — `routeCommand` never calls the
-  // scheduler to actually run the named flow; it only emits the ack. The
-  // grammar is contracted, the execution is stubbed. Activate when
-  // scheduler.fanout is invoked from the @flow branch.
-  test.fixme('UC-TRG-02: @flow triggers a named flow and acks in-chat', async ({ page, request }) => {
+  // Activated: routeFlowCommand now resolves the flow by name, binds it to
+  // the chat, and fire-and-forgets the workflow engine. The ack payload
+  // carries runId + flowId (verified against chat-execute.ts source).
+  test('UC-TRG-02: @flow triggers a named flow and acks in-chat', async ({ page, request }) => {
     // --- Browser: typing @flow renders a system ack in the message stream ---
     await page.goto(`/chats/${chatForCommands}`)
     const textarea = page.getByPlaceholder(/Send a message/)
@@ -189,12 +212,15 @@ test.describe('Chat trigger mechanism (UC-TRG-01 ~ 06)', () => {
 
     // User message is persisted.
     await expect(page.locator('.chat-msg-user').first()).toBeVisible()
-    // System ack appears (routeCommand writes role='system').
-    const ack = page.locator('.chat-msg-system').first()
+    // System ack appears (routeCommand writes role='system'). Use .last()
+    // because chatForCommands is shared across UC-TRG-02/03/04 and system
+    // messages accumulate; .first() would match the earliest ack from a
+    // prior test.
+    const ack = page.locator('.chat-msg-system').last()
     await expect(ack).toBeVisible({ timeout: 10_000 })
     await expect(ack.locator('.chat-msg-content')).toHaveText(/Flow triggered: daily-summary/)
 
-    // --- API contract: POST @flow returns mode='json' with an ack payload ---
+    // --- API contract: POST @flow returns mode='json' with runId + flowId ---
     const res = await request.post(`/api/chats/${chatForCommands}/messages`, {
       data: { content: '@flow daily-summary 生成今日报告', role: 'user' },
     })
@@ -205,16 +231,16 @@ test.describe('Chat trigger mechanism (UC-TRG-01 ~ 06)', () => {
     expect(body.data.payload?.ack).toMatch(/Flow triggered: daily-summary/)
     expect(body.data.payload?.command?.kind).toBe('flow')
     expect(body.data.payload?.command?.target).toBe('daily-summary')
-    expect(typeof body.data.systemMessageId).toBe('string')
+    expect(typeof body.data.payload?.runId).toBe('string')
+    expect(typeof body.data.payload?.flowId).toBe('string')
   })
 
-  // ── UC-TRG-03: @daemon <command> 触发 daemon (❌ unimplemented) ────────────
+  // ── UC-TRG-03: @daemon <command> 触发 daemon ──────────────────────────────
 
-  // Gap: `parseCommand` parses `@daemon <msg>`, and `routeCommand` writes an
-  // ack ("⚡ Daemon invoked: …"). But dispatch.invoke is NOT called from the
-  // chat path — no daemon actually receives the command. Activate when
-  // dispatch invocation is wired into the @daemon branch.
-  test.fixme('UC-TRG-03: @daemon invokes a daemon and acks in-chat', async ({ page, request }) => {
+  // Activated: routeDaemonCommand now POSTs to dispatch /api/v1/dispatch/invoke
+  // and returns runId + taskId in the ack payload (verified against
+  // chat-execute.ts source). chatForCommands has agent_id bound in beforeAll.
+  test('UC-TRG-03: @daemon invokes a daemon and acks in-chat', async ({ page, request }) => {
     await page.goto(`/chats/${chatForCommands}`)
     const textarea = page.getByPlaceholder(/Send a message/)
     await expect(textarea).toBeVisible({ timeout: 10_000 })
@@ -222,11 +248,12 @@ test.describe('Chat trigger mechanism (UC-TRG-01 ~ 06)', () => {
     await page.keyboard.press('Enter')
 
     await expect(page.locator('.chat-msg-user').first()).toBeVisible()
-    const ack = page.locator('.chat-msg-system').first()
+    // Use .last() — chatForCommands is shared and system acks accumulate.
+    const ack = page.locator('.chat-msg-system').last()
     await expect(ack).toBeVisible({ timeout: 10_000 })
     await expect(ack.locator('.chat-msg-content')).toHaveText(/Daemon invoked: run daily scan/)
 
-    // --- API contract ---
+    // --- API contract: POST @daemon returns mode='json' with runId + taskId ---
     const res = await request.post(`/api/chats/${chatForCommands}/messages`, {
       data: { content: '@daemon run daily scan', role: 'user' },
     })
@@ -237,44 +264,41 @@ test.describe('Chat trigger mechanism (UC-TRG-01 ~ 06)', () => {
     expect(body.data.payload?.ack).toMatch(/Daemon invoked: run daily scan/)
     expect(body.data.payload?.command?.kind).toBe('daemon')
     expect(body.data.payload?.command?.target).toBeNull()
-    expect(typeof body.data.systemMessageId).toBe('string')
+    expect(typeof body.data.payload?.runId).toBe('string')
+    expect(typeof body.data.payload?.taskId).toBe('string')
   })
 
-  // ── UC-TRG-04: @agent <agent-name> <message> 临时覆盖 agent (❌ unimplemented) ─
+  // ── UC-TRG-04: @agent <agent-name> <message> 临时覆盖 agent ───────────────
 
-  // Gap: `parseCommand` parses `@agent <name> <msg>`, and
-  // `createMessageWithExecBodySchema` DOES accept `agentIdOverride`. But
-  // `routeCommand`'s @agent branch only writes an ack ("⚡ Routed to agent: …")
-  // and ignores `_opts` — the override never drives the real prediction path.
-  // Activate when @agent override selects the routing target end-to-end.
-  test.fixme('UC-TRG-04: @agent overrides the routing agent and acks in-chat', async ({ page, request }) => {
+  // Activated: routeAgentCommand resolves the agent by name from agent_daemons
+  // and fire-and-forgets executeInline with the override agent. The ack payload
+  // carries runId (verified against chat-execute.ts source). `agentName` is
+  // captured in beforeAll so the test reads the same value that was seeded.
+  test('UC-TRG-04: @agent overrides the routing agent and acks in-chat', async ({ page, request }) => {
     await page.goto(`/chats/${chatForCommands}`)
     const textarea = page.getByPlaceholder(/Send a message/)
     await expect(textarea).toBeVisible({ timeout: 10_000 })
-    await textarea.fill(`@agent e2e-trigger-agent 列出目录`)
+    await textarea.fill(`@agent ${agentName} hello from override`)
     await page.keyboard.press('Enter')
 
     await expect(page.locator('.chat-msg-user').first()).toBeVisible()
-    const ack = page.locator('.chat-msg-system').first()
+    // Use .last() — chatForCommands is shared and system acks accumulate.
+    const ack = page.locator('.chat-msg-system').last()
     await expect(ack).toBeVisible({ timeout: 10_000 })
-    await expect(ack.locator('.chat-msg-content')).toHaveText(/Routed to agent: e2e-trigger-agent/)
+    await expect(ack.locator('.chat-msg-content')).toHaveText(/Routed to agent:/)
 
-    // --- API contract: agentIdOverride is accepted by the schema ---
+    // --- API contract: POST @agent returns mode='json' with runId ---
     const res = await request.post(`/api/chats/${chatForCommands}/messages`, {
-      data: {
-        content: '@agent e2e-trigger-agent 列出目录',
-        role: 'user',
-        agentIdOverride: agentId,
-      },
+      data: { content: `@agent ${agentName} hello from override`, role: 'user' },
     })
     expect(res.ok()).toBe(true)
     const body = await res.json()
     expect(body.success).toBe(true)
     expect(body.data.mode).toBe('json')
-    expect(body.data.payload?.ack).toMatch(/Routed to agent: e2e-trigger-agent/)
+    expect(body.data.payload?.ack).toMatch(/Routed to agent:/)
     expect(body.data.payload?.command?.kind).toBe('agent')
-    expect(body.data.payload?.command?.target).toBe('e2e-trigger-agent')
-    expect(typeof body.data.systemMessageId).toBe('string')
+    expect(body.data.payload?.command?.target).toBe(agentName)
+    expect(typeof body.data.payload?.runId).toBe('string')
   })
 
   // ── UC-TRG-05: 看到 @ 命令提示 (⚠️ partial) ───────────────────────────────

@@ -238,6 +238,29 @@ export function ChatDetail({ chatId }: ChatDetailProps): React.ReactElement {
         prev.map((m) => (m.id === optimisticId ? persisted : m)),
       )
 
+      // @-commands (@flow / @daemon / @agent) get a system ack written to the
+      // DB by the gateway's routeCommand, but no WS frame carries it (WS only
+      // streams assistant tokens). Refetch so the ack surfaces in-chat in the
+      // same session instead of waiting for the next navigation. Preserve any
+      // in-flight streaming assistant bubble that may have arrived via WS.
+      if (
+        text.startsWith('@flow ') ||
+        text.startsWith('@daemon ') ||
+        text.startsWith('@agent ')
+      ) {
+        try {
+          const fresh = await fetchMessages(chatId)
+          setMessages((prev) => {
+            const transient = prev.filter(
+              (m) => m.id.startsWith('stream-') || m.id.startsWith('done-'),
+            )
+            return transient.length ? [...fresh, ...transient] : fresh
+          })
+        } catch {
+          // best-effort — the ack will appear on next navigation
+        }
+      }
+
       // If WS is disconnected, the assistant bubble may never arrive via
       // WS. Clear `sending` after a short timeout so the user can retry
       // or navigate. The next WS reconnect will pick up in-flight frames.
