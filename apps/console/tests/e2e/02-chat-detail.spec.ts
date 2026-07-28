@@ -148,10 +148,13 @@ test.describe('Chat Detail (UC-CHAT-07 ~ 13)', () => {
     await expect(page.locator('.chat-msg-user').first()).toBeVisible({ timeout: 10_000 })
 
     // Each role renders its own .chat-msg-* class with the seeded content.
+    // Assistant messages render via <AssistantContent> → .assistant-content,
+    // while user/system/tool render via .chat-msg-content.
     const user = page.locator('.chat-msg-user').first()
     await expect(user.locator('.chat-msg-content')).toHaveText('你好,请列出当前目录')
     const assistant = page.locator('.chat-msg-assistant').first()
-    await expect(assistant.locator('.chat-msg-content')).toHaveText('当前目录为空。')
+    await expect(assistant.locator('.assistant-content')).toBeVisible()
+    await expect(assistant).toContainText('当前目录为空。')
     const system = page.locator('.chat-msg-system').first()
     await expect(system.locator('.chat-msg-content')).toHaveText('路由到 @claude agent')
     const tool = page.locator('.chat-msg-tool').first()
