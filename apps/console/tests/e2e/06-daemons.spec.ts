@@ -141,11 +141,50 @@ test.describe('Daemons module (UC-DAE-01 ~ 06)', () => {
     await expect(page.locator('.detail-timeline')).toContainText('任务创建')
   })
 
-  test.fixme('UC-DAE-03: view stats (right column)', async ({ page }) => {
-    // Gap: 占位页未实现;/api/fleet-stats/route.ts 存在但未被 daemons 页消费。
-    // 期望: 右栏 .daemons-stats 显示 online daemons / active tasks /
-    //       queue depth / throughput + 成本仪表盘 + 饼图。
-    await expect(page.locator('.daemons-stats')).toBeVisible()
+  test('UC-DAE-03: daemons page shows stats summary', async ({ page }) => {
+    // Activated: .daemons-stats-inline renders .stat-item rows (running/queued/failed/daemons)
+    // populated from /api/fleet-stats.
+    await page.route(/\/api\/agents(\?|$)/, async (route) => {
+      await route.fulfill({
+        status: 200,
+        contentType: 'application/json',
+        body: JSON.stringify({
+          success: true,
+          data: {
+            agents: [],
+            truncated: false,
+          },
+        }),
+      })
+    })
+    await page.route(/\/api\/fleet-stats(\?|$)/, async (route) => {
+      await route.fulfill({
+        status: 200,
+        contentType: 'application/json',
+        body: JSON.stringify({
+          success: true,
+          data: {
+            windowHours: 1,
+            fleet: {
+              daemons: { byStatus: { online: 3 }, total: 3 },
+              tasks: { byStatus: { running: 2, queued: 5, failed: 1 }, total: 8 },
+            },
+            throughput: { tasks: { completed: 4, failed: 1, total: 5 } },
+          },
+        }),
+      })
+    })
+
+    await page.goto('/daemons')
+
+    await expect(page.locator('.daemons-stats-inline')).toBeVisible({ timeout: 10_000 })
+    await expect(page.locator('.stat-item').first()).toBeVisible()
+
+    const statValue = await page.locator('.stat-val').first().textContent()
+    expect(statValue).not.toBeNull()
+    expect(statValue!.trim().length).toBeGreaterThan(0)
+
+    await expect(page.locator('.daemons-stats-inline')).toContainText('运行')
   })
 
   test.fixme('UC-DAE-04: filter task queue by status', async ({ page }) => {
