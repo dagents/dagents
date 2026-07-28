@@ -28,12 +28,57 @@ test.describe('Daemons module (UC-DAE-01 ~ 06)', () => {
     await page.goto('/daemons')
   })
 
-  test.fixme('UC-DAE-01: view task queue (left column)', async ({ page }) => {
-    // Gap: daemons/page.tsx 仅占位("Daemons 模块开发中"),无三栏布局。
-    // 期望: 左栏 .daemons-queue 渲染 dispatch_tasks status=queued 列表,
-    //       每张任务卡显示 id/type/desc/flow/priority/time。
-    await expect(page.locator('.daemons-queue')).toBeVisible()
-    await expect(page.locator('.daemons-task-card').first()).toBeVisible()
+  test('UC-DAE-01: daemons page shows task queue list', async ({ page }) => {
+    // Activated: daemons-view renders .daemons-queue with .daemons-task-card
+    // items projected from /api/agents.
+    await page.route(/\/api\/agents(\?|$)/, async (route) => {
+      await route.fulfill({
+        status: 200,
+        contentType: 'application/json',
+        body: JSON.stringify({
+          success: true,
+          data: {
+            agents: [
+              {
+                id: 'agent-e2e-1',
+                name: 'e2e test task',
+                kind: 'claude',
+                task_id: 'task-e2e-1',
+                run_id: 'run-e2e-1',
+                task_status: 'queued',
+                task_created_at: '2026-07-28T00:00:00.000Z',
+                finished_at: null,
+              },
+            ],
+            truncated: false,
+          },
+        }),
+      })
+    })
+    await page.route(/\/api\/fleet-stats(\?|$)/, async (route) => {
+      await route.fulfill({
+        status: 200,
+        contentType: 'application/json',
+        body: JSON.stringify({
+          success: true,
+          data: {
+            windowHours: 1,
+            fleet: {
+              daemons: { byStatus: {}, total: 0 },
+              tasks: { byStatus: {}, total: 0 },
+            },
+            throughput: { tasks: { completed: 0, failed: 0, total: 0 } },
+          },
+        }),
+      })
+    })
+
+    await page.goto('/daemons')
+
+    await expect(page.locator('.daemons-queue')).toBeVisible({ timeout: 10_000 })
+    await expect(
+      page.locator('.daemons-task-card').filter({ hasText: 'e2e test task' }),
+    ).toBeVisible()
   })
 
   test.fixme('UC-DAE-02: view execution timeline (middle column)', async ({ page }) => {
