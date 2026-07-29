@@ -19,6 +19,32 @@
   gap: var(--space-3);
 }
 
+/* empty state — matches agents-view's empty state pattern */
+.directories-empty {
+  padding: var(--space-12) var(--space-4);
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  gap: var(--space-3);
+  text-align: center;
+}
+.directories-empty-icon {
+  font-size: 40px;
+  line-height: 1;
+  opacity: 0.7;
+}
+.directories-empty-title {
+  font-size: var(--text-base);
+  font-weight: 600;
+  color: var(--fg);
+}
+.directories-empty-desc {
+  font-size: var(--text-sm);
+  color: var(--muted);
+  max-width: 320px;
+  line-height: 1.6;
+}
+
 .directory-card {
   padding: var(--space-4) var(--space-5);
   background: var(--bg);
@@ -63,11 +89,10 @@
   gap: var(--space-3);
 }
 
-.directory-actions {
-  display: flex;
-  gap: var(--space-2);
-  flex-shrink: 0;
-  margin-left: var(--space-4);
+.directory-actions,
+.edit-actions {
+  /* migrated to the unified .card-actions class in shell.css. Kept as empty
+     aliases in case any external selector still targets them. */
 }
 
 .directories-form {
@@ -113,11 +138,6 @@
 .directory-edit .input {
   flex: 1;
   max-width: 320px;
-}
-
-.edit-actions {
-  display: flex;
-  gap: var(--space-2);
 }
 
 .muted { color: var(--muted); }

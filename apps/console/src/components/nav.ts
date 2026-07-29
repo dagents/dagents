@@ -33,7 +33,6 @@ export const NAV: readonly NavSection[] = [
   {
     section: '',
     items: [
-      { id: 'chat', label: '对话', href: '/', icon: 'chat' },
       { id: 'agents', label: 'Agent', href: '/agents', icon: 'agents' },
       { id: 'flows', label: 'Flow', href: '/flows', icon: 'flows' },
       { id: 'daemons', label: 'Daemon', href: '/daemons', icon: 'daemons' },

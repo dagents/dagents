@@ -1,4 +1,5 @@
 import type { INode, INodeData, INodeOutput, IExecutionContext } from '../../types/index.js'
+import { resolveVariables } from '../../utils/variables.js'
 
 /**
  * DirectReply node — directly reply to the user with a message.
@@ -30,7 +31,8 @@ export class DirectReplyNode implements INode {
   ]
 
   async run(nodeData: INodeData, _input: unknown, options: IExecutionContext): Promise<INodeOutput> {
-    const directReplyMessage = (nodeData.inputs?.directReplyMessage as string) ?? ''
+    const rawMessage = (nodeData.inputs?.directReplyMessage as string) ?? ''
+    const directReplyMessage = resolveVariables(rawMessage, options.state) as string
     const isStreamable = options.isLastNode && options.sseStreamer !== undefined
 
     if (isStreamable) {

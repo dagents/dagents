@@ -200,6 +200,7 @@ export function AgentsView(): React.ReactElement {
             role="tab"
             aria-selected={scope === t.key}
             data-scope={t.key}
+            data-zero={scopeCounts[t.key] === 0 ? 'true' : undefined}
             onClick={() => setScope(t.key)}
           >
             {t.label}
@@ -210,7 +211,8 @@ export function AgentsView(): React.ReactElement {
 
       {/* toolbar */}
       <div className="agents-toolbar">
-        <div className="filter-group">
+        <fieldset className="filter-group" aria-label="按类型过滤">
+          <legend className="filter-legend">类型</legend>
           {KIND_FILTERS.map((k) => (
             <button
               key={k}
@@ -222,8 +224,9 @@ export function AgentsView(): React.ReactElement {
               {KIND_LABEL[k]}
             </button>
           ))}
-        </div>
-        <div className="filter-group">
+        </fieldset>
+        <fieldset className="filter-group" aria-label="按状态过滤">
+          <legend className="filter-legend">状态</legend>
           {STATUS_FILTERS.map((s) => (
             <button
               key={s}
@@ -235,7 +238,7 @@ export function AgentsView(): React.ReactElement {
               {STATUS_LABEL[s]}
             </button>
           ))}
-        </div>
+        </fieldset>
         <input
           type="search"
           className="input agents-search"
@@ -262,9 +265,39 @@ export function AgentsView(): React.ReactElement {
       {/* list */}
       <div className="agents-list">
         {loading && agents.length === 0 ? (
-          <div className="agents-empty">加载中…</div>
+          <div className="agents-empty">
+            <div className="agents-empty-icon">⏳</div>
+            <div className="agents-empty-title">加载中…</div>
+          </div>
         ) : visibleSorted.length === 0 && !error ? (
-          <div className="agents-empty">暂无 agent</div>
+          <div className="agents-empty">
+            <div className="agents-empty-icon">🤖</div>
+            <div className="agents-empty-title">
+              {agents.length === 0 ? '还没有 Agent' : '没有匹配的 Agent'}
+            </div>
+            <div className="agents-empty-desc">
+              {agents.length === 0
+                ? '创建你的第一个 Agent，定义它的提示词、工具和模型。'
+                : '尝试调整搜索关键词或清除过滤器。'}
+            </div>
+            {agents.length === 0 ? (
+              <button
+                type="button"
+                className="btn btn-primary"
+                onClick={() => setCreateOpen(true)}
+              >
+                + 新建 Agent
+              </button>
+            ) : (
+              <button
+                type="button"
+                className="btn btn-ghost btn-sm"
+                onClick={() => setFilters(NO_FILTERS)}
+              >
+                清除过滤器
+              </button>
+            )}
+          </div>
         ) : (
           <>
             {/* header */}

@@ -181,7 +181,8 @@ export function DaemonsView(): React.ReactElement {
             <button
               key={f.key}
               type="button"
-              className={`daemons-filter${filter === f.key ? ' active' : ''}`}
+              className="filter-chip"
+              aria-pressed={filter === f.key}
               onClick={() => setFilter(f.key)}
             >
               {f.label}
@@ -227,8 +228,27 @@ export function DaemonsView(): React.ReactElement {
               </div>
             ) : tasks.length === 0 ? (
               <div className="daemons-empty">
-                <Icon name="check" style={{ width: 28, height: 28, color: 'var(--meta)' }} />
-                <span>暂无任务</span>
+                <Icon
+                  name={filter === 'all' ? 'info' : 'check'}
+                  style={{ width: 28, height: 28, color: 'var(--meta)' }}
+                />
+                <span className="daemons-empty-title">
+                  {filter === 'all' ? '暂无派发任务' : '当前过滤器下无任务'}
+                </span>
+                <span className="daemons-empty-desc">
+                  {filter === 'all'
+                    ? '任务由 Agent / Flow 运行时自动派发到此队列。'
+                    : '尝试切换到「全部」查看所有任务。'}
+                </span>
+                {filter !== 'all' ? (
+                  <button
+                    type="button"
+                    className="btn btn-ghost btn-sm"
+                    onClick={() => setFilter('all')}
+                  >
+                    查看全部任务
+                  </button>
+                ) : null}
               </div>
             ) : (
               tasks.map((t) => (
@@ -257,10 +277,7 @@ export function DaemonsView(): React.ReactElement {
         {/* detail panel */}
         <div className="daemons-detail">
           {!selectedTask ? (
-            <div className="daemons-empty">
-              <Icon name="info" style={{ width: 28, height: 28, color: 'var(--meta)' }} />
-              <span>选择左侧任务查看详情</span>
-            </div>
+            <DaemonsDetailSkeleton />
           ) : (
             <div className="daemons-detail-body">
               <div className="detail-head">
@@ -275,49 +292,57 @@ export function DaemonsView(): React.ReactElement {
               </div>
 
               {/* timeline */}
-              <div className="detail-timeline">
-                <div className={`timeline-step ${selectedTask.status === 'done' ? 'done' : selectedTask.status === 'running' ? 'running' : 'queued'}`}>
-                  <span className="timeline-dot" />
-                  <span className="timeline-label">任务创建</span>
-                  <span className="timeline-time mono">{new Date(selectedTask.created_at).toLocaleString()}</span>
-                </div>
-                <div className={`timeline-step ${selectedTask.status === 'running' ? 'running' : selectedTask.status === 'done' || selectedTask.status === 'failed' ? 'done' : 'queued'}`}>
-                  <span className="timeline-dot" />
-                  <span className="timeline-label">派发到 daemon</span>
-                </div>
-                <div className={`timeline-step ${selectedTask.status === 'done' ? 'done' : selectedTask.status === 'failed' ? 'failed' : 'queued'}`}>
-                  <span className="timeline-dot" />
-                  <span className="timeline-label">{selectedTask.status === 'failed' ? '执行失败' : '执行完成'}</span>
-                  {selectedTask.updated_at !== selectedTask.created_at ? (
-                    <span className="timeline-time mono">{new Date(selectedTask.updated_at).toLocaleString()}</span>
-                  ) : null}
+              <div className="detail-section">
+                <div className="detail-section-head">时间线</div>
+                <div className="detail-timeline">
+                  <div className={`timeline-step ${selectedTask.status === 'done' ? 'done' : selectedTask.status === 'running' ? 'running' : 'queued'}`}>
+                    <span className="timeline-dot" />
+                    <span className="timeline-label">任务创建</span>
+                    <span className="timeline-time mono">{new Date(selectedTask.created_at).toLocaleString()}</span>
+                  </div>
+                  <div className={`timeline-step ${selectedTask.status === 'running' ? 'running' : selectedTask.status === 'done' || selectedTask.status === 'failed' ? 'done' : 'queued'}`}>
+                    <span className="timeline-dot" />
+                    <span className="timeline-label">派发到 daemon</span>
+                  </div>
+                  <div className={`timeline-step ${selectedTask.status === 'done' ? 'done' : selectedTask.status === 'failed' ? 'failed' : 'queued'}`}>
+                    <span className="timeline-dot" />
+                    <span className="timeline-label">{selectedTask.status === 'failed' ? '执行失败' : '执行完成'}</span>
+                    {selectedTask.updated_at !== selectedTask.created_at ? (
+                      <span className="timeline-time mono">{new Date(selectedTask.updated_at).toLocaleString()}</span>
+                    ) : null}
+                  </div>
                 </div>
               </div>
 
               {/* meta */}
-              <div className="detail-meta">
-                <div className="meta-row">
-                  <span className="meta-label">优先级</span>
-                  <span className="mono">P{selectedTask.priority}</span>
-                </div>
-                <div className="meta-row">
-                  <span className="meta-label">Flow ID</span>
-                  <span className="mono">{selectedTask.flow_id ?? '—'}</span>
-                </div>
-                <div className="meta-row">
-                  <span className="meta-label">描述</span>
-                  <span>{selectedTask.description ?? '—'}</span>
+              <div className="detail-section">
+                <div className="detail-section-head">任务信息</div>
+                <div className="detail-meta">
+                  <div className="meta-row">
+                    <span className="meta-label">优先级</span>
+                    <span className="mono">P{selectedTask.priority}</span>
+                  </div>
+                  <div className="meta-row">
+                    <span className="meta-label">Flow ID</span>
+                    <span className="mono">{selectedTask.flow_id ?? '—'}</span>
+                  </div>
+                  <div className="meta-row">
+                    <span className="meta-label">描述</span>
+                    <span>{selectedTask.description ?? '—'}</span>
+                  </div>
                 </div>
               </div>
 
               {/* logs */}
-              <div className="detail-logs">
-                <div className="detail-logs-head">日志</div>
-                <pre className="detail-logs-body">
+              <div className="detail-section">
+                <div className="detail-section-head">日志</div>
+                <div className="detail-logs">
+                  <pre className="detail-logs-body">
 {`[task ${selectedTask.id.slice(0, 8)}] type=${selectedTask.type} priority=${selectedTask.priority}
 [task ${selectedTask.id.slice(0, 8)}] status=${selectedTask.status}
 [task ${selectedTask.id.slice(0, 8)}] flow=${selectedTask.flow_id ?? 'none'}`}
-                </pre>
+                  </pre>
+                </div>
               </div>
             </div>
           )}
@@ -325,6 +350,72 @@ export function DaemonsView(): React.ReactElement {
       </div>
 
       {error ? <div className="daemons-error">{error}</div> : null}
+    </div>
+  )
+}
+
+// ─── Empty-state skeleton ─────────────────────────────────────────────
+//
+// When no task is selected, the detail panel shows a structured skeleton
+// that mirrors the 4-panel information architecture (head / timeline /
+// meta / logs). This makes the page's shape visible before selection —
+// the user can see where the timeline, task info, and logs will appear —
+// instead of a single line of placeholder text. The skeleton is purely
+// decorative (aria-hidden) since sighted users see the visual hint and
+// screen-reader users hear the empty-state label below.
+
+function DaemonsDetailSkeleton(): React.ReactElement {
+  return (
+    <div className="daemons-detail-skeleton" aria-hidden="true">
+      <div className="daemons-detail-empty-label" role="status" aria-live="polite">
+        <Icon name="info" style={{ width: 20, height: 20, color: 'var(--meta)' }} />
+        <span>选择左侧任务查看详情</span>
+      </div>
+
+      {/* head skeleton */}
+      <div className="skel-head">
+        <div className="skel-line skel-w-12" />
+        <div className="skel-line skel-w-16" />
+        <div className="skel-line skel-w-8" />
+      </div>
+
+      {/* timeline skeleton */}
+      <div className="detail-section">
+        <div className="detail-section-head">时间线</div>
+        <div className="detail-timeline">
+          {[0, 1, 2].map((i) => (
+            <div className="timeline-step queued" key={i}>
+              <span className="timeline-dot" />
+              <span className="skel-line skel-w-24" />
+            </div>
+          ))}
+        </div>
+      </div>
+
+      {/* meta skeleton */}
+      <div className="detail-section">
+        <div className="detail-section-head">任务信息</div>
+        <div className="detail-meta">
+          {[0, 1, 2].map((i) => (
+            <div className="meta-row" key={i}>
+              <span className="skel-line skel-w-10" />
+              <span className="skel-line skel-w-20" />
+            </div>
+          ))}
+        </div>
+      </div>
+
+      {/* logs skeleton */}
+      <div className="detail-section">
+        <div className="detail-section-head">日志</div>
+        <div className="detail-logs">
+          <div className="detail-logs-skel">
+            <div className="skel-line skel-w-full" />
+            <div className="skel-line skel-w-full" />
+            <div className="skel-line skel-w-3q" />
+          </div>
+        </div>
+      </div>
     </div>
   )
 }

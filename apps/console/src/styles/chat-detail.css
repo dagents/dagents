@@ -29,6 +29,19 @@
   color: var(--fg);
 }
 
+/* The directory path shown after the name in the breadcrumb. Mono font,
+   truncated with ellipsis so long paths don't overflow the breadcrumb bar. */
+.chat-detail-breadcrumb-path {
+  font-family: var(--font-mono);
+  font-size: 11px;
+  color: var(--meta);
+  max-width: 200px;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+  margin-left: var(--space-1);
+}
+
 .chat-detail-breadcrumb-sep {
   color: var(--meta);
 }
@@ -99,6 +112,65 @@
   color: var(--muted);
   font-size: var(--text-sm);
   text-align: center;
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  gap: var(--space-3);
+  padding: var(--space-8) var(--space-4);
+}
+
+.chat-detail-empty-title {
+  font-size: var(--text-lg);
+  font-weight: 600;
+  color: var(--fg);
+}
+
+.chat-detail-empty-desc {
+  font-size: var(--text-sm);
+  color: var(--muted);
+}
+
+/* Suggestion chips — lightweight clickable prompts shown in the empty state.
+   Clicking one sends the text immediately via handleSend. */
+.chat-detail-suggestions {
+  display: flex;
+  flex-wrap: wrap;
+  gap: var(--space-2);
+  justify-content: center;
+  max-width: 480px;
+  margin-top: var(--space-2);
+}
+
+.chat-detail-suggestion-chip {
+  display: inline-flex;
+  align-items: center;
+  height: 32px;
+  padding: 0 var(--space-3);
+  background: var(--bg);
+  border: 1px solid var(--border-soft);
+  border-radius: var(--radius-pill);
+  font-size: var(--text-xs);
+  color: var(--muted);
+  font-weight: 500;
+  cursor: pointer;
+  transition: background var(--motion-fast), border-color var(--motion-fast), color var(--motion-fast);
+  white-space: nowrap;
+}
+
+.chat-detail-suggestion-chip:hover:not(:disabled) {
+  background: var(--surface-warm);
+  border-color: var(--border);
+  color: var(--fg);
+}
+
+.chat-detail-suggestion-chip:focus-visible {
+  outline: none;
+  box-shadow: var(--focus-ring);
+}
+
+.chat-detail-suggestion-chip:disabled {
+  opacity: 0.5;
+  cursor: not-allowed;
 }
 
 /* Message bubbles */
@@ -153,3 +225,91 @@
 .chat-msg-user .chat-msg-meta {
   color: rgba(255, 255, 255, 0.8);
 }
+
+/* WS disconnect banner — sticky, hard to miss */
+.chat-detail-ws-warning {
+  display: flex;
+  align-items: center;
+  gap: var(--space-2);
+  padding: var(--space-2) var(--space-4);
+  background: var(--warn-soft);
+  color: var(--warn);
+  font-size: var(--text-xs);
+  font-weight: 500;
+  border-bottom: 1px solid var(--border-soft);
+  flex-shrink: 0;
+}
+
+/* Message footer — time + copy button row */
+.chat-msg-footer {
+  display: flex;
+  align-items: center;
+  gap: var(--space-3);
+  margin-top: var(--space-1);
+}
+
+.chat-msg-copy {
+  display: inline-flex;
+  align-items: center;
+  gap: var(--space-1);
+  padding: 2px var(--space-2);
+  border: none;
+  background: transparent;
+  color: var(--meta);
+  font-size: var(--text-xs);
+  border-radius: var(--radius-sm);
+  cursor: pointer;
+  opacity: 0;
+  transition: opacity var(--motion-fast), color var(--motion-fast);
+}
+.chat-msg:hover .chat-msg-copy { opacity: 1; }
+.chat-msg-copy:hover { color: var(--fg); background: var(--surface); }
+
+/* Retry button on error bubbles */
+.chat-msg-retry {
+  display: inline-flex;
+  align-items: center;
+  gap: var(--space-1);
+  margin-top: var(--space-2);
+  padding: var(--space-1) var(--space-3);
+  border: 1px solid var(--danger);
+  background: var(--danger-soft);
+  color: var(--danger);
+  font-size: var(--text-xs);
+  font-weight: 500;
+  border-radius: var(--radius-pill);
+  cursor: pointer;
+  transition: background var(--motion-fast);
+}
+.chat-msg-retry:hover { background: var(--danger); color: #fff; }
+
+/* Floating scroll-to-bottom button */
+.chat-detail-scroll-btn {
+  position: absolute;
+  right: var(--space-4);
+  bottom: var(--space-4);
+  width: 36px;
+  height: 36px;
+  border-radius: 50%;
+  border: 1px solid var(--border);
+  background: var(--bg);
+  color: var(--fg);
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  cursor: pointer;
+  box-shadow: var(--elev-raised);
+  transition: background var(--motion-fast), color var(--motion-fast);
+  z-index: 5;
+}
+.chat-detail-scroll-btn:hover {
+  background: var(--accent);
+  color: #fff;
+  border-color: var(--accent);
+}
+
+/* Position context for the floating scroll button */
+.chat-detail-conversation {
+  position: relative;
+}
+

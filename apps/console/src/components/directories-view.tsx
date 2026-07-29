@@ -195,8 +195,19 @@ export function DirectoriesView(): React.ReactElement {
             加载中…
           </div>
         ) : directories.length === 0 && !error ? (
-          <div className="muted" style={{ padding: 'var(--space-8)', textAlign: 'center' }}>
-            暂无目录。点击「新建目录」创建第一个。
+          <div className="directories-empty">
+            <div className="directories-empty-icon" aria-hidden="true">📁</div>
+            <div className="directories-empty-title">还没有项目目录</div>
+            <div className="directories-empty-desc">
+              添加一个本地路径，作为 Agent 的工作目录。
+            </div>
+            <button
+              type="button"
+              className="btn btn-accent"
+              onClick={openCreate}
+            >
+              + 新建目录
+            </button>
           </div>
         ) : (
           directories.map((d) => (
@@ -211,7 +222,7 @@ export function DirectoriesView(): React.ReactElement {
                       onChange={(e) => setEditName(e.target.value)}
                       autoFocus
                     />
-                    <div className="edit-actions">
+                    <div className="card-actions">
                       <button
                         type="button"
                         className="btn btn-accent btn-sm"
@@ -241,7 +252,7 @@ export function DirectoriesView(): React.ReactElement {
                   </>
                 )}
               </div>
-              <div className="directory-actions">
+              <div className="card-actions">
                 {editingId !== d.id ? (
                   <>
                     <button

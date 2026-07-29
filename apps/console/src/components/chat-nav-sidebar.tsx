@@ -18,8 +18,8 @@ import Link from 'next/link'
 import { Icon } from '@/components/icon'
 import { NAV } from '@/components/nav'
 import { useSession } from '@/lib/auth-client'
-import { fetchDirectories, type Directory } from '@/lib/directories'
-import { fetchChats, type Chat } from '@/lib/chats'
+import { fetchDirectories, pickDirectory, createDirectory, type Directory } from '@/lib/directories'
+import { fetchChats, createChat, type Chat } from '@/lib/chats'
 import '@/styles/chat-nav-sidebar.css'
 
 interface ChatNavSidebarProps {
@@ -29,6 +29,23 @@ interface ChatNavSidebarProps {
 function isActive(pathname: string, href: string): boolean {
   if (href === '/') return pathname === '/'
   return pathname === href || pathname.startsWith(href + '/')
+}
+
+/** Compact relative time for chat history — "刚刚 / N分钟前 / N小时前 / 昨天 / M月D日". */
+function formatRelativeTime(dateStr: string): string {
+  const now = Date.now()
+  const then = new Date(dateStr).getTime()
+  const diffMs = now - then
+  const diffMin = Math.floor(diffMs / 60_000)
+  if (diffMin < 1) return '刚刚'
+  if (diffMin < 60) return `${diffMin}分钟前`
+  const diffHr = Math.floor(diffMin / 60)
+  if (diffHr < 24) return `${diffHr}小时前`
+  const diffDay = Math.floor(diffHr / 24)
+  if (diffDay === 1) return '昨天'
+  if (diffDay < 7) return `${diffDay}天前`
+  const d = new Date(then)
+  return `${d.getMonth() + 1}月${d.getDate()}日`
 }
 
 export function ChatNavSidebar({ collapsed }: ChatNavSidebarProps): React.ReactElement {
@@ -102,9 +119,77 @@ export function ChatNavSidebar({ collapsed }: ChatNavSidebarProps): React.ReactE
     })
   }, [])
 
+  // Reload directories after an inline action (add dir / new chat) so the
+  // sidebar reflects the new state without a full page refresh.
+  const reloadDirectories = useCallback(async () => {
+    try {
+      const dirs = await fetchDirectories()
+      setDirectories(dirs)
+      const entries = await Promise.all(
+        dirs.map(async (dir) => {
+          try {
+            const chats = await fetchChats(dir.id)
+            return [dir.id, chats] as const
+          } catch {
+            return [dir.id, [] as Chat[]] as const
+          }
+        }),
+      )
+      const map: Record<string, Chat[]> = {}
+      for (const [id, chats] of entries) map[id] = chats
+      setChatsByDir(map)
+    } catch {
+      // silent — sidebar keeps stale data
+    }
+  }, [])
+
   const handleNewChat = useCallback(() => {
     router.push('/')
   }, [router])
+
+  // Create a fresh chat bound to a specific directory and navigate into it.
+  // Used by the ➕ icon on each directory header. The directory auto-expands
+  // so the new chat appears under it immediately after navigation back.
+  const [creatingInDir, setCreatingInDir] = useState<string | null>(null)
+  const handleNewChatInDir = useCallback(
+    async (dirId: string) => {
+      if (creatingInDir) return
+      setCreatingInDir(dirId)
+      try {
+        const chat = await createChat({ directoryId: dirId, title: '新对话' })
+        // Prepend into local state so it shows up instantly after navigation.
+        setChatsByDir((prev) => ({
+          ...prev,
+          [dirId]: [chat, ...(prev[dirId] ?? [])],
+        }))
+        setExpandedDirs((prev) => new Set(prev).add(dirId))
+        router.push(`/chats/${chat.id}`)
+      } catch {
+        // silent — the user can retry from the home composer
+      } finally {
+        setCreatingInDir(null)
+      }
+    },
+    [creatingInDir, router],
+  )
+
+  // Inline add-directory flow — same as ChatHome's, but lives in the sidebar
+  // so the user can add a directory from anywhere without going to /directories.
+  const [addingDir, setAddingDir] = useState(false)
+  const handleAddDirectory = useCallback(async (): Promise<void> => {
+    if (addingDir) return
+    setAddingDir(true)
+    try {
+      const path = await pickDirectory()
+      if (!path) return // user cancelled the OS dialog
+      await createDirectory({ path })
+      await reloadDirectories()
+    } catch {
+      // silent — keeps sidebar stable
+    } finally {
+      setAddingDir(false)
+    }
+  }, [addingDir, reloadDirectories])
 
   return (
     <div className="chat-nav-sidebar">
@@ -146,6 +231,7 @@ export function ChatNavSidebar({ collapsed }: ChatNavSidebarProps): React.ReactE
             href={item.href}
             className="chat-nav-link"
             aria-current={isActive(pathname, item.href) ? 'page' : undefined}
+            title={collapsed ? item.label : undefined}
           >
             <Icon name={item.icon} className="nav-icon" style={{ width: 16, height: 16, flexShrink: 0 }} />
             <span>{item.label}</span>
@@ -153,33 +239,65 @@ export function ChatNavSidebar({ collapsed }: ChatNavSidebarProps): React.ReactE
         ))}
       </nav>
 
-      {/* Chat history grouped by directory */}
+      {/* Chat history grouped by directory.
+          "添加项目目录" is pinned to the top so it's always reachable —
+          previously it sat at the bottom of a long list and was hard to find. */}
       <div className="chat-nav-history">
+        <button
+          type="button"
+          className="chat-nav-add-dir"
+          onClick={() => void handleAddDirectory()}
+          disabled={addingDir}
+          title="添加项目目录"
+        >
+          <Icon name="plus" style={{ width: 14, height: 14 }} />
+          <span>{addingDir ? '等待选择…' : '添加项目目录'}</span>
+        </button>
+
         {loading ? (
           <div style={{ padding: 'var(--space-3)', color: 'var(--meta)', fontSize: 'var(--text-sm)' }}>加载中…</div>
         ) : directories.length === 0 ? (
-          <Link href="/directories" className="chat-nav-add-dir">
-            <Icon name="plus" style={{ width: 14, height: 14 }} />
-            <span>添加项目目录</span>
-          </Link>
+          <div className="chat-nav-history-empty">
+            暂无项目目录，点击上方按钮添加
+          </div>
         ) : (
           directories.map((dir) => {
             const chats = (chatsByDir[dir.id] ?? []).filter((chat) =>
               chat.title.toLowerCase().includes(search.toLowerCase()),
             )
             const expanded = expandedDirs.has(dir.id)
+            const isCreating = creatingInDir === dir.id
             return (
               <div key={dir.id} className="chat-nav-dir-group">
-                <button
-                  type="button"
-                  className="chat-nav-dir-header"
-                  onClick={() => toggleDir(dir.id)}
-                >
-                  <Icon name={expanded ? 'chevronDown' : 'chevronRight'} style={{ width: 12, height: 12 }} />
-                  <Icon name="folder" style={{ width: 14, height: 14 }} />
-                  <span>{dir.name}</span>
-                  <span className="chat-nav-dir-count">{chats.length}</span>
-                </button>
+                <div className="chat-nav-dir-header-row">
+                  <button
+                    type="button"
+                    className="chat-nav-dir-header"
+                    onClick={() => toggleDir(dir.id)}
+                    title={dir.path || dir.name}
+                  >
+                    <Icon name={expanded ? 'chevronDown' : 'chevronRight'} style={{ width: 12, height: 12 }} />
+                    <Icon name="folder" style={{ width: 14, height: 14 }} />
+                    <span>{dir.name}</span>
+                    <span className="chat-nav-dir-count">{chats.length}</span>
+                  </button>
+                  {/* Per-directory new-chat ➕ — creates a chat bound to this
+                      directory and jumps straight into it. stopPropagation so
+                      clicking ➕ doesn't also collapse/expand the group. */}
+                  <button
+                    type="button"
+                    className="chat-nav-dir-new-chat"
+                    onClick={(e) => {
+                      e.stopPropagation()
+                      void handleNewChatInDir(dir.id)
+                    }}
+                    disabled={isCreating}
+                    title={`在「${dir.name}」中新建对话`}
+                    aria-label={`在「${dir.name}」中新建对话`}
+                  >
+                    <Icon name={isCreating ? 'loader' : 'plus'} style={{ width: 12, height: 12 }} />
+                  </button>
+                </div>
                 {expanded && (
                   <div className="chat-nav-dir-items">
                     {chats.map((chat) => (
@@ -188,12 +306,12 @@ export function ChatNavSidebar({ collapsed }: ChatNavSidebarProps): React.ReactE
                         href={`/chats/${chat.id}`}
                         className="chat-nav-chat-item"
                         aria-selected={activeChatId === chat.id}
+                        title={chat.title}
                       >
                         <span className={`chat-nav-chat-status ${chat.status}`} />
                         <span className="chat-nav-chat-item-title">{chat.title}</span>
                         <span className="chat-nav-chat-item-meta">
-                          <span className="chat-nav-chat-item-count">{chat.messageCount}</span>
-                          <span className="chat-nav-chat-item-status">{chat.status}</span>
+                          <span className="chat-nav-chat-item-time">{formatRelativeTime(chat.updatedAt)}</span>
                         </span>
                       </Link>
                     ))}
@@ -203,23 +321,21 @@ export function ChatNavSidebar({ collapsed }: ChatNavSidebarProps): React.ReactE
             )
           })
         )}
-        {directories.length > 0 && (
-          <Link href="/directories" className="chat-nav-add-dir">
-            <Icon name="plus" style={{ width: 14, height: 14 }} />
-            <span>添加项目目录</span>
-          </Link>
-        )}
       </div>
 
       {/* User footer */}
       <div className="chat-nav-footer">
         <Link href="/" className="chat-nav-user">
-          <div className="chat-nav-user-avatar">
+          <div
+            className="chat-nav-user-avatar"
+            data-authed={user ? 'true' : 'false'}
+            title={user ? undefined : '未登录'}
+          >
             {user ? user.name.slice(0, 1).toUpperCase() : 'R'}
           </div>
           <div className="chat-nav-user-info">
             <span className="chat-nav-user-name">{user?.name ?? '未登录'}</span>
-            <span className="chat-nav-user-plan">专业版</span>
+            {user ? <span className="chat-nav-user-plan">专业版</span> : null}
           </div>
         </Link>
         <Link

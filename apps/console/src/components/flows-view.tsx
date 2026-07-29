@@ -448,6 +448,7 @@ export function FlowsView(): React.ReactElement {
             role="tab"
             aria-selected={scope === 'mine'}
             data-scope="mine"
+            data-zero={scopeCounts.mine === 0 ? 'true' : undefined}
             onClick={() => setScope('mine')}
           >
             我的 <span className="cnt">{scopeCounts.mine}</span>
@@ -457,6 +458,7 @@ export function FlowsView(): React.ReactElement {
             role="tab"
             aria-selected={scope === 'all'}
             data-scope="all"
+            data-zero={scopeCounts.all === 0 ? 'true' : undefined}
             onClick={() => setScope('all')}
           >
             全部 <span className="cnt">{scopeCounts.all}</span>
@@ -466,6 +468,7 @@ export function FlowsView(): React.ReactElement {
             role="tab"
             aria-selected={scope === 'archived'}
             data-scope="archived"
+            data-zero={scopeCounts.archived === 0 ? 'true' : undefined}
             onClick={() => setScope('archived')}
           >
             已归档 <span className="cnt">{scopeCounts.archived}</span>
@@ -521,8 +524,35 @@ export function FlowsView(): React.ReactElement {
             </div>
           ) : visibleFlows.length === 0 ? (
             <div className="empty-state">
-              <div className="h">没有匹配的 flow</div>
-              <div className="d">试试调整筛选条件或清除搜索。</div>
+              <div className="empty-state-icon" aria-hidden="true">⚡</div>
+              <div className="h">{flows.length === 0 ? '还没有 Flow' : '没有匹配的 Flow'}</div>
+              <div className="d">
+                {flows.length === 0
+                  ? '创建你的第一个 Flow，编排 Agent 协作流程。'
+                  : '试试调整筛选条件或清除搜索。'}
+              </div>
+              {flows.length === 0 ? (
+                <button
+                  type="button"
+                  className="btn btn-primary"
+                  onClick={() => setCreateOpen(true)}
+                >
+                  <Icon name="plus" style={{ width: 14, height: 14 }} />
+                  新建 Flow
+                </button>
+              ) : (
+                <button
+                  type="button"
+                  className="btn btn-ghost btn-sm"
+                  onClick={() => {
+                    setStatusFilter(new Set())
+                    setQuery('')
+                    setScope('all')
+                  }}
+                >
+                  清除过滤器
+                </button>
+              )}
             </div>
           ) : (
             visibleFlows.map((f) => {
@@ -570,7 +600,7 @@ export function FlowsView(): React.ReactElement {
                         </span>
                       ) : null}
                     </div>
-                    <div className="flow-card-actions">
+                    <div className="card-actions">
                       <button
                         type="button"
                         className="btn btn-secondary btn-sm"

@@ -16,13 +16,15 @@
   background: var(--bg);
   cursor: pointer;
   transition: background var(--motion-fast) var(--ease-standard),
-              border-color var(--motion-fast) var(--ease-standard);
+              border-color var(--motion-fast) var(--ease-standard),
+              box-shadow var(--motion-fast) var(--ease-standard);
   text-align: left;
 }
 
 .suggestion-card:hover {
   background: var(--surface-warm);
   border-color: var(--border);
+  box-shadow: var(--elev-raised);
 }
 
 .suggestion-card-icon {

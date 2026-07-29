@@ -46,44 +46,67 @@ import {
 /** The six settings tabs, grouped as the design's sub-nav renders them. */
 type TabId = 'keys' | 'models' | 'quota' | 'notify' | 'account' | 'danger'
 
-interface TabGroup {
+type TabGroupKey = '密钥' | '模型' | '治理' | '账户'
+
+interface TabDef {
+  id: TabId
+  /** Visible label on the tab button AND section heading (long form). */
   label: string
+  /**
+   * Short form for the tab button's aria-label. The fidelity test keys tabs
+   * by their short design name (API Key / 默认模型 / 预算配额 / 通知 /
+   * 账户团队 / 危险区); the visible button text carries the longer design
+   * label, so aria-label carries the short form. Defaults to `label` when
+   * the short and long forms are identical.
+   */
+  a11y?: string
+  /** Sub-nav group label. */
+  group: TabGroupKey
+}
+
+/**
+ * Single source of truth for the six settings tabs. Both the sub-nav
+ * grouping (TAB_GROUPS) and the per-tab accessible name (TAB_A11Y) derive
+ * from this array, so the long visible label and the short aria-label
+ * can never drift apart — adding or renaming a tab only touches this list.
+ */
+const TABS: readonly TabDef[] = [
+  { id: 'keys', label: 'LLM Provider 管理', a11y: 'LLM Provider', group: '密钥' },
+  { id: 'models', label: '默认模型', group: '模型' },
+  { id: 'quota', label: '预算与配额', a11y: '预算配额', group: '治理' },
+  { id: 'notify', label: '通知', group: '治理' },
+  { id: 'account', label: '账户与团队', a11y: '账户团队', group: '账户' },
+  { id: 'danger', label: '危险区', group: '账户' },
+] as const
+
+interface TabGroup {
+  label: TabGroupKey
   tabs: { id: TabId; label: string }[]
 }
 
-const TAB_GROUPS: TabGroup[] = [
-  { label: '密钥', tabs: [{ id: 'keys', label: 'LLM Provider 管理' }] },
-  { label: '模型', tabs: [{ id: 'models', label: '默认模型' }] },
-  {
-    label: '治理',
-    tabs: [
-      { id: 'quota', label: '预算与配额' },
-      { id: 'notify', label: '通知' },
-    ],
-  },
-  {
-    label: '账户',
-    tabs: [
-      { id: 'account', label: '账户与团队' },
-      { id: 'danger', label: '危险区' },
-    ],
-  },
-]
+const TAB_GROUPS: TabGroup[] = (
+  ['密钥', '模型', '治理', '账户'] as const
+).map((g) => ({
+  label: g,
+  tabs: TABS.filter((t) => t.group === g).map((t) => ({ id: t.id, label: t.label })),
+}))
 
-/**
- * The accessible name each tab exposes via aria-label. The fidelity test
- * keys tabs by their short design name (API Key / 默认模型 / 预算配额 /
- * 通知 / 账户团队 / 危险区); the visible button text carries the longer
- * design label, so aria-label carries the short form.
- */
-const TAB_A11Y: Record<TabId, string> = {
-  keys: 'LLM Provider',
-  models: '默认模型',
-  quota: '预算配额',
-  notify: '通知',
-  account: '账户团队',
-  danger: '危险区',
-}
+const TAB_A11Y: Record<TabId, string> = TABS.reduce(
+  (acc, t) => {
+    acc[t.id] = t.a11y ?? t.label
+    return acc
+  },
+  {} as Record<TabId, string>,
+)
+
+/** Canonical long-form label per tab — used by section aria-label and heading. */
+const TAB_LABEL: Record<TabId, string> = TABS.reduce(
+  (acc, t) => {
+    acc[t.id] = t.label
+    return acc
+  },
+  {} as Record<TabId, string>,
+)
 
 const PROVIDER_TYPES = ['openai', 'anthropic', 'google', 'azure', 'deepseek', 'moonshot', 'qwen', 'ollama', 'custom'] as const
 
@@ -287,10 +310,10 @@ function LlmProvidersTab(): React.ReactElement {
   }
 
   return (
-    <section className="settings-section active" aria-label="LLM Provider 管理">
+    <section className="settings-section active" aria-label={TAB_LABEL.keys}>
       <div className="row-between mb-4">
         <div>
-          <div className="card-title" style={{ fontSize: 'var(--text-lg)' }}>LLM Provider 管理</div>
+          <div className="card-title" style={{ fontSize: 'var(--text-lg)' }}>{TAB_LABEL.keys}</div>
           <div className="muted mt-2" style={{ fontSize: 13 }}>
             管理 LLM 服务商配置，支持多 Provider 接入与统一鉴权
           </div>
@@ -696,8 +719,8 @@ const MODEL_FALLBACK = [
 
 function DefaultModelsTab(): React.ReactElement {
   return (
-    <section className="settings-section active" aria-label="默认模型">
-      <div className="card-title mb-4" style={{ fontSize: 'var(--text-lg)' }}>默认模型</div>
+    <section className="settings-section active" aria-label={TAB_LABEL.models}>
+      <div className="card-title mb-4" style={{ fontSize: 'var(--text-lg)' }}>{TAB_LABEL.models}</div>
       <div className="card mb-6">
         <div className="card-head">
           <div className="card-title">按角色分派</div>
@@ -746,8 +769,8 @@ const QUOTA_FALLBACK = [
 
 function QuotaTab(): React.ReactElement {
   return (
-    <section className="settings-section active" aria-label="预算与配额">
-      <div className="card-title mb-4" style={{ fontSize: 'var(--text-lg)' }}>预算与配额</div>
+    <section className="settings-section active" aria-label={TAB_LABEL.quota}>
+      <div className="card-title mb-4" style={{ fontSize: 'var(--text-lg)' }}>{TAB_LABEL.quota}</div>
       <div className="card mb-4">
         <div className="card-head">
           <div className="card-title">全平台预算</div>
@@ -807,8 +830,8 @@ const NOTIFY_CHANNELS: ReadonlyArray<{ t: string; d: string; off: boolean }> = [
 
 function NotifyTab(): React.ReactElement {
   return (
-    <section className="settings-section active" aria-label="通知">
-      <div className="card-title mb-4" style={{ fontSize: 'var(--text-lg)' }}>通知</div>
+    <section className="settings-section active" aria-label={TAB_LABEL.notify}>
+      <div className="card-title mb-4" style={{ fontSize: 'var(--text-lg)' }}>{TAB_LABEL.notify}</div>
       <div className="card">
         {NOTIFY_EVENTS.map((r) => (
           <div className="toggle-row" key={r.t}>
@@ -864,8 +887,8 @@ const TEAM_MEMBERS: ReadonlyArray<{ nm: string; p: string; role: string; scope: 
 
 function AccountTab(): React.ReactElement {
   return (
-    <section className="settings-section active" aria-label="账户与团队">
-      <div className="card-title mb-4" style={{ fontSize: 'var(--text-lg)' }}>账户与团队</div>
+    <section className="settings-section active" aria-label={TAB_LABEL.account}>
+      <div className="card-title mb-4" style={{ fontSize: 'var(--text-lg)' }}>{TAB_LABEL.account}</div>
       <div className="card mb-4">
         <div className="card-head">
           <div className="card-title">个人</div>
@@ -929,9 +952,9 @@ const DANGER_ROWS = [
 
 function DangerTab(): React.ReactElement {
   return (
-    <section className="settings-section active" aria-label="危险区">
+    <section className="settings-section active" aria-label={TAB_LABEL.danger}>
       <div className="danger-zone">
-        <div className="card-title mb-2" style={{ color: 'var(--danger)' }}>危险区</div>
+        <div className="card-title mb-2" style={{ color: 'var(--danger)' }}>{TAB_LABEL.danger}</div>
         {DANGER_ROWS.map((r) => (
           <div className="toggle-row" key={r.t}>
             <div className="info">

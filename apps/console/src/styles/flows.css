@@ -1,29 +1,21 @@
 /* flows.css — page-local styles for the AgentFlows list page (v0.3-M2.1).
    Ported 1:1 from design/agentflows.html's inline <style> list-page section
-   (scope-tabs / filter-chip / flow-toolbar / flow-search / flow-card /
-   flow-runs / run-row / empty-state / result-count / run-list header).
+   (flow-card / flow-runs / run-row / empty-state).
    The detail-page (DAG + inspector) styles stay in shell.css's existing
    `.flow-canvas-wrap` / `.flow-inspector` / `.flow-layout` blocks — this file
-   only owns the list-page surface the redesign moves onto. */
+   only owns the list-page surface the redesign moves onto.
 
-/* scope tabs — same as agents.html */
-.scope-tabs { display: inline-flex; gap: 2px; background: var(--surface); border-radius: var(--radius-sm); padding: 3px; }
-.scope-tabs button { border: 0; background: transparent; padding: 6px var(--space-3); border-radius: 9px; font-size: var(--text-xs); font-weight: 500; color: var(--muted); cursor: pointer; transition: background var(--motion-fast), color var(--motion-fast); display: inline-flex; align-items: center; gap: 5px; }
-.scope-tabs button:hover { color: var(--fg); }
-.scope-tabs button[aria-selected="true"] { background: var(--bg); color: var(--fg); box-shadow: var(--elev-ring); }
-.scope-tabs .cnt { font-family: var(--font-mono); font-size: 10px; opacity: 0.7; }
-
-/* filter chips — same style as agents.html filter-chip */
-.filter-chip { display: inline-flex; align-items: center; gap: 6px; height: 32px; padding: 0 var(--space-3); background: var(--bg); border: 1px solid var(--border); border-radius: var(--radius-sm); font-size: var(--text-xs); color: var(--fg-2); font-weight: 500; cursor: pointer; transition: all var(--motion-fast); }
-.filter-chip:hover { border-color: #d4d4d4; }
-.filter-chip[aria-pressed="true"] { background: var(--fg); color: var(--bg); border-color: var(--fg); }
+   Note: .scope-tabs / .filter-chip / .result-count / .card-actions are now
+   defined once in shell.css's unified list-controls section. This file only
+   owns flow-specific layout (.flow-toolbar, .flow-search, .flow-card, runs). */
 
 .flow-toolbar { display: flex; align-items: center; gap: var(--space-3); margin-bottom: var(--space-4); flex-wrap: wrap; }
+/* .flow-search kept as a thin alias of .list-search for the flow page; new
+   code should use .list-search directly. */
 .flow-search { position: relative; flex: 1; min-width: 200px; max-width: 320px; }
 .flow-search input { width: 100%; height: 34px; padding: 0 var(--space-3) 0 30px; background: var(--bg); border: 1px solid var(--border); border-radius: var(--radius-sm); font-size: var(--text-sm); color: var(--fg); }
 .flow-search input:focus { border-color: var(--accent); box-shadow: var(--focus-ring); outline: none; }
 .flow-search svg { position: absolute; left: 9px; top: 9px; width: 14px; height: 14px; color: var(--meta); }
-.result-count { font-size: 11px; color: var(--meta); font-family: var(--font-mono); }
 
 .flow-card { background: var(--bg); border: 1px solid var(--border-soft); border-radius: var(--radius-md); overflow: hidden; margin-bottom: var(--space-3); transition: box-shadow var(--motion-fast); }
 .flow-card:hover { box-shadow: var(--elev-raised); }
@@ -38,9 +30,9 @@
 .flow-info .sub { font-size: 12px; color: var(--muted); margin-top: 2px; display: flex; gap: var(--space-3); flex-wrap: wrap; }
 .flow-info .sub .mono { font-family: var(--font-mono); }
 .flow-card-meta { display: flex; align-items: center; gap: var(--space-2); flex-shrink: 0; }
-.flow-card-actions { display: flex; gap: var(--space-2); margin-left: var(--space-2); }
-.flow-card-actions .btn { white-space: nowrap; }
-.flow-card-actions .btn-sm { height: 28px; padding: 0 var(--space-3); font-size: 11px; }
+/* .flow-card-actions migrated to the unified .card-actions class in shell.css.
+   Only the flow-specific btn-sm size override remains, scoped under .flow-card. */
+.flow-card .card-actions .btn-sm { height: 28px; padding: 0 var(--space-3); font-size: 11px; }
 
 .flow-runs { display: none; border-top: 1px solid var(--border-soft); }
 .flow-card.expanded .flow-runs { display: block; }
@@ -56,10 +48,12 @@
 .run-time { font-family: var(--font-mono); font-size: 11px; color: var(--meta); }
 .run-arrow { color: var(--meta); text-align: right; }
 
-.empty-state { display: flex; flex-direction: column; align-items: center; justify-content: center; padding: var(--space-16); text-align: center; }
+.empty-state { display: flex; flex-direction: column; align-items: center; justify-content: center; padding: var(--space-16); text-align: center; gap: var(--space-2); }
+.empty-state .empty-state-icon { font-size: 40px; line-height: 1; opacity: 0.7; margin-bottom: var(--space-2); }
 .empty-state .h { font-size: var(--text-base); font-weight: 600; color: var(--fg); margin-bottom: var(--space-2); }
-.empty-state .d { font-size: var(--text-sm); color: var(--muted); }
+.empty-state .d { font-size: var(--text-sm); color: var(--muted); max-width: 320px; line-height: 1.6; }
+.empty-state .btn { margin-top: var(--space-3); }
 
-@media (max-width: 1024px) { .run-row { grid-template-columns: 1fr; gap: 2px; } .run-list-head { display: none; } .flow-card-actions .btn { display: none; } .flow-card-actions .btn:first-child { display: inline-flex; } }
-@media (max-width: 640px) { .flow-card-actions { display: none; } .flow-card-meta .chip { display: none; } }
+@media (max-width: 1024px) { .run-row { grid-template-columns: 1fr; gap: 2px; } .run-list-head { display: none; } .flow-card .card-actions .btn { display: none; } .flow-card .card-actions .btn:first-child { display: inline-flex; } }
+@media (max-width: 640px) { .flow-card .card-actions { display: none; } .flow-card-meta .chip { display: none; } }
 @media (prefers-reduced-motion: reduce) { .flow-card, .flow-chev { transition: none; } }

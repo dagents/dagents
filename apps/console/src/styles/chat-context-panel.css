@@ -34,6 +34,28 @@
   color: var(--fg);
 }
 
+/* When the directory item shows a path, wrap name + path into a column so
+   the path sits below the name on its own line. Mono font, truncated. */
+.chat-context-dir-name {
+  /* inherits from .chat-context-item */
+}
+.chat-context-dir-path {
+  display: block;
+  font-family: var(--font-mono);
+  font-size: 11px;
+  color: var(--meta);
+  max-width: 220px;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+  margin-top: 2px;
+}
+/* Switch to column layout when a path is present (name + path stack vertically). */
+.chat-context-item:has(.chat-context-dir-path) {
+  align-items: flex-start;
+  flex-direction: column;
+}
+
 .chat-context-stats {
   display: flex;
   flex-direction: column;

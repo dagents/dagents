@@ -250,7 +250,7 @@ a { color: inherit; text-decoration: none; }
   font-size: var(--text-sm);
   color: var(--fg);
 }
-.topbar-search input::placeholder { color: var(--meta); }
+.topbar-search input::placeholder { color: var(--muted); }
 .topbar-search input:focus { background: var(--bg); border-color: var(--accent); box-shadow: var(--focus-ring); }
 .topbar-search .search-icon {
   position: absolute;
@@ -401,6 +401,124 @@ a { color: inherit; text-decoration: none; }
 .chip-outline { background: transparent; border: 1px solid var(--border); color: var(--muted); }
 .chip-tag { font-family: var(--font-mono); font-size: 11px; height: 20px; padding: 0 7px; }
 
+/* ─── unified list controls ────────────────────────────────────
+   Single source of truth for scope-tabs / filter-chip / list-search /
+   result-count / card-actions. Previously these were duplicated across
+   agents.css, flows.css, daemons.css and the tokens-toolbar section of
+   shell.css, with inconsistent heights (30/32/34px) and ARIA support.
+   Component CSS files must NOT redefine these classes. */
+.scope-tabs {
+  display: inline-flex;
+  gap: 2px;
+  background: var(--surface);
+  border-radius: var(--radius-sm);
+  padding: 3px;
+}
+.scope-tabs button {
+  border: 0;
+  background: transparent;
+  padding: 6px var(--space-3);
+  border-radius: 9px;
+  font-size: var(--text-xs);
+  font-weight: 500;
+  color: var(--muted);
+  cursor: pointer;
+  transition: background var(--motion-fast), color var(--motion-fast);
+  display: inline-flex;
+  align-items: center;
+  gap: 5px;
+}
+.scope-tabs button:hover { color: var(--fg); }
+.scope-tabs button[aria-selected="true"] {
+  background: var(--bg);
+  color: var(--fg);
+  box-shadow: var(--elev-ring);
+}
+/* De-emphasize tabs whose count is 0 — the user can still click them (they
+   may become non-zero later), but the lower opacity signals "nothing here". */
+.scope-tabs button[data-zero="true"]:not([aria-selected="true"]) {
+  opacity: 0.55;
+}
+.scope-tabs .cnt {
+  font-family: var(--font-mono);
+  font-size: 10px;
+  opacity: 0.7;
+}
+
+.filter-chip {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  height: 30px;
+  padding: 0 var(--space-3);
+  background: var(--bg);
+  border: 1px solid var(--border);
+  border-radius: var(--radius-sm);
+  font-size: var(--text-xs);
+  color: var(--muted);
+  font-weight: 500;
+  cursor: pointer;
+  transition: background var(--motion-fast), border-color var(--motion-fast), color var(--motion-fast);
+  white-space: nowrap;
+}
+.filter-chip:hover {
+  border-color: var(--border);
+  color: var(--fg);
+  background: var(--surface-warm);
+}
+.filter-chip[aria-pressed="true"] {
+  background: var(--fg);
+  color: var(--bg);
+  border-color: var(--fg);
+}
+
+/* Unified search wrapper for list toolbars. Wraps an <Icon name="search">
+   positioned absolutely + an <input>. Replaces .flow-search / .search-mini. */
+.list-search {
+  position: relative;
+  flex: 1;
+  min-width: 200px;
+  max-width: 320px;
+}
+.list-search input {
+  width: 100%;
+  height: 30px;
+  padding: 0 var(--space-3) 0 30px;
+  background: var(--bg);
+  border: 1px solid var(--border);
+  border-radius: var(--radius-sm);
+  font-size: var(--text-sm);
+  color: var(--fg);
+}
+.list-search input:focus { border-color: var(--accent); box-shadow: var(--focus-ring); outline: none; }
+.list-search svg {
+  position: absolute;
+  left: 9px;
+  top: 50%;
+  transform: translateY(-50%);
+  width: 14px;
+  height: 14px;
+  color: var(--meta);
+  pointer-events: none;
+}
+
+.result-count {
+  font-size: 11px;
+  color: var(--meta);
+  font-family: var(--font-mono);
+}
+
+/* Unified card actions container — the right-aligned button group inside a
+   card head. Replaces .flow-card-actions / .directory-actions / .edit-actions. */
+.card-actions {
+  display: flex;
+  gap: var(--space-2);
+  align-items: center;
+  margin-left: auto;
+  flex-shrink: 0;
+}
+.card-actions .btn { white-space: nowrap; }
+
 .status {
   display: inline-flex;
   align-items: center;
@@ -484,7 +602,7 @@ table.data .muted { color: var(--muted); }
   transition: border-color var(--motion-fast), box-shadow var(--motion-fast);
 }
 .textarea { height: auto; padding: var(--space-3); line-height: 1.5; resize: vertical; min-height: 80px; }
-.input::placeholder, .textarea::placeholder { color: var(--meta); }
+.input::placeholder, .textarea::placeholder { color: var(--muted); }
 .input:focus, .select:focus, .textarea:focus { border-color: var(--accent); box-shadow: var(--focus-ring); outline: none; }
 .input.invalid { border-color: var(--danger); }
 .field-error { font-size: 11px; color: var(--danger); display: none; }
@@ -745,13 +863,15 @@ table.data .muted { color: var(--muted); }
 .flow-detail-page .flow-layout { grid-template-columns: 1fr 340px; }
 @media (max-width: 1024px) { .flow-detail-page .flow-layout { grid-template-columns: 1fr; height: auto; } .flow-detail-page .flow-inspector { max-height: 360px; } .flow-detail-page .flow-canvas-stage { min-height: 360px; } }
 
-/* list-page flow-card (expandable run history) */
+/* list-page flow-card (expandable run history) — .flow-card / .flow-card-head /
+   .flow-chev / .flow-glyph / .flow-info / .flow-card-meta / .flow-runs / .run-*
+   are owned by flows.css. The rules below are the shell-level empty-state +
+   expanded-runs overrides that predate the flows.css port; kept for the >
+   child-selector precision and the empty-state shared definition. */
 .flow-cards { display: flex; flex-direction: column; gap: 0; }
 .empty-state { display: flex; flex-direction: column; align-items: center; justify-content: center; padding: var(--space-16); text-align: center; }
 .empty-state .h { font-size: var(--text-base); font-weight: 600; color: var(--fg); margin-bottom: var(--space-2); }
 .empty-state .d { font-size: var(--text-sm); color: var(--muted); }
-.flow-card { background: var(--bg); border: 1px solid var(--border-soft); border-radius: var(--radius-md); overflow: hidden; margin-bottom: var(--space-3); transition: box-shadow var(--motion-fast); }
-.flow-card:hover { box-shadow: var(--elev-raised); }
 .flow-card.expanded > .flow-runs { display: block; }
 .flow-card-head { display: flex; align-items: center; gap: var(--space-3); padding: var(--space-4) var(--space-5); cursor: pointer; }
 .flow-card-head:focus-visible { outline: none; box-shadow: inset var(--focus-ring); }
@@ -764,9 +884,10 @@ table.data .muted { color: var(--muted); }
 .flow-info .sub { font-size: 12px; color: var(--muted); margin-top: 2px; display: flex; gap: var(--space-3); flex-wrap: wrap; }
 .flow-info .sub .mono { font-family: var(--font-mono); }
 .flow-card-meta { display: flex; align-items: center; gap: var(--space-2); flex-shrink: 0; }
-.flow-card-actions { display: flex; gap: var(--space-2); margin-left: var(--space-2); }
-.flow-card-actions .btn { white-space: nowrap; }
-.flow-card-actions .btn-sm { height: 28px; padding: 0 var(--space-3); font-size: 11px; }
+/* .flow-card-actions migrated to the unified .card-actions class (see
+   unified list-controls section above). Only the flow-specific btn-sm
+   override remains, scoped under .flow-card. */
+.flow-card .card-actions .btn-sm { height: 28px; padding: 0 var(--space-3); font-size: 11px; }
 
 /* expandable run history table */
 .flow-runs { display: none; border-top: 1px solid var(--border-soft); }
@@ -783,16 +904,12 @@ table.data .muted { color: var(--muted); }
 .run-time { font-family: var(--font-mono); font-size: 11px; color: var(--meta); }
 .run-arrow { color: var(--meta); text-align: right; }
 
-/* scope tabs + status filter chips (list toolbar) */
-.flow-toolbar { display: flex; align-items: center; gap: var(--space-3); margin-bottom: var(--space-4); flex-wrap: wrap; }
-.flow-search { position: relative; flex: 1; min-width: 200px; max-width: 320px; }
-.flow-search input { width: 100%; height: 34px; padding: 0 var(--space-3) 0 30px; background: var(--bg); border: 1px solid var(--border); border-radius: var(--radius-sm); font-size: var(--text-sm); color: var(--fg); }
-.flow-search input:focus { border-color: var(--accent); box-shadow: var(--focus-ring); outline: none; }
-.flow-search svg { position: absolute; left: 9px; top: 9px; width: 14px; height: 14px; color: var(--meta); }
-.result-count { font-size: 11px; color: var(--meta); font-family: var(--font-mono); }
-
-@media (max-width: 1024px) { .run-head, .run-row { grid-template-columns: 1fr; gap: 2px; } .flow-card-actions .btn:not(:first-child) { display: none; } }
-@media (max-width: 640px) { .flow-card-actions { display: none; } }
+/* scope tabs + status filter chips + toolbar for the flow list page are now
+   defined in flows.css (+ the unified .scope-tabs / .filter-chip / .result-count
+   in the list-controls section above). The media queries below are kept for
+   the run table responsiveness and updated to target .card-actions. */
+@media (max-width: 1024px) { .run-head, .run-row { grid-template-columns: 1fr; gap: 2px; } .flow-card .card-actions .btn:not(:first-child) { display: none; } }
+@media (max-width: 640px) { .flow-card .card-actions { display: none; } }
 
 /* ─── settings page 6 tabs (P1.10.T8 / M5a.4) ───────────────── */
 /* Ported from design/settings.html's inline <style>. Mirrors the design's
@@ -824,9 +941,8 @@ table.data .muted { color: var(--muted); }
 .tokens-toolbar .search-mini input { width: 100%; height: 34px; padding: 0 var(--space-3) 0 30px; background: var(--bg); border: 1px solid var(--border); border-radius: var(--radius-sm); font-size: var(--text-sm); color: var(--fg); }
 .tokens-toolbar .search-mini input:focus { border-color: var(--accent); box-shadow: var(--focus-ring); outline: none; }
 .tokens-toolbar .search-mini::before { content: "🔍"; position: absolute; left: 9px; top: 8px; font-size: 12px; opacity: 0.5; }
-.filter-chip { display: inline-flex; align-items: center; gap: 6px; height: 34px; padding: 0 var(--space-3); background: var(--bg); border: 1px solid var(--border); border-radius: var(--radius-sm); font-size: var(--text-xs); color: var(--fg-2); font-weight: 500; cursor: pointer; transition: all var(--motion-fast); }
-.filter-chip:hover { border-color: #d4d4d4; }
-.filter-chip[aria-pressed="true"] { background: var(--fg); color: var(--bg); border-color: var(--fg); }
+/* .filter-chip is defined once in the unified list-controls section above.
+   .tk-count mirrors .result-count; kept as an alias for the tokens page. */
 .tk-count { color: var(--meta); font-size: 11px; font-family: var(--font-mono); }
 
 .tk-name { display: flex; flex-direction: column; gap: 2px; min-width: 0; }

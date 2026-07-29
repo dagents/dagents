@@ -81,13 +81,23 @@ export function FloatingChat(): React.ReactElement {
   // Hide on /chats/[id] — the full-page chat owns the conversation there.
   // Also hide on / (chat home) — that page already has its own composer, so
   // the floating FAB would only overlap the home send button.
+  // Also hide on management modules (Agent/Flow/Daemon/Directory/Settings):
+  // those pages have no "chat now" mental model; the FAB only obscures
+  // detail panels, action buttons and list rows there.
   const onChatDetail = pathname.startsWith('/chats/')
   const onChatHome = pathname === '/'
+  const onManagementPage =
+    pathname.startsWith('/agents') ||
+    pathname.startsWith('/flows') ||
+    pathname.startsWith('/daemons') ||
+    pathname.startsWith('/directories') ||
+    pathname.startsWith('/settings')
+  const shouldHide = onChatDetail || onChatHome || onManagementPage
 
   return (
     <>
-      {open && !onChatDetail && !onChatHome ? <FloatingChatWindow onClose={() => setOpen(false)} /> : null}
-      {!open && !onChatDetail && !onChatHome ? <ChatFab onClick={toggleOpen} /> : null}
+      {open && !shouldHide ? <FloatingChatWindow onClose={() => setOpen(false)} /> : null}
+      {!open && !shouldHide ? <ChatFab onClick={toggleOpen} /> : null}
     </>
   )
 }

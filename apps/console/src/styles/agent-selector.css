@@ -46,6 +46,23 @@
   text-align: left;
   cursor: pointer;
 }
-.agent-selector-option:hover { background: var(--surface-warm); }
+.agent-selector-option:hover,
+.agent-selector-option.highlighted { background: var(--surface-warm); }
 .agent-selector-option.selected { background: var(--accent-soft); color: var(--accent-hover); }
 .agent-selector-option-hint { margin-left: auto; font-size: var(--text-xs); color: var(--meta); }
+
+/* Empty-state create link — shown when the catalogue comes back empty.
+   Not a selectable option (no role=option); a navigation link to /agents. */
+.agent-selector-create-link {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  padding: 8px 10px;
+  margin-top: 4px;
+  border-top: 1px solid var(--border-soft);
+  color: var(--accent);
+  font-size: var(--text-xs);
+  text-decoration: none;
+  border-radius: 0 0 var(--radius-sm) var(--radius-sm);
+}
+.agent-selector-create-link:hover { background: var(--surface-warm); }

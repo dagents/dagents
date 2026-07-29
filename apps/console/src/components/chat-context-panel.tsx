@@ -67,9 +67,12 @@ export function ChatContextPanel({ chat, directory }: ChatContextPanelProps): Re
       <div className="chat-context-section">
         <div className="chat-context-section-title">所属目录</div>
         {directory ? (
-          <div className="chat-context-item">
+          <div className="chat-context-item" title={directory.path}>
             <Icon name="folder" style={{ width: 14, height: 14 }} />
-            <span>{directory.name}</span>
+            <span className="chat-context-dir-name">{directory.name}</span>
+            {directory.path ? (
+              <span className="chat-context-dir-path">{directory.path}</span>
+            ) : null}
           </div>
         ) : (
           <div className="muted">—</div>

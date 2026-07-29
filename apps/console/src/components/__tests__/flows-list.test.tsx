@@ -191,7 +191,7 @@ describe('FlowsView list-page (M2.1 fidelity)', () => {
     expect(screen.queryByText('发布门控（HITL）')).not.toBeInTheDocument()
 
     // The empty-state copy the design renders when no flow matches.
-    expect(screen.getByText(/没有匹配的 flow/)).toBeInTheDocument()
+    expect(screen.getByText(/没有匹配的 flow/i)).toBeInTheDocument()
   })
 
   it('the edit button routes to /flows/:id/edit (M2.3 route wiring)', async () => {

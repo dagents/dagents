@@ -97,6 +97,7 @@ const POLL_INTERVAL_MS = 5_000
 export function AgentDetailView({ id, nowMs }: AgentDetailViewProps): React.ReactElement {
   const [detail, setDetail] = useState<AgentDetail | null>(null)
   const [logs, setLogs] = useState<AgentLogLine[]>([])
+  const [logsError, setLogsError] = useState<string | null>(null)
   const [loading, setLoading] = useState(true)
   const [notFound, setNotFound] = useState(false)
   const [error, setError] = useState<string | null>(null)
@@ -106,29 +107,41 @@ export function AgentDetailView({ id, nowMs }: AgentDetailViewProps): React.Reac
     let cancelled = false
     setLoading(true)
     setError(null)
+    setLogsError(null)
     setNotFound(false)
     setDetail(null)
     setLogs([])
-    Promise.all([fetchAgentDetail(id), fetchAgentLogs(id)])
-      .then(([d, l]) => {
+    // Fetch detail and logs independently so a logs 502/500 does NOT block
+    // the inspector + tabs from rendering. Detail failure still escalates
+    // to the page-level error card (it's the agent's identity); logs
+    // failure is contained to the Logs tab as a retryable inline error.
+    const detailP = fetchAgentDetail(id)
+      .then((d) => {
         if (cancelled) return
         setDetail(d)
-        setLogs(l)
       })
       .catch((err: unknown) => {
         if (cancelled) return
-        // A 404 from the detail endpoint = "找不到这个 agent" (design's
-        // renderNotFound), not a generic load failure. fetchAgentDetail throws
-        // `agent detail failed (404)…` — surface not-found for that alone.
         const msg = err instanceof Error ? err.message : String(err)
         if (/\(404\)/.test(msg)) setNotFound(true)
         else setError(msg)
         setDetail(null)
+      })
+    const logsP = fetchAgentLogs(id)
+      .then((l) => {
+        if (cancelled) return
+        setLogs(l)
+        setLogsError(null)
+      })
+      .catch((err: unknown) => {
+        if (cancelled) return
+        // Logs are auxiliary — surface the error only inside the Logs tab.
         setLogs([])
+        setLogsError(err instanceof Error ? err.message : String(err))
       })
-      .finally(() => {
-        if (!cancelled) setLoading(false)
-      })
+    void Promise.all([detailP, logsP]).finally(() => {
+      if (!cancelled) setLoading(false)
+    })
     return () => {
       cancelled = true
     }
@@ -167,11 +180,12 @@ export function AgentDetailView({ id, nowMs }: AgentDetailViewProps): React.Reac
     if (notFound) return // nothing to poll once the agent is gone
     let cancelled = false
     const tick = (): void => {
-      Promise.all([fetchAgentDetail(id), fetchAgentLogs(id)])
-        .then(([d, l]) => {
+      // Same independent-fetch pattern as the initial load: a logs failure
+      // on re-poll must not nuke a known-good detail.
+      const detailP = fetchAgentDetail(id)
+        .then((d) => {
           if (cancelled) return
           setDetail(d)
-          setLogs(l)
         })
         .catch((err: unknown) => {
           if (cancelled) return
@@ -183,6 +197,19 @@ export function AgentDetailView({ id, nowMs }: AgentDetailViewProps): React.Reac
           }
           // transient errors: leave the last known detail in place.
         })
+      const logsP = fetchAgentLogs(id)
+        .then((l) => {
+          if (cancelled) return
+          setLogs(l)
+          setLogsError(null)
+        })
+        .catch((err: unknown) => {
+          if (cancelled) return
+          // Don't escalate — keep the stale logs visible; just mark the
+          // Logs tab as needing a manual retry.
+          setLogsError(err instanceof Error ? err.message : String(err))
+        })
+      void Promise.all([detailP, logsP])
     }
     const handle = setInterval(tick, POLL_INTERVAL_MS)
     return () => {
@@ -219,7 +246,20 @@ export function AgentDetailView({ id, nowMs }: AgentDetailViewProps): React.Reac
         ) : model ? (
           <>
             <Inspector model={model} />
-            <Overview model={model} activeTab={activeTab} onSelectTab={setActiveTab} />
+            <Overview
+              model={model}
+              activeTab={activeTab}
+              onSelectTab={setActiveTab}
+              logsError={logsError}
+              onRetryLogs={() => {
+                setLogsError(null)
+                void fetchAgentLogs(id)
+                  .then((l) => setLogs(l))
+                  .catch((err: unknown) => {
+                    setLogsError(err instanceof Error ? err.message : String(err))
+                  })
+              }}
+            />
           </>
         ) : null}
       </div>
@@ -374,9 +414,11 @@ interface OverviewProps {
   model: AgentDetailPageModel
   activeTab: TabKey
   onSelectTab: (tab: TabKey) => void
+  logsError?: string | null
+  onRetryLogs?: () => void
 }
 
-function Overview({ model, activeTab, onSelectTab }: OverviewProps): React.ReactElement {
+function Overview({ model, activeTab, onSelectTab, logsError, onRetryLogs }: OverviewProps): React.ReactElement {
   // Fixed-length ref array for the tab buttons — one slot per tab so the
   // keyboard handler can focus the next/prev/Home/End tab. Roving tabindex:
   // the active tab is in the tab sequence (tabindex=0), the rest are -1
@@ -408,7 +450,9 @@ function Overview({ model, activeTab, onSelectTab }: OverviewProps): React.React
         {activeTab === 'activity' ? <ActivityPanel model={model} /> : null}
         {activeTab === 'instructions' ? <InstructionsPanel model={model} /> : null}
         {activeTab === 'skills' ? <SkillsPanel model={model} /> : null}
-        {activeTab === 'logs' ? <LogsPanel model={model} /> : null}
+        {activeTab === 'logs' ? (
+          <LogsPanel model={model} error={logsError} onRetry={onRetryLogs} />
+        ) : null}
       </div>
     </section>
   )
@@ -524,10 +568,45 @@ function SkillsPanel({ model }: { model: AgentDetailPageModel }): React.ReactEle
   )
 }
 
-function LogsPanel({ model }: { model: AgentDetailPageModel }): React.ReactElement {
+function LogsPanel({
+  model,
+  error,
+  onRetry,
+}: {
+  model: AgentDetailPageModel
+  error?: string | null
+  onRetry?: () => void
+}): React.ReactElement {
   return (
     <>
       <div className="ins-section-label">最近日志</div>
+      {error ? (
+        <div
+          className="card-flat"
+          style={{
+            padding: 'var(--space-3)',
+            marginBottom: 'var(--space-3)',
+            color: 'var(--danger)',
+            display: 'flex',
+            alignItems: 'center',
+            justifyContent: 'space-between',
+            gap: 'var(--space-3)',
+          }}
+          role="alert"
+        >
+          <span>日志加载失败：{error}</span>
+          {onRetry ? (
+            <button
+              type="button"
+              className="btn btn-primary"
+              style={{ padding: '4px 12px', fontSize: 12 }}
+              onClick={onRetry}
+            >
+              重试
+            </button>
+          ) : null}
+        </div>
+      ) : null}
       <div className="log">
         {model.logs.length > 0 ? (
           [...model.logs].reverse().map((l, i) => (
@@ -539,7 +618,7 @@ function LogsPanel({ model }: { model: AgentDetailPageModel }): React.ReactEleme
           ))
         ) : (
           <div className="log-line">
-            <span className="log-msg muted">暂无日志</span>
+            <span className="log-msg muted">{error ? '等待重试…' : '暂无日志'}</span>
           </div>
         )}
       </div>

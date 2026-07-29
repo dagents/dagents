@@ -127,6 +127,7 @@ export function ChatHome(): React.ReactElement {
         disabled={sending || (directories.length === 0 && !selectedDirId)}
         agentId={selectedAgentId}
         onAgentChange={setSelectedAgentId}
+        autoFocus
       />
       {(error ?? sendError) && (
         <div style={{ textAlign: 'center', color: 'var(--danger)', fontSize: 'var(--text-sm)', paddingBottom: 'var(--space-4)' }}>

@@ -189,9 +189,9 @@ test.describe('Daemons module (UC-DAE-01 ~ 06)', () => {
 
   test.fixme('UC-DAE-04: filter task queue by status', async ({ page }) => {
     // Gap: 占位页未实现。
-    // 期望: 点击 .daemons-filter[data-status=queued|running|done|failed],
+    // 期望: 点击 .filter-chip[aria-pressed=true] 切换状态过滤器,
     //       列表按状态刷新。
-    await page.locator('.daemons-filter[data-status="queued"]').click()
+    await page.locator('.daemons-filters .filter-chip').nth(1).click()
     // Assert queue only shows queued tasks
   })
 

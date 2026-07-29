@@ -60,7 +60,16 @@ export function ChatDetail({ chatId }: ChatDetailProps): React.ReactElement {
   const [loading, setLoading] = useState(true)
   const [error, setError] = useState<string | null>(null)
   const [selectedAgentId, setSelectedAgentId] = useState<string | null>(chat?.agentId ?? null)
+  const [copiedId, setCopiedId] = useState<string | null>(null)
+  const [showScrollBtn, setShowScrollBtn] = useState(false)
   const messagesEndRef = useRef<HTMLDivElement>(null)
+  const messagesScrollRef = useRef<HTMLDivElement>(null)
+  // Last user text — kept so the retry button can re-send after an error.
+  const lastSentTextRef = useRef<string | null>(null)
+  // When true, inbound chat:message / chat:done frames are ignored so a
+  // stopped run stops patching the trailing bubble. chat:error still lands
+  // so the user sees the terminal state.
+  const stoppedRef = useRef(false)
 
   // We identify the streaming assistant bubble by its `stream-` id prefix
   // (persisted messages have UUID ids). This lets the setMessages updater
@@ -74,6 +83,10 @@ export function ChatDetail({ chatId }: ChatDetailProps): React.ReactElement {
     setChat(null)
     setDirectory(null)
     setMessages([])
+    setCopiedId(null)
+    setShowScrollBtn(false)
+    lastSentTextRef.current = null
+    stoppedRef.current = false
 
     // No AbortController here — React 18 StrictMode double-mounts effects in
     // dev (mount → cleanup abort → remount), and the first mount's abort
@@ -110,9 +123,28 @@ export function ChatDetail({ chatId }: ChatDetailProps): React.ReactElement {
     if (chat) setSelectedAgentId(chat.agentId)
   }, [chat])
 
+  // Auto-scroll to bottom on new messages — but only if the user is already
+  // near the bottom. If they've scrolled up to read history, don't yank them
+  // down mid-read. The scroll-to-bottom button appears when they're scrolled up.
+  const isNearBottom = useCallback(() => {
+    const el = messagesScrollRef.current
+    if (!el) return true
+    return el.scrollHeight - el.scrollTop - el.clientHeight < 120
+  }, [])
+
   useEffect(() => {
+    if (isNearBottom()) {
+      messagesEndRef.current?.scrollIntoView({ behavior: 'smooth' })
+    }
+  }, [messages, isNearBottom])
+
+  const handleScroll = useCallback(() => {
+    setShowScrollBtn(!isNearBottom())
+  }, [isNearBottom])
+
+  const scrollToBottom = useCallback(() => {
     messagesEndRef.current?.scrollIntoView({ behavior: 'smooth' })
-  }, [messages])
+  }, [])
 
   // Refresh chat when the context panel edits agent/flow (emits 'chat-updated').
   useEffect(() => {
@@ -129,6 +161,9 @@ export function ChatDetail({ chatId }: ChatDetailProps): React.ReactElement {
   // Receives chat:message / chat:done / chat:error frames from the gateway's
   // InlineAgentExecutor and patches the trailing assistant bubble.
   const handleWsFrame = useCallback((frame: ChatWsFrame) => {
+    // If the user stopped the run, ignore further streaming frames — the
+    // bubble was already sealed by handleStop with a "(已停止)" marker.
+    if (stoppedRef.current && frame.type !== 'chat:error') return
     if (frame.type === 'chat:message') {
       // Pure updater: find the streaming bubble by `stream-` id prefix.
       // Safe under StrictMode double-invoke (no side effects inside).
@@ -219,6 +254,10 @@ export function ChatDetail({ chatId }: ChatDetailProps): React.ReactElement {
     if (sending) return
     setSending(true)
     setError(null)
+    // Remember the text so the retry button can re-send on failure, and
+    // clear the stopped flag so WS frames flow into the new bubble.
+    lastSentTextRef.current = text
+    stoppedRef.current = false
 
     // Optimistic user message
     const optimisticId = `opt-${Date.now()}`
@@ -291,14 +330,62 @@ export function ChatDetail({ chatId }: ChatDetailProps): React.ReactElement {
     }
   }, [chatId, sending, selectedAgentId, connected])
 
+  // Stop the in-flight run: seal the streaming bubble with a "(已停止)"
+  // marker, clear `sending`, and set the stopped flag so further WS frames
+  // are ignored. The backend agent may keep running, but the UI is released.
+  const handleStop = useCallback(() => {
+    stoppedRef.current = true
+    setSending(false)
+    setMessages((prev) =>
+      prev.map((m) =>
+        m.id.startsWith('stream-')
+          ? { ...m, content: m.content + '\n\n_(已停止)_' }
+          : m,
+      ),
+    )
+    // The stream- id is now a sealed message; rename it so a later run's
+    // stream- bubble doesn't collide (and so the stopped bubble stops being
+    // treated as the streaming target by handleWsFrame's find).
+    setMessages((prev) =>
+      prev.map((m) =>
+        m.id.startsWith('stream-') ? { ...m, id: `stopped-${Date.now()}` } : m,
+      ),
+    )
+  }, [])
+
+  // Retry the last user message after an error — re-runs handleSend with
+  // the stored text and removes the failed assistant bubble.
+  const handleRetry = useCallback(() => {
+    const text = lastSentTextRef.current
+    if (!text) return
+    // Drop the failed/error assistant bubble so the retry starts clean.
+    setMessages((prev) => prev.filter((m) => !m.id.startsWith('err-') && !m.id.startsWith('stream-')))
+    void handleSend(text)
+  }, [handleSend])
+
+  // Copy an assistant message's raw content to the clipboard. Shows a
+  // transient check mark for 1.5s so the user knows it landed.
+  const handleCopy = useCallback(async (id: string, content: string) => {
+    try {
+      await navigator.clipboard.writeText(content)
+      setCopiedId(id)
+      setTimeout(() => setCopiedId((cur) => (cur === id ? null : cur)), 1500)
+    } catch {
+      // clipboard may be unavailable (non-secure context) — silent fail
+    }
+  }, [])
+
   return (
     <div className="chat-detail-body">
       {/* Breadcrumb */}
       <div className="chat-detail-breadcrumb">
         {directory && (
-          <Link href="/directories" className="chat-detail-breadcrumb-dir">
+          <Link href="/directories" className="chat-detail-breadcrumb-dir" title={directory.path}>
             <Icon name="folder" style={{ width: 14, height: 14 }} />
             <span>{directory.name}</span>
+            {directory.path ? (
+              <span className="chat-detail-breadcrumb-path">{directory.path}</span>
+            ) : null}
           </Link>
         )}
         <span className="chat-detail-breadcrumb-sep">/</span>
@@ -310,18 +397,26 @@ export function ChatDetail({ chatId }: ChatDetailProps): React.ReactElement {
             {STATUS_LABEL[chat.status]}
           </span>
         )}
-        {!connected ? (
-          <span className="chat-detail-breadcrumb-status status-disconnected" title="实时连接断开">
-            实时断开
-          </span>
-        ) : null}
       </div>
+
+      {/* WS disconnect banner — elevated from a tiny breadcrumb text to a
+          sticky warning bar so a critical connectivity issue isn't missed. */}
+      {!connected ? (
+        <div className="chat-detail-ws-warning" role="status">
+          <Icon name="alertTriangle" style={{ width: 14, height: 14 }} />
+          <span>实时连接断开 — 助手回复可能无法实时收到，正在尝试重连…</span>
+        </div>
+      ) : null}
 
       {/* Main split: messages + context */}
       <div className="chat-detail-split">
         {/* Left: messages + composer */}
         <div className="chat-detail-conversation">
-          <div className="chat-detail-messages">
+          <div
+            className="chat-detail-messages"
+            ref={messagesScrollRef}
+            onScroll={handleScroll}
+          >
             {loading ? (
               <div className="chat-detail-empty">加载对话…</div>
             ) : error && messages.length === 0 ? (
@@ -329,10 +424,42 @@ export function ChatDetail({ chatId }: ChatDetailProps): React.ReactElement {
                 加载失败：{error}
               </div>
             ) : messages.length === 0 ? (
-              <div className="chat-detail-empty">暂无消息，发送消息开始对话。</div>
+              <div className="chat-detail-empty">
+                <div className="chat-detail-empty-title">开始对话</div>
+                <div className="chat-detail-empty-desc">
+                  发送消息，或试试以下建议：
+                </div>
+                <div className="chat-detail-suggestions" role="group" aria-label="建议提示">
+                  {(directory
+                    ? [
+                        '列出这个目录的文件结构',
+                        '解释这个项目的架构',
+                        '帮我写一个单元测试',
+                        '审查最近的代码变更',
+                      ]
+                    : [
+                        '帮我创建一个批量推理的 AgentFlow',
+                        '查看当前 agent 的状态',
+                        '解释这段代码的作用',
+                        '帮我调试一个错误',
+                      ]
+                  ).map((s) => (
+                    <button
+                      key={s}
+                      type="button"
+                      className="chat-detail-suggestion-chip"
+                      onClick={() => void handleSend(s)}
+                      disabled={sending}
+                    >
+                      {s}
+                    </button>
+                  ))}
+                </div>
+              </div>
             ) : (
               messages.map((m) => {
                 const isStreaming = m.id.startsWith('stream-')
+                const isErrorBubble = m.id.startsWith('err-')
                 return (
                   <div
                     key={m.id}
@@ -353,17 +480,57 @@ export function ChatDetail({ chatId }: ChatDetailProps): React.ReactElement {
                       <div className="chat-msg-content">{m.content}</div>
                     )}
                     {m.role !== 'system' && (
-                      <div className="chat-msg-meta">{formatTime(m.createdAt)}</div>
+                      <div className="chat-msg-footer">
+                        <span className="chat-msg-meta">{formatTime(m.createdAt)}</span>
+                        {m.role === 'assistant' && !isStreaming ? (
+                          <button
+                            type="button"
+                            className="chat-msg-copy"
+                            onClick={() => void handleCopy(m.id, m.content)}
+                            title="复制"
+                            aria-label="复制回复内容"
+                          >
+                            <Icon name={copiedId === m.id ? 'check' : 'copy'} style={{ width: 12, height: 12 }} />
+                            <span>{copiedId === m.id ? '已复制' : '复制'}</span>
+                          </button>
+                        ) : null}
+                      </div>
                     )}
+                    {isErrorBubble && lastSentTextRef.current ? (
+                      <button
+                        type="button"
+                        className="chat-msg-retry"
+                        onClick={handleRetry}
+                      >
+                        <Icon name="refresh" style={{ width: 12, height: 12 }} />
+                        <span>重试</span>
+                      </button>
+                    ) : null}
                   </div>
                 )
               })
             )}
             <div ref={messagesEndRef} />
           </div>
+          {/* Scroll-to-bottom button — appears when the user has scrolled up
+              in a long conversation. Floats above the composer. */}
+          {showScrollBtn ? (
+            <button
+              type="button"
+              className="chat-detail-scroll-btn"
+              onClick={scrollToBottom}
+              aria-label="滚动到最新消息"
+              title="滚动到最新消息"
+            >
+              <Icon name="arrowDown" style={{ width: 16, height: 16 }} />
+            </button>
+          ) : null}
           <ChatComposer
             onSend={handleSend}
-            disabled={sending || loading}
+            onStop={handleStop}
+            stopping={sending}
+            disabled={loading}
+            autoFocus
             agentId={selectedAgentId}
             onAgentChange={setSelectedAgentId}
           />
