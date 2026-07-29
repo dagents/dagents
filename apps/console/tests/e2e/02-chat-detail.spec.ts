@@ -185,7 +185,7 @@ test.describe('Chat Detail (UC-CHAT-07 ~ 13)', () => {
   // the SSE token-streaming backend lands.
   test.fixme('UC-CHAT-09: send a message and receive streamed SSE tokens', async ({ page }) => {
     await page.goto(`/chats/${chatForSend}`)
-    const textarea = page.getByPlaceholder(/Send a message/)
+    const textarea = page.getByPlaceholder(/发送消息/)
     await expect(textarea).toBeVisible({ timeout: 10_000 })
     await textarea.fill('列出当前目录')
     await page.keyboard.press('Enter')

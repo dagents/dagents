@@ -6,6 +6,8 @@ import { randomUUID } from 'node:crypto'
 
 let seededChatIds: string[] = []
 let seededDirIds: string[] = []
+let seededAgentIds: string[] = []
+let seededDaemonIds: string[] = []
 
 beforeAll(async () => {
   if (!AppDataSource.isInitialized) await AppDataSource.initialize()
@@ -25,6 +27,14 @@ async function cleanup(): Promise<void> {
     await runQuery(`DELETE FROM directories WHERE id = ANY($1::uuid[])`, [seededDirIds])
     seededDirIds = []
   }
+  if (seededAgentIds.length) {
+    await runQuery(`DELETE FROM agent_daemons WHERE id = ANY($1::uuid[])`, [seededAgentIds])
+    seededAgentIds = []
+  }
+  if (seededDaemonIds.length) {
+    await runQuery(`DELETE FROM daemons WHERE id = ANY($1::uuid[])`, [seededDaemonIds])
+    seededDaemonIds = []
+  }
 }
 
 async function seedDirAndChat(opts: { agentId?: string | null; flowId?: string | null } = {}): Promise<{ dirId: string; chatId: string }> {
@@ -41,6 +51,25 @@ async function seedDirAndChat(opts: { agentId?: string | null; flowId?: string |
   )
   seededChatIds.push(chatId)
   return { dirId, chatId }
+}
+
+async function seedAgent(name?: string): Promise<string> {
+  // agent_daemons.daemon_id is NOT NULL and references daemons(id), so we
+  // create a minimal daemon row first, then the agent_daemon row.
+  const daemonId = randomUUID()
+  await runQuery(
+    `INSERT INTO daemons (id, label, token) VALUES ($1, $2, $3)`,
+    [daemonId, `daemon-${daemonId.slice(0, 8)}`, `token-${daemonId.slice(0, 8)}`],
+  )
+  seededDaemonIds.push(daemonId)
+
+  const agentId = randomUUID()
+  await runQuery(
+    `INSERT INTO agent_daemons (id, name, kind, daemon_id) VALUES ($1, $2, $3, $4)`,
+    [agentId, name ?? `agent-${agentId.slice(0, 8)}`, 'claude', daemonId],
+  )
+  seededAgentIds.push(agentId)
+  return agentId
 }
 
 describe('parseCommand', () => {
@@ -78,7 +107,7 @@ describe('parseCommand', () => {
 })
 
 describe('POST /api/v1/chats/:id/messages — default routing', () => {
-  it('writes user message and returns stream mode when chat has agentId', async () => {
+  it('writes user message and returns json mode with executing payload when chat has agentId', async () => {
     const { chatId } = await seedDirAndChat({ agentId: randomUUID(), flowId: 'flow-abc' })
 
     const res = await app.request(`/api/v1/chats/${chatId}/messages`, {
@@ -89,16 +118,55 @@ describe('POST /api/v1/chats/:id/messages — default routing', () => {
     expect(res.status).toBe(200)
     const body = (await res.json()) as {
       success: boolean
-      data: { message: { id: string; role: string; content: string }; mode: string; chatRunId?: string }
+      data: { message: { id: string; role: string; content: string }; mode: string; payload?: { status?: string; runId?: string } }
     }
     expect(body.success).toBe(true)
     expect(body.data.message.role).toBe('user')
     expect(body.data.message.content).toBe('hello there')
-    expect(body.data.mode).toBe('stream')
-    expect(body.data.chatRunId).toBeTruthy()
+    // Agent path returns json mode (tokens stream via WebSocket, not SSE)
+    expect(body.data.mode).toBe('json')
+    expect(body.data.payload?.status).toBe('executing')
+    expect(body.data.payload?.runId).toBeTruthy()
   })
 
-  it('returns json mode with error when chat has no agentId and no flowId', async () => {
+  it('auto-selects first agent when chat has no agentId and no flowId (auto mode)', async () => {
+    // "auto" fallback: when chat has no agent binding, gateway picks the first
+    // available agent from agent_daemons so the UI's "auto" selector works.
+    // We seed an agent to guarantee the table is non-empty; the fallback picks
+    // the oldest agent (ORDER BY created_at ASC), which may be a pre-existing
+    // row from earlier test/dev data — so we assert the chat got *some*
+    // agent_id, not necessarily the one we seeded.
+    await seedAgent('default-agent')
+    const { chatId } = await seedDirAndChat()
+
+    const res = await app.request(`/api/v1/chats/${chatId}/messages`, {
+      method: 'POST',
+      headers: { 'content-type': 'application/json' },
+      body: JSON.stringify({ content: 'hello' }),
+    })
+    expect(res.status).toBe(200)
+    const body = (await res.json()) as {
+      success: boolean
+      data: { mode: string; payload?: { status?: string; runId?: string } }
+    }
+    expect(body.data.mode).toBe('json')
+    expect(body.data.payload?.status).toBe('executing')
+    expect(body.data.payload?.runId).toBeTruthy()
+
+    // Verify the resolved agent was persisted onto the chat row so subsequent
+    // messages skip the fallback lookup. The exact agent_id depends on which
+    // row is oldest, so we just assert it's no longer null.
+    const { records } = await runQuery<{ agent_id: string | null }>(
+      `SELECT agent_id FROM chats WHERE id = $1::uuid`,
+      [chatId],
+    )
+    expect(records[0]?.agent_id).not.toBeNull()
+  })
+
+  it('returns json mode with error when no agent is available (agent_daemons empty)', async () => {
+    // Ensure no agents are available — the auto fallback should find nothing
+    // and return the error. We clear the table for this test case only.
+    await runQuery(`DELETE FROM agent_daemons`)
     const { chatId } = await seedDirAndChat()
 
     const res = await app.request(`/api/v1/chats/${chatId}/messages`, {

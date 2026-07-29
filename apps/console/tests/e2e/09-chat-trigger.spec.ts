@@ -163,7 +163,7 @@ test.describe('Chat trigger mechanism (UC-TRG-01 ~ 06)', () => {
   test.fixme('UC-TRG-01: default send via agent selector streams an assistant reply', async ({ page, request }) => {
     // --- Browser: the composer + agent selector are the trigger surface ---
     await page.goto(`/chats/${chatForSend}`)
-    const textarea = page.getByPlaceholder(/Send a message/)
+    const textarea = page.getByPlaceholder(/发送消息/)
     await expect(textarea).toBeVisible({ timeout: 10_000 })
 
     // Agent selector pill renders with the seeded agent's name (or 'auto').
@@ -205,7 +205,7 @@ test.describe('Chat trigger mechanism (UC-TRG-01 ~ 06)', () => {
   test('UC-TRG-02: @flow triggers a named flow and acks in-chat', async ({ page, request }) => {
     // --- Browser: typing @flow renders a system ack in the message stream ---
     await page.goto(`/chats/${chatForCommands}`)
-    const textarea = page.getByPlaceholder(/Send a message/)
+    const textarea = page.getByPlaceholder(/发送消息/)
     await expect(textarea).toBeVisible({ timeout: 10_000 })
     await textarea.fill('@flow daily-summary 生成今日报告')
     await page.keyboard.press('Enter')
@@ -242,7 +242,7 @@ test.describe('Chat trigger mechanism (UC-TRG-01 ~ 06)', () => {
   // chat-execute.ts source). chatForCommands has agent_id bound in beforeAll.
   test('UC-TRG-03: @daemon invokes a daemon and acks in-chat', async ({ page, request }) => {
     await page.goto(`/chats/${chatForCommands}`)
-    const textarea = page.getByPlaceholder(/Send a message/)
+    const textarea = page.getByPlaceholder(/发送消息/)
     await expect(textarea).toBeVisible({ timeout: 10_000 })
     await textarea.fill('@daemon run daily scan')
     await page.keyboard.press('Enter')
@@ -276,7 +276,7 @@ test.describe('Chat trigger mechanism (UC-TRG-01 ~ 06)', () => {
   // captured in beforeAll so the test reads the same value that was seeded.
   test('UC-TRG-04: @agent overrides the routing agent and acks in-chat', async ({ page, request }) => {
     await page.goto(`/chats/${chatForCommands}`)
-    const textarea = page.getByPlaceholder(/Send a message/)
+    const textarea = page.getByPlaceholder(/发送消息/)
     await expect(textarea).toBeVisible({ timeout: 10_000 })
     await textarea.fill(`@agent ${agentName} hello from override`)
     await page.keyboard.press('Enter')
@@ -319,7 +319,7 @@ test.describe('Chat trigger mechanism (UC-TRG-01 ~ 06)', () => {
   // composer renders a popup on `@` input with the three command kinds.
   test.fixme('UC-TRG-05: typing @ opens a command completion popup', async ({ page }) => {
     await page.goto(`/chats/${chatForHint}`)
-    const textarea = page.getByPlaceholder(/Send a message/)
+    const textarea = page.getByPlaceholder(/发送消息/)
     await expect(textarea).toBeVisible({ timeout: 10_000 })
     await textarea.fill('@')
 
@@ -344,7 +344,7 @@ test.describe('Chat trigger mechanism (UC-TRG-01 ~ 06)', () => {
   test.fixme('UC-TRG-06: assistant reply streams token-by-token over SSE', async ({ page, request }) => {
     // --- Browser: tokens accumulate into the assistant message ---
     await page.goto(`/chats/${chatForSend}`)
-    const textarea = page.getByPlaceholder(/Send a message/)
+    const textarea = page.getByPlaceholder(/发送消息/)
     await expect(textarea).toBeVisible({ timeout: 10_000 })
     await textarea.fill('用一句话介绍这个项目')
     await page.keyboard.press('Enter')

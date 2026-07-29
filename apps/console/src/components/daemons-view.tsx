@@ -8,9 +8,15 @@
  * - 层次靠灰度: status dots + muted text carry the visual hierarchy
  * - 字号纪律: text-sm primary, text-xs for metadata
  * - 间距 > 分割线: spacing separates sections, not borders
+ *
+ * Polling posture: initial load shows skeleton; subsequent polls are silent
+ * (no loading flicker). Polling pauses when the tab is hidden and backs off
+ * exponentially on consecutive errors (capped at 60s) so a dead dispatch
+ * server cannot hammer the gateway.
  */
 
-import { useEffect, useState } from 'react'
+import { useEffect, useRef, useState } from 'react'
+import { Icon } from '@/components/icon'
 import type { DispatchTask } from '@/lib/daemons'
 import { fetchDispatchTasks, fetchFleetStats, type FleetStats } from '@/lib/daemons'
 import '@/styles/daemons.css'
@@ -39,6 +45,11 @@ const STATUS_LABEL: Record<string, string> = {
   failed: '失败',
 }
 
+/** Base poll interval (ms) when healthy and tab visible. */
+const POLL_BASE_MS = 5000
+/** Cap for exponential backoff when polls keep failing. */
+const POLL_MAX_BACKOFF_MS = 60_000
+
 function formatTime(dateStr: string): string {
   return new Date(dateStr).toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' })
 }
@@ -51,11 +62,27 @@ export function DaemonsView(): React.ReactElement {
   const [loading, setLoading] = useState(true)
   const [error, setError] = useState<string | null>(null)
 
+  // Refs kept out of state to avoid re-renders on every tick:
+  // - backoff: current delay (doubles on error, resets to base on success)
+  // - isVisible: whether the tab is focused (pauses polling when hidden)
+  // - isInitial: drives the loading skeleton (only first successful paint)
+  const backoffRef = useRef<number>(POLL_BASE_MS)
+  const isVisibleRef = useRef<boolean>(true)
+  const isInitialRef = useRef<boolean>(true)
+
   useEffect(() => {
     let cancelled = false
-    const load = async () => {
-      setLoading(true)
-      setError(null)
+    let timer: ReturnType<typeof setTimeout> | null = null
+    // Guard against re-entrant ticks. Without this, a visibility-triggered
+    // `tick()` that fires while a previous load is still in flight would
+    // start a second timer chain, doubling the poll rate.
+    let ticking = false
+
+    const load = async (): Promise<void> => {
+      // Skip the network call entirely when the tab is hidden — the user
+      // cannot see the data anyway, and pausing here is what stops the
+      // "infinite polling" symptom at its root.
+      if (!isVisibleRef.current) return
       try {
         const status = filter === 'all' ? undefined : filter
         const [t, s] = await Promise.all([
@@ -65,18 +92,78 @@ export function DaemonsView(): React.ReactElement {
         if (cancelled) return
         setTasks(t)
         if (s) setStats(s)
+        // Reset backoff on success; only the very first paint toggles loading off.
+        backoffRef.current = POLL_BASE_MS
+        if (isInitialRef.current) {
+          isInitialRef.current = false
+          setLoading(false)
+        }
+        // Clear any prior error on a successful poll. Functional update avoids
+        // capturing `error` in the closure (which would never see new values
+        // because `error` is deliberately excluded from the deps array).
+        setError((prev) => (prev === null ? prev : null))
       } catch (err) {
-        if (!cancelled) setError(err instanceof Error ? err.message : String(err))
-      } finally {
-        if (!cancelled) setLoading(false)
+        if (cancelled) return
+        setError(err instanceof Error ? err.message : String(err))
+        if (isInitialRef.current) {
+          isInitialRef.current = false
+          setLoading(false)
+        }
+        // Exponential backoff on failure so a dead dispatch server cannot
+        // hammer the gateway (max 60s between attempts).
+        backoffRef.current = Math.min(backoffRef.current * 2, POLL_MAX_BACKOFF_MS)
       }
     }
-    void load()
-    const interval = setInterval(load, 5000)
+
+    // Single timer-chain loop: load → wait(backoff) → load → ...
+    // Only one timer is ever pending at a time (cleared on unmount and on
+    // visibility restart), so React 18 StrictMode double-mount cannot create
+    // overlapping loops — the cleanup's `cancelled = true` + `clearTimeout`
+    // kills the first loop before the second starts.
+    const tick = (): void => {
+      if (cancelled || ticking) return
+      ticking = true
+      void load().finally(() => {
+        ticking = false
+        if (cancelled) return
+        // Don't schedule the next tick while the tab is hidden; the visibility
+        // handler will restart the loop when the user returns.
+        if (!isVisibleRef.current) return
+        timer = setTimeout(tick, backoffRef.current)
+      })
+    }
+
+    // Start the initial load immediately.
+    tick()
+
+    const handleVisibility = (): void => {
+      const wasHidden = !isVisibleRef.current
+      isVisibleRef.current = document.visibilityState === 'visible'
+      // When the tab becomes visible again, restart the polling loop
+      // immediately so the user sees fresh data without waiting.
+      if (wasHidden && isVisibleRef.current && !cancelled) {
+        backoffRef.current = POLL_BASE_MS
+        if (timer) {
+          clearTimeout(timer)
+          timer = null
+        }
+        // If a load is in flight (ticking=true), its `.finally()` will see
+        // isVisibleRef=true and schedule the next tick itself — no need to
+        // call tick() here. Only start a new tick if the loop was idle.
+        if (!ticking) tick()
+      }
+    }
+    document.addEventListener('visibilitychange', handleVisibility)
+
     return () => {
       cancelled = true
-      clearInterval(interval)
+      if (timer) clearTimeout(timer)
+      document.removeEventListener('visibilitychange', handleVisibility)
     }
+    // `error` is intentionally excluded — referencing it inside `load` would
+    // re-create the closure (and reset the polling loop) on every transient
+    // failure, defeating the backoff.
+    // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [filter])
 
   const selectedTask = tasks.find((t) => t.id === selectedTaskId) ?? null
@@ -134,9 +221,15 @@ export function DaemonsView(): React.ReactElement {
           </div>
           <div className="daemons-queue-list">
             {loading && tasks.length === 0 ? (
-              <div className="daemons-empty">加载中…</div>
+              <div className="daemons-empty">
+                <Icon name="loader" style={{ width: 28, height: 28, color: 'var(--meta)' }} />
+                <span>加载中…</span>
+              </div>
             ) : tasks.length === 0 ? (
-              <div className="daemons-empty">暂无任务</div>
+              <div className="daemons-empty">
+                <Icon name="check" style={{ width: 28, height: 28, color: 'var(--meta)' }} />
+                <span>暂无任务</span>
+              </div>
             ) : (
               tasks.map((t) => (
                 <button
@@ -164,7 +257,10 @@ export function DaemonsView(): React.ReactElement {
         {/* detail panel */}
         <div className="daemons-detail">
           {!selectedTask ? (
-            <div className="daemons-empty">选择左侧任务查看详情</div>
+            <div className="daemons-empty">
+              <Icon name="info" style={{ width: 28, height: 28, color: 'var(--meta)' }} />
+              <span>选择左侧任务查看详情</span>
+            </div>
           ) : (
             <div className="daemons-detail-body">
               <div className="detail-head">

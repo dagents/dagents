@@ -20,7 +20,7 @@ import { createRedisSemaphore } from '../semaphore.js'
  */
 const redisUrl =
   process.env.REDIS_URL ?? 'redis://localhost:16479'
-const redis = createRedis(redisUrl)
+const redis = createRedis(redisUrl, 'test:')
 
 beforeAll(async () => {
   // sanity: the client is connected (raw() resolves the ioredis instance)
@@ -40,7 +40,7 @@ beforeEach(async () => {
 
 describe('RedisSemaphore acquire/release', () => {
   it('grants up to maxConcurrent slots then rejects', async () => {
-    const sem = createRedisSemaphore({ redis, maxConcurrent: 2 })
+    const sem = createRedisSemaphore({ redis, maxConcurrent: 2, prefix: 'test:' })
 
     const a = await sem.acquire()
     const b = await sem.acquire()
@@ -53,7 +53,7 @@ describe('RedisSemaphore acquire/release', () => {
   })
 
   it('release reopens a slot', async () => {
-    const sem = createRedisSemaphore({ redis, maxConcurrent: 1 })
+    const sem = createRedisSemaphore({ redis, maxConcurrent: 1, prefix: 'test:' })
 
     expect((await sem.acquire()).acquired).toBe(true)
     expect((await sem.acquire()).acquired).toBe(false) // full
@@ -62,7 +62,7 @@ describe('RedisSemaphore acquire/release', () => {
   })
 
   it('release clamps at 0 (double-release does not free a phantom slot)', async () => {
-    const sem = createRedisSemaphore({ redis, maxConcurrent: 2 })
+    const sem = createRedisSemaphore({ redis, maxConcurrent: 2, prefix: 'test:' })
 
     await sem.release() // noop from zero
     await sem.release() // noop from zero
@@ -75,7 +75,7 @@ describe('RedisSemaphore acquire/release', () => {
   })
 
   it('reset drops the counter', async () => {
-    const sem = createRedisSemaphore({ redis, maxConcurrent: 3 })
+    const sem = createRedisSemaphore({ redis, maxConcurrent: 3, prefix: 'test:' })
     await sem.acquire()
     await sem.acquire()
     expect(await sem.count()).toBe(2)
@@ -86,7 +86,7 @@ describe('RedisSemaphore acquire/release', () => {
 
 describe('RedisSemaphore withSlot', () => {
   it('bounds concurrent execution to maxConcurrent', async () => {
-    const sem = createRedisSemaphore({ redis, maxConcurrent: 2 })
+    const sem = createRedisSemaphore({ redis, maxConcurrent: 2, prefix: 'test:' })
 
     let active = 0
     let peak = 0
@@ -106,7 +106,7 @@ describe('RedisSemaphore withSlot', () => {
   })
 
   it('releases the slot even when the task throws', async () => {
-    const sem = createRedisSemaphore({ redis, maxConcurrent: 1 })
+    const sem = createRedisSemaphore({ redis, maxConcurrent: 1, prefix: 'test:' })
 
     await expect(
       sem.withSlot(async () => {

@@ -82,7 +82,37 @@ export async function routeMessage(
   // 3. Default routing: agent_id → inline executor (WS push);
   //    flow_id → SSE stream (caller pulls /chats/:id/stream).
   const flowId = opts.flowIdOverride ?? chat.flow_id
-  const agentId = opts.agentIdOverride ?? chat.agent_id
+  let agentId = opts.agentIdOverride ?? chat.agent_id
+
+  // "auto" fallback: when neither override nor chat.agent_id is set, pick the
+  // first available agent from agent_daemons. This makes the "auto" option in
+  // the UI selector (value=null, "让 chat 自动选择") actually work — without
+  // this, a chat created with no agent binding would return an error on every
+  // message and never produce an assistant reply.
+  if (!flowId && !agentId) {
+    try {
+      const { records } = await runQuery<{ id: string }>(
+        `SELECT id FROM agent_daemons ORDER BY created_at ASC LIMIT 1`,
+      )
+      const fallback = records[0]
+      if (fallback) {
+        agentId = fallback.id
+        // Persist the resolved agent onto the chat row so subsequent messages
+        // skip this lookup (and the chat-detail context panel shows the binding).
+        try {
+          await runQuery(
+            `UPDATE chats SET agent_id = $1::uuid, updated_at = NOW() WHERE id = $2::uuid`,
+            [agentId, chatId],
+          )
+        } catch (err) {
+          log.warn('routeMessage auto-agent persist failed', { chatId, agentId, error: String(err) })
+        }
+      }
+    } catch (err) {
+      log.error('routeMessage auto-agent lookup failed', { chatId, error: String(err) })
+    }
+  }
+
   if (!flowId && !agentId) {
     return { mode: 'json', error: 'no agent or flow bound to chat — set chat.agentId or chat.flowId, or use @agent' }
   }

@@ -105,11 +105,7 @@ test.describe('AgentFlows module (UC-FLW-01 ~ 07)', () => {
 
     await page.goto('/flows')
 
-    // PageShell title → <h1 className="page-title">AgentFlows</h1>
-    // (flows-view.tsx:324-328 → PageShell title="AgentFlows").
-    await expect(page.getByRole('heading', { name: 'AgentFlows', level: 1 })).toBeVisible()
-
-    // Scope tabs (我的 / 全部 / 已归档) — flows-view.tsx:335-363,
+    // Scope tabs (我的 / 全部 / 已归档) — flows-view.tsx:436-463,
     // role=tablist aria-label="flow 范围". The tab accessible name includes
     // the count span, so use a RegExp for partial matching.
     const scopeTabs = page.getByRole('tablist', { name: 'flow 范围' })
@@ -157,7 +153,7 @@ test.describe('AgentFlows module (UC-FLW-01 ~ 07)', () => {
     // signal — flows-view.tsx:545-553, aria-label="返回 AgentFlows 列表".
     // Generous timeout: the hash effect fires on mount, sets state, and
     // the re-render swaps the page.
-    await expect(page.getByRole('button', { name: '返回 AgentFlows' })).toBeVisible({
+    await expect(page.getByRole('button', { name: '返回 AgentFlows 列表' })).toBeVisible({
       timeout: 10_000,
     })
 
@@ -253,9 +249,6 @@ test.describe('AgentFlows module (UC-FLW-01 ~ 07)', () => {
     page,
   }) => {
     await page.goto('/flows')
-
-    // The PageShell renders (same shell as UC-FLW-01).
-    await expect(page.getByRole('heading', { name: 'AgentFlows', level: 1 })).toBeVisible()
 
     // The run button (▶ 运行) is part of each flow card's action row
     // (flows-view.tsx:469-482, data-action="run"). When the workflow engine has

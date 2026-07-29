@@ -201,7 +201,10 @@ describe('FlowsView list-page (M2.1 fidelity)', () => {
     expect(editBtn).toHaveAttribute('data-action', 'edit')
     expect(editBtn).toHaveAttribute('data-flow-id', 'flow_repro_01')
     await userEvent.click(editBtn)
-    expect(pushMock).toHaveBeenCalledWith('/flows/flow_repro_01/edit')
+    // The edit button routes to the workflow canvas editor (M2.3 route wiring).
+    // The route was changed from `/flows/:id/edit` to `/workflows/:id/canvas`
+    // when the editor moved to the workflow canvas page.
+    expect(pushMock).toHaveBeenCalledWith('/workflows/flow_repro_01/canvas')
   })
 
   it('the run button has data-action=run and data-flow-id (showDetail wiring)', async () => {

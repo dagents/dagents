@@ -17,10 +17,13 @@
 .directory-selector-trigger:hover { background: var(--surface-warm); border-color: var(--accent); }
 
 .directory-selector-dropdown {
+  /* Left-aligned (not centered) so the dropdown's left edge tracks the
+   * trigger's left edge — consistent whether the selector sits in the chat
+   * topbar, the floating-chat header, or the sidebar. Centering caused the
+   * dropdown to overflow the viewport when the trigger was near the left edge. */
   position: absolute;
   top: calc(100% + 4px);
-  left: 50%;
-  transform: translateX(-50%);
+  left: 0;
   min-width: 320px;
   background: var(--bg);
   border: 1px solid var(--border);

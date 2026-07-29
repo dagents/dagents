@@ -107,8 +107,8 @@ test.describe('Sidebar navigation (UC-NAV-01 ~ 08)', () => {
   // ── UC-NAV-02: 切换主功能页面 ────────────────────────────────────────────
   test('UC-NAV-02: switch primary nav page (Chat → Agents)', async ({ page }) => {
     const nav = page.locator('.chat-nav-nav')
-    const chatLink = nav.getByRole('link', { name: 'Chat', exact: true })
-    const agentsLink = nav.getByRole('link', { name: 'Agents', exact: true })
+    const chatLink = nav.getByRole('link', { name: '对话', exact: true })
+    const agentsLink = nav.getByRole('link', { name: 'Agent', exact: true })
 
     // On home, the Chat nav item is the current page.
     await expect(chatLink).toBeVisible()
@@ -221,7 +221,7 @@ test.describe('Sidebar navigation (UC-NAV-01 ~ 08)', () => {
     await page.goto('/agents')
     await expect(page).toHaveURL(/\/agents\/?$/)
 
-    const newChatBtn = page.getByRole('button', { name: 'New Chat', exact: true })
+    const newChatBtn = page.getByRole('button', { name: '新建对话', exact: true })
     await expect(newChatBtn).toBeVisible()
 
     // handleNewChat → router.push('/').

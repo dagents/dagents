@@ -26,7 +26,7 @@ import { createMemoryArtifactStore, createThrowingArtifactStore } from './mem-ar
  *     still compares equal (canonical, not byte-for-byte)
  */
 const redisUrl = process.env.REDIS_URL ?? 'redis://localhost:16479'
-const redis = createRedis(redisUrl)
+const redis = createRedis(redisUrl, 'test:')
 
 const HASH = 'a'.repeat(64) // pipeline_version_hash is CHAR(64)
 
@@ -73,7 +73,7 @@ beforeEach(async () => {
   store = createMemoryArtifactStore()
   app = buildApp({
     prediction: stubPredictionClient({ calls: [] }),
-    semaphore: createRedisSemaphore({ redis, maxConcurrent: 10, semKey: 'sem' }),
+    semaphore: createRedisSemaphore({ redis, maxConcurrent: 10, semKey: 'sem', prefix: 'test:' }),
     maxConcurrent: 10,
     artifactStore: store,
   })
@@ -91,7 +91,7 @@ async function seedCompletedSource(
   const calls: PredictionRequest[] = []
   app = buildApp({
     prediction: stubPredictionClient({ calls }, () => output),
-    semaphore: createRedisSemaphore({ redis, maxConcurrent: 5, semKey: 'sem' }),
+    semaphore: createRedisSemaphore({ redis, maxConcurrent: 5, semKey: 'sem', prefix: 'test:' }),
     maxConcurrent: 5,
     artifactStore: store,
   })
@@ -127,7 +127,7 @@ describe('POST /api/v1/scheduler/runs/:runId/reproduce — acceptance', () => {
         { calls: reproCalls },
         () => ({ items: [{ id: 1 }, { id: 2 }], count: 3, ok: true }), // reordered keys
       ),
-      semaphore: createRedisSemaphore({ redis, maxConcurrent: 5, semKey: 'sem' }),
+      semaphore: createRedisSemaphore({ redis, maxConcurrent: 5, semKey: 'sem', prefix: 'test:' }),
       maxConcurrent: 5,
       artifactStore: store,
     })
@@ -185,7 +185,7 @@ describe('POST /api/v1/scheduler/runs/:runId/reproduce — acceptance', () => {
 
     app = buildApp({
       prediction: stubPredictionClient({ calls: [] }, () => ({ ok: true, count: 4 })),
-      semaphore: createRedisSemaphore({ redis, maxConcurrent: 5, semKey: 'sem' }),
+      semaphore: createRedisSemaphore({ redis, maxConcurrent: 5, semKey: 'sem', prefix: 'test:' }),
       maxConcurrent: 5,
       artifactStore: store,
     })
@@ -207,7 +207,7 @@ describe('POST /api/v1/scheduler/runs/:runId/reproduce — acceptance', () => {
 
     app = buildApp({
       prediction: stubPredictionClient({ calls: [] }, () => ({ ok: true, paper: 1 })),
-      semaphore: createRedisSemaphore({ redis, maxConcurrent: 5, semKey: 'sem' }),
+      semaphore: createRedisSemaphore({ redis, maxConcurrent: 5, semKey: 'sem', prefix: 'test:' }),
       maxConcurrent: 5,
       artifactStore: store,
     })
@@ -245,7 +245,7 @@ describe('POST /api/v1/scheduler/runs/:runId/reproduce — acceptance', () => {
 
     app = buildApp({
       prediction: stubPredictionClient({ calls: [] }, () => ({ ok: true, paper: 1 })),
-      semaphore: createRedisSemaphore({ redis, maxConcurrent: 5, semKey: 'sem' }),
+      semaphore: createRedisSemaphore({ redis, maxConcurrent: 5, semKey: 'sem', prefix: 'test:' }),
       maxConcurrent: 5,
       artifactStore: createThrowingArtifactStore('minio down'),
     })
@@ -279,7 +279,7 @@ describe('reproduce failure handling + comparability', () => {
     // re-run as `failed` and still reports a (non-matching) comparison.
     app = buildApp({
       prediction: stubPredictionClient({ calls: [] }, undefined, () => true),
-      semaphore: createRedisSemaphore({ redis, maxConcurrent: 5, semKey: 'sem' }),
+      semaphore: createRedisSemaphore({ redis, maxConcurrent: 5, semKey: 'sem', prefix: 'test:' }),
       maxConcurrent: 5,
       artifactStore: store,
     })

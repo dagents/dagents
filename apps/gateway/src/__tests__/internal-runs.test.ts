@@ -93,7 +93,7 @@ describe('POST /internal/runs/:runId/complete', () => {
       }),
     })
     expect(res.status).toBe(200)
-    const body = await res.json()
+    const body = (await res.json()) as { success: boolean; data: { messageId: string } }
     expect(body.success).toBe(true)
     expect(body.data.messageId).toBeTypeOf('string')
 

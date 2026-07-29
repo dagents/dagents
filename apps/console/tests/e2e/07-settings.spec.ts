@@ -83,32 +83,28 @@ test.describe('Settings module (UC-SET-01 ~ 06)', () => {
   test('UC-SET-01: API Key tab renders token CRUD surface (default active tab)', async ({
     page,
   }) => {
-    // PageShell title — settings-view.tsx → <PageShell title="设置"> renders
-    // <h1 className="page-title">设置</h1>.
-    await expect(page.getByRole('heading', { name: '设置', level: 1 })).toBeVisible()
-
     // The sub-nav tablist (role=tablist, aria-label="设置分组") exposes all
     // six tabs. Assert structural shape once here; per-tab tests below assert
     // the switching behavior.
     const tablist = page.getByRole('tablist', { name: '设置分组' })
     await expect(tablist).toBeVisible()
-    for (const shortName of ['API Key', '默认模型', '预算配额', '通知', '账户团队', '危险区']) {
+    for (const shortName of ['LLM Provider', '默认模型', '预算配额', '通知', '账户团队', '危险区']) {
       await expect(tablist.getByRole('tab', { name: shortName, exact: true })).toBeVisible()
     }
 
-    // API Key is the default active tab — aria-selected + aria-current both
-    // mark it active (settings-view.tsx:167-168).
-    const keysTab = tablist.getByRole('tab', { name: 'API Key', exact: true })
+    // LLM Provider is the default active tab — aria-selected + aria-current both
+    // mark it active (settings-view.tsx:116-117).
+    const keysTab = tablist.getByRole('tab', { name: 'LLM Provider', exact: true })
     await expect(keysTab).toHaveAttribute('aria-selected', 'true')
     await expect(keysTab).toHaveAttribute('aria-current', 'true')
 
-    // The keys <section> (aria-label="API Key 管理") renders the live CRUD
+    // The keys <section> (aria-label="LLM Provider 管理") renders the live CRUD
     // surface — toolbar (search + status filter chips + new-token CTA) and
     // the token table. Thead always renders; tbody swaps between
     // loading / error / empty / rows.
-    const section = page.getByRole('region', { name: 'API Key 管理' })
+    const section = page.getByRole('region', { name: 'LLM Provider 管理' })
     await expect(section).toBeVisible()
-    await expect(section.getByText('API Key 管理', { exact: true })).toBeVisible()
+    await expect(section.getByText('LLM Provider 管理', { exact: true })).toBeVisible()
 
     // new-api gateway card.
     await expect(section.getByText('new-api 网关', { exact: true })).toBeVisible()

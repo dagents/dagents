@@ -7,6 +7,7 @@ import { recoverStaleRuns, listStaleRuns, resetSemaphore } from '../recovery.js'
 import { createRedisSemaphore, availableSlots } from '../semaphore.js'
 import { TASK_QUEUE_KEY } from '../queue.js'
 import { startWorker } from '../worker.js'
+import type { Worker } from '../worker.js'
 import { getRun } from '../runs-repo.js'
 import type { PredictionClient, PredictionRequest, PredictionResult } from '../prediction-client.js'
 
@@ -32,8 +33,18 @@ const redisUrl =
   process.env.REDIS_URL ?? 'redis://localhost:16479'
 let redis: RedisClient
 
+/** Track active workers so afterEach can stop them even if a test times out. */
+const activeWorkers: Worker[] = []
+
+/** startWorker wrapper that tracks the worker for afterEach cleanup. */
+function trackedStartWorker(deps: Parameters<typeof startWorker>[0]): Worker {
+  const w = startWorker(deps)
+  activeWorkers.push(w)
+  return w
+}
+
 beforeAll(async () => {
-  redis = createRedis(redisUrl)
+  redis = createRedis(redisUrl, 'test:')
   if (!AppDataSource.isInitialized) await AppDataSource.initialize()
   await redis.raw().ping()
 })
@@ -50,6 +61,7 @@ beforeEach(async () => {
 })
 
 afterEach(async () => {
+  await Promise.allSettled(activeWorkers.splice(0).map((w) => w.stop()))
   await redis.del(TASK_QUEUE_KEY)
   await redis.del('sem')
   await AppDataSource.query(`DELETE FROM runs`)
@@ -116,7 +128,7 @@ describe('listStaleRuns', () => {
 
 describe('resetSemaphore', () => {
   it('clears a leaked counter back to 0 (full budget on restart)', async () => {
-    const sem = createRedisSemaphore({ redis, maxConcurrent: 4, semKey: 'sem' })
+    const sem = createRedisSemaphore({ redis, maxConcurrent: 4, semKey: 'sem', prefix: 'test:' })
     // Simulate two leaked slots: acquired but never released (process killed).
     expect((await sem.acquire()).acquired).toBe(true)
     expect((await sem.acquire()).acquired).toBe(true)
@@ -132,7 +144,7 @@ describe('resetSemaphore', () => {
 
 describe('recoverStaleRuns', () => {
   it('re-enqueues a running run onto dagents:tasks and resets the semaphore', async () => {
-    const sem = createRedisSemaphore({ redis, maxConcurrent: 4, semKey: 'sem' })
+    const sem = createRedisSemaphore({ redis, maxConcurrent: 4, semKey: 'sem', prefix: 'test:' })
     // Leak a slot (kill mid-run) and leave a running row whose queue task was
     // already BRPOP'd (so it can only be recovered via the runs scan).
     expect((await sem.acquire()).acquired).toBe(true)
@@ -154,7 +166,7 @@ describe('recoverStaleRuns', () => {
   })
 
   it('re-enqueues multiple running runs in started_at order', async () => {
-    const sem = createRedisSemaphore({ redis, maxConcurrent: 4, semKey: 'sem' })
+    const sem = createRedisSemaphore({ redis, maxConcurrent: 4, semKey: 'sem', prefix: 'test:' })
     // Seed three running rows with explicit, increasing started_at so the
     // recovery scan's ORDER BY started_at yields a deterministic enqueue order.
     const ids = [randomUUID(), randomUUID(), randomUUID()]
@@ -179,7 +191,7 @@ describe('recoverStaleRuns', () => {
   })
 
   it('is a no-op when there are no stale runs (empty queue, zero counter)', async () => {
-    const sem = createRedisSemaphore({ redis, maxConcurrent: 4, semKey: 'sem' })
+    const sem = createRedisSemaphore({ redis, maxConcurrent: 4, semKey: 'sem', prefix: 'test:' })
     await seedRun('pending')
     await seedRun('completed')
 
@@ -192,7 +204,7 @@ describe('recoverStaleRuns', () => {
   })
 
   it('never enqueues pending or terminal runs', async () => {
-    const sem = createRedisSemaphore({ redis, maxConcurrent: 4, semKey: 'sem' })
+    const sem = createRedisSemaphore({ redis, maxConcurrent: 4, semKey: 'sem', prefix: 'test:' })
     await seedRun('pending')
     await seedRun('completed')
     await seedRun('failed')
@@ -206,7 +218,7 @@ describe('recoverStaleRuns', () => {
 
 describe('restart recovery — end-to-end acceptance (kill → restart → 续跑)', () => {
   it('recovers a run left running by a killed scheduler', async () => {
-    const sem = createRedisSemaphore({ redis, maxConcurrent: 2, semKey: 'sem' })
+    const sem = createRedisSemaphore({ redis, maxConcurrent: 2, semKey: 'sem', prefix: 'test:' })
     const prediction = stubPrediction()
 
     // --- "before the kill" ---
@@ -226,7 +238,7 @@ describe('restart recovery — end-to-end acceptance (kill → restart → 续�
     expect(await sem.count()).toBe(0) // leaked slot cleared
 
     // 2. the worker starts on the recovered queue and drains it.
-    const worker = startWorker({ redis, semaphore: sem, prediction })
+    const worker = trackedStartWorker({ redis, semaphore: sem, prediction })
     try {
       const run = await waitForRun(runId, 'completed', 3000)
       expect(run).not.toBeNull()
@@ -241,7 +253,7 @@ describe('restart recovery — end-to-end acceptance (kill → restart → 续�
   })
 
   it('recovers multiple runs and bounds concurrency to maxConcurrent', async () => {
-    const sem = createRedisSemaphore({ redis, maxConcurrent: 2, semKey: 'sem' })
+    const sem = createRedisSemaphore({ redis, maxConcurrent: 2, semKey: 'sem', prefix: 'test:' })
 
     // Two runs were in flight when the process was killed, both holding a slot.
     const id1 = await seedRun('running', 'flow-c', { n: 1 })
@@ -266,7 +278,7 @@ describe('restart recovery — end-to-end acceptance (kill → restart → 续�
         return { runId, output: { ok: true, echoed: req.body }, durationMs: 31 }
       },
     }
-    const worker = startWorker({ redis, semaphore: sem, prediction: gated })
+    const worker = trackedStartWorker({ redis, semaphore: sem, prediction: gated })
     try {
       await waitForRun(id1, 'completed', 3000)
       await waitForRun(id2, 'completed', 3000)

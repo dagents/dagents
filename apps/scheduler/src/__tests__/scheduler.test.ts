@@ -4,6 +4,7 @@ import { AppDataSource } from '@dagents/db'
 import { createRedis } from '@dagents/shared'
 import type { RedisClient } from '@dagents/shared'
 import { startWorker } from '../worker.js'
+import type { Worker } from '../worker.js'
 import { createRedisSemaphore, availableSlots } from '../semaphore.js'
 import { TASK_QUEUE_KEY, type ScheduleTask } from '../queue.js'
 import { getRun } from '../runs-repo.js'
@@ -45,6 +46,16 @@ let maxObservedConcurrency = 0
 // ones and leave them blocked forever.
 let gateResolvers: Array<() => void> = []
 let predictCalls: { runId: string; pipelineId: string; input: unknown }[] = []
+
+/** Track active workers so afterEach can stop them even if a test times out. */
+const activeWorkers: Worker[] = []
+
+/** startWorker wrapper that tracks the worker for afterEach cleanup. */
+function trackedStartWorker(deps: Parameters<typeof startWorker>[0]): Worker {
+  const w = startWorker(deps)
+  activeWorkers.push(w)
+  return w
+}
 
 /** Resolve the oldest blocked prediction's gate (releases one in-flight run). */
 function releaseGate(): void {
@@ -104,7 +115,7 @@ function mockPrediction({
 }
 
 beforeAll(async () => {
-  redis = createRedis(redisUrl)
+  redis = createRedis(redisUrl, 'test:')
   // The setup file sets env defaults + runs migrations, but AppDataSource may
   // be in a 'destroyed' state if a prior file tore it down. Ensure the shared
   // pool is live before the worker queries `runs`.
@@ -117,10 +128,10 @@ afterAll(async () => {
 })
 
 afterEach(async () => {
-  // Wipe queue + semaphore + runs between tests so state never leaks. The
-  // prefixed `redis.del` applies the `dagents:` prefix, so `del('tasks')` /
-  // `del('sem')` hit `dagents:tasks` / `dagents:sem` — matching the keys the worker
-  // BRPOPs and the semaphore EVALs (both compose the `dagents:` prefix).
+  // Stop any workers that weren't cleaned up by a test's finally block
+  // (e.g. when a test timed out before reaching worker.stop()).
+  await Promise.allSettled(activeWorkers.splice(0).map((w) => w.stop()))
+  // Wipe queue + semaphore + runs between tests so state never leaks.
   await redis.del(TASK_QUEUE_KEY)
   await redis.del('sem')
   await AppDataSource.query(`DELETE FROM runs`)
@@ -137,7 +148,7 @@ afterEach(async () => {
  * the cap baked into `createRedisSemaphore`) and read `availableSlots`.
  */
 function buildSem(max: number) {
-  return createRedisSemaphore({ redis, maxConcurrent: max, semKey: 'sem' })
+  return createRedisSemaphore({ redis, maxConcurrent: max, semKey: 'sem', prefix: 'test:' })
 }
 
 /** Enqueue a task list under a semaphore sized to `max`. */
@@ -157,7 +168,7 @@ describe('scheduler worker — single run execution', () => {
     const sem = buildSem(4)
     await enqueue([{ runId, pipelineId: 'flow-1', input: { question: 'hi' } }], 4)
 
-    const worker = startWorker({ redis, semaphore: sem, prediction })
+    const worker = trackedStartWorker({ redis, semaphore: sem, prediction })
     try {
       // Poll until the run lands in `completed`.
       const run = await waitForRun(runId, 'completed', 2000)
@@ -187,7 +198,7 @@ describe('scheduler worker — single run execution', () => {
     const sem = buildSem(4)
     await enqueue([{ runId, pipelineId: 'flow-1', input: {} }], 4)
 
-    const worker = startWorker({ redis, semaphore: sem, prediction })
+    const worker = trackedStartWorker({ redis, semaphore: sem, prediction })
     try {
       const run = await waitForRun(runId, 'failed', 2000)
       expect(run).not.toBeNull()
@@ -208,7 +219,7 @@ describe('scheduler worker — single run execution', () => {
     // A payload that does not match ScheduleTask ({ runId, pipelineId, input }).
     await redis.lpush(TASK_QUEUE_KEY, JSON.stringify({ not: 'a task' }))
 
-    const worker = startWorker({ redis, semaphore: sem, prediction })
+    const worker = trackedStartWorker({ redis, semaphore: sem, prediction })
     try {
       // Give the worker a moment to consume + drop the bad payload.
       await sleep(200)
@@ -243,7 +254,7 @@ describe('scheduler worker — concurrency gate', () => {
     const sem = buildSem(2)
     await enqueue(tasks, 2)
 
-    const worker = startWorker({ redis, semaphore: sem, prediction })
+    const worker = trackedStartWorker({ redis, semaphore: sem, prediction })
     try {
       // Wait until the first 2 runs are in-flight (both blocked on the gate).
       // The 3rd must NOT start — only 2 slots exist.
@@ -302,7 +313,7 @@ describe('scheduler worker — concurrency gate', () => {
       1,
     )
 
-    const worker = startWorker({ redis, semaphore: sem, prediction })
+    const worker = trackedStartWorker({ redis, semaphore: sem, prediction })
     try {
       const failed = await waitForRun(failId, 'failed', 2000)
       const ok = await waitForRun(okId, 'completed', 2000)
@@ -329,7 +340,7 @@ describe('scheduler worker — graceful stop', () => {
     const sem = buildSem(4)
     await enqueue([{ runId, pipelineId: 'flow-1', input: {} }], 4)
 
-    const worker = startWorker({ redis, semaphore: sem, prediction })
+    const worker = trackedStartWorker({ redis, semaphore: sem, prediction })
     try {
       // Wait for the run to start (blocked on the gate, in-flight).
       await sleep(300)

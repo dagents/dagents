@@ -1,4 +1,4 @@
-import { describe, it, expect, beforeAll, afterAll, beforeEach } from 'vitest'
+import { describe, it, expect, beforeAll, afterAll, beforeEach, afterEach } from 'vitest'
 import { randomUUID } from 'node:crypto'
 import { AppDataSource, runQuery } from '@dagents/db'
 import { createRedis } from '@dagents/shared'
@@ -7,6 +7,7 @@ import { recoverStaleRuns } from '../recovery.js'
 import { createRedisSemaphore, availableSlots } from '../semaphore.js'
 import { TASK_QUEUE_KEY } from '../queue.js'
 import { startWorker } from '../worker.js'
+import type { Worker } from '../worker.js'
 import { fanOut } from '../fanout.js'
 import {
   completeRun,
@@ -52,8 +53,18 @@ import type { PredictionClient, PredictionRequest, PredictionResult } from '../p
 const redisUrl = process.env.REDIS_URL ?? 'redis://localhost:16479'
 let redis: RedisClient
 
+/** Track active workers so afterEach can stop them even if a test times out. */
+const activeWorkers: Worker[] = []
+
+/** startWorker wrapper that tracks the worker for afterEach cleanup. */
+function trackedStartWorker(deps: Parameters<typeof startWorker>[0]): Worker {
+  const w = startWorker(deps)
+  activeWorkers.push(w)
+  return w
+}
+
 beforeAll(async () => {
-  redis = createRedis(redisUrl)
+  redis = createRedis(redisUrl, 'test:')
   if (!AppDataSource.isInitialized) await AppDataSource.initialize()
   await redis.raw().ping()
 })
@@ -67,6 +78,15 @@ beforeEach(async () => {
   await redis.del(TASK_QUEUE_KEY)
   await redis.del('sem')
   await AppDataSource.query(`DELETE FROM runs`)
+})
+
+afterEach(async () => {
+  // Stop any workers that weren't cleaned up by a test's finally block
+  // (e.g. when a test timed out before reaching worker.stop()).
+  await Promise.allSettled(activeWorkers.splice(0).map((w) => w.stop()))
+  // Re-clean Redis state in case a leaked worker re-acquired slots
+  await redis.del(TASK_QUEUE_KEY)
+  await redis.del('sem')
 })
 
 /**
@@ -87,7 +107,7 @@ function stubPrediction(log: { calls: PredictionRequest[] }): PredictionClient {
 describe('M3.6 — happy path: N 篇 → fan-out → 全部完成 + parent 聚合', () => {
   it('runs a 5-child batch to completion and aggregates the parent', async () => {
     const calls: PredictionRequest[] = []
-    const sem = createRedisSemaphore({ redis, maxConcurrent: 5, semKey: 'sem' })
+    const sem = createRedisSemaphore({ redis, maxConcurrent: 5, semKey: 'sem', prefix: 'test:' })
     const result = await fanOut(
       {
         flowId: 'flow-batch',
@@ -186,7 +206,7 @@ describe('M3.6 — 中途重启 → 续跑完成 (the acceptance case)', () => {
   }
 
   it('resumes the running children, leaves completed children untouched, and aggregates the parent', async () => {
-    const sem = createRedisSemaphore({ redis, maxConcurrent: 3, semKey: 'sem' })
+    const sem = createRedisSemaphore({ redis, maxConcurrent: 3, semKey: 'sem', prefix: 'test:' })
     const { parentId, doneIds, runningIds } = await seedPartialBatch({
       flowId: 'flow-batch',
       identifier: 'm3.6-crash',
@@ -208,7 +228,7 @@ describe('M3.6 — 中途重启 → 续跑完成 (the acceptance case)', () => {
 
     // worker drains the recovered queue. The stub records which runs it predicted.
     const calls: PredictionRequest[] = []
-    const worker = startWorker({
+    const worker = trackedStartWorker({
       redis,
       semaphore: sem,
       prediction: stubPrediction({ calls }),
@@ -260,7 +280,7 @@ describe('M3.6 — 中途重启 → 续跑完成 (the acceptance case)', () => {
     // This is the contract of the *crash state*, independent of any fix. It
     // pins what a killed-mid-batch fanOut leaves behind and what restart
     // recovery already guarantees — the per-child resume that M3.5 ships today.
-    const sem = createRedisSemaphore({ redis, maxConcurrent: 3, semKey: 'sem' })
+    const sem = createRedisSemaphore({ redis, maxConcurrent: 3, semKey: 'sem', prefix: 'test:' })
     const { parentId, runningIds } = await seedPartialBatch({
       flowId: 'flow-batch',
       identifier: 'm3.6-contract',
@@ -272,7 +292,7 @@ describe('M3.6 — 中途重启 → 续跑完成 (the acceptance case)', () => {
     // restart: recover + drain
     await recoverStaleRuns({ redis, semaphore: sem })
     expect(await sem.count()).toBe(0) // leaked slots cleared
-    const worker = startWorker({
+    const worker = trackedStartWorker({
       redis,
       semaphore: sem,
       prediction: stubPrediction({ calls: [] }),
@@ -312,7 +332,7 @@ describe('M3.6 — 中途重启 → 续跑完成 (the acceptance case)', () => {
     // settles (worker hook). This case — children still `running` at boot,
     // drained by the worker — is the worker-hook arm: the parent flips from
     // 'pending' to 'completed' once the last recovered child settles.
-    const sem = createRedisSemaphore({ redis, maxConcurrent: 3, semKey: 'sem' })
+    const sem = createRedisSemaphore({ redis, maxConcurrent: 3, semKey: 'sem', prefix: 'test:' })
     const { parentId, runningIds } = await seedPartialBatch({
       flowId: 'flow-batch',
       identifier: 'm3.6-gap',
@@ -322,7 +342,7 @@ describe('M3.6 — 中途重启 → 续跑完成 (the acceptance case)', () => {
     })
 
     await recoverStaleRuns({ redis, semaphore: sem })
-    const worker = startWorker({
+    const worker = trackedStartWorker({
       redis,
       semaphore: sem,
       prediction: stubPrediction({ calls: [] }),
@@ -357,7 +377,7 @@ describe('M3.6 — 中途重启 → 续跑完成 (the acceptance case)', () => {
     // re-enqueue — recoverStaleRuns's scan is empty — so the worker hook never
     // fires. The boot sweep (listSettledPendingParents → completeParentRun) is
     // the only arm that can close such a parent, entirely inside recoverStaleRuns.
-    const sem = createRedisSemaphore({ redis, maxConcurrent: 3, semKey: 'sem' })
+    const sem = createRedisSemaphore({ redis, maxConcurrent: 3, semKey: 'sem', prefix: 'test:' })
     const { parentId } = await seedPartialBatch({
       flowId: 'flow-batch',
       identifier: 'm3.6-sweep',
@@ -380,7 +400,7 @@ describe('M3.6 — 中途重启 → 续跑完成 (the acceptance case)', () => {
   })
 
   it('resumes a fully-in-flight batch (all N children running, none pre-crash-completed)', async () => {
-    const sem = createRedisSemaphore({ redis, maxConcurrent: 4, semKey: 'sem' })
+    const sem = createRedisSemaphore({ redis, maxConcurrent: 4, semKey: 'sem', prefix: 'test:' })
     const { parentId, runningIds } = await seedPartialBatch({
       flowId: 'flow-batch',
       identifier: 'm3.6-allrunning',
@@ -404,7 +424,7 @@ describe('M3.6 — 中途重启 → 续跑完成 (the acceptance case)', () => {
         return { runId, output: { ok: true, echoed: req.body }, durationMs: 21 }
       },
     }
-    const worker = startWorker({ redis, semaphore: sem, prediction: gated })
+    const worker = trackedStartWorker({ redis, semaphore: sem, prediction: gated })
     try {
       for (const id of runningIds) {
         await waitForRun(id, 'completed', 4000)

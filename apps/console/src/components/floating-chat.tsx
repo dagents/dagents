@@ -79,16 +79,15 @@ export function FloatingChat(): React.ReactElement {
   }, [])
 
   // Hide on /chats/[id] — the full-page chat owns the conversation there.
+  // Also hide on / (chat home) — that page already has its own composer, so
+  // the floating FAB would only overlap the home send button.
   const onChatDetail = pathname.startsWith('/chats/')
-  if (onChatDetail) {
-    // Still render a no-op so the layout slot is stable; the FAB/window
-    // are conditionally suppressed inside.
-  }
+  const onChatHome = pathname === '/'
 
   return (
     <>
-      {open && !onChatDetail ? <FloatingChatWindow onClose={() => setOpen(false)} /> : null}
-      {!open && !onChatDetail ? <ChatFab onClick={toggleOpen} /> : null}
+      {open && !onChatDetail && !onChatHome ? <FloatingChatWindow onClose={() => setOpen(false)} /> : null}
+      {!open && !onChatDetail && !onChatHome ? <ChatFab onClick={toggleOpen} /> : null}
     </>
   )
 }

@@ -24,7 +24,7 @@ import { createRedisSemaphore } from '../semaphore.js'
  * NOAUTH rationale. Override via REDIS_URL for a non-dev stack.
  */
 const redisUrl = process.env.REDIS_URL ?? 'redis://localhost:16479'
-const redis = createRedis(redisUrl)
+const redis = createRedis(redisUrl, 'test:')
 
 /** Stub prediction client: records calls, returns runId-keyed output. */
 function stubPredictionClient(
@@ -61,7 +61,7 @@ beforeEach(async () => {
   await redis.del('sem')
   app = buildApp({
     prediction: stubPredictionClient({ calls: [] }),
-    semaphore: createRedisSemaphore({ redis, maxConcurrent: 10, semKey: 'sem' }),
+    semaphore: createRedisSemaphore({ redis, maxConcurrent: 10, semKey: 'sem', prefix: 'test:' }),
     maxConcurrent: 10,
   })
 })
@@ -79,7 +79,7 @@ async function fanOutWithOneFailure(): Promise<{
       { calls },
       (req) => (req.body as { paper?: number }).paper === 2,
     ),
-    semaphore: createRedisSemaphore({ redis, maxConcurrent: 5, semKey: 'sem' }),
+    semaphore: createRedisSemaphore({ redis, maxConcurrent: 5, semKey: 'sem', prefix: 'test:' }),
     maxConcurrent: 5,
   })
 
@@ -134,7 +134,7 @@ describe('POST /api/v1/scheduler/runs/:runId/rerun — acceptance', () => {
     const rerunCalls: PredictionRequest[] = []
     app = buildApp({
       prediction: stubPredictionClient({ calls: rerunCalls }),
-      semaphore: createRedisSemaphore({ redis, maxConcurrent: 5, semKey: 'sem' }),
+      semaphore: createRedisSemaphore({ redis, maxConcurrent: 5, semKey: 'sem', prefix: 'test:' }),
       maxConcurrent: 5,
     })
 
@@ -207,7 +207,7 @@ describe('POST /api/v1/scheduler/runs/:runId/rerun — acceptance', () => {
     // all-success fan-out
     app = buildApp({
       prediction: stubPredictionClient({ calls: [] }),
-      semaphore: createRedisSemaphore({ redis, maxConcurrent: 5, semKey: 'sem' }),
+      semaphore: createRedisSemaphore({ redis, maxConcurrent: 5, semKey: 'sem', prefix: 'test:' }),
       maxConcurrent: 5,
     })
     await app.request('/api/v1/scheduler/runs/fanout', {
@@ -250,7 +250,7 @@ describe('rerun failure handling + comparability', () => {
         { calls: [] },
         () => true, // every prediction fails
       ),
-      semaphore: createRedisSemaphore({ redis, maxConcurrent: 5, semKey: 'sem' }),
+      semaphore: createRedisSemaphore({ redis, maxConcurrent: 5, semKey: 'sem', prefix: 'test:' }),
       maxConcurrent: 5,
     })
 

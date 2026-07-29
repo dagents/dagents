@@ -178,13 +178,14 @@ describe('REQUIRE_LOGIN session gate', () => {
     })
     const token = ((await login.json()) as { data: { token: string } }).data.token
 
-    // DISPATCH_URL is unset → the proxy will 502 (upstream unavailable), NOT
-    // 401. A 502 proves the session gate let the request through to the proxy.
+    // A valid session must let the request through the auth gate.
+    // The status depends on whether dispatch is running (200) or not (502),
+    // but it must NOT be 401 (which would mean the gate blocked it).
     const res = await app.request('/api/v1/dispatch/agents', {
       method: 'GET',
       headers: { cookie: `mil_session=${token}` },
     })
-    expect(res.status).toBe(502)
+    expect(res.status).not.toBe(401)
   })
 
   it('keeps /health public under REQUIRE_LOGIN', async () => {
@@ -204,9 +205,10 @@ describe('REQUIRE_LOGIN session gate', () => {
   })
 
   it('does not gate when REQUIRE_LOGIN is off (open dev posture)', async () => {
-    // REQUIRE_LOGIN unset → the dispatch proxy is reachable without a session
-    // (it still 502s because DISPATCH_URL is unset, but NOT 401).
+    // REQUIRE_LOGIN unset → the dispatch proxy is reachable without a session.
+    // Status depends on whether dispatch is running (200) or not (502),
+    // but it must NOT be 401 (which would mean the gate blocked it).
     const res = await app.request('/api/v1/dispatch/agents', { method: 'GET' })
-    expect(res.status).toBe(502)
+    expect(res.status).not.toBe(401)
   })
 })

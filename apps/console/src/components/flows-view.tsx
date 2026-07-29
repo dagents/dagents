@@ -44,6 +44,7 @@ import { useRouter } from 'next/navigation'
 import { PageShell } from '@/components/page-shell'
 import { Icon } from '@/components/icon'
 import { FlowDag } from '@/components/flow-dag'
+import { CreateFlowDialog } from '@/components/create-flow-dialog'
 import { fetchRunNodeSpans, type RunNodeSpan } from '@/lib/node-spans'
 import { parseFlowData, type FlowSummary, type FlowDetailView, type NodeRunStatus } from '@/lib/flows'
 import '@/styles/flows.css'
@@ -219,6 +220,7 @@ export function FlowsView(): React.ReactElement {
   const [detailError, setDetailError] = useState<string | null>(null)
   const [loadingList, setLoadingList] = useState(true)
   const [loadingDetail, setLoadingDetail] = useState(false)
+  const [createOpen, setCreateOpen] = useState(false)
 
   /** showDetail(flowId, runId) — mirrors design/agentflows.html L432-462.
    *  Sets both ids; the detail effect fetches the flow + drives the swap.
@@ -234,6 +236,13 @@ export function FlowsView(): React.ReactElement {
     setSelectedFlowId(null)
     setSelectedRunId(null)
   }, [])
+
+  /** Create-flow success handler — navigate to the canvas editor so the
+   *  user can immediately start adding nodes to the new empty flow. */
+  const handleFlowCreated = useCallback((id: string) => {
+    setCreateOpen(false)
+    router.push(`/workflows/${id}/canvas`)
+  }, [router])
 
   // Fetch the flow list once on mount.
   useEffect(() => {
@@ -491,6 +500,14 @@ export function FlowsView(): React.ReactElement {
           <span className="result-count">
             {visibleFlows.length} / {flows.length} 个 flow
           </span>
+          <button
+            type="button"
+            className="btn btn-primary btn-sm"
+            onClick={() => setCreateOpen(true)}
+          >
+            <Icon name="plus" style={{ width: 14, height: 14 }} />
+            新建 Flow
+          </button>
         </div>
 
         <div className="flow-cards">
@@ -714,6 +731,11 @@ export function FlowsView(): React.ReactElement {
           </div>
         </div>
       </div>
+      <CreateFlowDialog
+        open={createOpen}
+        onClose={() => setCreateOpen(false)}
+        onCreated={handleFlowCreated}
+      />
     </PageShell>
   )
 }

@@ -26,7 +26,7 @@ import { createRedisSemaphore } from '../semaphore.js'
  */
 const redisUrl =
   process.env.REDIS_URL ?? 'redis://localhost:16479'
-const redis = createRedis(redisUrl)
+const redis = createRedis(redisUrl, 'test:')
 
 /** Stub prediction client: records calls, returns runId-keyed output. */
 function stubPredictionClient(
@@ -67,7 +67,7 @@ beforeEach(async () => {
   await redis.del('sem')
   app = buildApp({
     prediction: stubPredictionClient({ calls: [] }),
-    semaphore: createRedisSemaphore({ redis, maxConcurrent: 10, semKey: 'sem' }),
+    semaphore: createRedisSemaphore({ redis, maxConcurrent: 10, semKey: 'sem', prefix: 'test:' }),
     maxConcurrent: 10,
   })
 })
@@ -154,7 +154,7 @@ describe('fan-out failure handling', () => {
         { calls },
         (req) => (req.body as { paper?: number }).paper === 2,
       ),
-      semaphore: createRedisSemaphore({ redis, maxConcurrent: 5, semKey: 'sem' }),
+      semaphore: createRedisSemaphore({ redis, maxConcurrent: 5, semKey: 'sem', prefix: 'test:' }),
       maxConcurrent: 5,
     })
 
@@ -192,7 +192,7 @@ describe('fan-out failure handling', () => {
     const calls: PredictionRequest[] = []
     app = buildApp({
       prediction: stubPredictionClient({ calls }),
-      semaphore: createRedisSemaphore({ redis, maxConcurrent: 10, semKey: 'sem' }),
+      semaphore: createRedisSemaphore({ redis, maxConcurrent: 10, semKey: 'sem', prefix: 'test:' }),
       maxConcurrent: 10,
     })
     await app.request('/api/v1/scheduler/runs/fanout', {
@@ -251,7 +251,7 @@ describe('concurrency gate (M3.1 reuse)', () => {
     }
     app = buildApp({
       prediction: gated,
-      semaphore: createRedisSemaphore({ redis, maxConcurrent: 2, semKey: 'sem' }),
+      semaphore: createRedisSemaphore({ redis, maxConcurrent: 2, semKey: 'sem', prefix: 'test:' }),
       maxConcurrent: 2,
     })
 

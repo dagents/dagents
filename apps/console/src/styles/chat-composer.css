@@ -97,8 +97,10 @@
 }
 
 .chat-composer-send {
-  width: 32px;
-  height: 32px;
+  /* 36px hit target (up from 32px) — closer to the 44px mobile minimum
+   * without visually dominating the composer row. The icon stays 16px. */
+  width: 36px;
+  height: 36px;
   border-radius: 50%;
   border: none;
   background: var(--surface);

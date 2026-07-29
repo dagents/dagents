@@ -31,7 +31,7 @@ import { startWorker } from '../worker.js'
  */
 
 const redisUrl = process.env.REDIS_URL ?? 'redis://localhost:16479'
-const redis = createRedis(redisUrl)
+const redis = createRedis(redisUrl, 'test:')
 
 const FLOW_ID = 'flow-repro-e2e'
 /** Deterministic 64-char hash the stub returns for every snapshot. */
@@ -106,7 +106,7 @@ describe('fan-out + repro — snapshot once, bind all, archive all', () => {
     const reproCalls: StubReproCalls = { snapshots: [], archives: [] }
     app = buildApp({
       prediction: stubPrediction(),
-      semaphore: createRedisSemaphore({ redis, maxConcurrent: 10, semKey: 'sem' }),
+      semaphore: createRedisSemaphore({ redis, maxConcurrent: 10, semKey: 'sem', prefix: 'test:' }),
       maxConcurrent: 10,
       repro: stubRepro(reproCalls),
     })
@@ -140,7 +140,7 @@ describe('fan-out + repro — snapshot once, bind all, archive all', () => {
     const reproCalls: StubReproCalls = { snapshots: [], archives: [] }
     app = buildApp({
       prediction: stubPrediction(),
-      semaphore: createRedisSemaphore({ redis, maxConcurrent: 10, semKey: 'sem' }),
+      semaphore: createRedisSemaphore({ redis, maxConcurrent: 10, semKey: 'sem', prefix: 'test:' }),
       maxConcurrent: 10,
       repro: stubRepro(reproCalls),
     })
@@ -170,7 +170,7 @@ describe('fan-out + repro — snapshot once, bind all, archive all', () => {
     const reproCalls: StubReproCalls = { snapshots: [], archives: [] }
     app = buildApp({
       prediction: stubPrediction(),
-      semaphore: createRedisSemaphore({ redis, maxConcurrent: 10, semKey: 'sem' }),
+      semaphore: createRedisSemaphore({ redis, maxConcurrent: 10, semKey: 'sem', prefix: 'test:' }),
       maxConcurrent: 10,
       repro: stubRepro(reproCalls),
     })
@@ -201,7 +201,7 @@ describe('fan-out + repro — snapshot once, bind all, archive all', () => {
 describe('worker + repro — self-snapshot, bind, archive', () => {
   it('snapshots + binds + archives a single dequeued run', async () => {
     const reproCalls: StubReproCalls = { snapshots: [], archives: [] }
-    const sem = createRedisSemaphore({ redis, maxConcurrent: 4, semKey: 'sem' })
+    const sem = createRedisSemaphore({ redis, maxConcurrent: 4, semKey: 'sem', prefix: 'test:' })
     await sem.reset()
 
     const runId = randomUUID()
@@ -275,7 +275,7 @@ describe('worker + repro — self-snapshot, bind, archive', () => {
         throw new Error(`stub failure for ${runId}`)
       },
     }
-    const sem = createRedisSemaphore({ redis, maxConcurrent: 4, semKey: 'sem' })
+    const sem = createRedisSemaphore({ redis, maxConcurrent: 4, semKey: 'sem', prefix: 'test:' })
     await sem.reset()
 
     const runId = randomUUID()
@@ -316,7 +316,7 @@ describe('rerun + repro — reuses source hash, no re-snapshot, archives', () =>
     const reproCalls: StubReproCalls = { snapshots: [], archives: [] }
     app = buildApp({
       prediction: stubPrediction(),
-      semaphore: createRedisSemaphore({ redis, maxConcurrent: 10, semKey: 'sem' }),
+      semaphore: createRedisSemaphore({ redis, maxConcurrent: 10, semKey: 'sem', prefix: 'test:' }),
       maxConcurrent: 10,
       repro: stubRepro(reproCalls),
     })
@@ -378,7 +378,7 @@ describe('repro failure handling — best-effort', () => {
     }
     app = buildApp({
       prediction: stubPrediction(),
-      semaphore: createRedisSemaphore({ redis, maxConcurrent: 10, semKey: 'sem' }),
+      semaphore: createRedisSemaphore({ redis, maxConcurrent: 10, semKey: 'sem', prefix: 'test:' }),
       maxConcurrent: 10,
       repro: stubRepro(reproCalls),
     })
@@ -417,7 +417,7 @@ describe('repro failure handling — best-effort', () => {
     }
     app = buildApp({
       prediction: stubPrediction(),
-      semaphore: createRedisSemaphore({ redis, maxConcurrent: 10, semKey: 'sem' }),
+      semaphore: createRedisSemaphore({ redis, maxConcurrent: 10, semKey: 'sem', prefix: 'test:' }),
       maxConcurrent: 10,
       repro: stubRepro(reproCalls),
     })

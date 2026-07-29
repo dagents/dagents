@@ -327,7 +327,7 @@ describe('AgentDetailView — inspector + tabs (M4.1 fidelity)', () => {
     const { container } = render(<AgentDetailView id="agent_01HFK" nowMs={NOW_MS} />)
     await screen.findByText('论文阅读 · reader-04')
 
-    const activityTab = screen.getByRole('tab', { name: 'Activity' })
+    const activityTab = screen.getByRole('tab', { name: '活动' })
     expect(activityTab).toHaveAttribute('aria-selected', 'true')
     // sparkline svg present
     expect(container.querySelector('svg.act-chart')).not.toBeNull()
@@ -345,8 +345,8 @@ describe('AgentDetailView — inspector + tabs (M4.1 fidelity)', () => {
     await screen.findByText('论文阅读 · reader-04')
 
     // Activity is active; Instructions is not
-    const activity = screen.getByRole('tab', { name: 'Activity' })
-    const instructions = screen.getByRole('tab', { name: 'Instructions' })
+    const activity = screen.getByRole('tab', { name: '活动' })
+    const instructions = screen.getByRole('tab', { name: '指令' })
     expect(activity).toHaveAttribute('aria-selected', 'true')
     expect(instructions).toHaveAttribute('aria-selected', 'false')
 
@@ -362,41 +362,41 @@ describe('AgentDetailView — inspector + tabs (M4.1 fidelity)', () => {
     render(<AgentDetailView id="agent_01HFK" nowMs={NOW_MS} />)
     await screen.findByText('论文阅读 · reader-04')
 
-    const activity = screen.getByRole('tab', { name: 'Activity' })
+    const activity = screen.getByRole('tab', { name: '活动' })
     activity.focus()
     await userEvent.keyboard('{ArrowRight}')
-    expect(screen.getByRole('tab', { name: 'Instructions' })).toHaveAttribute('aria-selected', 'true')
+    expect(screen.getByRole('tab', { name: '指令' })).toHaveAttribute('aria-selected', 'true')
     await userEvent.keyboard('{ArrowRight}')
     expect(screen.getByRole('tab', { name: 'Skills' })).toHaveAttribute('aria-selected', 'true')
     await userEvent.keyboard('{ArrowRight}')
-    expect(screen.getByRole('tab', { name: 'Logs' })).toHaveAttribute('aria-selected', 'true')
+    expect(screen.getByRole('tab', { name: '日志' })).toHaveAttribute('aria-selected', 'true')
     // wrap-around: Logs → Activity
     await userEvent.keyboard('{ArrowRight}')
-    expect(screen.getByRole('tab', { name: 'Activity' })).toHaveAttribute('aria-selected', 'true')
+    expect(screen.getByRole('tab', { name: '活动' })).toHaveAttribute('aria-selected', 'true')
   })
 
   it('ArrowLeft + Home + End navigate the tablist', async () => {
     render(<AgentDetailView id="agent_01HFK" nowMs={NOW_MS} />)
     await screen.findByText('论文阅读 · reader-04')
 
-    const activity = screen.getByRole('tab', { name: 'Activity' })
+    const activity = screen.getByRole('tab', { name: '活动' })
     activity.focus()
     // ArrowLeft from Activity wraps to Logs
     await userEvent.keyboard('{ArrowLeft}')
-    expect(screen.getByRole('tab', { name: 'Logs' })).toHaveAttribute('aria-selected', 'true')
+    expect(screen.getByRole('tab', { name: '日志' })).toHaveAttribute('aria-selected', 'true')
     // Home → Activity (first)
     await userEvent.keyboard('{Home}')
-    expect(screen.getByRole('tab', { name: 'Activity' })).toHaveAttribute('aria-selected', 'true')
+    expect(screen.getByRole('tab', { name: '活动' })).toHaveAttribute('aria-selected', 'true')
     // End → Logs (last)
     await userEvent.keyboard('{End}')
-    expect(screen.getByRole('tab', { name: 'Logs' })).toHaveAttribute('aria-selected', 'true')
+    expect(screen.getByRole('tab', { name: '日志' })).toHaveAttribute('aria-selected', 'true')
   })
 
   it('renders the not-found card when the detail endpoint 404s', async () => {
     globalThis.fetch = (async () =>
       new Response('not found', { status: 404 })) as typeof globalThis.fetch
     render(<AgentDetailView id="agent_missing" nowMs={NOW_MS} />)
-    expect(await screen.findByText('找不到这个 agent')).toBeInTheDocument()
+    expect(await screen.findByText('找不到这个 Agent')).toBeInTheDocument()
     expect(screen.getByText(/不存在，可能已被归档或删除/)).toBeInTheDocument()
   })
 })

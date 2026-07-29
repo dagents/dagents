@@ -1,0 +1,168 @@
+'use client'
+
+/**
+ * Create Flow dialog — modal form for creating a new flow.
+ *
+ * Collects name (required) + description (optional), then POSTs /api/workflows
+ * with an empty flowData ({ nodes: [], edges: [] }). On success the parent
+ * navigates to /workflows/:id/canvas so the user can immediately start
+ * building the DAG in the Flowise canvas editor.
+ *
+ * Mirrors the CreateAgentDialog pattern (single modal, single form) — see
+ * components/create-agent-dialog.tsx.
+ */
+
+import { useEffect, useState } from 'react'
+import { Icon } from '@/components/icon'
+
+interface CreateFlowResponse {
+  id: string
+  name: string
+}
+
+export interface CreateFlowDialogProps {
+  open: boolean
+  onClose: () => void
+  onCreated: (id: string) => void
+}
+
+export function CreateFlowDialog({
+  open,
+  onClose,
+  onCreated,
+}: CreateFlowDialogProps): React.ReactElement | null {
+  const [submitting, setSubmitting] = useState(false)
+  const [error, setError] = useState<string | null>(null)
+  const [name, setName] = useState('')
+  const [description, setDescription] = useState('')
+
+  // Escape to close
+  useEffect(() => {
+    if (!open) return
+    const onKey = (e: KeyboardEvent) => {
+      if (e.key === 'Escape' && !submitting) onClose()
+    }
+    document.addEventListener('keydown', onKey)
+    return () => document.removeEventListener('keydown', onKey)
+  }, [open, onClose, submitting])
+
+  // Reset form when closed
+  useEffect(() => {
+    if (open) return
+    setName('')
+    setDescription('')
+    setError(null)
+  }, [open])
+
+  if (!open) return null
+
+  const nameValid = name.trim().length > 0 && name.trim().length <= 200
+  const canSubmit = nameValid && !submitting
+
+  const handleSubmit = async () => {
+    if (!canSubmit) return
+    setSubmitting(true)
+    setError(null)
+    try {
+      const res = await fetch('/api/workflows', {
+        method: 'POST',
+        headers: { 'content-type': 'application/json' },
+        body: JSON.stringify({
+          name: name.trim(),
+          description: description.trim() || undefined,
+          flowData: { nodes: [], edges: [], viewport: { x: 0, y: 0, zoom: 1 } },
+        }),
+      })
+      const json = (await res.json()) as { success: boolean; data?: CreateFlowResponse; error?: string }
+      if (!res.ok || !json.success || !json.data) {
+        throw new Error(json.error ?? `创建失败 (${res.status})`)
+      }
+      onCreated(json.data.id)
+    } catch (err) {
+      setError(err instanceof Error ? err.message : String(err))
+    } finally {
+      setSubmitting(false)
+    }
+  }
+
+  return (
+    <>
+      <div className="drawer-backdrop open" onClick={onClose} aria-hidden="true" />
+      <div
+        className="modal-dialog open"
+        role="dialog"
+        aria-modal="true"
+        aria-label="新建 Flow"
+      >
+        <div className="modal-head">
+          <h2 className="modal-title">新建 Flow</h2>
+          <button
+            type="button"
+            className="icon-btn"
+            aria-label="关闭"
+            onClick={onClose}
+            disabled={submitting}
+          >
+            <Icon name="close" />
+          </button>
+        </div>
+
+        <div className="modal-body">
+          <div className="form-section">
+            <div className="form-section-label">基本信息</div>
+            <div className="field">
+              <label htmlFor="flow-name">名称 *</label>
+              <input
+                id="flow-name"
+                type="text"
+                className={`input${name.length === 0 ? '' : nameValid ? '' : ' invalid'}`}
+                value={name}
+                onChange={(e) => setName(e.target.value)}
+                placeholder="例如 代码审查流程"
+                maxLength={200}
+                autoFocus
+              />
+            </div>
+            <div className="field">
+              <label htmlFor="flow-desc">描述</label>
+              <textarea
+                id="flow-desc"
+                className="textarea"
+                value={description}
+                onChange={(e) => setDescription(e.target.value)}
+                placeholder="一句话说明这个 Flow 做什么"
+                rows={2}
+                maxLength={2000}
+              />
+            </div>
+          </div>
+
+          <div className="modal-hint" style={{ fontSize: 'var(--text-xs)', color: 'var(--meta)', padding: 'var(--space-2) 0' }}>
+            创建后会自动跳转到画布编辑器，可在其中添加节点和连线。
+          </div>
+
+          {error ? <div className="modal-error">{error}</div> : null}
+        </div>
+
+        <div className="modal-foot">
+          <button
+            type="button"
+            className="btn btn-secondary btn-sm"
+            onClick={onClose}
+            disabled={submitting}
+          >
+            取消
+          </button>
+          <button
+            type="button"
+            className="btn btn-primary btn-sm"
+            onClick={() => void handleSubmit()}
+            disabled={!canSubmit}
+          >
+            {submitting ? '创建中…' : '创建并编辑'}
+          </button>
+        </div>
+      </div>
+    </>
+  )
+}

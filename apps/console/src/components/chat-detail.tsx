@@ -75,17 +75,22 @@ export function ChatDetail({ chatId }: ChatDetailProps): React.ReactElement {
     setDirectory(null)
     setMessages([])
 
-    const ac = new AbortController()
-
+    // No AbortController here — React 18 StrictMode double-mounts effects in
+    // dev (mount → cleanup abort → remount), and the first mount's abort
+    // produces ERR_ABORTED console errors for /api/chats/:id and
+    // /api/chats/:id/messages. The `cancelled` flag alone is sufficient: it
+    // prevents stale state updates from the first (abandoned) mount, and the
+    // requests are lightweight enough that cancelling the network call is not
+    // worth the console noise.
     Promise.all([
-      fetchChat(chatId, ac.signal).then((c) => {
+      fetchChat(chatId).then((c) => {
         if (!cancelled) setChat(c)
         // Fetch directory after chat loads
-        return fetchDirectory(c.directoryId, ac.signal).then((d) => {
+        return fetchDirectory(c.directoryId).then((d) => {
           if (!cancelled) setDirectory(d)
         }).catch(() => {})
       }),
-      fetchMessages(chatId, ac.signal).then((m) => {
+      fetchMessages(chatId).then((m) => {
         if (!cancelled) setMessages(m)
       }),
     ]).catch((err: unknown) => {
@@ -97,7 +102,6 @@ export function ChatDetail({ chatId }: ChatDetailProps): React.ReactElement {
 
     return () => {
       cancelled = true
-      ac.abort()
     }
   }, [chatId])
 

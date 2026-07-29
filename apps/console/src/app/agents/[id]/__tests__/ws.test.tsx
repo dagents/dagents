@@ -105,9 +105,18 @@ function makeFetch(stub: {
 
 describe('AgentDetailView — WS live status (M4.2)', () => {
   let originalFetch: typeof globalThis.fetch
+  let originalWebSocket: typeof WebSocket
 
   beforeEach(() => {
     originalFetch = globalThis.fetch
+    // jsdom provides WebSocket, so ensureSocket() would create a real socket
+    // that connects to the gateway. A leaked socket from a previous test can
+    // fire onopen during the next test, flipping `connected` to true and
+    // disabling the polling-fallback path under test. Delete it so
+    // ensureSocket() returns early (its "SSR / jsdom without a stub" guard);
+    // tests drive frames + connected via the __testing seam instead.
+    originalWebSocket = globalThis.WebSocket
+    delete (globalThis as { WebSocket?: typeof WebSocket }).WebSocket
     // WS starts disconnected (no real socket under jsdom) — frame tests flip
     // it connected before emitting.
     wsTesting.reset()
@@ -115,6 +124,7 @@ describe('AgentDetailView — WS live status (M4.2)', () => {
 
   afterEach(() => {
     globalThis.fetch = originalFetch
+    globalThis.WebSocket = originalWebSocket
     wsTesting.reset()
     vi.useRealTimers()
   })
@@ -240,6 +250,8 @@ describe('AgentDetailView — WS live status (M4.2)', () => {
   })
 
   it('falls back to polling fetch while the WS socket is disconnected', async () => {
+    // shouldAdvanceTime keeps real timers running so findByText can poll the
+    // DOM while fake timers control the poll interval.
     vi.useFakeTimers({ shouldAdvanceTime: true })
 
     // initial fetch returns offline; the next poll returns online.
@@ -252,9 +264,10 @@ describe('AgentDetailView — WS live status (M4.2)', () => {
     expect(await screen.findByText('离线')).toBeInTheDocument()
 
     // WS stays disconnected (no setConnected) → the polling effect is armed.
-    // Advance past one poll interval; the second fetch (nextRow=online) lands.
+    // Advance past one poll interval (5s); the second fetch (nextRow=online)
+    // lands and setDetail updates the availability pill.
     await act(async () => {
-      vi.advanceTimersByTimeAsync(6_000)
+      await vi.advanceTimersByTimeAsync(6_000)
     })
     expect(await screen.findByText('在线')).toBeInTheDocument()
     expect(screen.queryByText('离线')).not.toBeInTheDocument()

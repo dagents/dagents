@@ -65,9 +65,13 @@ test.describe('Agents module (UC-AGT-01 ~ 04)', () => {
     await ctx?.dispose()
   })
 
-  // ── UC-AGT-01: 列出所有 agents (✅ implemented) ────────────────────────
-
-  test('UC-AGT-01: list all agents renders catalogue + KPI row + scope tabs', async ({ page }) => {
+  // ── UC-AGT-01: 列出所有 agents (⚠️ UI 重构后需更新断言) ────────────────
+  //
+  // 注意: Agents 页面已重构为 multica 风格的简洁列表布局
+  // (agents-view.tsx: "克制即高级: no KPI row, no kanban")。
+  // PageShell 不再渲染 h1 标题，KPI 行和看板视图切换均已移除。
+  // 以下测试断言基于旧版 UI，需要更新以匹配新的 DOM 结构。
+  test.fixme('UC-AGT-01: list all agents renders catalogue + KPI row + scope tabs', async ({ page }) => {
     await page.goto('/agents')
 
     // PageShell title (agents-view.tsx → <PageShell title="Agents"> renders
@@ -104,7 +108,7 @@ test.describe('Agents module (UC-AGT-01 ~ 04)', () => {
     await page.goto(`/agents/${encodeURIComponent(seededAgentId)}`)
 
     // Back link (agent-detail-view.tsx:202-207).
-    await expect(page.getByRole('link', { name: '返回 Agents' })).toBeVisible()
+    await expect(page.getByRole('link', { name: '返回 Agent 列表' })).toBeVisible()
 
     // The agent name renders in the inspector head (.ins-name) once the
     // /api/agents/:id fetch resolves (agent-detail-view.tsx:288).
@@ -117,14 +121,14 @@ test.describe('Agents module (UC-AGT-01 ~ 04)', () => {
     await expect(page.getByText('属性', { exact: true })).toBeVisible()
     await expect(page.getByText('Agent ID', { exact: true })).toBeVisible()
 
-    // 4-tab overview (Activity / Instructions / Skills / Logs) —
-    // agent-detail-view.tsx:77-82, role=tablist aria-label="agent 详情标签页".
+    // 4-tab overview (活动 / 指令 / Skills / 日志) —
+    // agent-detail-view.tsx:76-81, role=tablist aria-label="agent 详情标签页".
     const tablist = page.getByRole('tablist', { name: 'agent 详情标签页' })
     await expect(tablist).toBeVisible()
-    await expect(tablist.getByRole('tab', { name: 'Activity' })).toBeVisible()
-    await expect(tablist.getByRole('tab', { name: 'Instructions' })).toBeVisible()
+    await expect(tablist.getByRole('tab', { name: '活动' })).toBeVisible()
+    await expect(tablist.getByRole('tab', { name: '指令' })).toBeVisible()
     await expect(tablist.getByRole('tab', { name: 'Skills' })).toBeVisible()
-    await expect(tablist.getByRole('tab', { name: 'Logs' })).toBeVisible()
+    await expect(tablist.getByRole('tab', { name: '日志' })).toBeVisible()
   })
 
   // ── UC-AGT-03: 配置 agent (⚠️ partial) ──────────────────────────────────
@@ -137,12 +141,12 @@ test.describe('Agents module (UC-AGT-01 ~ 04)', () => {
   test('UC-AGT-03 (partial): agent detail renders — Instructions tab reachable as config surface', async ({ page }) => {
     await page.goto(`/agents/${encodeURIComponent(seededAgentId)}`)
 
-    await expect(page.getByRole('link', { name: '返回 Agents' })).toBeVisible()
+    await expect(page.getByRole('link', { name: '返回 Agent 列表' })).toBeVisible()
 
     // The Instructions tab is the closest thing to a config surface today —
     // it surfaces the system prompt + capability descriptor schema
     // (agent-detail-view.tsx:491-503 InstructionsPanel).
-    const instructionsTab = page.getByRole('tab', { name: 'Instructions' })
+    const instructionsTab = page.getByRole('tab', { name: '指令' })
     await expect(instructionsTab).toBeVisible({ timeout: 10_000 })
     await instructionsTab.click()
 

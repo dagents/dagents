@@ -27,7 +27,12 @@ export function PageShell({ crumb, actions, children, fullBleed }: PageShellProp
             <div className="page-actions">{actions}</div>
           </div>
         ) : null}
-        <div style={{ flex: 1, minHeight: 0 }}>
+        {/* Inner wrapper is a flex column so children can use `flex: 1` to
+         * fill the viewport (full-bleed pages like Daemons/Canvas own their
+         * scroll). `height: 100%` on children also resolves correctly here
+         * because this div is both a flex item (definite height from the
+         * outer flex column) and a flex container. */}
+        <div style={{ flex: 1, minHeight: 0, display: 'flex', flexDirection: 'column' }}>
           {children}
         </div>
       </div>
