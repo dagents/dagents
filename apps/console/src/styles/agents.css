@@ -6,6 +6,13 @@
    shell.css's unified list-controls section. This file only owns agents-specific
    layout (.agents-toolbar, .filter-group, .agents-search, list rows, drawer). */
 
+/* ─── scope tabs + actions row ─── */
+.scope-tabs-row {
+  display: flex;
+  align-items: center;
+  gap: var(--space-3);
+}
+
 /* ─── toolbar ─── */
 .agents-toolbar {
   display: flex;
@@ -14,16 +21,34 @@
   margin-bottom: var(--space-4);
   flex-wrap: wrap;
 }
-.filter-group {
-  display: inline-flex;
-  gap: var(--space-2);
-  flex-wrap: wrap;
-  align-items: center;
-}
 .agents-search {
-  width: 220px;
-  height: 30px;
-  font-size: var(--text-xs);
+  position: relative;
+  flex: 1;
+  min-width: 200px;
+  max-width: 320px;
+}
+.agents-search input {
+  width: 100%;
+  height: 34px;
+  padding: 0 var(--space-3) 0 30px;
+  background: var(--bg);
+  border: 1px solid var(--border);
+  border-radius: var(--radius-sm);
+  font-size: var(--text-sm);
+  color: var(--fg);
+}
+.agents-search input:focus {
+  border-color: var(--accent);
+  box-shadow: var(--focus-ring);
+  outline: none;
+}
+.agents-search svg {
+  position: absolute;
+  left: 9px;
+  top: 9px;
+  width: 14px;
+  height: 14px;
+  color: var(--meta);
 }
 
 /* ─── error ─── */
@@ -37,79 +62,139 @@
   margin-bottom: var(--space-4);
 }
 
-/* ─── list ─── */
-.agents-list {
+/* ─── card list (mirrors flow-card visual language) ─── */
+.agent-cards {
   flex: 1;
   min-height: 0;
   overflow-y: auto;
 }
 
-/* list header — sticky, subtle */
-.agents-list-header {
-  display: grid;
-  grid-template-columns: 1fr 100px 100px 120px 100px 80px;
-  gap: var(--space-3);
-  align-items: center;
-  padding: 0 var(--space-2);
-  height: 36px;
-  position: sticky;
-  top: 0;
+.agent-card {
   background: var(--bg);
-  z-index: 5;
-  border-bottom: 1px solid var(--border-soft);
-}
-.list-header-cell {
-  font-size: 11px;
-  font-weight: 500;
-  color: var(--meta);
-  letter-spacing: var(--tracking-label);
-  text-transform: uppercase;
-  display: inline-flex;
-  align-items: center;
-  gap: 4px;
-}
-.list-header-cell.sortable {
-  border: 0;
-  background: transparent;
-  padding: 0;
-  font: inherit;
+  border: 1px solid var(--border-soft);
+  border-radius: var(--radius-md);
+  overflow: hidden;
+  margin-bottom: var(--space-3);
+  transition: box-shadow var(--motion-fast);
   cursor: pointer;
-  transition: color var(--motion-fast);
 }
-.list-header-cell.sortable:hover { color: var(--fg); }
-.list-header-cell.sortable.active { color: var(--fg); }
-.list-header-cell.sortable.active::after {
-  content: '▾';
-  font-size: 9px;
-  opacity: 0.8;
+.agent-card:hover {
+  box-shadow: var(--elev-raised);
 }
-.list-header-cell.sortable.active[data-dir="asc"]::after {
-  transform: rotate(180deg);
+.agent-card:focus-visible {
+  outline: none;
+  box-shadow: inset var(--focus-ring);
 }
-
-/* list row — clean, hover-light */
-.agents-row {
-  display: grid;
-  grid-template-columns: 1fr 100px 100px 120px 100px 80px;
-  gap: var(--space-3);
-  align-items: center;
-  padding: 0 var(--space-2);
-  height: 52px;
-  cursor: pointer;
-  transition: background var(--motion-fast);
-  border-bottom: 1px solid var(--border-soft);
-}
-.agents-row:hover {
-  background: var(--surface-warm);
-}
-
-/* name cell */
-.cell-name {
+.agent-card-head {
   display: flex;
   align-items: center;
   gap: var(--space-3);
+  padding: var(--space-4) var(--space-5);
+}
+.agent-card-head:hover {
+  background: var(--surface-warm);
+}
+
+/* glyph — 36px like flow-glyph */
+.agent-card .agent-glyph {
+  width: 36px;
+  height: 36px;
+  border-radius: 9px;
+  font-size: 14px;
+  flex-shrink: 0;
+}
+
+/* info — name + sub, matching flow-info structure */
+.agent-info {
+  flex: 1;
   min-width: 0;
 }
+.agent-info .nm {
+  font-size: var(--text-base);
+  font-weight: 600;
+  color: var(--fg);
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+.agent-info .sub {
+  font-size: 12px;
+  color: var(--muted);
+  margin-top: 2px;
+  display: flex;
+  gap: var(--space-3);
+  flex-wrap: wrap;
+}
+.agent-info .sub .mono {
+  font-family: var(--font-mono);
+}
+
+/* meta — status badge + load + cost chip */
+.agent-card-meta {
+  display: flex;
+  align-items: center;
+  gap: var(--space-2);
+  flex-shrink: 0;
+}
+.agent-status {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  font-size: var(--text-xs);
+  color: var(--muted);
+}
+.agent-load {
+  display: flex;
+  align-items: center;
+  gap: var(--space-2);
+}
+.agent-card .load-bar {
+  width: 48px;
+  height: 4px;
+  background: var(--surface);
+  border-radius: 2px;
+  overflow: hidden;
+}
+.agent-card .load-fill {
+  display: block;
+  height: 100%;
+  background: var(--accent);
+  border-radius: 2px;
+  transition: width var(--motion-fast);
+}
+.agent-card .load-fill.warn { background: var(--warn); }
+.agent-card .load-fill.danger { background: var(--danger); }
+.agent-card .load-val {
+  font-size: 10px;
+  color: var(--meta);
+}
+
+/* card action button sizing — matches flow-card */
+.agent-card .card-actions .btn-sm {
+  height: 28px;
+  padding: 0 var(--space-3);
+  font-size: 11px;
+}
+
+/* status dot — shared primitive */
+.status-dot {
+  width: 6px;
+  height: 6px;
+  border-radius: 50%;
+  flex-shrink: 0;
+  background: var(--meta);
+}
+.status-dot.dot-running {
+  background: var(--accent);
+  box-shadow: 0 0 0 2px var(--accent-soft);
+}
+.status-dot.dot-queued { background: var(--warn); }
+.status-dot.dot-idle { background: var(--meta); }
+.status-dot.dot-failed { background: var(--danger); }
+.status-dot.dot-paused { background: var(--info); }
+.status-dot.dot-done { background: var(--meta); }
+
+/* agent glyph — base + kind variants */
 .agent-glyph {
   width: 28px;
   height: 28px;
@@ -128,96 +213,6 @@
 .agent-glyph.kind-codex { background: #eef4ee; color: #1f6b3f; }
 .agent-glyph.kind-prompt { background: var(--accent-soft); color: var(--accent-hover); }
 .agent-glyph.kind-remote { background: var(--info-soft); color: var(--info); }
-.name-info {
-  display: flex;
-  flex-direction: column;
-  min-width: 0;
-}
-.name-info .name {
-  font-size: var(--text-sm);
-  font-weight: 500;
-  color: var(--fg);
-  white-space: nowrap;
-  overflow: hidden;
-  text-overflow: ellipsis;
-}
-.name-info .id {
-  font-family: var(--font-mono);
-  font-size: 10px;
-  color: var(--meta);
-}
-
-/* kind cell */
-.cell-kind .kind-label {
-  font-size: var(--text-xs);
-  color: var(--muted);
-}
-
-/* status cell */
-.cell-status {
-  display: flex;
-  align-items: center;
-  gap: 6px;
-}
-.status-dot {
-  width: 6px;
-  height: 6px;
-  border-radius: 50%;
-  flex-shrink: 0;
-  background: var(--meta);
-}
-.status-dot.dot-running {
-  background: var(--accent);
-  box-shadow: 0 0 0 2px var(--accent-soft);
-}
-.status-dot.dot-queued { background: var(--warn); }
-.status-dot.dot-idle { background: var(--meta); }
-.status-dot.dot-failed { background: var(--danger); }
-.status-dot.dot-paused { background: var(--info); }
-.status-dot.dot-done { background: var(--meta); }
-.status-label {
-  font-size: var(--text-xs);
-  color: var(--muted);
-}
-
-/* run cell */
-.cell-run {
-  font-size: var(--text-xs);
-  color: var(--muted);
-}
-
-/* load cell */
-.cell-load {
-  display: flex;
-  align-items: center;
-  gap: var(--space-2);
-}
-.load-bar {
-  width: 48px;
-  height: 4px;
-  background: var(--surface);
-  border-radius: 2px;
-  overflow: hidden;
-}
-.load-fill {
-  display: block;
-  height: 100%;
-  background: var(--accent);
-  border-radius: 2px;
-  transition: width var(--motion-fast);
-}
-.load-fill.warn { background: var(--warn); }
-.load-fill.danger { background: var(--danger); }
-.load-val {
-  font-size: 10px;
-  color: var(--meta);
-}
-
-/* cost cell */
-.cell-cost {
-  font-size: var(--text-xs);
-  color: var(--muted);
-}
 
 /* ─── empty ─── */
 .agents-empty {

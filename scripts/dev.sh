@@ -9,6 +9,7 @@
 #
 # Usage:
 #   scripts/dev.sh            # = pnpm dev, but with .env loaded
+#   scripts/dev.sh --with-daemon  # also start a daemon worker alongside
 #   scripts/dev.sh logs       # tail a running dev session's logs
 #   scripts/dev.sh stop       # stop the background dev session
 
@@ -48,6 +49,12 @@ case "${1:-dev}" in
     else
       echo "no dev session running (no .dev.pid)."
     fi
+    # Also kill daemon if we started it
+    if [[ -f "$ROOT/.dev-daemon.pid" ]]; then
+      kill "$(cat "$ROOT/.dev-daemon.pid")" 2>/dev/null || true
+      rm -f "$ROOT/.dev-daemon.pid"
+      echo "daemon stopped."
+    fi
     ;;
   logs)
     if [[ -f "$ROOT/.dev.log" ]]; then
@@ -56,6 +63,24 @@ case "${1:-dev}" in
       echo "no .dev.log — run scripts/dev.sh first."
       exit 1
     fi
+    ;;
+  --with-daemon)
+    # Start turbo dev in background, then daemon in foreground.
+    # Ctrl-C kills both (daemon gets SIGTERM via trap).
+    echo "starting turbo dev (background) + daemon (foreground)…"
+    nohup pnpm dev > "$ROOT/.dev.log" 2>&1 &
+    echo $! > "$ROOT/.dev.pid"
+    # Wait a moment for dispatch to come up before daemon tries to register
+    sleep 3
+    export DISPATCH_URL="${DISPATCH_URL:-http://localhost:8081}"
+    DAEMON_LABEL="${DAEMON_LABEL:-dev-laptop}"
+    DAEMON_TYPE="${DAEMON_TYPE:-claude}"
+    pnpm --filter @dagents/daemon dev -- "$DISPATCH_URL" "$DAEMON_LABEL" "$DAEMON_TYPE" &
+    DAEMON_PID=$!
+    echo $DAEMON_PID > "$ROOT/.dev-daemon.pid"
+    trap 'kill $DAEMON_PID 2>/dev/null; kill "$(cat "$ROOT/.dev.pid")" 2>/dev/null; rm -f "$ROOT/.dev.pid" "$ROOT/.dev-daemon.pid"' INT TERM
+    echo "dev + daemon running — daemon logs on this terminal, dev logs: scripts/dev.sh logs"
+    wait $DAEMON_PID
     ;;
   dev|"")
     # Foreground (default): blocks the current shell, Ctrl-C kills turbo.
@@ -69,7 +94,7 @@ case "${1:-dev}" in
     echo "dev started in background (pid $(cat "$ROOT/.dev.pid")) — logs: scripts/dev.sh logs, stop: scripts/dev.sh stop"
     ;;
   *)
-    echo "usage: scripts/dev.sh [dev|bg|logs|stop]" >&2
+    echo "usage: scripts/dev.sh [dev|--with-daemon|bg|logs|stop]" >&2
     exit 2
     ;;
 esac

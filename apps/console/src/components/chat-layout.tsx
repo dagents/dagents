@@ -11,13 +11,13 @@
  * Based on design-redo-open-webui/pages/main.html `.app-shell` layout.
  */
 
-import { useState, useCallback, useEffect, useMemo } from 'react'
+import { useState, useCallback, useEffect, useMemo, useRef } from 'react'
 import { usePathname } from 'next/navigation'
 import { ChatNavSidebar } from '@/components/chat-nav-sidebar'
+import { CommandPalette } from '@/components/command-palette'
 import { FloatingChat } from '@/components/floating-chat'
 import { Icon } from '@/components/icon'
 import { crumbsFor } from '@/components/nav'
-import { useSession } from '@/lib/auth-client'
 import '@/styles/chat-layout.css'
 
 const COLLAPSE_KEY = 'od:chat-sidebar'
@@ -32,17 +32,49 @@ function titleFor(pathname: string): string | null {
 
 export function ChatLayout({ children }: { children: React.ReactNode }) {
   const pathname = usePathname() ?? '/'
-  const { user, logout } = useSession()
   const [collapsed, setCollapsed] = useState(false)
-  const [menuOpen, setMenuOpen] = useState(false)
+  const [paletteOpen, setPaletteOpen] = useState(false)
+  const contentRef = useRef<HTMLDivElement>(null)
+  const [scrolled, setScrolled] = useState(false)
 
   useEffect(() => {
     setCollapsed(localStorage.getItem(COLLAPSE_KEY) === 'collapsed')
   }, [])
 
+  // Toggle a hairline under the navbar once the content scrolls. The CSS
+  // (.chat-layout-navbar.scrolled) already defines the border; this listener
+  // just flips the class. Threshold of 4px avoids flicker on tiny scrolls.
   useEffect(() => {
-    setMenuOpen(false)
-  }, [pathname])
+    const el = contentRef.current
+    if (!el) return
+    let raf = 0
+    const onScroll = () => {
+      if (raf) return
+      raf = requestAnimationFrame(() => {
+        raf = 0
+        setScrolled(el.scrollTop > 4)
+      })
+    }
+    el.addEventListener('scroll', onScroll, { passive: true })
+    return () => {
+      el.removeEventListener('scroll', onScroll)
+      if (raf) cancelAnimationFrame(raf)
+    }
+  }, [])
+
+  // Global Cmd/Ctrl+K to open the command palette. Mounted once at the
+  // layout root so it works on every route. Prevents the browser default
+  // (often a page search bar) when the palette is mounted.
+  useEffect(() => {
+    const onKey = (e: KeyboardEvent) => {
+      if ((e.metaKey || e.ctrlKey) && e.key.toLowerCase() === 'k') {
+        e.preventDefault()
+        setPaletteOpen((v) => !v)
+      }
+    }
+    window.addEventListener('keydown', onKey)
+    return () => window.removeEventListener('keydown', onKey)
+  }, [])
 
   const toggleCollapsed = useCallback(() => {
     setCollapsed((prev) => {
@@ -60,7 +92,7 @@ export function ChatLayout({ children }: { children: React.ReactNode }) {
         <ChatNavSidebar collapsed={collapsed} />
       </aside>
       <div className="chat-layout-main">
-        <header className="chat-layout-navbar">
+        <header className={`chat-layout-navbar${scrolled ? ' scrolled' : ''}`}>
           <div className="chat-layout-navbar-left">
             <button
               type="button"
@@ -74,36 +106,27 @@ export function ChatLayout({ children }: { children: React.ReactNode }) {
             {title ? <h1 className="chat-layout-navbar-title">{title}</h1> : null}
           </div>
           <div className="chat-layout-navbar-right">
-            <div className="account-menu-wrap" style={{ position: 'relative' }}>
-              <button
-                type="button"
-                className="avatar"
-                style={{ width: 32, height: 32, borderRadius: '50%', display: 'flex', alignItems: 'center', justifyContent: 'center', fontSize: 'var(--text-xs)', fontWeight: 600, color: '#fff', background: 'linear-gradient(135deg, var(--fg), var(--accent))', border: 'none', cursor: 'pointer' }}
-                aria-label="账户"
-                aria-haspopup="menu"
-                aria-expanded={menuOpen}
-                onClick={() => setMenuOpen((v) => !v)}
-              >
-                {user ? user.name.slice(0, 2).toUpperCase() : 'RZ'}
-              </button>
-              {menuOpen ? (
-                <div className="account-menu" role="menu" style={{ position: 'absolute', right: 0, top: '100%', marginTop: 'var(--space-1)', background: 'var(--bg)', border: '1px solid var(--border)', borderRadius: 'var(--radius-sm)', boxShadow: 'var(--elev-dropdown)', minWidth: 160, zIndex: 100 }}>
-                  <div className="account-menu-name" style={{ padding: 'var(--space-2) var(--space-3)', fontSize: 'var(--text-sm)', fontWeight: 500 }}>{user?.name ?? '未登录'}</div>
-                  <button type="button" role="menuitem" className="account-menu-item" style={{ display: 'block', width: '100%', padding: 'var(--space-2) var(--space-3)', border: 'none', background: 'transparent', textAlign: 'left', fontSize: 'var(--text-sm)', color: 'var(--fg)', cursor: 'pointer' }} onClick={() => { setMenuOpen(false); void logout() }}>
-                    登出
-                  </button>
-                </div>
-              ) : null}
-            </div>
+            <button
+              type="button"
+              className="chat-layout-search"
+              onClick={() => setPaletteOpen(true)}
+              aria-label="打开命令面板"
+              title="命令面板 (⌘K)"
+            >
+              <Icon name="search" style={{ width: 15, height: 15, color: 'var(--muted)' }} />
+              <span className="chat-layout-search-text">搜索…</span>
+              <kbd className="chat-layout-search-kbd">⌘K</kbd>
+            </button>
           </div>
         </header>
-        <div className="chat-layout-content">
+        <div className="chat-layout-content" ref={contentRef}>
           {children}
         </div>
       </div>
       {/* Floating chat overlay — multica-style FAB + window. Hidden on
           /chats/[id] (the full-page chat owns the conversation there). */}
       <FloatingChat />
+      <CommandPalette open={paletteOpen} onClose={() => setPaletteOpen(false)} />
     </div>
   )
 }

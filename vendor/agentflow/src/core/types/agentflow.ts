@@ -2,8 +2,8 @@
 // Component Props & Hook Return Types
 // ============================================================================
 
-import type { ReactNode } from 'react'
-import type { ReactFlowInstance } from 'reactflow'
+import type { ComponentType, ReactNode } from 'react'
+import type { NodeProps, ReactFlowInstance } from 'reactflow'
 
 import type { RequestInterceptor } from './api'
 import type { ExecutionStatus } from './execution'
@@ -103,6 +103,18 @@ export interface AgentflowProps {
      * If the interceptor throws, the error is caught and the original config is used.
      */
     requestInterceptor?: RequestInterceptor
+
+    /**
+     * Custom React Flow node type registrations merged on top of the built-in
+     * `nodeTypes` (agentflowNode / stickyNote / iteration). Use this to replace
+     * the default `agentflowNode` renderer with a branded card while preserving
+     * all built-in edit dialogs, validation, drag-and-drop and palette behavior.
+     *
+     * @example
+     * // Swap the default node card for a custom branded renderer
+     * customNodeTypes={{ agentflowNode: MyBrandedNode }}
+     */
+    customNodeTypes?: Record<string, ComponentType<NodeProps<any>>>
 }
 
 export interface AgentFlowInstance {

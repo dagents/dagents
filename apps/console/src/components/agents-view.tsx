@@ -17,6 +17,7 @@
 import { useCallback, useEffect, useMemo, useState } from 'react'
 import { useRouter } from 'next/navigation'
 import { PageShell } from '@/components/page-shell'
+import { Icon } from '@/components/icon'
 import { CreateAgentDialog } from '@/components/create-agent-dialog'
 import '@/styles/agents.css'
 import {
@@ -115,8 +116,9 @@ export function AgentsView(): React.ReactElement {
   const scopeCounts = useMemo(() => {
     const c = { mine: 0, all: 0, archived: 0 }
     for (const a of agents) {
+      c.all++
       if (isArchived(a)) c.archived++
-      else c.all++
+      else c.mine++
     }
     return c
   }, [agents])
@@ -136,14 +138,6 @@ export function AgentsView(): React.ReactElement {
     const dir = sort.dir === 'asc' ? 1 : -1
     return [...filtered].sort((a, b) => compareAgents(a, b, sort.field) * dir)
   }, [scoped, filters, sort])
-
-  const onSortClick = useCallback((field: SortField) => {
-    setSort((prev) =>
-      prev.field === field
-        ? { field, dir: prev.dir === 'asc' ? 'desc' : 'asc' }
-        : { field, dir: 'asc' },
-    )
-  }, [])
 
   const toggleFilter = useCallback(
     <K extends 'kind' | 'status' | 'role'>(key: K, value: string) => {
@@ -171,86 +165,81 @@ export function AgentsView(): React.ReactElement {
   )
 
   return (
-    <PageShell
-      actions={
-        <>
-          <button
-            type="button"
-            className="btn btn-primary btn-sm"
-            onClick={() => setCreateOpen(true)}
-          >
-            + 新建 Agent
-          </button>
-          <button
-            type="button"
-            className="btn btn-secondary btn-sm"
-            onClick={() => void load()}
-          >
-            刷新
-          </button>
-        </>
-      }
-    >
-      {/* scope tabs */}
-      <div className="scope-tabs" role="tablist" aria-label="agent 范围">
-        {SCOPE_TABS.map((t) => (
-          <button
-            key={t.key}
-            type="button"
-            role="tab"
-            aria-selected={scope === t.key}
-            data-scope={t.key}
-            data-zero={scopeCounts[t.key] === 0 ? 'true' : undefined}
-            onClick={() => setScope(t.key)}
-          >
-            {t.label}
-            <span className="cnt">{scopeCounts[t.key]}</span>
-          </button>
-        ))}
-      </div>
-
-      {/* toolbar */}
-      <div className="agents-toolbar">
-        <fieldset className="filter-group" aria-label="按类型过滤">
-          <legend className="filter-legend">类型</legend>
-          {KIND_FILTERS.map((k) => (
+    <PageShell fullBleed>
+      {/* scope tabs + actions on the same row */}
+      <div className="scope-tabs-row mb-6">
+        <div className="scope-tabs" role="tablist" aria-label="agent 范围">
+          {SCOPE_TABS.map((t) => (
             <button
-              key={k}
+              key={t.key}
               type="button"
-              className="filter-chip"
-              aria-pressed={filters.kind === k}
-              onClick={() => toggleFilter('kind', k)}
+              role="tab"
+              aria-selected={scope === t.key}
+              data-scope={t.key}
+              data-zero={scopeCounts[t.key] === 0 ? 'true' : undefined}
+              onClick={() => setScope(t.key)}
             >
-              {KIND_LABEL[k]}
+              {t.label}
+              <span className="cnt">{scopeCounts[t.key]}</span>
             </button>
           ))}
-        </fieldset>
-        <fieldset className="filter-group" aria-label="按状态过滤">
-          <legend className="filter-legend">状态</legend>
-          {STATUS_FILTERS.map((s) => (
-            <button
-              key={s}
-              type="button"
-              className="filter-chip"
-              aria-pressed={filters.status === s}
-              onClick={() => toggleFilter('status', s)}
-            >
-              {STATUS_LABEL[s]}
-            </button>
-          ))}
-        </fieldset>
-        <input
-          type="search"
-          className="input agents-search"
-          placeholder="搜索名称 / ID / 类型…"
-          aria-label="搜索 agents"
-          value={filters.q}
-          onChange={(e) => setFilters((p) => ({ ...p, q: e.target.value }))}
-        />
+        </div>
         <div className="grow" />
         <span className="result-count">
-          {visibleSorted.length} / {scoped.length}
+          {visibleSorted.length} / {scoped.length} 个 agent
         </span>
+        <button
+          type="button"
+          className="btn btn-secondary btn-sm"
+          onClick={() => void load()}
+        >
+          刷新
+        </button>
+        <button
+          type="button"
+          className="btn btn-primary btn-sm"
+          onClick={() => setCreateOpen(true)}
+        >
+          <Icon name="plus" style={{ width: 14, height: 14 }} />
+          新建 Agent
+        </button>
+      </div>
+
+      {/* toolbar — search + filter chips */}
+      <div className="agents-toolbar">
+        <div className="agents-search">
+          <Icon name="search" style={{ width: 14, height: 14, color: 'var(--meta)' }} />
+          <input
+            type="search"
+            placeholder="搜索名称 / ID / 类型…"
+            aria-label="搜索 agents"
+            value={filters.q}
+            onChange={(e) => setFilters((p) => ({ ...p, q: e.target.value }))}
+          />
+        </div>
+        {KIND_FILTERS.map((k) => (
+          <button
+            key={k}
+            type="button"
+            className="filter-chip"
+            aria-pressed={filters.kind === k}
+            onClick={() => toggleFilter('kind', k)}
+          >
+            {KIND_LABEL[k]}
+          </button>
+        ))}
+        {STATUS_FILTERS.map((s) => (
+          <button
+            key={s}
+            type="button"
+            className="filter-chip"
+            aria-pressed={filters.status === s}
+            onClick={() => toggleFilter('status', s)}
+          >
+            {STATUS_LABEL[s]}
+          </button>
+        ))}
+        <div className="grow" />
       </div>
 
       {error ? (
@@ -262,23 +251,20 @@ export function AgentsView(): React.ReactElement {
         </div>
       ) : null}
 
-      {/* list */}
-      <div className="agents-list">
+      {/* card list — mirrors flow-card visual language */}
+      <div className="agent-cards">
         {loading && agents.length === 0 ? (
-          <div className="agents-empty">
-            <div className="agents-empty-icon">⏳</div>
-            <div className="agents-empty-title">加载中…</div>
+          <div className="muted" style={{ padding: 'var(--space-4)', fontSize: 12 }}>
+            加载 agent 列表…
           </div>
         ) : visibleSorted.length === 0 && !error ? (
-          <div className="agents-empty">
-            <div className="agents-empty-icon">🤖</div>
-            <div className="agents-empty-title">
-              {agents.length === 0 ? '还没有 Agent' : '没有匹配的 Agent'}
-            </div>
-            <div className="agents-empty-desc">
+          <div className="empty-state">
+            <div className="empty-state-icon" aria-hidden="true">🤖</div>
+            <div className="h">{agents.length === 0 ? '还没有 Agent' : '没有匹配的 Agent'}</div>
+            <div className="d">
               {agents.length === 0
                 ? '创建你的第一个 Agent，定义它的提示词、工具和模型。'
-                : '尝试调整搜索关键词或清除过滤器。'}
+                : '试试调整筛选条件或清除搜索。'}
             </div>
             {agents.length === 0 ? (
               <button
@@ -286,7 +272,8 @@ export function AgentsView(): React.ReactElement {
                 className="btn btn-primary"
                 onClick={() => setCreateOpen(true)}
               >
-                + 新建 Agent
+                <Icon name="plus" style={{ width: 14, height: 14 }} />
+                新建 Agent
               </button>
             ) : (
               <button
@@ -299,73 +286,68 @@ export function AgentsView(): React.ReactElement {
             )}
           </div>
         ) : (
-          <>
-            {/* header */}
-            <div className="agents-list-header">
-              <button
-                type="button"
-                className={`list-header-cell sortable${sort.field === 'name' ? ' active' : ''}`}
-                data-dir={sort.field === 'name' ? sort.dir : 'asc'}
-                onClick={() => onSortClick('name')}
-              >
-                Agent
-              </button>
-              <span className="list-header-cell">类型</span>
-              <span className="list-header-cell">状态</span>
-              <span className="list-header-cell">当前 Run</span>
-              <button
-                type="button"
-                className={`list-header-cell sortable${sort.field === 'load' ? ' active' : ''}`}
-                data-dir={sort.field === 'load' ? sort.dir : 'asc'}
-                onClick={() => onSortClick('load')}
-              >
-                负载
-              </button>
-              <span className="list-header-cell">成本</span>
-            </div>
-            {/* rows */}
-            {visibleSorted.map((a) => (
-              <div
-                key={a.id}
-                className="agents-row"
-                role="button"
-                tabIndex={0}
-                onClick={() => onRowClick(a.id)}
-                onKeyDown={(e) => {
-                  if (e.key === 'Enter' || e.key === ' ') {
-                    e.preventDefault()
-                    onRowClick(a.id)
-                  }
-                }}
-              >
-                <div className="cell-name">
-                  <div className={glyphClass(a.kind)}>{KIND_GLYPH[a.kind]}</div>
-                  <div className="name-info">
-                    <span className="name">{a.name}</span>
-                    <span className="id">{a.id.slice(0, 8)}</span>
+          visibleSorted.map((a, i) => (
+            <div
+              key={a.id}
+              className="agent-card enter-rise"
+              style={{ '--enter-i': i } as React.CSSProperties}
+              role="button"
+              tabIndex={0}
+              aria-label={`查看 agent ${a.name} 详情`}
+              onClick={() => onRowClick(a.id)}
+              onKeyDown={(e) => {
+                if (e.key === 'Enter' || e.key === ' ') {
+                  e.preventDefault()
+                  onRowClick(a.id)
+                }
+              }}
+            >
+              <div className="agent-card-head">
+                <div className={glyphClass(a.kind)}>{KIND_GLYPH[a.kind]}</div>
+                <div className="agent-info">
+                  <div className="nm">{a.name}</div>
+                  <div className="sub">
+                    <span className="mono">{a.id.slice(0, 8)}</span>
+                    <span>{KIND_LABEL[a.kind]}</span>
+                    {a.run ? <span className="mono">{a.run}</span> : null}
                   </div>
                 </div>
-                <div className="cell-kind">
-                  <span className="kind-label">{KIND_LABEL[a.kind]}</span>
-                </div>
-                <div className="cell-status">
-                  <span className={`status-dot ${STATUS_DOT_CLASS[a.status]}`} />
-                  <span className="status-label">{STATUS_LABEL[a.status]}</span>
-                </div>
-                <div className="cell-run mono">{a.run ?? '—'}</div>
-                <div className="cell-load">
-                  <div className="load-bar">
-                    <span
-                      className={`load-fill${a.load > 85 ? ' danger' : a.load > 70 ? ' warn' : ''}`}
-                      style={{ width: `${a.load}%` }}
-                    />
+                <div className="agent-card-meta">
+                  <span className={`agent-status ${a.status}`}>
+                    <span className={`status-dot ${STATUS_DOT_CLASS[a.status]}`} />
+                    {STATUS_LABEL[a.status]}
+                  </span>
+                  <div className="agent-load">
+                    <div className="load-bar">
+                      <span
+                        className={`load-fill${a.load > 85 ? ' danger' : a.load > 70 ? ' warn' : ''}`}
+                        style={{ width: `${a.load}%` }}
+                      />
+                    </div>
+                    <span className="load-val mono">{a.load}%</span>
                   </div>
-                  <span className="load-val mono">{a.load}%</span>
+                  {a.cost !== '—' ? (
+                    <span className="chip chip-outline mono" style={{ fontSize: 10 }}>
+                      {a.cost}
+                    </span>
+                  ) : null}
                 </div>
-                <div className="cell-cost mono">{a.cost}</div>
+                <div className="card-actions">
+                  <button
+                    type="button"
+                    className="btn btn-secondary btn-sm"
+                    title="查看详情"
+                    onClick={(e) => {
+                      e.stopPropagation()
+                      onRowClick(a.id)
+                    }}
+                  >
+                    查看详情
+                  </button>
+                </div>
               </div>
-            ))}
-          </>
+            </div>
+          ))
         )}
       </div>
 

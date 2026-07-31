@@ -216,10 +216,10 @@ describe('gateway dispatch proxy', () => {
     }
   })
 
-  it('sanitizes a dispatch 4xx the same way as 5xx (any non-ok → 502)', async () => {
-    // Spec: 上游非 ok → 502 sanitized — matches the flows proxy, which collapses
-    // every non-ok upstream status. A 404 with an internal-ish body must not be
-    // forwarded verbatim.
+  it('forwards a dispatch 4xx status but sanitizes the body (no internal leak)', async () => {
+    // Spec: 4xx 状态码原样转发（让 console 能区分 "bad input" vs "dispatch down"），
+    // 但 body 需 sanitized — 不转发上游原始 body（可能含 DB 连接串等内部信息）。
+    // 5xx 仍然折叠为 502。
     const savedHandler = stubHandler
     stubHandler = (_req, res) => {
       res.setHeader('content-type', 'application/json')
@@ -229,10 +229,14 @@ describe('gateway dispatch proxy', () => {
     }
     try {
       const res = await app.request('/api/v1/dispatch/tasks/t-1', { method: 'GET' })
-      expect(res.status).toBe(502)
+      // 4xx 状态码原样转发
+      expect(res.status).toBe(404)
       const body = await res.json()
-      expect(body).toMatchObject({ success: false, error: 'upstream error', upstreamStatus: 404 })
+      expect(body).toMatchObject({ success: false, error: 'upstream client error', upstreamStatus: 404 })
+      // 内部信息不泄露
       expect(JSON.stringify(body)).not.toContain('postgres://')
+      expect(JSON.stringify(body)).not.toContain('task not found')
+      // 内部 header 不泄露
       expect(res.headers.get('x-internal')).toBeNull()
     } finally {
       stubHandler = savedHandler

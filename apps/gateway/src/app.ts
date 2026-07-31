@@ -1,4 +1,5 @@
 import { Hono, type Context } from 'hono'
+import type { ContentfulStatusCode } from 'hono/utils/http-status'
 import { context, trace } from '@opentelemetry/api'
 import { createLogger, getTracer } from '@dagents/shared'
 import { llmRoutes } from './routes/llm.js'
@@ -225,7 +226,16 @@ app.all('/api/v1/dispatch/*', async (c) => {
   // Upstream *application* 5xx: don't forward the body/headers verbatim —
   // dispatch error bodies can carry stacks, DB strings, internal hostnames.
   // Collapse to a sanitized 502; the real detail stays in the server log.
+  // 4xx (400 bad request / 404 not found / 422 validation) forwards the
+  // real status code so the console can distinguish "bad input" from
+  // "dispatch down", but the body is still sanitized (not forwarded verbatim)
+  // to avoid leaking internal details like DB connection strings.
   if (!upstream.ok) {
+    if (upstream.status >= 400 && upstream.status < 500) {
+      // Drain the body so the socket can be reused, but don't forward it.
+      await upstream.text().catch(() => '')
+      return c.json({ success: false, error: 'upstream client error', upstreamStatus: upstream.status }, upstream.status as ContentfulStatusCode)
+    }
     log.warn('upstream error', { path: upstreamPath, method, status: upstream.status })
     return c.json({ success: false, error: 'upstream error', upstreamStatus: upstream.status }, 502)
   }

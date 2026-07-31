@@ -5,8 +5,7 @@
  *
  * Layout (design-redo paradigm):
  *   - Breadcrumb: 📁 directory / chat title [status]
- *   - Left: message stream + composer
- *   - Right: context panel (directory, agent, flow, stats, runs)
+ *   - Center: message stream + composer (agent + flow selectors in composer)
  *
  * The sidebar is global (ChatNavSidebar in ChatLayout) — not rendered here.
  *
@@ -22,7 +21,6 @@ import { useCallback, useEffect, useRef, useState } from 'react'
 import Link from 'next/link'
 import { Icon } from '@/components/icon'
 import { ChatComposer } from '@/components/chat-composer'
-import { ChatContextPanel } from '@/components/chat-context-panel'
 import { AssistantContent, extractMeta } from '@/components/assistant-content'
 import {
   type Chat,
@@ -30,6 +28,7 @@ import {
   fetchChat,
   fetchMessages,
   createMessage,
+  updateChat,
 } from '@/lib/chats'
 import { fetchDirectory, type Directory } from '@/lib/directories'
 import { useWsChat } from '@/lib/use-ws-chat'
@@ -60,6 +59,7 @@ export function ChatDetail({ chatId }: ChatDetailProps): React.ReactElement {
   const [loading, setLoading] = useState(true)
   const [error, setError] = useState<string | null>(null)
   const [selectedAgentId, setSelectedAgentId] = useState<string | null>(chat?.agentId ?? null)
+  const [selectedFlowId, setSelectedFlowId] = useState<string | null>(chat?.flowId ?? null)
   const [copiedId, setCopiedId] = useState<string | null>(null)
   const [showScrollBtn, setShowScrollBtn] = useState(false)
   const messagesEndRef = useRef<HTMLDivElement>(null)
@@ -118,9 +118,12 @@ export function ChatDetail({ chatId }: ChatDetailProps): React.ReactElement {
     }
   }, [chatId])
 
-  // Sync selector with chat's persisted agent when chat loads/changes.
+  // Sync selectors with chat's persisted agent/flow when chat loads/changes.
   useEffect(() => {
-    if (chat) setSelectedAgentId(chat.agentId)
+    if (chat) {
+      setSelectedAgentId(chat.agentId)
+      setSelectedFlowId(chat.flowId)
+    }
   }, [chat])
 
   // Auto-scroll to bottom on new messages — but only if the user is already
@@ -146,7 +149,8 @@ export function ChatDetail({ chatId }: ChatDetailProps): React.ReactElement {
     messagesEndRef.current?.scrollIntoView({ behavior: 'smooth' })
   }, [])
 
-  // Refresh chat when the context panel edits agent/flow (emits 'chat-updated').
+  // Refresh chat when flow selection is changed via the composer (emits
+  // 'chat-updated' after persisting). Keeps breadcrumb status in sync.
   useEffect(() => {
     const handler = (e: Event) => {
       const detail = (e as CustomEvent).detail as { chatId: string }
@@ -375,22 +379,39 @@ export function ChatDetail({ chatId }: ChatDetailProps): React.ReactElement {
     }
   }, [])
 
+  // Persist flow selection to the backend when the user changes it via the
+  // composer's FlowSelector. Updates local state immediately for snappy UX.
+  const handleFlowChange = useCallback(async (flowId: string | null) => {
+    setSelectedFlowId(flowId)
+    if (!chat) return
+    try {
+      await updateChat(chat.id, { flowId })
+      window.dispatchEvent(new CustomEvent('chat-updated', { detail: { chatId: chat.id } }))
+    } catch (err) {
+      console.warn('flow update failed', err)
+    }
+  }, [chat])
+
   return (
     <div className="chat-detail-body">
-      {/* Breadcrumb */}
+      {/* Breadcrumb — 各部分都有 ellipsis + tooltip，长 title/path 不挤 status */}
       <div className="chat-detail-breadcrumb">
         {directory && (
-          <Link href="/directories" className="chat-detail-breadcrumb-dir" title={directory.path}>
+          <Link
+            href="/directories"
+            className="chat-detail-breadcrumb-dir"
+            title={directory.path ?? directory.name}
+          >
             <Icon name="folder" style={{ width: 14, height: 14 }} />
-            <span>{directory.name}</span>
-            {directory.path ? (
-              <span className="chat-detail-breadcrumb-path">{directory.path}</span>
-            ) : null}
+            <span className="chat-detail-breadcrumb-dir-name">{directory.name}</span>
           </Link>
         )}
-        <span className="chat-detail-breadcrumb-sep">/</span>
-        <span className="chat-detail-breadcrumb-title">
-          {loading ? '加载中…' : chat?.title ?? '对话'}
+        {directory && <span className="chat-detail-breadcrumb-sep">/</span>}
+        <span
+          className="chat-detail-breadcrumb-title"
+          title={loading ? undefined : chat?.title}
+        >
+          {loading ? '加载中…' : (chat?.title && chat.title.length > 60 ? chat.title.slice(0, 60) + '…' : chat?.title ?? '对话')}
         </span>
         {chat && (
           <span className={`chat-detail-breadcrumb-status status-${chat.status}`}>
@@ -408,10 +429,9 @@ export function ChatDetail({ chatId }: ChatDetailProps): React.ReactElement {
         </div>
       ) : null}
 
-      {/* Main split: messages + context */}
-      <div className="chat-detail-split">
-        {/* Left: messages + composer */}
-        <div className="chat-detail-conversation">
+      {/* Main: messages + composer (no side panel — flow & agent selectors
+          live in the composer's bottom bar) */}
+      <div className="chat-detail-conversation">
           <div
             className="chat-detail-messages"
             ref={messagesScrollRef}
@@ -533,11 +553,9 @@ export function ChatDetail({ chatId }: ChatDetailProps): React.ReactElement {
             autoFocus
             agentId={selectedAgentId}
             onAgentChange={setSelectedAgentId}
+            flowId={selectedFlowId}
+            onFlowChange={handleFlowChange}
           />
-        </div>
-
-        {/* Right: context panel */}
-        <ChatContextPanel chat={chat} directory={directory} />
       </div>
     </div>
   )

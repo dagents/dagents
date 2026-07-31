@@ -3,6 +3,7 @@
 import { useRef, useState, useCallback, useEffect } from 'react'
 import { Icon } from '@/components/icon'
 import { AgentSelector } from '@/components/agent-selector'
+import { FlowSelector } from '@/components/flow-selector'
 import '@/styles/chat-composer.css'
 
 interface ChatComposerProps {
@@ -18,6 +19,10 @@ interface ChatComposerProps {
   agentId?: string | null
   /** Called when user changes agent selection. */
   onAgentChange?: (agentId: string | null) => void
+  /** Currently bound flow id (null = none). */
+  flowId?: string | null
+  /** Called when user changes flow selection. */
+  onFlowChange?: (flowId: string | null) => void
   /** Autofocus the textarea on mount (default true on chat home/detail). */
   autoFocus?: boolean
 }
@@ -31,6 +36,8 @@ export function ChatComposer({
   agentSelector = true,
   agentId = null,
   onAgentChange,
+  flowId = null,
+  onFlowChange,
   autoFocus = false,
 }: ChatComposerProps): React.ReactElement {
   const [input, setInput] = useState('')
@@ -105,6 +112,9 @@ export function ChatComposer({
         <div className="chat-composer-bottom">
           {agentSelector && onAgentChange && (
             <AgentSelector value={agentId} onChange={onAgentChange} disabled={disabled} />
+          )}
+          {onFlowChange && (
+            <FlowSelector value={flowId} onChange={onFlowChange} disabled={disabled} />
           )}
           <span className="chat-composer-hint">
             ⏎ 发送 · ⇧⏎ 换行

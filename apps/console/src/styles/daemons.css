@@ -1,45 +1,28 @@
-/* daemons.css — multica-inspired clean two-column layout.
+/* daemons.css — daemon worker 列表（multica-inspired）.
    Design principles: 克制即高级, 层次靠灰度, 字号纪律, 间距 > 分割线. */
 
 .daemons-view {
   display: flex;
   flex-direction: column;
   gap: var(--space-4);
-  /* `flex: 1` fills the full-bleed PageShell inner wrapper (now a flex
-   * column). Previously `height: 100%` which could collapse when the parent
-   * lacked a definite height, hiding the queue/detail grid. */
   flex: 1;
   min-height: 0;
 }
 
-/* ─── header bar: filters + inline stats ─── */
-.daemons-header {
+/* ─── scope-tabs-row (shared with agents/flows) ─── */
+.scope-tabs-row {
   display: flex;
   align-items: center;
-  justify-content: space-between;
-  gap: var(--space-4);
-  flex-shrink: 0;
+  gap: var(--space-3);
 }
-.daemons-filters {
-  display: flex;
-  gap: var(--space-2);
-}
-/* .daemons-filter migrated to the unified .filter-chip class in shell.css.
-   The daemons-view now renders <button className="filter-chip"> with
-   aria-pressed, matching agents/flows/settings. */
 
-/* inline stats — compact, no separate panel */
-.daemons-stats-inline {
-  display: flex;
-  align-items: center;
-  gap: var(--space-4);
-  font-size: var(--text-xs);
-  color: var(--muted);
-}
+/* inline stats item */
 .stat-item {
   display: inline-flex;
   align-items: center;
   gap: 4px;
+  font-size: var(--text-xs);
+  color: var(--muted);
 }
 .stat-item.muted { color: var(--meta); }
 .stat-val {
@@ -64,7 +47,204 @@
 .status-dot.dot-done { background: var(--meta); }
 .status-dot.dot-failed { background: var(--danger); }
 
-/* ─── two-column grid ─── */
+/* ─── daemon list ─── */
+.daemons-list {
+  display: flex;
+  flex-direction: column;
+  gap: var(--space-2);
+}
+
+/* daemon card — single row, multica MachineRow style */
+.daemon-card {
+  display: flex;
+  align-items: center;
+  gap: var(--space-3);
+  padding: var(--space-3) var(--space-4);
+  background: var(--bg);
+  border: 1px solid var(--border-soft);
+  border-radius: var(--radius-md);
+  transition: border-color var(--motion-fast), box-shadow var(--motion-fast), transform var(--motion-fast);
+}
+.daemon-card:hover {
+  border-color: var(--border);
+  box-shadow: var(--elev-raised);
+  transform: translateY(-1px);
+}
+
+/* left: icon + status dot */
+.daemon-card-icon {
+  position: relative;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  width: 36px;
+  height: 36px;
+  border-radius: var(--radius-sm);
+  background: var(--surface-warm);
+  flex-shrink: 0;
+}
+.daemon-card-icon .status-dot {
+  position: absolute;
+  bottom: -1px;
+  right: -1px;
+  width: 8px;
+  height: 8px;
+  border: 2px solid var(--bg);
+  border-radius: 50%;
+}
+
+/* center: label + meta */
+.daemon-card-body {
+  flex: 1;
+  min-width: 0;
+  display: flex;
+  flex-direction: column;
+  gap: 2px;
+}
+.daemon-card-head {
+  display: flex;
+  align-items: center;
+  gap: var(--space-2);
+}
+.daemon-card-label {
+  font-size: var(--text-sm);
+  font-weight: 500;
+  color: var(--fg);
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+.daemon-badge {
+  font-size: 10px;
+  padding: 1px 8px;
+  border-radius: var(--radius-pill);
+  font-weight: 500;
+  flex-shrink: 0;
+}
+.daemon-badge-online {
+  background: var(--accent-soft);
+  color: var(--accent);
+}
+.daemon-badge-offline {
+  background: var(--surface);
+  color: var(--meta);
+}
+.daemon-badge-draining {
+  background: var(--warn-soft, rgba(234, 179, 8, 0.12));
+  color: var(--warn);
+}
+
+.daemon-card-meta {
+  display: flex;
+  align-items: center;
+  gap: var(--space-2);
+  font-size: var(--text-xs);
+  color: var(--meta);
+  flex-wrap: wrap;
+}
+.daemon-cap {
+  font-size: 10px;
+  padding: 1px 6px;
+  border-radius: var(--radius-pill);
+  background: var(--surface);
+  color: var(--muted);
+  font-family: var(--font-mono);
+}
+.daemon-card-id {
+  color: var(--meta);
+  font-size: 10px;
+}
+.daemon-card-endpoint {
+  color: var(--meta);
+  font-size: 10px;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+  max-width: 200px;
+}
+
+/* right: heartbeat time */
+.daemon-card-right {
+  flex-shrink: 0;
+  display: flex;
+  align-items: center;
+}
+.daemon-card-heartbeat {
+  font-size: var(--text-xs);
+  color: var(--meta);
+  white-space: nowrap;
+}
+
+/* ─── empty state ─── */
+.daemons-empty {
+  padding: var(--space-12);
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  justify-content: center;
+  gap: var(--space-3);
+  text-align: center;
+  color: var(--meta);
+  font-size: var(--text-sm);
+  min-height: 300px;
+}
+.daemons-empty-title {
+  color: var(--fg-2);
+  font-size: var(--text-sm);
+  font-weight: 500;
+}
+.daemons-empty-desc {
+  color: var(--meta);
+  font-size: var(--text-xs);
+  line-height: 1.6;
+  max-width: 280px;
+}
+.daemons-empty-hint {
+  margin-top: var(--space-2);
+  display: flex;
+  align-items: center;
+  gap: var(--space-2);
+  flex-wrap: wrap;
+  justify-content: center;
+}
+.daemons-empty-hint-label {
+  font-size: var(--text-xs);
+  color: var(--muted);
+}
+.daemons-cmd {
+  font-family: var(--font-mono);
+  font-size: var(--text-xs);
+  background: var(--surface-2);
+  border: 1px solid var(--border);
+  border-radius: var(--radius-sm);
+  padding: 4px 10px;
+  color: var(--accent-1);
+  user-select: all;
+}
+.daemons-error {
+  padding: var(--space-3);
+  color: var(--danger);
+  font-size: var(--text-sm);
+}
+
+/* ─── daemon detail header (back button + daemon info) ─── */
+.daemon-detail-header {
+  display: flex;
+  align-items: center;
+  gap: var(--space-2);
+  padding-bottom: var(--space-3);
+  border-bottom: 1px solid var(--border-soft);
+}
+.daemon-back-btn {
+  flex-shrink: 0;
+}
+.daemon-detail-title {
+  font-size: var(--text-base);
+  font-weight: 600;
+  color: var(--fg);
+}
+
+/* ─── two-column grid (task queue + detail) ─── */
 .daemons-grid {
   display: grid;
   grid-template-columns: 300px 1fr;
@@ -73,7 +253,7 @@
   min-height: 0;
 }
 
-/* ─── queue column ─── */
+/* queue column */
 .daemons-queue {
   display: flex;
   flex-direction: column;
@@ -108,7 +288,7 @@
   padding: var(--space-2);
 }
 
-/* task card — clean, hover-light */
+/* task card */
 .daemons-task-card {
   display: flex;
   flex-direction: column;
@@ -168,7 +348,7 @@
   color: var(--meta);
 }
 
-/* ─── detail column ─── */
+/* detail column */
 .daemons-detail {
   background: var(--bg);
   border: 1px solid var(--border-soft);
@@ -215,7 +395,7 @@
   color: var(--meta);
 }
 
-/* ─── detail section (timeline / meta / logs share this shell) ─── */
+/* detail section */
 .detail-section {
   margin-bottom: var(--space-6);
 }
@@ -232,7 +412,7 @@
   border-bottom: 1px solid var(--border-soft);
 }
 
-/* timeline — clean, vertical */
+/* timeline */
 .detail-timeline {
   display: flex;
   flex-direction: column;
@@ -285,9 +465,6 @@
 }
 
 /* meta rows */
-.detail-meta {
-  /* section spacing now provided by .detail-section wrapper */
-}
 .meta-row {
   display: flex;
   justify-content: space-between;
@@ -322,103 +499,15 @@
   margin: 0;
 }
 
-/* ─── shared ─── */
-.daemons-empty {
-  padding: var(--space-12);
+/* ─── detail empty state (no task selected) ─── */
+.daemons-detail-empty {
+  flex: 1;
   display: flex;
   flex-direction: column;
   align-items: center;
   justify-content: center;
-  gap: var(--space-3);
+  gap: var(--space-2);
   text-align: center;
   color: var(--meta);
-  font-size: var(--text-sm);
-  height: 100%;
-}
-.daemons-empty-title {
-  color: var(--fg-2);
-  font-size: var(--text-sm);
-  font-weight: 500;
-}
-.daemons-empty-desc {
-  color: var(--meta);
-  font-size: var(--text-xs);
-  line-height: 1.6;
-  max-width: 240px;
-}
-.daemons-error {
-  padding: var(--space-3);
-  color: var(--danger);
-  font-size: var(--text-sm);
-}
-
-/* ─── detail empty-state skeleton ───
-   Mirrors the 4-panel information architecture (head / timeline / meta /
-   logs) with shimmer placeholder lines so the page's shape is visible
-   before a task is selected. The skeleton is aria-hidden; the empty-state
-   label carries the screen-reader message. */
-.daemons-detail-skeleton {
-  flex: 1;
-  overflow-y: auto;
-  padding: var(--space-4);
-  display: flex;
-  flex-direction: column;
-}
-.daemons-detail-empty-label {
-  display: flex;
-  align-items: center;
-  gap: var(--space-2);
-  padding: var(--space-3) var(--space-4);
-  margin-bottom: var(--space-6);
-  background: var(--surface-warm);
-  border: 1px dashed var(--border-soft);
-  border-radius: var(--radius-sm);
-  color: var(--meta);
-  font-size: var(--text-sm);
-}
-.skel-head {
-  display: flex;
-  align-items: center;
-  gap: var(--space-2);
-  margin-bottom: var(--space-6);
-}
-.skel-line {
-  display: inline-block;
-  height: 10px;
-  border-radius: var(--radius-pill);
-  background: linear-gradient(
-    90deg,
-    var(--surface-warm) 0%,
-    var(--border-soft) 50%,
-    var(--surface-warm) 100%
-  );
-  background-size: 200% 100%;
-  animation: daemons-skel-shimmer 1.6s ease-in-out infinite;
-}
-.skel-w-8 { width: 32px; }
-.skel-w-10 { width: 40px; }
-.skel-w-12 { width: 48px; }
-.skel-w-16 { width: 64px; }
-.skel-w-20 { width: 80px; }
-.skel-w-24 { width: 96px; }
-.skel-w-3q { width: 75%; }
-.skel-w-full { width: 100%; }
-
-.detail-logs-skel {
-  padding: var(--space-3);
-  display: flex;
-  flex-direction: column;
-  gap: var(--space-2);
-}
-
-@keyframes daemons-skel-shimmer {
-  0% { background-position: 200% 0; }
-  100% { background-position: -200% 0; }
-}
-
-@media (prefers-reduced-motion: reduce) {
-  .skel-line {
-    animation: none;
-    background: var(--surface-warm);
-  }
+  padding: var(--space-8);
 }

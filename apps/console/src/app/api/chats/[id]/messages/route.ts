@@ -41,11 +41,20 @@ export async function POST(
 
   const headers = forwardSessionHeaders(req, resolveRunId(req.headers.get('x-run-id')), true)
 
-  const body = await req.text()
+  const rawBody = await req.text()
+
+  // 校验 null 字节：PostgreSQL text 列不接受 \u0000，若放行会导致 DB 报错
+  // 被 gateway 包装为 502。在此提前用 400 拒绝，给出明确错误信息。
+  if (rawBody.includes('\u0000')) {
+    return NextResponse.json(
+      { success: false, error: 'message content must not contain null bytes' },
+      { status: 400 },
+    )
+  }
 
   let upstream: Response
   try {
-    upstream = await fetch(upstreamUrl, { method: 'POST', cache: 'no-store', headers, body })
+    upstream = await fetch(upstreamUrl, { method: 'POST', cache: 'no-store', headers, body: rawBody })
   } catch (err) {
     return NextResponse.json(
       { success: false, error: 'gateway unavailable' },

@@ -1,0 +1,188 @@
+/* ============================================================
+   command-palette.css — Cmd+K palette overlay (chat-layout scoped)
+   ============================================================ */
+
+.cmdk-overlay {
+  position: fixed;
+  inset: 0;
+  z-index: 200;
+  background: rgba(13, 13, 13, 0.28);
+  backdrop-filter: blur(2px);
+  display: flex;
+  justify-content: center;
+  align-items: flex-start;
+  padding-top: 12vh;
+  animation: cmdk-fade-in var(--motion-fast) var(--ease-standard);
+}
+
+@keyframes cmdk-fade-in {
+  from { opacity: 0; }
+  to { opacity: 1; }
+}
+
+.cmdk {
+  width: 560px;
+  max-width: calc(100vw - 48px);
+  background: var(--bg);
+  border: 1px solid var(--border);
+  border-radius: var(--radius-lg);
+  box-shadow: var(--elev-overlay);
+  overflow: hidden;
+  display: flex;
+  flex-direction: column;
+  max-height: 70vh;
+  animation: cmdk-pop-in var(--motion-base) var(--ease-spring);
+  transform-origin: top center;
+}
+
+@keyframes cmdk-pop-in {
+  from { opacity: 0; transform: translateY(-8px) scale(0.98); }
+  to { opacity: 1; transform: translateY(0) scale(1); }
+}
+
+/* ─── input ──────────────────────────────────────────────────── */
+.cmdk-input-wrap {
+  display: flex;
+  align-items: center;
+  gap: var(--space-3);
+  padding: var(--space-4) var(--space-5);
+  border-bottom: 1px solid var(--border-soft);
+}
+.cmdk-input-icon {
+  width: 18px;
+  height: 18px;
+  color: var(--meta);
+  flex-shrink: 0;
+  display: inline-flex;
+}
+.cmdk-input-icon svg { width: 18px; height: 18px; }
+.cmdk-input {
+  flex: 1;
+  border: 0;
+  outline: 0;
+  background: transparent;
+  font-size: var(--text-base);
+  color: var(--fg);
+  font-family: var(--font-body);
+}
+.cmdk-input::placeholder { color: var(--meta); }
+.cmdk-esc {
+  font-family: var(--font-mono);
+  font-size: 10px;
+  font-weight: 500;
+  color: var(--meta);
+  background: var(--surface);
+  border: 1px solid var(--border);
+  border-radius: var(--radius-sm);
+  padding: 2px 6px;
+  letter-spacing: 0.02em;
+  flex-shrink: 0;
+}
+
+/* ─── list ───────────────────────────────────────────────────── */
+.cmdk-list {
+  overflow-y: auto;
+  padding: var(--space-2);
+  flex: 1;
+  min-height: 0;
+}
+.cmdk-list::-webkit-scrollbar { width: 8px; }
+.cmdk-list::-webkit-scrollbar-thumb {
+  background: var(--border);
+  border-radius: 4px;
+  border: 2px solid var(--bg);
+}
+
+.cmdk-group { margin-bottom: var(--space-1); }
+.cmdk-group-label {
+  font-size: 10px;
+  font-weight: 600;
+  color: var(--meta);
+  letter-spacing: var(--tracking-label);
+  text-transform: uppercase;
+  padding: var(--space-3) var(--space-3) var(--space-1);
+}
+.cmdk-group:first-child .cmdk-group-label { padding-top: var(--space-1); }
+
+.cmdk-item {
+  display: flex;
+  align-items: center;
+  gap: var(--space-3);
+  width: 100%;
+  padding: var(--space-3);
+  border: 0;
+  background: transparent;
+  border-radius: var(--radius-sm);
+  cursor: pointer;
+  text-align: left;
+  color: var(--fg);
+  font-size: var(--text-sm);
+  font-weight: 500;
+  transition: background var(--motion-fast) var(--ease-standard);
+}
+.cmdk-item.is-active {
+  background: var(--surface-warm);
+}
+.cmdk-item-icon {
+  width: 18px;
+  height: 18px;
+  color: var(--muted);
+  display: inline-flex;
+  flex-shrink: 0;
+}
+.cmdk-item.is-active .cmdk-item-icon { color: var(--accent); }
+.cmdk-item-icon svg { width: 18px; height: 18px; }
+.cmdk-item-label { flex: 1; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+.cmdk-item-hint {
+  font-size: 11px;
+  color: var(--meta);
+  font-weight: 500;
+  background: var(--surface);
+  padding: 1px 7px;
+  border-radius: var(--radius-pill);
+  flex-shrink: 0;
+}
+.cmdk-item.is-active .cmdk-item-hint { background: var(--bg); color: var(--muted); }
+
+/* ─── empty ──────────────────────────────────────────────────── */
+.cmdk-empty {
+  padding: var(--space-12) var(--space-5);
+  text-align: center;
+  color: var(--meta);
+  font-size: var(--text-sm);
+}
+
+/* ─── footer ─────────────────────────────────────────────────── */
+.cmdk-footer {
+  display: flex;
+  align-items: center;
+  gap: var(--space-5);
+  padding: var(--space-3) var(--space-5);
+  border-top: 1px solid var(--border-soft);
+  background: var(--surface-warm);
+}
+.cmdk-footer-hint {
+  display: inline-flex;
+  align-items: center;
+  gap: var(--space-1);
+  font-size: 11px;
+  color: var(--muted);
+}
+.cmdk-footer-hint kbd {
+  font-family: var(--font-mono);
+  font-size: 10px;
+  color: var(--fg-2);
+  background: var(--bg);
+  border: 1px solid var(--border);
+  border-radius: 4px;
+  padding: 1px 5px;
+  min-width: 18px;
+  text-align: center;
+}
+.cmdk-footer-brand {
+  margin-left: auto;
+  font-family: var(--font-display);
+  font-weight: 600;
+  letter-spacing: -0.01em;
+  color: var(--meta);
+}

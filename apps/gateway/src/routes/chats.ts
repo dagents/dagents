@@ -32,13 +32,13 @@ const listQuerySchema = z.object({
 
 const createBodySchema = z.object({
   directoryId: z.string().uuid(),
-  title: z.string().min(1),
+  title: z.string().min(1).max(200),
   agentId: z.string().uuid().optional(),
-  flowId: z.string().optional(),
+  flowId: z.string().max(200).optional(),
 })
 
 const updateBodySchema = z.object({
-  title: z.string().min(1).optional(),
+  title: z.string().min(1).max(200).optional(),
   status: z.string().min(1).optional(),
   agentId: z.string().uuid().nullable().optional(),
   flowId: z.string().max(200).nullable().optional(),
@@ -46,14 +46,14 @@ const updateBodySchema = z.object({
 
 const createMessageBodySchema = z.object({
   role: z.enum(['user', 'assistant', 'system', 'tool']).default('user'),
-  content: z.string().min(1),
+  content: z.string().min(1).refine((s) => !s.includes('\x00'), 'content must not contain null bytes'),
   runId: z.string().uuid().optional(),
   metadata: z.record(z.string(), z.unknown()).optional(),
 })
 
 const createMessageWithExecBodySchema = z.object({
   role: z.enum(['user', 'assistant', 'system', 'tool']).default('user'),
-  content: z.string().min(1),
+  content: z.string().min(1).refine((s) => !s.includes('\x00'), 'content must not contain null bytes'),
   runId: z.string().uuid().optional(),
   metadata: z.record(z.string(), z.unknown()).optional(),
   /** Optional agent id — overrides chat.agentId for this message only. */

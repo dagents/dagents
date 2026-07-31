@@ -1,145 +1,215 @@
+/* ================================================================
+ * chat-context-panel.css — 右侧上下文面板
+ * 设计原则：信息密度优先，减少无意义留白
+ *   - 面板宽度缩小到 248px
+ *   - 内边距 / 间距统一压缩
+ *   - 统计用 2 列 grid，避免左右对齐的空行
+ *   - section-title 更紧凑（缩小 uppercase 字号 + letter-spacing）
+ * ================================================================ */
+
 .chat-context-panel {
-  width: 280px;
-  min-width: 280px;
+  width: 248px;
+  min-width: 248px;
   border-left: 1px solid var(--border-soft);
   background: var(--surface-warm);
   overflow-y: auto;
-  padding: var(--space-4);
+  padding: 12px 14px;
   display: flex;
   flex-direction: column;
-  gap: var(--space-4);
+  gap: 14px;
 }
 
 .chat-context-section {
   display: flex;
   flex-direction: column;
-  gap: var(--space-2);
+  gap: 6px;
 }
 
+/* 紧凑的 section-title：UPPERCASE 但缩小字号，减少上下留白 */
 .chat-context-section-title {
   display: flex;
   align-items: center;
-  font-size: var(--text-xs);
-  font-weight: 500;
+  font-size: 10px;
+  line-height: 1;
+  font-weight: 600;
   text-transform: uppercase;
-  letter-spacing: 0.04em;
+  letter-spacing: 0.06em;
   color: var(--meta);
+  padding: 0;
 }
 
+/* 单行 item：统一 12px 行高，避免垂直堆叠占高 */
 .chat-context-item {
   display: flex;
-  align-items: center;
-  gap: var(--space-2);
-  font-size: var(--text-sm);
+  align-items: flex-start;
+  gap: 8px;
+  font-size: 12px;
+  line-height: 1.4;
   color: var(--fg);
+  min-width: 0;
 }
 
-/* When the directory item shows a path, wrap name + path into a column so
-   the path sits below the name on its own line. Mono font, truncated. */
 .chat-context-dir-name {
-  /* inherits from .chat-context-item */
-}
-.chat-context-dir-path {
-  display: block;
-  font-family: var(--font-mono);
-  font-size: 11px;
-  color: var(--meta);
-  max-width: 220px;
   overflow: hidden;
   text-overflow: ellipsis;
   white-space: nowrap;
-  margin-top: 2px;
+  min-width: 0;
+  flex: 1;
 }
-/* Switch to column layout when a path is present (name + path stack vertically). */
+
+/* Agent / Flow ID 显示：mono，ellipsis + 单行 */
+.chat-context-mono-truncate {
+  font-family: var(--font-mono);
+  font-size: 11px;
+  color: var(--fg);
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+  min-width: 0;
+  flex: 1;
+}
+
+/* 目录路径：面包屑中已显示过完整信息，这里更紧凑（更短 max-width + 与名称同一视觉块） */
 .chat-context-item:has(.chat-context-dir-path) {
   align-items: flex-start;
   flex-direction: column;
 }
+.chat-context-dir-path {
+  display: block;
+  font-family: var(--font-mono);
+  font-size: 10px;
+  color: var(--meta);
+  max-width: 210px;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+  line-height: 1.3;
+}
 
+/* 统计：紧凑 2 列网格，每行 18px 高 */
 .chat-context-stats {
-  display: flex;
-  flex-direction: column;
-  gap: var(--space-2);
+  display: grid;
+  grid-template-columns: 1fr 1fr;
+  gap: 4px 10px;
 }
 
 .chat-context-stat {
   display: flex;
-  justify-content: space-between;
-  font-size: var(--text-sm);
+  flex-direction: column;
+  gap: 1px;
+  font-size: 11px;
+  line-height: 1.3;
+  padding: 4px 6px;
+  background: var(--bg);
+  border-radius: var(--radius-sm);
+  border: 1px solid var(--border-soft);
 }
 
 .chat-context-stat-label {
-  color: var(--muted);
+  color: var(--meta);
+  font-size: 10px;
+  letter-spacing: 0.02em;
+  text-transform: uppercase;
 }
 
 .chat-context-stat-value {
   color: var(--fg);
-  font-weight: 500;
+  font-weight: 600;
+  font-size: 12px;
+  font-variant-numeric: tabular-nums;
 }
 
 .chat-context-stat-value.status-running { color: var(--success); }
 .chat-context-stat-value.status-failed { color: var(--danger); }
 .chat-context-stat-value.status-done { color: var(--meta); }
 
+/* 执行记录：更密集 */
 .chat-context-runs {
   display: flex;
   flex-direction: column;
-  gap: var(--space-1);
+  gap: 2px;
+  max-height: 180px;
+  overflow-y: auto;
 }
 
 .chat-context-run {
   display: flex;
   justify-content: space-between;
   align-items: center;
-  padding: var(--space-1) 0;
+  padding: 3px 4px;
+  border-radius: 4px;
+  font-size: 10px;
+  line-height: 1.3;
+  transition: background var(--motion-fast);
+}
+.chat-context-run:hover {
+  background: var(--bg);
 }
 
-.chat-context-run-role {
-  font-size: var(--text-xs);
-  color: var(--muted);
-  text-transform: capitalize;
+.chat-context-run-status {
+  margin-left: auto;
+  font-size: 10px;
+  text-transform: uppercase;
+  letter-spacing: 0.04em;
+  flex-shrink: 0;
 }
+.chat-context-run-status.status-completed { color: var(--accent); }
+.chat-context-run-status.status-running { color: var(--warn); }
+.chat-context-run-status.status-failed { color: var(--danger); }
 
+/* 编辑按钮：更紧凑，无大间距 */
 .chat-context-edit {
   margin-left: auto;
   background: transparent;
   border: 0;
   color: var(--meta);
-  font-size: var(--text-xs);
+  font-size: 10px;
   cursor: pointer;
   padding: 0;
+  line-height: 1;
+  letter-spacing: 0.04em;
+  text-transform: uppercase;
+  font-weight: 500;
+  transition: color var(--motion-fast);
 }
 .chat-context-edit:hover { color: var(--accent); }
 
+/* Flow 编辑态：更紧凑 */
 .chat-context-flow-edit {
   display: flex;
+  flex-wrap: wrap;
   gap: 4px;
   align-items: center;
 }
 .chat-context-flow-input {
-  flex: 1;
-  padding: 4px 8px;
-  background: var(--surface-warm);
+  flex: 1 1 100%;
+  padding: 5px 8px;
+  background: var(--bg);
   border: 1px solid var(--border);
   border-radius: var(--radius-sm);
-  font-size: var(--text-xs);
+  font-size: 11px;
   color: var(--fg);
+  font-family: var(--font-mono);
+  outline: none;
+  transition: border-color var(--motion-fast);
+}
+.chat-context-flow-input:focus {
+  border-color: var(--accent);
 }
 .chat-context-flow-save, .chat-context-flow-cancel {
   padding: 4px 8px;
   border: 0;
   border-radius: var(--radius-sm);
-  font-size: var(--text-xs);
+  font-size: 10px;
   cursor: pointer;
+  font-weight: 500;
+  line-height: 1;
 }
 .chat-context-flow-save { background: var(--accent); color: var(--accent-on); }
-.chat-context-flow-cancel { background: var(--surface); color: var(--muted); }
+.chat-context-flow-cancel { background: var(--bg); color: var(--muted); border: 1px solid var(--border); }
 
-.chat-context-run-status {
-  margin-left: auto;
-  font-size: var(--text-xs);
-  text-transform: uppercase;
+.chat-context-run-role {
+  font-size: 10px;
+  color: var(--muted);
+  text-transform: capitalize;
 }
-.chat-context-run-status.status-completed { color: var(--accent); }
-.chat-context-run-status.status-running { color: var(--warn); }
-.chat-context-run-status.status-failed { color: var(--danger); }

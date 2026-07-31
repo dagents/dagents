@@ -210,8 +210,8 @@ export function DirectoriesView(): React.ReactElement {
             </button>
           </div>
         ) : (
-          directories.map((d) => (
-            <div key={d.id} className="directory-card">
+          directories.map((d, i) => (
+            <div key={d.id} className="directory-card enter-rise" style={{ '--enter-i': i } as React.CSSProperties}>
               <div className="directory-info">
                 {editingId === d.id ? (
                   <div className="directory-edit">

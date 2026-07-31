@@ -555,10 +555,10 @@ export function FlowsView(): React.ReactElement {
               )}
             </div>
           ) : (
-            visibleFlows.map((f) => {
+            visibleFlows.map((f, i) => {
               const expanded = expandedId === f.id
               return (
-                <div key={f.id} className={`flow-card${expanded ? ' expanded' : ''}`} data-flow-id={f.id}>
+                <div key={f.id} className={`flow-card enter-rise${expanded ? ' expanded' : ''}`} data-flow-id={f.id} style={{ '--enter-i': i } as React.CSSProperties}>
                   <div
                     className="flow-card-head"
                     role="button"

@@ -48,6 +48,20 @@ function formatRelativeTime(dateStr: string): string {
   return `${d.getMonth() + 1}月${d.getDate()}日`
 }
 
+/**
+ * Sanitize a chat title for safe display:
+ * 1. Strip HTML tags to block XSS payloads rendered as plain text
+ * 2. Collapse excessive whitespace
+ * 3. Hard-cap length to avoid layout breakage (CSS ellipsis handles the rest visually)
+ */
+function sanitizeChatTitle(raw: string, max = 80): string {
+  if (!raw) return '新对话'
+  const stripped = raw.replace(/<[^>]*>/g, '').replace(/&[a-z]+;/gi, ' ')
+  const collapsed = stripped.replace(/\s+/g, ' ').trim()
+  if (collapsed.length === 0) return '新对话'
+  return collapsed.length > max ? collapsed.slice(0, max) + '…' : collapsed
+}
+
 export function ChatNavSidebar({ collapsed }: ChatNavSidebarProps): React.ReactElement {
   const pathname = usePathname() ?? '/'
   const router = useRouter()
@@ -306,10 +320,10 @@ export function ChatNavSidebar({ collapsed }: ChatNavSidebarProps): React.ReactE
                         href={`/chats/${chat.id}`}
                         className="chat-nav-chat-item"
                         aria-selected={activeChatId === chat.id}
-                        title={chat.title}
+                        title={sanitizeChatTitle(chat.title, 200)}
                       >
                         <span className={`chat-nav-chat-status ${chat.status}`} />
-                        <span className="chat-nav-chat-item-title">{chat.title}</span>
+                        <span className="chat-nav-chat-item-title">{sanitizeChatTitle(chat.title)}</span>
                         <span className="chat-nav-chat-item-meta">
                           <span className="chat-nav-chat-item-time">{formatRelativeTime(chat.updatedAt)}</span>
                         </span>
@@ -325,17 +339,21 @@ export function ChatNavSidebar({ collapsed }: ChatNavSidebarProps): React.ReactE
 
       {/* User footer */}
       <div className="chat-nav-footer">
-        <Link href="/" className="chat-nav-user">
+        <Link href={user ? '/' : '/login'} className="chat-nav-user">
           <div
             className="chat-nav-user-avatar"
             data-authed={user ? 'true' : 'false'}
-            title={user ? undefined : '未登录'}
+            title={user ? undefined : '未登录 — 点击登录'}
           >
-            {user ? user.name.slice(0, 1).toUpperCase() : 'R'}
+            {user ? (
+              user.name.slice(0, 1).toUpperCase()
+            ) : (
+              <Icon name="user" style={{ width: 14, height: 14 }} />
+            )}
           </div>
           <div className="chat-nav-user-info">
             <span className="chat-nav-user-name">{user?.name ?? '未登录'}</span>
-            {user ? <span className="chat-nav-user-plan">专业版</span> : null}
+            <span className="chat-nav-user-plan">{user ? '专业版' : '点击登录'}</span>
           </div>
         </Link>
         <Link

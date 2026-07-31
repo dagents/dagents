@@ -126,8 +126,13 @@ const listQuerySchema = z.object({
 })
 
 const createBodySchema = z.object({
-  path: z.string().min(1),
-  name: z.string().min(1).optional(),
+  path: z
+    .string()
+    .min(1)
+    .max(1024)
+    .refine((p) => !p.includes('..'), 'path must not contain ".." (path traversal blocked)')
+    .refine((p) => !p.includes('\x00'), 'path must not contain null bytes'),
+  name: z.string().min(1).max(256).optional(),
   settings: z.record(z.string(), z.unknown()).optional(),
 })
 

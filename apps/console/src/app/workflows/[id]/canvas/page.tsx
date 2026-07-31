@@ -25,7 +25,12 @@ export default async function CanvasWorkflowPage({
     if (res.ok) {
       const data = await res.json()
       if (data.success && data.data) {
-        flowData = data.data.flowData || flowData
+        // API 返回结构是 { data: { flow: { flowData: {...} } } }
+        // 列表页 flows-view.tsx 的 mapFlowDetail 也按此结构解析
+        const flow = (data.data as { flow?: { flowData?: typeof flowData } }).flow
+        if (flow?.flowData) {
+          flowData = flow.flowData
+        }
       }
     }
   } catch (error) {

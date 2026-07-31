@@ -1,48 +1,48 @@
 'use client'
 
 /**
- * Daemons 页 — multica-inspired clean layout.
+ * Daemons 页 — daemon worker 列表（multica-inspired）。
  *
- * Design principles ported from ~/Projects/multica:
- * - 克制即高级: clean two-column layout (queue + detail), no heavy stats panel
- * - 层次靠灰度: status dots + muted text carry the visual hierarchy
- * - 字号纪律: text-sm primary, text-xs for metadata
- * - 间距 > 分割线: spacing separates sections, not borders
+ * 两层视图：
+ * 1. daemon 列表（默认）— 展示已注册的 daemon workers
+ * 2. 任务队列（点击 daemon 进入）— 该 daemon 的任务列表 + 详情
  *
- * Polling posture: initial load shows skeleton; subsequent polls are silent
- * (no loading flicker). Polling pauses when the tab is hidden and backs off
- * exponentially on consecutive errors (capped at 60s) so a dead dispatch
- * server cannot hammer the gateway.
+ * Polling: 5s 基础间隔，页面隐藏时暂停，连续失败指数退避（上限 60s）。
  */
 
 import { useEffect, useRef, useState } from 'react'
 import { Icon } from '@/components/icon'
-import type { DispatchTask } from '@/lib/daemons'
-import { fetchDispatchTasks, fetchFleetStats, type FleetStats } from '@/lib/daemons'
+import {
+  fetchDaemons,
+  fetchDispatchTasks,
+  fetchFleetStats,
+  type DaemonInfo,
+  type DispatchTask,
+  type DispatchTaskStatus,
+  type FleetStats,
+} from '@/lib/daemons'
 import '@/styles/daemons.css'
 
-type Filter = 'all' | 'queued' | 'running' | 'done' | 'failed'
+// ─── daemon list ─────────────────────────────────────────────────────
 
-const FILTERS: ReadonlyArray<{ key: Filter; label: string }> = [
+type DaemonFilter = 'all' | 'online' | 'offline'
+
+const DAEMON_FILTERS: ReadonlyArray<{ key: DaemonFilter; label: string }> = [
   { key: 'all', label: '全部' },
-  { key: 'queued', label: '排队' },
-  { key: 'running', label: '运行中' },
-  { key: 'done', label: '已完成' },
-  { key: 'failed', label: '失败' },
+  { key: 'online', label: '在线' },
+  { key: 'offline', label: '离线' },
 ]
 
-const STATUS_DOT: Record<string, string> = {
-  running: 'dot-running',
-  queued: 'dot-queued',
-  done: 'dot-done',
-  failed: 'dot-failed',
+const DAEMON_STATUS_DOT: Record<string, string> = {
+  online: 'dot-running',
+  offline: 'dot-done',
+  draining: 'dot-queued',
 }
 
-const STATUS_LABEL: Record<string, string> = {
-  running: '运行中',
-  queued: '排队',
-  done: '已完成',
-  failed: '失败',
+const DAEMON_STATUS_LABEL: Record<string, string> = {
+  online: '在线',
+  offline: '离线',
+  draining: '排空中',
 }
 
 /** Base poll interval (ms) when healthy and tab visible. */
@@ -50,22 +50,27 @@ const POLL_BASE_MS = 5000
 /** Cap for exponential backoff when polls keep failing. */
 const POLL_MAX_BACKOFF_MS = 60_000
 
+function timeAgo(dateStr: string | null): string {
+  if (!dateStr) return '—'
+  const diff = Date.now() - new Date(dateStr).getTime()
+  if (diff < 60_000) return '刚刚'
+  if (diff < 3_600_000) return `${Math.floor(diff / 60_000)} 分钟前`
+  if (diff < 86_400_000) return `${Math.floor(diff / 3_600_000)} 小时前`
+  return new Date(dateStr).toLocaleDateString()
+}
+
 function formatTime(dateStr: string): string {
   return new Date(dateStr).toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' })
 }
 
 export function DaemonsView(): React.ReactElement {
-  const [tasks, setTasks] = useState<DispatchTask[]>([])
+  const [daemons, setDaemons] = useState<DaemonInfo[]>([])
   const [stats, setStats] = useState<FleetStats | null>(null)
-  const [selectedTaskId, setSelectedTaskId] = useState<string | null>(null)
-  const [filter, setFilter] = useState<Filter>('all')
+  const [filter, setFilter] = useState<DaemonFilter>('all')
   const [loading, setLoading] = useState(true)
   const [error, setError] = useState<string | null>(null)
+  const [selectedDaemon, setSelectedDaemon] = useState<DaemonInfo | null>(null)
 
-  // Refs kept out of state to avoid re-renders on every tick:
-  // - backoff: current delay (doubles on error, resets to base on success)
-  // - isVisible: whether the tab is focused (pauses polling when hidden)
-  // - isInitial: drives the loading skeleton (only first successful paint)
   const backoffRef = useRef<number>(POLL_BASE_MS)
   const isVisibleRef = useRef<boolean>(true)
   const isInitialRef = useRef<boolean>(true)
@@ -73,34 +78,30 @@ export function DaemonsView(): React.ReactElement {
   useEffect(() => {
     let cancelled = false
     let timer: ReturnType<typeof setTimeout> | null = null
-    // Guard against re-entrant ticks. Without this, a visibility-triggered
-    // `tick()` that fires while a previous load is still in flight would
-    // start a second timer chain, doubling the poll rate.
     let ticking = false
 
     const load = async (): Promise<void> => {
-      // Skip the network call entirely when the tab is hidden — the user
-      // cannot see the data anyway, and pausing here is what stops the
-      // "infinite polling" symptom at its root.
       if (!isVisibleRef.current) return
       try {
-        const status = filter === 'all' ? undefined : filter
-        const [t, s] = await Promise.all([
-          fetchDispatchTasks(status),
+        const [d, s] = await Promise.all([
+          fetchDaemons(),
           fetchFleetStats().catch(() => null),
         ])
         if (cancelled) return
-        setTasks(t)
+        setDaemons(d)
         if (s) setStats(s)
-        // Reset backoff on success; only the very first paint toggles loading off.
+        // Update selected daemon's info if it's still in the list
+        if (selectedDaemon) {
+          const updated = d.find((x) => x.id === selectedDaemon.id)
+          if (updated && updated.status !== selectedDaemon.status) {
+            setSelectedDaemon(updated)
+          }
+        }
         backoffRef.current = POLL_BASE_MS
         if (isInitialRef.current) {
           isInitialRef.current = false
           setLoading(false)
         }
-        // Clear any prior error on a successful poll. Functional update avoids
-        // capturing `error` in the closure (which would never see new values
-        // because `error` is deliberately excluded from the deps array).
         setError((prev) => (prev === null ? prev : null))
       } catch (err) {
         if (cancelled) return
@@ -109,47 +110,32 @@ export function DaemonsView(): React.ReactElement {
           isInitialRef.current = false
           setLoading(false)
         }
-        // Exponential backoff on failure so a dead dispatch server cannot
-        // hammer the gateway (max 60s between attempts).
         backoffRef.current = Math.min(backoffRef.current * 2, POLL_MAX_BACKOFF_MS)
       }
     }
 
-    // Single timer-chain loop: load → wait(backoff) → load → ...
-    // Only one timer is ever pending at a time (cleared on unmount and on
-    // visibility restart), so React 18 StrictMode double-mount cannot create
-    // overlapping loops — the cleanup's `cancelled = true` + `clearTimeout`
-    // kills the first loop before the second starts.
     const tick = (): void => {
       if (cancelled || ticking) return
       ticking = true
       void load().finally(() => {
         ticking = false
         if (cancelled) return
-        // Don't schedule the next tick while the tab is hidden; the visibility
-        // handler will restart the loop when the user returns.
         if (!isVisibleRef.current) return
         timer = setTimeout(tick, backoffRef.current)
       })
     }
 
-    // Start the initial load immediately.
     tick()
 
     const handleVisibility = (): void => {
       const wasHidden = !isVisibleRef.current
       isVisibleRef.current = document.visibilityState === 'visible'
-      // When the tab becomes visible again, restart the polling loop
-      // immediately so the user sees fresh data without waiting.
       if (wasHidden && isVisibleRef.current && !cancelled) {
         backoffRef.current = POLL_BASE_MS
         if (timer) {
           clearTimeout(timer)
           timer = null
         }
-        // If a load is in flight (ticking=true), its `.finally()` will see
-        // isVisibleRef=true and schedule the next tick itself — no need to
-        // call tick() here. Only start a new tick if the loop was idle.
         if (!ticking) tick()
       }
     }
@@ -160,61 +146,273 @@ export function DaemonsView(): React.ReactElement {
       if (timer) clearTimeout(timer)
       document.removeEventListener('visibilitychange', handleVisibility)
     }
-    // `error` is intentionally excluded — referencing it inside `load` would
-    // re-create the closure (and reset the polling loop) on every transient
-    // failure, defeating the backoff.
     // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [selectedDaemon])
+
+  // ─── task detail view ──────────────────────────────────────────────
+  if (selectedDaemon) {
+    return (
+      <DaemonTasksView
+        daemon={selectedDaemon}
+        onBack={() => setSelectedDaemon(null)}
+      />
+    )
+  }
+
+  // ─── daemon list view ──────────────────────────────────────────────
+  const filtered = daemons.filter((d) => {
+    if (filter === 'all') return true
+    if (filter === 'online') return d.status === 'online'
+    return d.status !== 'online'
+  })
+
+  const onlineCount = daemons.filter((d) => d.status === 'online').length
+
+  return (
+    <div className="daemons-view">
+      <div className="scope-tabs-row mb-6">
+        <div className="scope-tabs" role="tablist" aria-label="daemon 状态">
+          {DAEMON_FILTERS.map((f) => (
+            <button
+              key={f.key}
+              type="button"
+              role="tab"
+              aria-selected={filter === f.key}
+              onClick={() => setFilter(f.key)}
+            >
+              {f.label}
+              <span className="cnt">
+                {f.key === 'all' ? daemons.length : f.key === 'online' ? onlineCount : daemons.length - onlineCount}
+              </span>
+            </button>
+          ))}
+        </div>
+        <div className="grow" />
+        <span className="result-count">
+          {filtered.length} / {daemons.length} 个 daemon
+        </span>
+        {stats ? (
+          <span className="stat-item muted">
+            <span className="status-dot dot-running" />
+            <span className="stat-val mono">{stats.active_tasks}</span>
+            活跃任务
+          </span>
+        ) : null}
+      </div>
+
+      <div className="daemons-list">
+        {loading && daemons.length === 0 ? (
+          <div className="daemons-empty">
+            <Icon name="loader" style={{ width: 28, height: 28, color: 'var(--meta)' }} />
+            <span>加载中…</span>
+          </div>
+        ) : daemons.length === 0 ? (
+          <div className="daemons-empty">
+            <Icon name="info" style={{ width: 28, height: 28, color: 'var(--meta)' }} />
+            <span className="daemons-empty-title">没有已注册的 daemon</span>
+            <span className="daemons-empty-desc">
+              Daemon 是执行 Agent 任务的 worker 进程。启动一个 daemon 后它会自动注册到这里。
+            </span>
+            <div className="daemons-empty-hint">
+              <span className="daemons-empty-hint-label">启动 daemon：</span>
+              <code className="daemons-cmd">pnpm dev:daemon</code>
+              <button
+                type="button"
+                className="btn btn-ghost btn-sm"
+                onClick={() => {
+                  navigator.clipboard?.writeText('pnpm dev:daemon').catch(() => {})
+                }}
+              >
+                <Icon name="copy" style={{ width: 14, height: 14 }} />
+                复制
+              </button>
+            </div>
+          </div>
+        ) : filtered.length === 0 ? (
+          <div className="daemons-empty">
+            <Icon name="check" style={{ width: 28, height: 28, color: 'var(--meta)' }} />
+            <span className="daemons-empty-title">当前过滤器下无 daemon</span>
+            <button
+              type="button"
+              className="btn btn-ghost btn-sm"
+              onClick={() => setFilter('all')}
+            >
+              查看全部
+            </button>
+          </div>
+        ) : (
+          filtered.map((d, i) => (
+            <button
+              key={d.id}
+              type="button"
+              className="daemon-card enter-rise"
+              style={{ '--enter-i': i } as React.CSSProperties}
+              onClick={() => setSelectedDaemon(d)}
+            >
+              <div className="daemon-card-icon">
+                <span className={`status-dot ${DAEMON_STATUS_DOT[d.status] ?? 'dot-done'}`} />
+                <Icon name="terminal" style={{ width: 20, height: 20, color: 'var(--fg-2)' }} />
+              </div>
+
+              <div className="daemon-card-body">
+                <div className="daemon-card-head">
+                  <span className="daemon-card-label">{d.label}</span>
+                  <span className={`daemon-badge daemon-badge-${d.status}`}>
+                    {DAEMON_STATUS_LABEL[d.status] ?? d.status}
+                  </span>
+                </div>
+                <div className="daemon-card-meta">
+                  {d.capabilities.map((c, idx) => (
+                    <span key={idx} className="daemon-cap">
+                      {c.agentType}
+                    </span>
+                  ))}
+                  <span className="daemon-card-id mono">{d.id.slice(0, 8)}</span>
+                  {d.endpoint ? (
+                    <span className="daemon-card-endpoint">{d.endpoint}</span>
+                  ) : null}
+                </div>
+              </div>
+
+              <div className="daemon-card-right">
+                <span className="daemon-card-heartbeat">
+                  {timeAgo(d.last_heartbeat_at)}
+                </span>
+                <Icon name="chevronRight" style={{ width: 16, height: 16, color: 'var(--meta)' }} />
+              </div>
+            </button>
+          ))
+        )}
+      </div>
+
+      {error ? <div className="daemons-error">{error}</div> : null}
+    </div>
+  )
+}
+
+// ─── task detail view (shown when a daemon is selected) ──────────────
+
+const TASK_FILTERS: ReadonlyArray<{ key: DispatchTaskStatus | 'all'; label: string }> = [
+  { key: 'all', label: '全部' },
+  { key: 'queued', label: '排队' },
+  { key: 'running', label: '运行中' },
+  { key: 'done', label: '已完成' },
+  { key: 'failed', label: '失败' },
+]
+
+const TASK_STATUS_DOT: Record<string, string> = {
+  running: 'dot-running',
+  queued: 'dot-queued',
+  done: 'dot-done',
+  failed: 'dot-failed',
+}
+
+const TASK_STATUS_LABEL: Record<string, string> = {
+  running: '运行中',
+  queued: '排队',
+  done: '已完成',
+  failed: '失败',
+}
+
+function DaemonTasksView({
+  daemon,
+  onBack,
+}: {
+  daemon: DaemonInfo
+  onBack: () => void
+}): React.ReactElement {
+  const [tasks, setTasks] = useState<DispatchTask[]>([])
+  const [filter, setFilter] = useState<DispatchTaskStatus | 'all'>('all')
+  const [loading, setLoading] = useState(true)
+  const [selectedTaskId, setSelectedTaskId] = useState<string | null>(null)
+
+  useEffect(() => {
+    let cancelled = false
+    let timer: ReturnType<typeof setTimeout> | null = null
+    let ticking = false
+
+    const load = async (): Promise<void> => {
+      try {
+        const statusFilter = filter === 'all' ? undefined : filter
+        const t = await fetchDispatchTasks(statusFilter)
+        if (cancelled) return
+        setTasks(t)
+        setLoading(false)
+      } catch {
+        if (cancelled) return
+        setLoading(false)
+      }
+    }
+
+    const tick = (): void => {
+      if (cancelled || ticking) return
+      ticking = true
+      void load().finally(() => {
+        ticking = false
+        if (cancelled) return
+        timer = setTimeout(tick, POLL_BASE_MS)
+      })
+    }
+
+    tick()
+
+    return () => {
+      cancelled = true
+      if (timer) clearTimeout(timer)
+    }
   }, [filter])
 
   const selectedTask = tasks.find((t) => t.id === selectedTaskId) ?? null
-
   const running = tasks.filter((t) => t.status === 'running').length
   const queued = tasks.filter((t) => t.status === 'queued').length
   const failed = tasks.filter((t) => t.status === 'failed').length
 
   return (
     <div className="daemons-view">
-      {/* header bar: filter pills + stats inline */}
-      <div className="daemons-header">
-        <div className="daemons-filters">
-          {FILTERS.map((f) => (
+      {/* back + daemon header */}
+      <div className="daemon-detail-header">
+        <button type="button" className="btn btn-ghost btn-sm daemon-back-btn" onClick={onBack}>
+          <Icon name="arrow" style={{ width: 14, height: 14, transform: 'rotate(180deg)' }} />
+          返回
+        </button>
+        <span className={`status-dot ${DAEMON_STATUS_DOT[daemon.status] ?? 'dot-done'}`} />
+        <span className="daemon-detail-title">{daemon.label}</span>
+        <span className={`daemon-badge daemon-badge-${daemon.status}`}>
+          {DAEMON_STATUS_LABEL[daemon.status] ?? daemon.status}
+        </span>
+        <span className="daemon-card-id mono">{daemon.id.slice(0, 8)}</span>
+      </div>
+
+      {/* task filter tabs */}
+      <div className="scope-tabs-row mb-6">
+        <div className="scope-tabs" role="tablist" aria-label="任务状态">
+          {TASK_FILTERS.map((f) => (
             <button
               key={f.key}
               type="button"
-              className="filter-chip"
-              aria-pressed={filter === f.key}
+              role="tab"
+              aria-selected={filter === f.key}
               onClick={() => setFilter(f.key)}
             >
               {f.label}
+              <span className="cnt">
+                {f.key === 'all' ? tasks.length
+                  : f.key === 'running' ? running
+                  : f.key === 'queued' ? queued
+                  : f.key === 'failed' ? failed
+                  : 0}
+              </span>
             </button>
           ))}
         </div>
-        <div className="daemons-stats-inline">
-          <span className="stat-item">
-            <span className="status-dot dot-running" />
-            <span className="stat-val mono">{stats?.active_tasks ?? running}</span>
-              运行
-          </span>
-          <span className="stat-item">
-            <span className="status-dot dot-queued" />
-            <span className="stat-val mono">{stats?.queue_depth ?? queued}</span>
-              排队
-          </span>
-          <span className="stat-item">
-            <span className="status-dot dot-failed" />
-            <span className="stat-val mono">{failed}</span>
-              失败
-          </span>
-          <span className="stat-item muted">
-            <span className="stat-val mono">{stats?.online_daemons ?? '—'}</span>
-              daemons
-          </span>
-        </div>
+        <div className="grow" />
+        <span className="result-count">
+          {tasks.length} 个任务
+        </span>
       </div>
 
       {/* two-column: queue + detail */}
       <div className="daemons-grid">
-        {/* queue */}
         <div className="daemons-queue">
           <div className="daemons-queue-head">
             <span>任务队列</span>
@@ -251,15 +449,16 @@ export function DaemonsView(): React.ReactElement {
                 ) : null}
               </div>
             ) : (
-              tasks.map((t) => (
+              tasks.map((t, i) => (
                 <button
                   key={t.id}
                   type="button"
-                  className={`daemons-task-card${selectedTaskId === t.id ? ' selected' : ''}`}
+                  className={`daemons-task-card enter-rise${selectedTaskId === t.id ? ' selected' : ''}`}
+                  style={{ '--enter-i': i } as React.CSSProperties}
                   onClick={() => setSelectedTaskId(t.id)}
                 >
                   <div className="task-card-top">
-                    <span className={`status-dot ${STATUS_DOT[t.status] ?? ''}`} />
+                    <span className={`status-dot ${TASK_STATUS_DOT[t.status] ?? ''}`} />
                     <span className="task-type">{t.type}</span>
                     <span className="task-priority mono">P{t.priority}</span>
                   </div>
@@ -277,21 +476,30 @@ export function DaemonsView(): React.ReactElement {
         {/* detail panel */}
         <div className="daemons-detail">
           {!selectedTask ? (
-            <DaemonsDetailSkeleton />
+            <div className="daemons-detail-empty">
+              <Icon name="info" style={{ width: 28, height: 28, color: 'var(--meta)' }} />
+              <span className="daemons-empty-title">
+                {tasks.length === 0 ? '暂无任务' : '选择左侧任务查看详情'}
+              </span>
+              <span className="daemons-empty-desc">
+                {tasks.length === 0
+                  ? '任务由 Agent / Flow 运行时自动派发到此队列。'
+                  : '点击队列中的任务卡片查看时间线、任务信息和日志。'}
+              </span>
+            </div>
           ) : (
             <div className="daemons-detail-body">
               <div className="detail-head">
                 <div className="detail-head-left">
-                  <span className={`status-dot ${STATUS_DOT[selectedTask.status] ?? ''}`} />
+                  <span className={`status-dot ${TASK_STATUS_DOT[selectedTask.status] ?? ''}`} />
                   <span className="detail-id mono">{selectedTask.id.slice(0, 8)}</span>
                   <span className={`detail-status ${selectedTask.status}`}>
-                    {STATUS_LABEL[selectedTask.status] ?? selectedTask.status}
+                    {TASK_STATUS_LABEL[selectedTask.status] ?? selectedTask.status}
                   </span>
                 </div>
                 <span className="detail-type">{selectedTask.type}</span>
               </div>
 
-              {/* timeline */}
               <div className="detail-section">
                 <div className="detail-section-head">时间线</div>
                 <div className="detail-timeline">
@@ -314,7 +522,6 @@ export function DaemonsView(): React.ReactElement {
                 </div>
               </div>
 
-              {/* meta */}
               <div className="detail-section">
                 <div className="detail-section-head">任务信息</div>
                 <div className="detail-meta">
@@ -333,7 +540,6 @@ export function DaemonsView(): React.ReactElement {
                 </div>
               </div>
 
-              {/* logs */}
               <div className="detail-section">
                 <div className="detail-section-head">日志</div>
                 <div className="detail-logs">
@@ -348,74 +554,9 @@ export function DaemonsView(): React.ReactElement {
           )}
         </div>
       </div>
-
-      {error ? <div className="daemons-error">{error}</div> : null}
     </div>
   )
 }
 
-// ─── Empty-state skeleton ─────────────────────────────────────────────
-//
-// When no task is selected, the detail panel shows a structured skeleton
-// that mirrors the 4-panel information architecture (head / timeline /
-// meta / logs). This makes the page's shape visible before selection —
-// the user can see where the timeline, task info, and logs will appear —
-// instead of a single line of placeholder text. The skeleton is purely
-// decorative (aria-hidden) since sighted users see the visual hint and
-// screen-reader users hear the empty-state label below.
-
-function DaemonsDetailSkeleton(): React.ReactElement {
-  return (
-    <div className="daemons-detail-skeleton" aria-hidden="true">
-      <div className="daemons-detail-empty-label" role="status" aria-live="polite">
-        <Icon name="info" style={{ width: 20, height: 20, color: 'var(--meta)' }} />
-        <span>选择左侧任务查看详情</span>
-      </div>
-
-      {/* head skeleton */}
-      <div className="skel-head">
-        <div className="skel-line skel-w-12" />
-        <div className="skel-line skel-w-16" />
-        <div className="skel-line skel-w-8" />
-      </div>
-
-      {/* timeline skeleton */}
-      <div className="detail-section">
-        <div className="detail-section-head">时间线</div>
-        <div className="detail-timeline">
-          {[0, 1, 2].map((i) => (
-            <div className="timeline-step queued" key={i}>
-              <span className="timeline-dot" />
-              <span className="skel-line skel-w-24" />
-            </div>
-          ))}
-        </div>
-      </div>
-
-      {/* meta skeleton */}
-      <div className="detail-section">
-        <div className="detail-section-head">任务信息</div>
-        <div className="detail-meta">
-          {[0, 1, 2].map((i) => (
-            <div className="meta-row" key={i}>
-              <span className="skel-line skel-w-10" />
-              <span className="skel-line skel-w-20" />
-            </div>
-          ))}
-        </div>
-      </div>
-
-      {/* logs skeleton */}
-      <div className="detail-section">
-        <div className="detail-section-head">日志</div>
-        <div className="detail-logs">
-          <div className="detail-logs-skel">
-            <div className="skel-line skel-w-full" />
-            <div className="skel-line skel-w-full" />
-            <div className="skel-line skel-w-3q" />
-          </div>
-        </div>
-      </div>
-    </div>
-  )
-}
+// ─── empty-state skeleton ─────────────────────────────────────────────
+// (removed — replaced by inline empty state in detail panel)

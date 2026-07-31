@@ -43,7 +43,8 @@ function AgentflowCanvas({
     showDefaultPalette = true,
     canvasActions,
     renderHeader,
-    renderNodePalette
+    renderNodePalette,
+    customNodeTypes
 }: {
     initialFlow?: FlowData
     readOnly?: boolean
@@ -56,6 +57,7 @@ function AgentflowCanvas({
     canvasActions?: AgentflowProps['canvasActions']
     renderHeader?: AgentflowProps['renderHeader']
     renderNodePalette?: AgentflowProps['renderNodePalette']
+    customNodeTypes?: AgentflowProps['customNodeTypes']
 }) {
     const {
         state,
@@ -85,6 +87,12 @@ function AgentflowCanvas({
             backgroundDots: tokens.colors.reactflow.background.dots[mode]
         }
     }, [isDarkMode])
+
+    // Merge built-in nodeTypes with consumer-provided overrides
+    const mergedNodeTypes = useMemo(
+        () => ({ ...nodeTypes, ...(customNodeTypes ?? {}) }),
+        [customNodeTypes]
+    )
 
     const safeInitialNodes = Array.isArray(initialFlow?.nodes) ? initialFlow.nodes : []
     const safeInitialEdges = Array.isArray(initialFlow?.edges) ? initialFlow.edges : []
@@ -337,7 +345,7 @@ function AgentflowCanvas({
                         onConnect={handleConnect}
                         onNodeDragStop={handleNodeDragStop}
                         onInit={setReactFlowInstance}
-                        nodeTypes={nodeTypes}
+                        nodeTypes={mergedNodeTypes}
                         edgeTypes={edgeTypes}
                         connectionLineComponent={ConnectionLine}
                         fitView
@@ -416,7 +424,8 @@ export const Agentflow = forwardRef<AgentFlowInstance, AgentflowProps>(function 
         renderNodePalette,
         showDefaultHeader = true,
         showDefaultPalette = true,
-        canvasActions
+        canvasActions,
+        customNodeTypes
     } = props
 
     return (
@@ -443,6 +452,7 @@ export const Agentflow = forwardRef<AgentFlowInstance, AgentflowProps>(function 
                     renderHeader={renderHeader}
                     renderNodePalette={renderNodePalette}
                     canvasActions={canvasActions}
+                    customNodeTypes={customNodeTypes}
                 />
             </ReactFlowProvider>
         </AgentflowProvider>
@@ -466,6 +476,7 @@ const AgentflowCanvasWithRef = forwardRef<
         renderHeader?: AgentflowProps['renderHeader']
         renderNodePalette?: AgentflowProps['renderNodePalette']
         canvasActions?: AgentflowProps['canvasActions']
+        customNodeTypes?: AgentflowProps['customNodeTypes']
     }
 >(function AgentflowCanvasWithRef(props, ref) {
     const agentflow = useAgentflow()

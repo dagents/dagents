@@ -24,6 +24,17 @@
 
 export type DispatchTaskStatus = 'queued' | 'running' | 'done' | 'failed'
 
+/** A registered daemon worker, from `GET /api/daemons` → dispatch `GET /daemons`. */
+export interface DaemonInfo {
+  id: string
+  label: string
+  status: string // 'online' | 'offline' | 'draining'
+  endpoint: string | null
+  capabilities: Array<{ agentType: string; tags?: string[] }>
+  last_heartbeat_at: string | null
+  created_at?: string | null
+}
+
 export interface DispatchTask {
   id: string
   /** Agent kind (prompt / claude / codex / remote) — proxy for task "type". */
@@ -75,6 +86,18 @@ interface FleetStatsPayload {
   throughput: {
     tasks: { completed: number; failed: number; total: number }
   }
+}
+
+/** Response shape from `GET /api/daemons` (proxied to dispatch `GET /daemons`). */
+interface DaemonsListPayload {
+  daemons: Array<{
+    id: string
+    label: string
+    status: string
+    endpoint: string | null
+    capabilities: unknown
+    last_heartbeat_at: Date | string | null
+  }>
 }
 
 async function unwrap<T>(res: Response, label: string): Promise<T> {
@@ -160,4 +183,24 @@ export async function fetchFleetStats(): Promise<FleetStats> {
     queue_depth: (taskByStatus.queued ?? 0) + (taskByStatus.claimed ?? 0),
     throughput_per_min: throughputPerMin,
   }
+}
+
+/**
+ * Fetch the daemon list from `GET /api/daemons` (proxied to dispatch
+ * `GET /daemons`). Returns all registered daemons with their status,
+ * capabilities, and last heartbeat time.
+ */
+export async function fetchDaemons(): Promise<DaemonInfo[]> {
+  const data = await unwrap<DaemonsListPayload>(
+    await fetch('/api/daemons', { cache: 'no-store' }),
+    'daemons list',
+  )
+  return data.daemons.map((d) => ({
+    id: d.id,
+    label: d.label,
+    status: d.status,
+    endpoint: d.endpoint,
+    capabilities: (Array.isArray(d.capabilities) ? d.capabilities : []) as DaemonInfo['capabilities'],
+    last_heartbeat_at: toDateStr(d.last_heartbeat_at),
+  }))
 }

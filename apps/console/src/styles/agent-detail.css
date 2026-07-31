@@ -25,7 +25,8 @@
   display: grid;
   grid-template-columns: 320px minmax(0, 1fr);
   gap: var(--space-4);
-  min-height: calc(100vh - var(--topbar-h) - var(--space-8) - var(--space-8) - 90px);
+  /* stable height so tab switching doesn't reflow the grid */
+  height: calc(100vh - var(--topbar-h) - var(--space-8) - var(--space-8) - 90px);
 }
 
 /* ── inspector (left) ── */
@@ -37,9 +38,9 @@
   display: flex;
   flex-direction: column;
   gap: var(--space-4);
-  height: fit-content;
-  position: sticky;
-  top: var(--space-4);
+  overflow-y: auto;
+  scrollbar-gutter: stable;
+  min-height: 0;
 }
 .ins-head { display: flex; gap: var(--space-3); align-items: flex-start; }
 .ins-avatar {
@@ -104,7 +105,8 @@
   display: flex;
   flex-direction: column;
   overflow: hidden;
-  min-height: 560px;
+  min-height: 0; /* allow flex child to scroll within fixed-height grid */
+  min-width: 0;  /* allow grid column to shrink below content min-content */
 }
 .tabs {
   display: flex;
@@ -132,7 +134,7 @@
 .tab:hover { color: var(--fg); }
 .tab:focus-visible { outline: none; box-shadow: var(--focus-ring); border-radius: var(--radius-sm); }
 .tab[aria-selected="true"] { color: var(--fg); border-bottom-color: var(--fg); }
-.tab-body { flex: 1; overflow-y: auto; padding: var(--space-6); }
+.tab-body { flex: 1; overflow-y: scroll; overflow-x: hidden; scrollbar-gutter: stable; padding: var(--space-6); }
 
 /* activity tab */
 .act-kpi-row { display: grid; grid-template-columns: repeat(3, 1fr); gap: var(--space-3); margin-bottom: var(--space-5); }
@@ -180,8 +182,9 @@
 .not-found .d { font-size: var(--text-sm); color: var(--muted); margin-bottom: var(--space-4); }
 
 @media (max-width: 1024px) {
-  .detail-layout { grid-template-columns: 1fr; }
-  .inspector { position: static; }
+  .detail-layout { grid-template-columns: 1fr; height: auto; }
+  .inspector { overflow-y: visible; }
+  .overview { min-height: 560px; }
 }
 @media (max-width: 560px) {
   .act-kpi-row { grid-template-columns: 1fr; }

@@ -12,8 +12,7 @@
   display: flex;
   align-items: center;
   justify-content: space-between;
-  padding: var(--space-3) var(--space-4);
-  min-height: 56px;
+  padding: var(--space-4) var(--space-4) var(--space-2);
 }
 
 .chat-nav-brand-mark {
@@ -26,6 +25,12 @@
   align-items: center;
   justify-content: center;
   flex-shrink: 0;
+  box-shadow: 0 1px 1px rgba(16, 163, 127, 0.18), 0 6px 14px rgba(16, 163, 127, 0.18);
+  transition: transform var(--motion-base) var(--ease-spring), box-shadow var(--motion-base) var(--ease-standard);
+}
+.chat-nav-brand:hover .chat-nav-brand-mark {
+  transform: translateY(-1px) rotate(-2deg);
+  box-shadow: 0 2px 2px rgba(16, 163, 127, 0.20), 0 10px 22px rgba(16, 163, 127, 0.22);
 }
 
 .chat-nav-brand-name {
@@ -53,19 +58,27 @@
   align-items: center;
   gap: var(--space-2);
   width: 100%;
-  padding: var(--space-2) var(--space-3);
-  border-radius: var(--radius-sm);
+  padding: 8px 12px;
+  border-radius: var(--radius-md);
   font-size: var(--text-sm);
   font-weight: 500;
-  border: 1px solid var(--border-soft);
-  background: var(--bg);
-  color: var(--fg);
+  border: none;
+  background: var(--accent);
+  color: #fff;
   cursor: pointer;
-  transition: background var(--motion-fast) var(--ease-standard);
+  transition: background var(--motion-fast) var(--ease-standard),
+              transform var(--motion-fast) var(--ease-standard),
+              box-shadow var(--motion-fast) var(--ease-standard);
+  box-shadow: 0 1px 1px rgba(16, 163, 127, 0.16), 0 4px 10px rgba(16, 163, 127, 0.14);
 }
 
 .chat-nav-action-btn:hover {
-  background: var(--sidebar-hover, var(--surface));
+  background: var(--accent-hover);
+  box-shadow: 0 2px 2px rgba(16, 163, 127, 0.20), 0 8px 18px rgba(16, 163, 127, 0.22);
+  transform: translateY(-1px);
+}
+.chat-nav-action-btn:active {
+  transform: scale(0.98);
 }
 
 .chat-nav-action-btn.ghost {
@@ -92,18 +105,23 @@
   font-size: var(--text-sm);
   color: var(--muted);
   cursor: pointer;
-  transition: background var(--motion-fast) var(--ease-standard);
+  transition: background var(--motion-fast) var(--ease-standard),
+              color var(--motion-fast) var(--ease-standard),
+              transform var(--motion-fast) var(--ease-standard);
   text-decoration: none;
 }
 
 .chat-nav-link:hover {
   background: var(--surface);
+  color: var(--fg);
+  transform: translateX(1px);
 }
 
 .chat-nav-link[aria-current="page"] {
   background: var(--bg);
   color: var(--fg);
   font-weight: 500;
+  box-shadow: var(--elev-ring);
 }
 
 .chat-nav-link[aria-current="page"] .nav-icon {
@@ -221,7 +239,8 @@
   font-size: var(--text-sm);
   color: var(--muted);
   cursor: pointer;
-  transition: background var(--motion-fast);
+  transition: background var(--motion-fast) var(--ease-standard),
+              color var(--motion-fast) var(--ease-standard);
   text-decoration: none;
   border: none;
   background: none;
@@ -231,11 +250,13 @@
 
 .chat-nav-chat-item:hover {
   background: var(--surface);
+  color: var(--fg);
 }
 
 .chat-nav-chat-item[aria-selected="true"] {
   background: var(--bg);
   color: var(--fg);
+  box-shadow: inset 0 0 0 1px var(--border-soft);
 }
 
 .chat-nav-chat-item-bar {
@@ -267,10 +288,18 @@
   margin-right: var(--space-2);
 }
 
-.chat-nav-chat-status.running { background: var(--success); }
+.chat-nav-chat-status.running { background: var(--success); box-shadow: 0 0 0 0 rgba(16, 163, 127, 0.5); animation: nav-status-pulse 2s var(--ease-in-out-quad) infinite; }
 .chat-nav-chat-status.idle { background: var(--meta); }
 .chat-nav-chat-status.done { background: var(--border); }
 .chat-nav-chat-status.failed { background: var(--danger); }
+@keyframes nav-status-pulse {
+  0%   { box-shadow: 0 0 0 0 rgba(16, 163, 127, 0.5); }
+  70%  { box-shadow: 0 0 0 5px rgba(16, 163, 127, 0); }
+  100% { box-shadow: 0 0 0 0 rgba(16, 163, 127, 0); }
+}
+@media (prefers-reduced-motion: reduce) {
+  .chat-nav-chat-status.running { animation: none; }
+}
 
 /* Add-directory button — pinned to the top of the history panel so it's
    always reachable regardless of how long the directory list grows.

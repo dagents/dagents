@@ -90,9 +90,11 @@ export function ChatContextPanel({ chat, directory }: ChatContextPanelProps): Re
         {editingAgent ? (
           <AgentSelector value={chat?.agentId ?? null} onChange={handleAgentChange} />
         ) : (
-          <div className="chat-context-item">
-            <Icon name="bot" style={{ width: 14, height: 14 }} />
-            <span>{chat?.agentId ?? 'auto'}</span>
+          <div className="chat-context-item" title={chat?.agentId ?? '自动选择'}>
+            <Icon name="bot" style={{ width: 14, height: 14, flexShrink: 0 }} />
+            <span className="chat-context-mono-truncate">
+              {chat?.agentId ? chat.agentId.slice(0, 8) : 'auto'}
+            </span>
           </div>
         )}
       </div>
@@ -118,9 +120,11 @@ export function ChatContextPanel({ chat, directory }: ChatContextPanelProps): Re
             <button className="chat-context-flow-cancel" onClick={() => setEditingFlow(false)}>取消</button>
           </div>
         ) : (
-          <div className="chat-context-item">
-            <Icon name="flows" style={{ width: 14, height: 14 }} />
-            <span>{chat?.flowId ?? '—'}</span>
+          <div className="chat-context-item" title={chat?.flowId ?? '未绑定'}>
+            <Icon name="flows" style={{ width: 14, height: 14, flexShrink: 0 }} />
+            <span className="chat-context-mono-truncate">
+              {chat?.flowId ? chat.flowId.slice(0, 8) : '—'}
+            </span>
           </div>
         )}
       </div>

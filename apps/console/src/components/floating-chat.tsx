@@ -89,6 +89,7 @@ export function FloatingChat(): React.ReactElement {
   const onManagementPage =
     pathname.startsWith('/agents') ||
     pathname.startsWith('/flows') ||
+    pathname.startsWith('/workflows') ||
     pathname.startsWith('/daemons') ||
     pathname.startsWith('/directories') ||
     pathname.startsWith('/settings')
