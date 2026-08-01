@@ -14,17 +14,6 @@ export function gatewayUrl(): string {
 }
 
 /**
- * Server-side scheduler base URL. Defaults to the local scheduler on :8082
- * (apps/scheduler/src/index.ts). The Workspace composer posts a new turn to the
- * scheduler's fan-out endpoint (a single-input batch) so a `runs` row carrying
- * `workspace_id` lands and the thread receives the turn — see
- * `apps/console/src/app/api/workspaces/[id]/runs/route.ts`.
- */
-export function schedulerUrl(): string {
-  return (process.env.SCHEDULER_URL ?? 'http://localhost:8082').replace(/\/+$/, '')
-}
-
-/**
  * Client-visible default workflow id — the agent the chat view loads when no
  * explicit flow is bound.
  */

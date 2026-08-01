@@ -5,8 +5,7 @@ import { defineConfig } from 'vitest/config'
 // `runs` + `pipeline_versions` tables. Run files serially: the suite shares
 // those tables across files (each file wipes them in beforeEach), and parallel
 // files would race on the same rows / version-hash dedup keys. The suite is
-// small and fast, so serializing keeps counts deterministic (same rationale as
-// apps/scheduler/vitest.config.ts).
+// small and fast, so serializing keeps counts deterministic.
 export default defineConfig({
   test: {
     fileParallelism: false,

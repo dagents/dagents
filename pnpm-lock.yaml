@@ -140,43 +140,6 @@ importers:
         specifier: ^2.0.0
         version: 2.1.9(@types/node@20.19.43)(jsdom@25.0.1(canvas@2.11.2(encoding@0.1.13)))(sass@1.101.0)(terser@5.48.0)
 
-  apps/scheduler:
-    dependencies:
-      '@dagents/db':
-        specifier: workspace:*
-        version: link:../../packages/db
-      '@dagents/repro':
-        specifier: workspace:*
-        version: link:../../packages/repro
-      '@dagents/shared':
-        specifier: workspace:*
-        version: link:../../packages/shared
-      '@hono/node-server':
-        specifier: ^1.12.0
-        version: 1.19.14(hono@4.12.28)
-      hono:
-        specifier: ^4.5.0
-        version: 4.12.28
-      zod:
-        specifier: ^4.4.3
-        version: 4.4.3
-    devDependencies:
-      '@types/node':
-        specifier: ^20.0.0
-        version: 20.19.43
-      tsup:
-        specifier: ^8.0.0
-        version: 8.5.1(@microsoft/api-extractor@7.43.0(@types/node@20.19.43))(@swc/core@1.15.43(@swc/helpers@0.5.23))(jiti@1.21.7)(postcss@8.5.16)(tsx@4.23.0)(typescript@5.9.3)(yaml@2.9.0)
-      tsx:
-        specifier: ^4.0.0
-        version: 4.23.0
-      typescript:
-        specifier: ^5.5.0
-        version: 5.9.3
-      vitest:
-        specifier: ^2.0.0
-        version: 2.1.9(@types/node@20.19.43)(jsdom@25.0.1(canvas@2.11.2(encoding@0.1.13)))(sass@1.101.0)(terser@5.48.0)
-
   packages/agent-adapters:
     dependencies:
       '@dagents/contracts':
@@ -358,9 +321,6 @@ importers:
       '@opentelemetry/semantic-conventions':
         specifier: ^1.29.0
         version: 1.42.0
-      ioredis:
-        specifier: ^5.4.0
-        version: 5.11.1
       pino:
         specifier: ^9.0.0
         version: 9.14.0
@@ -7973,7 +7933,8 @@ snapshots:
   '@img/sharp-win32-x64@0.34.5':
     optional: true
 
-  '@ioredis/commands@1.10.0': {}
+  '@ioredis/commands@1.10.0':
+    optional: true
 
   '@isaacs/cliui@8.0.2':
     dependencies:
@@ -10820,7 +10781,8 @@ snapshots:
 
   clsx@2.1.1: {}
 
-  cluster-key-slot@1.1.1: {}
+  cluster-key-slot@1.1.1:
+    optional: true
 
   co@4.6.0: {}
 
@@ -11062,7 +11024,8 @@ snapshots:
   delegates@1.0.0:
     optional: true
 
-  denque@2.1.0: {}
+  denque@2.1.0:
+    optional: true
 
   dequal@2.0.3: {}
 
@@ -11971,6 +11934,7 @@ snapshots:
       standard-as-callback: 2.1.0
     transitivePeerDependencies:
       - supports-color
+    optional: true
 
   is-arguments@1.2.0:
     dependencies:
@@ -13311,11 +13275,13 @@ snapshots:
       indent-string: 4.0.0
       strip-indent: 3.0.0
 
-  redis-errors@1.2.0: {}
+  redis-errors@1.2.0:
+    optional: true
 
   redis-parser@3.0.0:
     dependencies:
       redis-errors: 1.2.0
+    optional: true
 
   reflect-metadata@0.2.2: {}
 
@@ -13638,7 +13604,8 @@ snapshots:
 
   stackback@0.0.2: {}
 
-  standard-as-callback@2.1.0: {}
+  standard-as-callback@2.1.0:
+    optional: true
 
   std-env@3.10.0: {}
 

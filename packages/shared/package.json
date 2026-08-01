@@ -24,7 +24,6 @@
     "@opentelemetry/sdk-node": "^0.220.0",
     "@opentelemetry/sdk-trace": "^2.9.0",
     "@opentelemetry/semantic-conventions": "^1.29.0",
-    "ioredis": "^5.4.0",
     "pino": "^9.0.0"
   },
   "devDependencies": {

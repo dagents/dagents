@@ -1,15 +1,15 @@
 # Mil-Agents local full-stack infrastructure.
 #
-# Bring up the four core services (Postgres + Redis + MinIO + Langfuse):
+# Bring up the three core services (Postgres + MinIO + Langfuse):
 #   cd infra && docker compose up -d && docker compose ps
 #
 # All host ports are bound to 127.0.0.1 only. The canonical service ports
 # (MinIO 9000/9001, Langfuse 3001) are free on this host so they
 # are bound as-is. Only Postgres
-# (5432) and Redis (6379) collide with other projects on this machine, so their
-# host-side bindings are remapped by default; the in-network service ports stay
-# canonical so inter-container wiring (DSNs, mc host) is unchanged. Override any
-# value via a local .env file (see .env.example).
+# (5432) collides with other projects on this machine, so its host-side binding
+# is remapped by default; the in-network service port stays canonical so
+# inter-container wiring (DSNs, mc host) is unchanged. Override any value via
+# a local .env file (see .env.example).
 #
 # Langfuse is pinned to the latest v2.x (2.95.11). The `:latest` tag now points
 # at v3.x, which mandates ClickHouse (CLICKHOUSE_URL) and a separate migration
@@ -57,19 +57,6 @@ services:
       postgres:
         condition: service_healthy
     restart: "no"
-
-  redis:
-    image: redis:7-alpine
-    ports:
-      - "127.0.0.1:${REDIS_HOST_PORT:-16479}:6379"
-    volumes:
-      - redisdata:/data
-    healthcheck:
-      test: ["CMD", "redis-cli", "ping"]
-      interval: 5s
-      timeout: 5s
-      retries: 10
-    restart: unless-stopped
 
   minio:
     image: minio/minio:latest
@@ -135,5 +122,4 @@ services:
 
 volumes:
   pgdata:
-  redisdata:
   miniodata:

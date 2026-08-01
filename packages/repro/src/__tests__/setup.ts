@@ -2,10 +2,10 @@
  * Test bootstrap: point repro at the docker-compose dev stack and run pending
  * migrations so `pipeline_versions` + `runs` exist even on a fresh DB.
  *
- * Same pattern as apps/scheduler/src/__tests__/setup.ts: vitest `setupFiles`
- * runs this module's top-level code once per test file *before* any test, so
- * the env defaults + migration run must be side effects at module load. The dev
- * infra remaps Postgres→15432 and MinIO→9000 (see infra/.env.example).
+ * vitest `setupFiles` runs this module's top-level code once per test file
+ * *before* any test, so the env defaults + migration run must be side effects
+ * at module load. The dev infra remaps Postgres→15432 and MinIO→9000 (see
+ * infra/.env.example).
  *
  * `await` at top level is fine: vitest awaits an ESM setup module's top-level
  * await before starting the file's tests, so migrations finish first.

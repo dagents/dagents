@@ -28,7 +28,6 @@ pnpm dev          # turbo run dev --parallel  (all apps at once — rarely what 
 Per-workspace (preferred for dev):
 ```bash
 pnpm --filter @dagents/gateway dev          # tsx watch, :8080
-pnpm --filter @dagents/scheduler dev        # :8082
 pnpm --filter @dagents/console dev          # next dev, :3000
 pnpm --filter @dagents/daemon dev -- http://localhost:8080 dev-laptop claude   # daemon CLI
 ```
@@ -46,7 +45,7 @@ pnpm --filter @dagents/db migration:run          # apply pending
 pnpm --filter @dagents/db migration:revert       # roll back the last
 ```
 
-Local infra (Postgres + Redis + MinIO + Langfuse):
+Local infra (Postgres + MinIO + Langfuse):
 ```bash
 cd infra && docker compose up -d && docker compose ps
 ```
@@ -57,12 +56,10 @@ cd infra && docker compose up -d && docker compose ps
 | Service | Port | Notes |
 |---|---|---|
 | gateway | 8080 | `GATEWAY_URL` |
-| scheduler | 8082 | `SCHEDULER_URL` |
 | console (Next) | 3000 | `apps/console` |
 | Langfuse | 3001 | v2.x pinned — **v3 requires ClickHouse**; see `infra/README.md` |
 | MinIO | 9000 / 9001 | `MINIO_ENDPOINT`, bucket `dagents` |
 | Postgres | host **15432** → 5432 | remapped to avoid host collisions; `POSTGRES_URL` |
-| Redis | host **16479** → 6379 | `--requirepass dagents_dev` baked in dev; `REDIS_URL` |
 
 Env templates: `infra/.env.example` (infra) and per-app reads in `apps/*/src/index.ts`. Gateway dev SSO: `SSO_DEV_USERNAME` / `SSO_DEV_PASSWORD` / `SSO_SESSION_SECRET` + `REQUIRE_LOGIN=1` to gate routes.
 
@@ -74,9 +71,8 @@ Env templates: `infra/.env.example` (infra) and per-app reads in `apps/*/src/ind
 console (Next) → gateway (Hono) → @dagents/workflow engine (in-repo)
    → [dispatch routes inline] → local daemon → claude/codex CLI → LLM Provider (用户自定义配置)
 ```
-- **scheduler** sits alongside: it owns the Redis queue (`dagents:tasks`), the concurrency semaphore (`dagents:sem`), and does batch **fanOut** (one parent run + N child runs). It calls gateway for predictions.
 - Every hop carries a business `run_id` (via `x-run-id` header) **and** a W3C `traceparent` (via OTel auto-instrumentation of `fetch`/`http`). These are different: `run_id` is the platform's; `traceId` is OTel's. Both must thread end-to-end.
-- Every run is snapshotted + bound to a `pipeline_version_hash` (`@dagents/repro`) inline at `createRun` time; output is archived to MinIO (`runs.artifact_uri`). `POST /api/v1/scheduler/runs/:runId/reproduce` re-executes a terminal run with the same hash + input and structurally compares outputs.
+- Every run is snapshotted + bound to a `pipeline_version_hash` (`@dagents/repro`) inline at `createRun` time; output is archived to MinIO (`runs.artifact_uri`).
 - **Workflow engine** lives in `packages/workflow/` (Plan A/B/C 完成)。14 节点 + DAG 执行器 + SSE 流式 + 变量解析。Canvas 编辑器在 `vendor/agentflow/`（前端组件），数据持久化在 `flows` 表，通过 gateway `/api/v1/workflows/*` 路由 CRUD。
 
 ### Monorepo & dependency direction (enforced, no cycles)
@@ -86,7 +82,7 @@ contracts  ←  agent-adapters  ←  daemon
 contracts  ←  db ← repro
 shared     ←  (all)
 workflow   ←  gateway (engine + 14 nodes)
-db         ←  gateway / scheduler
+db         ←  gateway
 vendor/agentflow  ← console (canvas editor, not an npm dep)
 ```
 - `@dagents/contracts` is **zero-dependency** and built first — every layer depends on its types.
@@ -104,8 +100,7 @@ vendor/agentflow  ← console (canvas editor, not an npm dep)
 
 ### Apps
 
-- **gateway** (`apps/gateway`): Hono. SSO (dev: HMAC stateless session), route/audit, in-repo `@dagents/workflow` 执行入口（`/api/v1/workflows/*` CRUD + run），含原 dispatch 协议路由（`/api/v1/dispatch/*`，20 路由 + 2 service 模块在 `src/routes/dispatch/`），LLM Provider CRUD + 动态代理转发，directories/chats/agents routes (chat-first model). `app.ts` exports `app` separately from `index.ts` so tests drive it via `app.request()`. Boots OTel → `initDb()` → `serve()`.
-- **scheduler** (`apps/scheduler`): Hono. `startWorker` (BRPOP `dagents:tasks`) + HTTP `fanOut` share one Redis semaphore + one `runs` table. `recoverStaleRuns` on boot re-seeds slots leaked by a SIGKILL'd process (disable with `SCHEDULER_RECOVER_ON_START=0` for multi-instance). Reproduce route in `src/reproduce.ts`.
+- **gateway** (`apps/gateway`): Hono. SSO (dev: HMAC stateless session), route/audit, in-repo `@dagents/workflow` 执行入口（`/api/v1/workflows/*` CRUD + run，含 `run_node_spans` 读写），含原 dispatch 协议路由（`/api/v1/dispatch/*`，20 路由 + 2 service 模块在 `src/routes/dispatch/`），LLM Provider CRUD + 动态代理转发，directories/chats/agents routes (chat-first model). `app.ts` exports `app` separately from `index.ts` so tests drive it via `app.request()`. Boots OTel → `initDb()` → `serve()`. scheduler 服务已于 2026-08-01 (Plan A) 并入 gateway，原 :8082 端口 + Redis 依赖废弃。
 - **console** (`apps/console`): Next.js App Router. **Never dials backend services directly** — every prediction / workflow run goes through the gateway (`src/lib/config.ts: gatewayUrl()`). Chat-First layout: chat home (`/`) + chat detail (`/chats/{id}`) + agents / flows / daemons / settings / directories. Workflow 画布编辑在 `/workflows/[id]/canvas`（使用 `vendor/agentflow/`），浏览在 `/flows`。Vitest alias `@/` mirrors tsconfig `paths`.
 
 ### Shared infra code (`@dagents/shared`)
@@ -113,7 +108,6 @@ vendor/agentflow  ← console (canvas editor, not an npm dep)
 - `otel.ts` — `startTracing(svcName)`: must be called **before any I/O** in each app's `index.ts` so auto-instrumentations patch `fetch`/`http` before the first request. Attaches a real OTLP/HTTP exporter **only if** `OTEL_EXPORTER_OTLP_ENDPOINT` is set (dev/test stay collector-free). Tests inject an `InMemorySpanExporter`. Note: Langfuse v2 does **not** expose OTLP ingestion — setting `OTEL_EXPORTER_OTLP_ENDPOINT` to Langfuse v2 will **not** land traces there (needs v3/ClickHouse or a collector).
 - `trace.ts` — `TraceContext { runId, traceId, parentRunId? }`.
 - `logger.ts` — pino logger; explicit `runId` on the context wins over the span's.
-- `redis.ts` — `createRedis()`.
 
 ### DB (`@dagents/db`)
 

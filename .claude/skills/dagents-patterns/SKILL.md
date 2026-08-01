@@ -109,8 +109,8 @@ Locked decisions (from `docs/superpowers/specs/2026-07-25-system-architecture-re
 
 - **Monorepo**: pnpm workspace + turbo. Apps in `apps/*`, packages in `packages/*`, vendored canvas in `vendor/agentflow/`.
 - **All TypeScript/Node** (D6) — no Go/Python in self-built layers.
-- **Web framework**: Hono for gateway/scheduler.
-- **Process architecture** (4 进程): console (:3000) / gateway (:8080, 含原 dispatch 路由) / scheduler (:8082) / daemon. dispatch 服务已于 2026-08-01 (Plan A) 并入 gateway，原 :8081 端口废弃。
+- **Web framework**: Hono for gateway.
+- **Process architecture** (3 进程): console (:3000) / gateway (:8080, 含原 dispatch + scheduler 路由) / daemon. dispatch 服务已于 2026-08-01 (Plan A) 并入 gateway（原 :8081 端口废弃）；scheduler 服务随后也并入 gateway（原 :8082 端口 + Redis 依赖废弃）。
 - **ORM**: TypeORM (D8) — 单一 migration 系统，与 Flowise 时代已完全脱钩（`flows` 表替代 `chatflows`）。
 - **Workflow engine**: `@dagents/workflow`（in-repo，Plan A/B/C 完成），14 节点 + DAG 执行器 + SSE 流式 + 变量解析。Canvas 编辑器在 `vendor/agentflow/`（纯前端 React Flow 组件，从 Flowise Agentflow 抽取，无后端服务依赖）。
 - **Chat-First UX** (B 范式共存): chat home (`/`) + chat detail (`/chats/{id}`) + agents / flows / daemons / settings / directories。已废弃路由：`/workspace` `/lab` `/tasks` `/dashboard` `/launcher` `/new-task`。

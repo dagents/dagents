@@ -2,8 +2,8 @@
 # Dev launcher: load .env into the shell, then run turbo dev.
 #
 # Why this exists: turbo does NOT auto-load `.env` files, and the repo has no
-# `dotenv` dependency. A bare `pnpm dev` leaves POSTGRES_URL / REDIS_URL /
-# NEWAPI_BASE_URL unset, so the apps fall back to wrong ports (→ ECONNREFUSED).
+# `dotenv` dependency. A bare `pnpm dev` leaves POSTGRES_URL / NEWAPI_BASE_URL
+# unset, so the apps fall back to wrong ports (→ ECONNREFUSED).
 # This script sources `.env` first so the same `globalEnv` keys turbo already
 # declares are actually populated in the task processes.
 #

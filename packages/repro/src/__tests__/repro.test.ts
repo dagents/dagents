@@ -29,13 +29,11 @@ import {
  *                                        diverges on a structural change
  */
 
-// MinIO dev creds. Defaults mirror the production factory
-// `apps/scheduler/src/repro-client.ts:createArtifactStoreFromEnv()` so the test
-// and prod code agree on the same endpoint URL (`http://localhost:9000`) and
-// dev-stack creds — `infra/.env.example` carries the same values. `setup.ts`
-// also sets these via `??=` before any test runs, but giving `minioOpts()`
-// its own `??` default makes the S3 client construction self-sufficient and
-// keeps the test's default aligned with prod's even if `setup.ts` is bypassed.
+// MinIO dev creds. `infra/.env.example` carries the same values. `setup.ts`
+// also sets these via `??=` before any test runs, but giving `minioOpts()` its
+// own `??` default makes the S3 client construction self-sufficient and keeps
+// the test's default aligned with the infra defaults even if `setup.ts` is
+// bypassed.
 const minioOpts = () => ({
   endpoint: process.env.MINIO_ENDPOINT ?? 'http://localhost:9000',
   accessKeyId: process.env.MINIO_ACCESS_KEY ?? 'dagents',

@@ -5,5 +5,5 @@
     "rootDir": "../..",
     "types": ["node"]
   },
-  "include": ["src/**/*", "../../apps/gateway/src/**/*.ts", "../../apps/scheduler/src/**/*.ts"]
+  "include": ["src/**/*", "../../apps/gateway/src/**/*.ts"]
 }
