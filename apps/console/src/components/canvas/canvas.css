@@ -88,7 +88,8 @@
   cursor: pointer;
   transition: background var(--motion-fast) var(--ease-standard),
               border-color var(--motion-fast) var(--ease-standard),
-              transform var(--motion-fast) var(--ease-standard);
+              transform var(--motion-fast) var(--ease-standard),
+              opacity var(--motion-fast) var(--ease-standard);
   font-family: var(--font-body);
 }
 .agentflow-header-actions button:hover {
@@ -97,6 +98,56 @@
 }
 .agentflow-header-actions button:active {
   transform: scale(0.97);
+}
+.agentflow-header-actions button:disabled {
+  cursor: not-allowed;
+  opacity: 0.6;
+}
+
+/* ─── 自定义 Save 按钮：主色填充 + 状态反馈 ─────────────────────── */
+.canvas-save-btn {
+  height: 30px;
+  padding: 0 var(--space-5);
+  border-radius: var(--radius-sm);
+  border: 0;
+  background: var(--accent);
+  color: #fff;
+  font-size: var(--text-xs);
+  font-weight: 600;
+  line-height: 1;
+  cursor: pointer;
+  font-family: var(--font-body);
+  letter-spacing: 0.01em;
+  box-shadow: var(--elev-ring);
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  transition: background var(--motion-fast) var(--ease-standard),
+              transform var(--motion-fast) var(--ease-spring),
+              opacity var(--motion-fast) var(--ease-standard);
+}
+.canvas-save-btn:hover:not(:disabled) {
+  background: var(--accent-strong, var(--accent));
+  filter: brightness(1.08);
+}
+.canvas-save-btn:active:not(:disabled) {
+  transform: scale(0.96);
+}
+.canvas-save-btn:disabled {
+  cursor: not-allowed;
+  opacity: 0.7;
+}
+.canvas-save-btn--saving {
+  background: var(--muted);
+  box-shadow: none;
+}
+.canvas-save-btn--saved {
+  background: var(--success);
+  box-shadow: var(--elev-ring);
+}
+.canvas-save-btn--error {
+  background: var(--danger);
+  box-shadow: none;
 }
 .agentflow-main {
   position: relative;
@@ -149,6 +200,23 @@
 .agentflow-canvas [class*="MuiFab-root"]:active,
 .agentflow-main [class*="MuiFab-root"]:active {
   transform: scale(0.94);
+}
+/* Add Node FAB — 强制主色背景 + 白色图标，避免 shell.css 全局 button 规则
+   导致白底白图标不可见（theme palette 未注入时兜底）。 */
+.agentflow-canvas .MuiFab-root[aria-label="add"],
+.agentflow-main .MuiFab-root[aria-label="add"] {
+  background: var(--accent) !important;
+  color: #fff !important;
+}
+.agentflow-canvas .MuiFab-root[aria-label="add"]:hover,
+.agentflow-main .MuiFab-root[aria-label="add"]:hover {
+  background: var(--accent) !important;
+  filter: brightness(1.08);
+}
+.agentflow-canvas .MuiFab-root[aria-label="add"] svg,
+.agentflow-main .MuiFab-root[aria-label="add"] svg {
+  color: #fff !important;
+  stroke: currentColor !important;
 }
 
 /* MUI Button primary */

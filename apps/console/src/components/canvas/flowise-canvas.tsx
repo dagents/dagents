@@ -2,12 +2,13 @@
 
 import { useCallback, useMemo, useRef, useState } from 'react'
 import { Agentflow } from '@dagents/agentflow'
-import type { AgentFlowInstance, FlowData } from '@dagents/agentflow'
+import type { AgentFlowInstance, FlowData, HeaderRenderProps } from '@dagents/agentflow'
 import { getNodeMeta } from '@dagents/workflow'
 import './canvas.css'
 
 interface FlowiseCanvasProps {
   flowId: string
+  flowName?: string
   initialFlow: {
     nodes: any[]
     edges: any[]
@@ -98,12 +99,13 @@ function convertToFlowiseFormat(initialFlow: FlowiseCanvasProps['initialFlow']):
 
 export function FlowiseCanvas({
   flowId,
+  flowName = 'Untitled',
   initialFlow,
   onSave,
   readOnly = false,
 }: FlowiseCanvasProps): React.ReactElement {
   const agentflowRef = useRef<AgentFlowInstance>(null)
-  const [isSaving, setIsSaving] = useState(false)
+  const [saveState, setSaveState] = useState<'idle' | 'saving' | 'saved' | 'error'>('idle')
 
   const initialFlowData = useMemo(
     () => convertToFlowiseFormat(initialFlow),
@@ -113,27 +115,85 @@ export function FlowiseCanvas({
 
   const handleSave = useCallback(
     async (flowData: FlowData) => {
-      if (!onSave) return
-      setIsSaving(true)
+      // 优先使用外部 onSave，否则走默认持久化逻辑（PUT /api/workflows/:id）
+      if (onSave) {
+        setSaveState('saving')
+        try {
+          await onSave(flowData)
+          setSaveState('saved')
+          setTimeout(() => setSaveState('idle'), 2000)
+        } catch {
+          setSaveState('error')
+          setTimeout(() => setSaveState('idle'), 3000)
+        }
+        return
+      }
+
+      setSaveState('saving')
       try {
-        await onSave(flowData)
-      } finally {
-        setIsSaving(false)
+        const res = await fetch(`/api/workflows/${flowId}`, {
+          method: 'PUT',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({ flowData }),
+        })
+        if (!res.ok) {
+          throw new Error(`保存失败: ${res.status}`)
+        }
+        setSaveState('saved')
+        setTimeout(() => setSaveState('idle'), 2000)
+      } catch (err) {
+        console.error('保存工作流失败:', err)
+        setSaveState('error')
+        setTimeout(() => setSaveState('idle'), 3000)
       }
     },
-    [onSave],
+    [onSave, flowId],
+  )
+
+  // 自定义 header：显示真实 flowName + 美观的 Save 按钮（带状态反馈）
+  const renderHeader = useCallback(
+    (props: HeaderRenderProps) => {
+      const saveLabel =
+        saveState === 'saving'
+          ? '保存中…'
+          : saveState === 'saved'
+            ? '已保存 ✓'
+            : saveState === 'error'
+              ? '保存失败'
+              : '保存'
+      const saveClass = `canvas-save-btn canvas-save-btn--${saveState}`
+      return (
+        <div className='agentflow-header'>
+          <span className='agentflow-title'>
+            {flowName}
+            {props.isDirty && ' *'}
+          </span>
+          <div className='agentflow-header-actions'>
+            <button
+              className={saveClass}
+              onClick={props.onSave}
+              disabled={readOnly || saveState === 'saving'}
+            >
+              {saveLabel}
+            </button>
+          </div>
+        </div>
+      )
+    },
+    [flowName, saveState, readOnly],
   )
 
   return (
     <div style={{ width: '100%', height: '100%', minHeight: 520 }}>
       <Agentflow
         ref={agentflowRef}
-        apiBaseUrl="/api/flowise"
+        apiBaseUrl='/api/flowise'
         flowId={flowId}
         initialFlow={initialFlowData}
         onSave={handleSave}
         readOnly={readOnly}
-        showDefaultHeader={true}
+        showDefaultHeader={false}
+        renderHeader={renderHeader}
         showDefaultPalette={true}
         enableGenerator={true}
       />

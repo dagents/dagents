@@ -16,6 +16,7 @@ export default async function CanvasWorkflowPage({
     edges: [],
     viewport: { x: 0, y: 0, zoom: 1 },
   }
+  let flowName = 'Untitled'
 
   try {
     const res = await fetch(`${gatewayUrl()}/api/v1/workflows/${id}`, {
@@ -25,11 +26,16 @@ export default async function CanvasWorkflowPage({
     if (res.ok) {
       const data = await res.json()
       if (data.success && data.data) {
-        // API 返回结构是 { data: { flow: { flowData: {...} } } }
+        // API 返回结构是 { data: { flow: { flowData: {...}, name: '...' } } }
         // 列表页 flows-view.tsx 的 mapFlowDetail 也按此结构解析
-        const flow = (data.data as { flow?: { flowData?: typeof flowData } }).flow
+        const flow = (
+          data.data as { flow?: { flowData?: typeof flowData; name?: string } }
+        ).flow
         if (flow?.flowData) {
           flowData = flow.flowData
+        }
+        if (flow?.name) {
+          flowName = flow.name
         }
       }
     }
@@ -39,7 +45,7 @@ export default async function CanvasWorkflowPage({
 
   return (
     <PageShell fullBleed>
-      <FlowiseCanvas flowId={id} initialFlow={flowData} />
+      <FlowiseCanvas flowId={id} flowName={flowName} initialFlow={flowData} />
     </PageShell>
   )
 }

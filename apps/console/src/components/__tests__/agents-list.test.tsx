@@ -1,23 +1,18 @@
 /**
- * Agents list-page fidelity tests (v0.3-M5.1).
+ * Agents list-page fidelity tests (multica redesign, M5.1).
  *
- * Pins the design/agents.html list-page DOM + interactions the redesign moves
- * `agents-view.tsx` onto — the scope tabs (mine / all / archived) with counts,
- * the `#result-count` `N / total` readout, the sortable list headers
- * (`data-sort` / `data-active` / `data-dir` + `aria-sort`), and the filter
- * chips' `aria-pressed` toggle (design agents.html:169-172, 228-239, 463-477).
- * The fetch to `/api/agents` is stubbed with a raw snake_case dispatch envelope
- * (what the proxy returns) so `fetchAgents`'s real row-mapping runs end-to-end,
- * matching the pattern in `flows-list.test.tsx` and the agent-detail suite.
+ * Pins the multica AgentsView DOM + interactions: card layout
+ * (`.agent-cards` / `.agent-card`), scope tabs (mine / all / archived) with
+ * counts, the `.result-count` `N / total 个 agent` readout, and filter chips'
+ * `aria-pressed` toggle. The fetch to `/api/agents` is stubbed with a raw
+ * snake_case dispatch envelope (what the proxy returns) so `fetchAgents`'s
+ * real row-mapping runs end-to-end, matching the pattern in `flows-list.test.tsx`.
  *
- * Scope: list-page surface only. The drawer (AgentDrawer) mounts under the
- * same fetch stub but its internals aren't asserted here — that's the detail
- * page's job (M4.1).
- *
- * NOTE: the kanban view is always mounted in the DOM (hidden by CSS when the
- * list view is active), so an agent name renders in BOTH the table row and the
- * kanban card. Text queries for a specific agent are therefore scoped to the
- * `.table-wrap` container so they don't collide with the kanban.
+ * The multica redesign removed the KPI row, the old table/list layout, and
+ * the clickable sort headers. Sorts are still internal state
+ * (`sort: { field, dir }`) but there is no user-facing sort-control surface
+ * — the old tests that asserted `data-sort`/`data-dir` on Agent/负载 header
+ * buttons are skipped with clear rationale.
  */
 import { describe, it, expect, beforeEach, afterEach, vi } from 'vitest'
 import { render, screen, fireEvent, within } from '@testing-library/react'
@@ -27,8 +22,8 @@ import type { ReactElement } from 'react'
 // `next/navigation`'s `useRouter` requires the App Router context to be
 // mounted; mock it so `AgentsView`'s `const router = useRouter()` doesn't
 // throw `invariant expected app router to be mounted` under jsdom. The
-// redesign moved from a drawer to page-based navigation (`router.push`), so
-// the mock's `push` is captured for the row-click test.
+// redesign uses page-based navigation (`router.push`) so the mock's `push`
+// is captured for the row-click test.
 const pushMock = vi.fn()
 vi.mock('next/navigation', () => ({
   useRouter: () => ({ push: pushMock, replace: vi.fn(), prefetch: vi.fn() }),
@@ -50,14 +45,14 @@ vi.mock('@/lib/auth-client', () => ({
 }))
 
 // A raw snake_case `AgentListRow[]` envelope — what `GET /api/agents` returns
-// from dispatch (before `fetchAgents` maps it). Two active rows + one failed
-// (archived) row so the `all` scope shows 2 and the `archived` scope shows 1;
-// kinds/roles cover the filter chips the design renders.
+// from dispatch (before `fetchAgents` maps it). reader-04 (running) and
+// coder-12 (queued) are non-archived (my/all); fetcher-18 (failed) archives
+// under `isArchived` (status === 'failed'). Kinds cover the 4 filter chips
+// (claude/codex/remote).
 //
-// Loads are deliberately clock-independent so the sort-order test is stable at
-// any runtime: reader-04 is `running` with no `task_created_at` (→ elapsedMs
-// null → the 50 load band), coder-12 is `queued` (→ load 10). Different
-// loads → the default load-desc order reverses cleanly under load-asc.
+// Loads are derived deterministically: reader-04 running with no
+// task_created_at → elapsedMs null → load 50 (band middle); coder-12 queued →
+// load 10; fetcher-18 failed → load 0.
 const AGENTS_FIXTURE = {
   agents: [
     {
@@ -136,7 +131,14 @@ const AGENTS_FIXTURE = {
   truncated: false,
 }
 
-describe('AgentsView list-page (M5.1 fidelity)', () => {
+// After mapRowToCatalogAgent + deriveStatus + isArchived:
+//   reader-04 → status=running → NOT archived → counts toward mine/all
+//   coder-12 → status=queued  → NOT archived → counts toward mine/all
+//   fetcher-18 → status=failed → archived     → counts toward all/archived
+// scopeCounts = { mine: 2, all: 3, archived: 1 }
+// scope='all' → scoped = [reader04, coder12] (isArchived filtered OUT)
+
+describe('AgentsView list-page (M5.1 multica)', () => {
   let originalFetch: typeof globalThis.fetch
 
   beforeEach(() => {
@@ -144,8 +146,6 @@ describe('AgentsView list-page (M5.1 fidelity)', () => {
     pushMock.mockReset()
     globalThis.fetch = (async (input: RequestInfo | URL) => {
       const url = typeof input === 'string' ? input : input.toString()
-      // The drawer fires detail + logs fetches on row open; return minimal
-      // envelopes so they resolve without 404-ing mid-interaction.
       if (url.endsWith('/logs')) {
         return new Response(JSON.stringify({ success: true, data: { logs: [] } }), {
           status: 200,
@@ -173,42 +173,37 @@ describe('AgentsView list-page (M5.1 fidelity)', () => {
     }) as typeof globalThis.fetch
   })
 
-  // Restore the real fetch so other suites aren't poisoned.
   afterEach(() => {
     globalThis.fetch = originalFetch
   })
 
-  // The list view container — the multica redesign uses `.agents-list` (a
-  // div-based layout) instead of the old `.table-wrap` table. Scoped so agent
-  // name text queries target the list rows, not the header.
-  function listWrap(): HTMLElement {
-    const el = document.querySelector('.agents-list')
-    if (!el) throw new Error('.agents-list not rendered')
+  // The multica redesign renders cards, not a list/table. Cards are wrapped
+  // in `.agent-cards`; each card is `.agent-card`.
+  function cardsWrap(): HTMLElement {
+    const el = document.querySelector('.agent-cards')
+    if (!el) throw new Error('.agent-cards not rendered')
     return el as HTMLElement
   }
 
-  /** The visible list rows in DOM order (the order `sort` produced). */
-  function listRows(): HTMLElement[] {
-    return Array.from(document.querySelectorAll<HTMLElement>('.agents-row'))
+  /** Visible cards in DOM order (the sort internal state produced this order). */
+  function cards(): HTMLElement[] {
+    return Array.from(document.querySelectorAll<HTMLElement>('.agent-card'))
   }
 
-  /** The agent name (trimmed) rendered in the nth list row. */
-  function rowName(idx: number): string {
-    const rows = listRows()
-    const cell = rows[idx]?.querySelector('.cell-name .name')
-    if (!cell) throw new Error(`row ${idx} has no .cell-name .name`)
+  /** The agent name (trimmed) rendered in the nth card. */
+  function cardName(idx: number): string {
+    const row = cards()[idx]
+    const cell = row?.querySelector('.agent-info .nm')
+    if (!cell) throw new Error(`card ${idx} has no .agent-info .nm`)
     return (cell.textContent ?? '').trim()
   }
 
-  /** The result-count span (`N / total` readout). */
   function resultCount(): HTMLElement {
     const el = document.querySelector('.result-count')
     if (!el) throw new Error('.result-count not rendered')
     return el as HTMLElement
   }
 
-  // Imported lazily so the fetch stub above is in place before the view's
-  // mount effect fires.
   async function renderView(): Promise<{ rerender: (ui: ReactElement) => void }> {
     const { AgentsView } = await import('@/components/agents-view')
     const result = render(<AgentsView />)
@@ -217,8 +212,8 @@ describe('AgentsView list-page (M5.1 fidelity)', () => {
 
   it('renders the scope tabs (mine / all / archived) with counts', async () => {
     await renderView()
-    // Wait for the fetch to settle so the scope counts are populated.
-    expect(await within(listWrap()).findByText('论文阅读 · reader-04')).toBeInTheDocument()
+    // Wait for the fetch to settle so the scope counts populate.
+    expect(await within(cardsWrap()).findByText('论文阅读 · reader-04')).toBeInTheDocument()
 
     const mine = screen.getByRole('tab', { name: /我的/ })
     const all = screen.getByRole('tab', { name: /全部/ })
@@ -232,143 +227,118 @@ describe('AgentsView list-page (M5.1 fidelity)', () => {
     expect(all).toHaveAttribute('aria-selected', 'true')
     expect(mine).toHaveAttribute('aria-selected', 'false')
 
-    // Counts: 2 active (all) + 1 archived (the failed row); mine is 0 (no owner).
-    expect(all.textContent).toContain('2')
+    // scopeCounts: mine=2, all=3, archived=1
+    // (mine counts non-archived agents; fetcher-18 is archived.)
+    expect(all.textContent).toContain('3')
     expect(archived.textContent).toContain('1')
-    expect(mine.textContent).toContain('0')
+    expect(mine.textContent).toContain('2')
   })
 
-  it('renders the result-count as `N / total`', async () => {
+  it('renders the result-count as `N / total 个 agent`', async () => {
     await renderView()
-    // Wait for the fetch to settle, then the count reads `2 / 2` under `all`.
-    expect(await within(listWrap()).findByText('论文阅读 · reader-04')).toBeInTheDocument()
+    expect(await within(cardsWrap()).findByText('论文阅读 · reader-04')).toBeInTheDocument()
     const count = resultCount()
-    expect(count).toHaveTextContent(/\d+\s*\/\s*\d+/)
-    expect(count.textContent).toMatch(/^2\s*\/\s*2$/)
+    // `all` scope → 2 non-archived visible (after filters) / 2 non-archived total
+    expect(count).toHaveTextContent(/\d+\s*\/\s*\d+\s*个 agent/)
+    // The result count text reads "2 / 2 个 agent" (visibleSorted.length / scoped.length).
+    expect(count.textContent).toMatch(/2\s*\/\s*2/)
   })
 
   it('switching to the archived scope re-scopes the list + result-count', async () => {
     await renderView()
-    // Wait for the default `all` list to render both active agents.
-    expect(await within(listWrap()).findByText('论文阅读 · reader-04')).toBeInTheDocument()
+    expect(await within(cardsWrap()).findByText('论文阅读 · reader-04')).toBeInTheDocument()
 
     const archived = screen.getByRole('tab', { name: /已归档/ })
     await userEvent.click(archived)
     expect(archived).toHaveAttribute('aria-selected', 'true')
 
-    // The archived scope holds only the failed fetcher; the two active agents
-    // drop out, and the result-count reads `1 / 1`.
-    expect(within(listWrap()).getByText('网页抓取 · fetcher-18')).toBeInTheDocument()
-    expect(within(listWrap()).queryByText('论文阅读 · reader-04')).not.toBeInTheDocument()
-    expect(resultCount().textContent).toMatch(/^1\s*\/\s*1$/)
+    // Archived scope holds only the failed fetcher; the two active agents drop out.
+    expect(within(cardsWrap()).getByText('网页抓取 · fetcher-18')).toBeInTheDocument()
+    expect(within(cardsWrap()).queryByText('论文阅读 · reader-04')).not.toBeInTheDocument()
+    // 1 archived visible / 1 archived total.
+    expect(resultCount().textContent).toMatch(/1\s*\/\s*1/)
   })
 
-  it('the Agent column header is the default active sort; 负载 is sortable but inactive', async () => {
-    await renderView()
-    expect(await within(listWrap()).findByText('论文阅读 · reader-04')).toBeInTheDocument()
+  // ──────────────────────────────────────────────────────────────
+  // Sort-header tests skipped (multica redesign).
+  //
+  // The multica-inspired AgentsView uses a flat card layout with no table
+  // and no clickable sort headers. Internal sort state still exists
+  // (`sort: { field: 'name'|'load', dir: 'asc'|'desc' }`) — the default
+  // sort is `name asc`, producing a stable card order — but there is no
+  // user-facing surface to flip field/direction via header buttons. The
+  // old tests that pinned `data-dir='asc'` on an Agent button role or a
+  // 负载 sortable header no longer map to the rendered DOM.
+  // ──────────────────────────────────────────────────────────────
+  it.skip('Agent column header default active sort + 负载 sortable inactive (sort headers removed in multica redesign)')
+  it.skip('clicking a sortable header marks active + sets data-dir (sort headers removed in multica redesign)')
+  it.skip('toggling same header flips direction + reverses row order (sort headers removed in multica redesign)')
+  it.skip('clicking a different header deactivates previous one (sort headers removed in multica redesign)')
 
-    // The multica redesign uses class-based sort indicators (not data-sort/
-    // data-active/aria-sort on <th>). The Agent header is the default-active
-    // sort (name asc).
-    const nameHead = screen.getByRole('button', { name: /^Agent/ })
-    expect(nameHead.className).toContain('active')
-    expect(nameHead).toHaveAttribute('data-dir', 'asc')
-
-    // The 负载 header is sortable but not the default.
-    const loadHead = screen.getByRole('button', { name: /负载/ })
-    expect(loadHead.className).toContain('sortable')
-    expect(loadHead.className).not.toContain('active')
-    expect(loadHead).toHaveAttribute('data-dir', 'asc')
-  })
-
-  it('clicking a sortable header marks it active and sets data-dir', async () => {
-    await renderView()
-    expect(await within(listWrap()).findByText('论文阅读 · reader-04')).toBeInTheDocument()
-
-    // The 负载 header starts inactive (name is the default sort).
-    const loadHead = screen.getByRole('button', { name: /负载/ })
-    expect(loadHead.className).not.toContain('active')
-    expect(loadHead).toHaveAttribute('data-dir', 'asc')
-
-    await userEvent.click(loadHead)
-    expect(loadHead.className).toContain('active')
-    expect(loadHead).toHaveAttribute('data-dir', 'asc')
-  })
-
-  it('toggling the same header flips the direction and reverses the row order', async () => {
-    await renderView()
-    expect(await within(listWrap()).findByText('论文阅读 · reader-04')).toBeInTheDocument()
-
-    const loadHead = screen.getByRole('button', { name: /负载/ })
-
-    // Click load → asc (load 10 = coder-12 first, load 50 = reader-04 second).
-    await userEvent.click(loadHead)
-    expect(loadHead.className).toContain('active')
-    expect(loadHead).toHaveAttribute('data-dir', 'asc')
-    expect(rowName(0)).toBe('代码复现 · coder-12')
-    expect(rowName(1)).toBe('论文阅读 · reader-04')
-
-    // Click again → desc (load 50 = reader-04 first, load 10 = coder-12 second).
-    await userEvent.click(loadHead)
-    expect(loadHead).toHaveAttribute('data-dir', 'desc')
-    expect(rowName(0)).toBe('论文阅读 · reader-04')
-    expect(rowName(1)).toBe('代码复现 · coder-12')
-  })
-
-  it('clicking a different header deactivates the previous one', async () => {
-    await renderView()
-    expect(await within(listWrap()).findByText('论文阅读 · reader-04')).toBeInTheDocument()
-
-    const nameHead = screen.getByRole('button', { name: /^Agent/ })
-    // name is the default-active sort.
-    expect(nameHead.className).toContain('active')
-
-    const loadHead = screen.getByRole('button', { name: /负载/ })
-    await userEvent.click(loadHead)
-    expect(loadHead.className).toContain('active')
-    expect(nameHead.className).not.toContain('active')
-    // An inactive header's data-dir resets to asc.
-    expect(nameHead).toHaveAttribute('data-dir', 'asc')
-  })
-
-  // FIXME: The multica-style redesign removed role-based filter chips. The new
-  // AgentsView only has kind filters (prompt/claude/codex/remote) and status
-  // filters (running/queued/idle/failed) — no 'coding' role chip. The filter
-  // chips still use aria-pressed, but the role dimension is gone.
-  it.skip('filter chip toggles aria-pressed (coding role chip removed in multica redesign)')
+  // Role-based filter chips were also removed in the multica redesign. The
+  // AgentsView toolbar only exposes kind (提示词/Claude Code/Codex/Remote) and
+  // status (运行/排队/空闲/失败) filter chips — no 'coding' role chip.
+  it.skip('filter chip toggles aria-pressed (role-based chips removed in multica redesign)')
 
   it('a kind filter chip narrows the list + updates result-count', async () => {
     await renderView()
-    expect(await within(listWrap()).findByText('论文阅读 · reader-04')).toBeInTheDocument()
-    expect(within(listWrap()).getByText('代码复现 · coder-12')).toBeInTheDocument()
+    expect(await within(cardsWrap()).findByText('论文阅读 · reader-04')).toBeInTheDocument()
+    expect(within(cardsWrap()).getByText('代码复现 · coder-12')).toBeInTheDocument()
 
-    // Press `Codex` — only coder-12 remains (2 active → 1). The multica
-    // redesign dropped the data-f/data-v attributes; aria-pressed still toggles.
+    // Press `Codex` kind filter — only coder-12 remains.
     const codex = screen.getByRole('button', { name: 'Codex' })
     expect(codex).toHaveAttribute('aria-pressed', 'false')
     fireEvent.click(codex)
     expect(codex).toHaveAttribute('aria-pressed', 'true')
 
-    expect(within(listWrap()).queryByText('论文阅读 · reader-04')).not.toBeInTheDocument()
-    expect(within(listWrap()).getByText('代码复现 · coder-12')).toBeInTheDocument()
-    expect(resultCount().textContent).toMatch(/^1\s*\/\s*2$/)
+    expect(within(cardsWrap()).queryByText('论文阅读 · reader-04')).not.toBeInTheDocument()
+    expect(within(cardsWrap()).getByText('代码复现 · coder-12')).toBeInTheDocument()
+    // visible=1 (codex filter) / scoped=2 (all non-archived).
+    expect(resultCount().textContent).toMatch(/1\s*\/\s*2/)
   })
 
-  it('renders a row per visible agent under the default all scope', async () => {
+  it('a status filter chip narrows the list + updates result-count', async () => {
     await renderView()
-    expect(await within(listWrap()).findByText('论文阅读 · reader-04')).toBeInTheDocument()
-    expect(within(listWrap()).getByText('代码复现 · coder-12')).toBeInTheDocument()
+    expect(await within(cardsWrap()).findByText('论文阅读 · reader-04')).toBeInTheDocument()
+    expect(within(cardsWrap()).getByText('代码复现 · coder-12')).toBeInTheDocument()
 
-    // Two active rows render (the failed fetcher is archived, not under `all`).
-    const rows = document.querySelectorAll('.agents-row')
+    // Press `排队` (queued) status filter.
+    const queued = screen.getByRole('button', { name: '排队' })
+    expect(queued).toHaveAttribute('aria-pressed', 'false')
+    fireEvent.click(queued)
+    expect(queued).toHaveAttribute('aria-pressed', 'true')
+
+    expect(within(cardsWrap()).queryByText('论文阅读 · reader-04')).not.toBeInTheDocument()
+    expect(within(cardsWrap()).getByText('代码复现 · coder-12')).toBeInTheDocument()
+    expect(resultCount().textContent).toMatch(/1\s*\/\s*2/)
+  })
+
+  it('renders a card per visible agent under the default all scope', async () => {
+    await renderView()
+    expect(await within(cardsWrap()).findByText('论文阅读 · reader-04')).toBeInTheDocument()
+    expect(within(cardsWrap()).getByText('代码复现 · coder-12')).toBeInTheDocument()
+
+    // Two active cards render (the failed fetcher is archived, excluded from `all` scope).
+    const rows = document.querySelectorAll('.agent-card')
     expect(rows).toHaveLength(2)
   })
 
-  // FIXME: The multica-style redesign replaced the inline drawer with
-  // page-based navigation to /agents/[id]. Row clicks now call
-  // router.push('/agents/:id') instead of opening a `.drawer.open` element.
-  // The drawer DOM no longer exists. To re-enable, assert pushMock was called
-  // with '/agents/agent_reader04' on row click (the useRouter mock is already
-  // in place above).
-  it.skip('a row click opens the drawer (drawer removed in multica redesign)')
+  it('default card order is name-asc (internal default sort still applied)', async () => {
+    await renderView()
+    expect(await within(cardsWrap()).findByText('论文阅读 · reader-04')).toBeInTheDocument()
+    // Default sort field = 'name' dir='asc': 代码复现 < 论文阅读 (Chinese locale compare).
+    expect(cardName(0)).toBe('代码复现 · coder-12')
+    expect(cardName(1)).toBe('论文阅读 · reader-04')
+  })
+
+  it('a card click navigates to the agent detail page (page-based nav, no drawer)', async () => {
+    await renderView()
+    expect(await within(cardsWrap()).findByText('论文阅读 · reader-04')).toBeInTheDocument()
+
+    const card = cards()[0] // coder-12
+    fireEvent.click(card!)
+
+    expect(pushMock).toHaveBeenCalledTimes(1)
+    expect(pushMock).toHaveBeenCalledWith('/agents/agent_coder12')
+  })
 })
