@@ -6,6 +6,7 @@ import { createLogger } from '@dagents/shared'
 import { DagExecutor, NodeRegistry, allNodes, type FlowData } from '@dagents/workflow'
 import { executeInline } from '../inline-executor.js'
 import { persistComplete } from './internal-runs-helpers.js'
+import { enqueueTask } from './dispatch/service.js'
 
 const log = createLogger({ svc: 'gateway:chat-execute' })
 
@@ -572,40 +573,13 @@ async function routeDaemonCommand(
   }
 
   const runId = randomUUID()
-  const dispatchUrl = process.env.DISPATCH_URL ?? 'http://localhost:8081'
   try {
-    const resp = await fetch(`${dispatchUrl}/api/v1/dispatch/invoke`, {
-      method: 'POST',
-      headers: { 'content-type': 'application/json' },
-      body: JSON.stringify({
-        agentDaemonId: chat.agent_id,
-        runId,
-        prompt: cmd.message,
-        execOptions: { cwd: chat.directory_path ?? undefined },
-      }),
+    const { taskId } = await enqueueTask({
+      agentDaemonId: chat.agent_id,
+      runId,
+      prompt: cmd.message,
+      execOptions: { cwd: chat.directory_path ?? undefined },
     })
-    if (!resp.ok) {
-      const text = await resp.text().catch(() => '')
-      log.error('routeDaemonCommand dispatch invoke failed', {
-        chatId,
-        runId,
-        status: resp.status,
-        body: text,
-      })
-      return {
-        mode: 'json',
-        payload: {
-          ack: `⚡ Daemon invoke failed: ${resp.status}`,
-          command: cmd,
-          systemMessageId,
-          error: 'dispatch invoke failed',
-        },
-        systemMessageId,
-      }
-    }
-    // Dispatch envelope: { success: true, data: { taskId } }
-    const json = (await resp.json()) as { data?: { taskId?: string } }
-    const taskId = json.data?.taskId
 
     // Mark chat running — daemon will complete async (see jsdoc above).
     await runQuery(
@@ -627,7 +601,7 @@ async function routeDaemonCommand(
       systemMessageId,
     }
   } catch (err) {
-    log.error('routeDaemonCommand fetch failed', { chatId, runId, error: String(err) })
+    log.error('routeDaemonCommand dispatch invoke failed', { chatId, runId, error: String(err) })
     return {
       mode: 'json',
       payload: {

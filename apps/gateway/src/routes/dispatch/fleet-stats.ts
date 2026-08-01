@@ -6,6 +6,8 @@ import { aggregateUsage, type ModelUsageTotals } from './runs-usage.js'
 /**
  * Fleet resource-dashboard aggregation (plan M6.5 / P1.11.T6).
  *
+ * Merged from `apps/dispatch/src/fleet-stats.ts` (Plan A, 2026-08-01).
+ *
  * The resource panel (M5b.3) renders four facets of the live fleet:
  *   - **status distribution** — daemons (online/offline/draining) + agents by
  *     kind + dispatch_tasks by lifecycle state;
@@ -36,7 +38,7 @@ import { aggregateUsage, type ModelUsageTotals } from './runs-usage.js'
  * SQL, same decorator-free-reads rationale as the rest of dispatch.
  */
 
-const log = createLogger({ svc: 'dispatch:fleet-stats' })
+const log = createLogger({ svc: 'gateway:dispatch:fleet-stats' })
 
 /** The throughput / cost window (hours). Matches the plan's "24h 吞吐" facet. */
 export const FLEET_WINDOW_HOURS = 24

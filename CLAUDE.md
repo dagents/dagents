@@ -4,7 +4,7 @@ This file provides guidance to Claude Code (claude.ai/code) when working with co
 
 ## What this is
 
-Dagents 平台 (Dagents Platform) — a TS/Node monorepo with Chat-First UX and a **central dispatch + local daemon** two-tier design for heterogeneous coding agents (claude, codex, …). Migrated from Flowise-vendored architecture to in-repo `@dagents/workflow` engine; Flowise vendored fork remains for canvas editing only until Plan C removes it.
+Dagents 平台 (Dagents Platform) — a TS/Node monorepo with Chat-First UX and a **central dispatch + local daemon** two-tier design for heterogeneous coding agents (claude, codex, …). 工作流引擎已内聚到 `@dagents/workflow`（Plan A/B/C 全部完成）；画布编辑器使用 `vendor/agentflow/`（从 Flowise 抽出的 Agentflow 组件，纯前端 React Flow，无后端服务）。
 
 The architectural source of truth is `docs/superpowers/specs/2026-07-25-system-architecture-redesign.md` (Chat-First 双维度模型，顶部含实现状态总览). 所有已完成的 plans / 历史 specs / 验证记录 / 设计原型均已归档至 `docs/archive/{plans,specs,verification,design}/`。
 
@@ -16,7 +16,7 @@ Two local skills are auto-discovered and should be invoked when relevant:
 
 Root (turbo, runs across all workspaces):
 ```bash
-pnpm install      # NOTE: .npmrc sets ignore-scripts=true — vendored Flowise has no .git,
+pnpm install      # NOTE: .npmrc sets ignore-scripts=true — vendored agentflow has no .git,
                    #   so its `postinstall: husky install` would fail. Scripts are skipped globally.
 pnpm build        # turbo run build   (tsup → dist/, next build for console)
 pnpm test         # turbo run test    (vitest run, per-package)
@@ -28,10 +28,9 @@ pnpm dev          # turbo run dev --parallel  (all apps at once — rarely what 
 Per-workspace (preferred for dev):
 ```bash
 pnpm --filter @dagents/gateway dev          # tsx watch, :8080
-pnpm --filter @dagents/dispatch dev         # :8081
 pnpm --filter @dagents/scheduler dev        # :8082
 pnpm --filter @dagents/console dev          # next dev, :3000
-pnpm --filter @dagents/daemon dev -- http://localhost:8081 dev-laptop claude   # daemon CLI
+pnpm --filter @dagents/daemon dev -- http://localhost:8080 dev-laptop claude   # daemon CLI
 ```
 
 Single test file / single test:
@@ -51,17 +50,15 @@ Local infra (Postgres + Redis + MinIO + Langfuse):
 ```bash
 cd infra && docker compose up -d && docker compose ps
 ```
-Flowise is **vendored separately** at `vendor/flowise/` and run from source (`pnpm --filter flowise start`, port 3101) — it is deliberately **not** in the compose stack. Migration to the in-repo `packages/workflow` engine is in progress (Plan A complete; see `docs/superpowers/specs/2026-07-25-system-architecture-redesign.md`); Flowise stays vendored until Plan C removes it.
+画布编辑器 vendored 在 `vendor/agentflow/`（从 Flowise Agentflow 抽取的纯前端 React 组件库，不依赖任何后端服务）。Plan A/B/C 已全部完成：工作流引擎迁至 `packages/workflow/`、`flows` 表 + `/api/v1/workflows/*` API 落地、console `/workflows/[id]/canvas` 替代旧 `/flows` 编辑入口、gateway 不再有任何 Flowise proxy 路由。
 
 ## Ports & env (defaults)
 
 | Service | Port | Notes |
 |---|---|---|
 | gateway | 8080 | `GATEWAY_URL` |
-| dispatch | 8081 | `DISPATCH_PORT` |
 | scheduler | 8082 | `SCHEDULER_URL` |
 | console (Next) | 3000 | `apps/console` |
-| Flowise | 3101 | vendored, own `.env` at `vendor/flowise/packages/server/.env` (migration to `packages/workflow` in progress) |
 | Langfuse | 3001 | v2.x pinned — **v3 requires ClickHouse**; see `infra/README.md` |
 | MinIO | 9000 / 9001 | `MINIO_ENDPOINT`, bucket `dagents` |
 | Postgres | host **15432** → 5432 | remapped to avoid host collisions; `POSTGRES_URL` |
@@ -74,26 +71,28 @@ Env templates: `infra/.env.example` (infra) and per-app reads in `apps/*/src/ind
 ### Layered flow (the "big picture")
 
 ```
-console (Next) → gateway (Hono) → Flowise prediction → dispatch HTTP node
-   → dispatch server (Hono) → [claim] → local daemon → claude/codex CLI → LLM Provider (用户自定义配置)
+console (Next) → gateway (Hono) → @dagents/workflow engine (in-repo)
+   → [dispatch routes inline] → local daemon → claude/codex CLI → LLM Provider (用户自定义配置)
 ```
 - **scheduler** sits alongside: it owns the Redis queue (`dagents:tasks`), the concurrency semaphore (`dagents:sem`), and does batch **fanOut** (one parent run + N child runs). It calls gateway for predictions.
 - Every hop carries a business `run_id` (via `x-run-id` header) **and** a W3C `traceparent` (via OTel auto-instrumentation of `fetch`/`http`). These are different: `run_id` is the platform's; `traceId` is OTel's. Both must thread end-to-end.
 - Every run is snapshotted + bound to a `pipeline_version_hash` (`@dagents/repro`) inline at `createRun` time; output is archived to MinIO (`runs.artifact_uri`). `POST /api/v1/scheduler/runs/:runId/reproduce` re-executes a terminal run with the same hash + input and structurally compares outputs.
+- **Workflow engine** lives in `packages/workflow/` (Plan A/B/C 完成)。14 节点 + DAG 执行器 + SSE 流式 + 变量解析。Canvas 编辑器在 `vendor/agentflow/`（前端组件），数据持久化在 `flows` 表，通过 gateway `/api/v1/workflows/*` 路由 CRUD。
 
 ### Monorepo & dependency direction (enforced, no cycles)
 
 ```
 contracts  ←  agent-adapters  ←  daemon
-contracts  ←  dispatch
 contracts  ←  db ← repro
 shared     ←  (all)
-workflow   ←  (node implementers; depends on shared only)
-db         ←  gateway / dispatch / scheduler
-vendor/flowise  ← (canvas editor only, not an npm dep; being phased out by packages/workflow)
+workflow   ←  gateway (engine + 14 nodes)
+db         ←  gateway / scheduler
+vendor/agentflow  ← console (canvas editor, not an npm dep)
 ```
 - `@dagents/contracts` is **zero-dependency** and built first — every layer depends on its types.
-- `dispatch` depends **only** on `contracts` (not `daemon`) — they're decoupled by the HTTP claim/complete protocol in `packages/contracts/src/protocol.ts`.
+- Dispatch routes (now inlined in `gateway` at `src/routes/dispatch/`) depend **only** on `contracts` (not `daemon`) — they're decoupled by the HTTP claim/complete protocol in `packages/contracts/src/protocol.ts`.
+- `@dagents/workflow` is consumed by `gateway` (server-side execution) and indirectly by `console` (type-only, for the canvas shape).
+- `vendor/agentflow/` is consumed by `console` directly (file: dep) — pure frontend React Flow canvas, no server.
 - Package build outputs are ESM via `tsup` (`--format esm --dts`); apps use `tsx watch` for dev and `tsup`/`next build` for prod. All read `tsconfig.base.json`.
 
 ### Key contracts (read these before touching agent code)
@@ -105,10 +104,9 @@ vendor/flowise  ← (canvas editor only, not an npm dep; being phased out by pac
 
 ### Apps
 
-- **gateway** (`apps/gateway`): Hono. SSO (dev: HMAC stateless session), route/audit, Flowise **read** proxy (`/api/v1/chatflows`, `/api/v1/executions`), dispatch proxy, LLM Provider CRUD + 动态代理转发, directories/chats/agents routes (chat-first model). `app.ts` exports `app` separately from `index.ts` so tests drive it via `app.request()`. Boots OTel → `initDb()` → `serve()`.
-- **dispatch** (`apps/dispatch`): Hono. Task queue + daemon registry + claim/complete. Routes in `src/routes/` (`agents`, `daemons`, `tasks`, `invoke`, `fleet-stats`, `runs-usage`).
+- **gateway** (`apps/gateway`): Hono. SSO (dev: HMAC stateless session), route/audit, in-repo `@dagents/workflow` 执行入口（`/api/v1/workflows/*` CRUD + run），含原 dispatch 协议路由（`/api/v1/dispatch/*`，20 路由 + 2 service 模块在 `src/routes/dispatch/`），LLM Provider CRUD + 动态代理转发，directories/chats/agents routes (chat-first model). `app.ts` exports `app` separately from `index.ts` so tests drive it via `app.request()`. Boots OTel → `initDb()` → `serve()`.
 - **scheduler** (`apps/scheduler`): Hono. `startWorker` (BRPOP `dagents:tasks`) + HTTP `fanOut` share one Redis semaphore + one `runs` table. `recoverStaleRuns` on boot re-seeds slots leaked by a SIGKILL'd process (disable with `SCHEDULER_RECOVER_ON_START=0` for multi-instance). Reproduce route in `src/reproduce.ts`.
-- **console** (`apps/console`): Next.js App Router. **Never dials Flowise directly** — every prediction goes through the gateway (`src/lib/config.ts: gatewayUrl()`). Chat-First layout: chat home (`/`) + chat detail (`/chats/{id}`) + agents / flows / daemons / settings / directories. Canvas editing still uses Flowise native UI (D4/D5) until Plan C. Vitest alias `@/` mirrors tsconfig `paths`.
+- **console** (`apps/console`): Next.js App Router. **Never dials backend services directly** — every prediction / workflow run goes through the gateway (`src/lib/config.ts: gatewayUrl()`). Chat-First layout: chat home (`/`) + chat detail (`/chats/{id}`) + agents / flows / daemons / settings / directories. Workflow 画布编辑在 `/workflows/[id]/canvas`（使用 `vendor/agentflow/`），浏览在 `/flows`。Vitest alias `@/` mirrors tsconfig `paths`.
 
 ### Shared infra code (`@dagents/shared`)
 
@@ -119,7 +117,7 @@ vendor/flowise  ← (canvas editor only, not an npm dep; being phased out by pac
 
 ### DB (`@dagents/db`)
 
-- `AppDataSource` (TypeORM, postgres). Entities in `src/entities/`, migrations in `src/migrations/` (timestamp-prefixed, e.g. `1720000002000-create-runs.ts`). Same DB/schema as Flowise (D8) — single migration system.
+- `AppDataSource` (TypeORM, postgres). Entities in `src/entities/`, migrations in `src/migrations/` (timestamp-prefixed, e.g. `1720000002000-create-runs.ts`). 同库同 ORM 模型已与 Flowise 时代完全脱钩（Plan C 完成，`flows` 表替代 `chatflows`）。
 - **Use `runQuery()`** (in `data-source.ts`), not `AppDataSource.query()`. `query()` drops the structured-result arg, so raw results come back inconsistently shaped (bare rows vs `[rows, rowCount]`). `runQuery()` always returns `{ records, affected }` and wraps in a short-lived transaction.
 - `initDb()` is idempotent; called once at each app's bootstrap.
 
@@ -134,8 +132,8 @@ Every new feature goes through all 4 stages (powered by superpowers skills). **D
 
 ### Two Gates
 
-- **Gate-1** (M2): dispatch↔daemon protocol spike — `register/heartbeat/claim/start/messages/complete/fail/usage/session` translated from multica.
-- **Gate-2** (M0, parallel): Flowise fork builds + "where does Flow Execution State live?" — 历史决策，已归档见 `docs/archive/architecture/gate-2-flow-state.md`。当前工作流引擎迁移至 `packages/workflow/`，见 `docs/superpowers/specs/2026-07-25-system-architecture-redesign.md` §1.4。
+- **Gate-1** (M2): dispatch↔daemon protocol spike — `register/heartbeat/claim/start/messages/complete/fail/usage/session` translated from multica. 已通过。
+- **Gate-2** (M0, parallel): Flowise fork builds + "where does Flow Execution State live?" — 历史决策，已归档见 `docs/archive/architecture/gate-2-flow-state.md`。工作流引擎已迁移至 `packages/workflow/`（Plan A/B/C 完成），见 `docs/superpowers/specs/2026-07-25-system-architecture-redesign.md` §1.4。
 
 ### Commits — conventional commits, **Chinese descriptions**
 
@@ -153,7 +151,7 @@ Reviewer roles seen: `code-reviewer` (adversarial review / 对抗式评审), `pr
 ### Testing
 
 - Vitest, per-package. `*.test.ts` colocated with source (or in `__tests__/`).
-- E2E in `packages/e2e`: **boots real Hono apps on ephemeral ports** with stub Flowise/LLM/new-api as real `node:http` servers + a real `runDaemon` with a fake claude backend. Why real `serve()` and not `app.request()`: the W3C `traceparent` that undici auto-instrumentation injects is only extracted on the receiving hop by the `http` server instrumentation — in-process `app.request()` calls cannot exercise cross-process propagation.
+- E2E in `packages/e2e`: **boots real Hono apps on ephemeral ports** with a stub LLM provider as a real `node:http` server + a real `runDaemon` with a fake claude backend. Why real `serve()` and not `app.request()`: the W3C `traceparent` that undici auto-instrumentation injects is only extracted on the receiving hop by the `http` server instrumentation — in-process `app.request()` calls cannot exercise cross-process propagation.
 - E2E requires the docker-compose dev stack up (PG :15432, Redis :16479); `setup.ts` runs pending migrations before tests. `fileParallelism: false`, 60s timeouts.
 
 ## CodeGraph

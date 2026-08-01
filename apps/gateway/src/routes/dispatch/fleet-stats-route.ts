@@ -1,5 +1,5 @@
 import { Hono } from 'hono'
-import { ok } from '../app.js'
+import { ok } from './index.js'
 import {
   FLEET_WINDOW_HOURS,
   windowSince,
@@ -10,8 +10,8 @@ import {
   regionBreakdown,
   costRollup,
   allAgentDaemonCalls,
-} from '../fleet-stats.js'
-import { aggregateUsage } from '../runs-usage.js'
+} from './fleet-stats.js'
+import { aggregateUsage } from './runs-usage.js'
 
 /**
  * Fleet resource-dashboard read route (plan M6.5 / P1.11.T6): the

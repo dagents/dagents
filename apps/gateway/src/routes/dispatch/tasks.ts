@@ -1,8 +1,8 @@
 import { Hono } from 'hono'
 import { z } from 'zod'
 import { runQuery } from '@dagents/db'
-import { ok, fail } from '../app.js'
-import { appendAgentDaemonCall } from '../runs-usage.js'
+import { ok, fail } from './index.js'
+import { appendAgentDaemonCall } from './runs-usage.js'
 import { createLogger } from '@dagents/shared'
 
 /**
@@ -72,7 +72,7 @@ async function getTaskStatus(id: string): Promise<string | null> {
 }
 
 /**
- * Read-only task lookup (spec §1.5 line 412). Flowise's DispatchInvoke node
+ * Read-only task lookup (spec §1.5 line 412). workflow's DispatchInvoke node
  * polls this to resolve a task's terminal result after invoke→claim→complete.
  *
  * `result` is the JSONB blob stamped by `/complete` (`{ output, sessionId,

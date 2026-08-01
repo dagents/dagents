@@ -3,6 +3,15 @@ import { parseCommand } from '../routes/chat-execute.js'
 import { app } from '../app.js'
 import { AppDataSource, runQuery } from '@dagents/db'
 import { randomUUID } from 'node:crypto'
+import { enqueueTask } from '../routes/dispatch/service.js'
+
+// Mock the in-process dispatch service so we can assert enqueueTask calls
+// without touching the dispatch_tasks table. Plan A merged dispatch into
+// gateway, so routeDaemonCommand now calls enqueueTask() directly instead
+// of HTTP-fetching the dispatch service.
+vi.mock('../routes/dispatch/service.js', () => ({
+  enqueueTask: vi.fn(),
+}))
 
 let seededChatIds: string[] = []
 let seededDirIds: string[] = []
@@ -15,7 +24,10 @@ beforeAll(async () => {
 afterAll(async () => {
   if (AppDataSource.isInitialized) await AppDataSource.destroy()
 })
-beforeEach(async () => { await cleanup() })
+beforeEach(async () => {
+  vi.mocked(enqueueTask).mockReset()
+  await cleanup()
+})
 afterEach(async () => { await cleanup() })
 
 async function cleanup(): Promise<void> {
@@ -234,104 +246,76 @@ describe('routeDaemonCommand @daemon wiring', () => {
     expect(body.data.payload?.command?.message).toBe('run scan')
   })
 
-  it('enqueues task on dispatch /invoke and returns runId + taskId', async () => {
+  it('enqueues task via in-process enqueueTask and returns runId + taskId', async () => {
     const agentId = randomUUID()
     const { chatId, dirId } = await seedDirAndChat({ agentId })
     const expectedTaskId = randomUUID()
     const expectedDirPath = `/test-${dirId.slice(0, 8)}`
 
-    const mockFetch = vi.fn().mockResolvedValue({
-      ok: true,
-      json: () => Promise.resolve({ success: true, data: { taskId: expectedTaskId } }),
-    })
-    vi.stubGlobal('fetch', mockFetch)
+    const mockEnqueue = vi.mocked(enqueueTask)
+    mockEnqueue.mockResolvedValue({ taskId: expectedTaskId })
 
-    try {
-      const res = await app.request(`/api/v1/chats/${chatId}/messages`, {
-        method: 'POST',
-        headers: { 'content-type': 'application/json' },
-        body: JSON.stringify({ content: '@daemon rebuild the index' }),
-      })
-      expect(res.status).toBe(200)
-      const body = (await res.json()) as {
-        success: boolean
-        data: {
-          mode: string
-          payload?: {
-            ack?: string
-            runId?: string
-            taskId?: string
-            command?: { kind?: string; message?: string }
-          }
+    const res = await app.request(`/api/v1/chats/${chatId}/messages`, {
+      method: 'POST',
+      headers: { 'content-type': 'application/json' },
+      body: JSON.stringify({ content: '@daemon rebuild the index' }),
+    })
+    expect(res.status).toBe(200)
+    const body = (await res.json()) as {
+      success: boolean
+      data: {
+        mode: string
+        payload?: {
+          ack?: string
+          runId?: string
+          taskId?: string
+          command?: { kind?: string; message?: string }
         }
       }
-      expect(body.success).toBe(true)
-      expect(body.data.mode).toBe('json')
-      expect(body.data.payload?.taskId).toBe(expectedTaskId)
-      expect(body.data.payload?.runId).toBeTruthy()
-      expect(body.data.payload?.ack).toMatch(/Daemon invoked: rebuild the index/)
-      expect(body.data.payload?.command?.kind).toBe('daemon')
-
-      // Verify dispatch was called with the right URL + body contract.
-      expect(mockFetch).toHaveBeenCalledTimes(1)
-      const fetchUrl = mockFetch.mock.calls[0][0] as string
-      const fetchOpts = mockFetch.mock.calls[0][1] as {
-        method: string
-        headers: Record<string, string>
-        body: string
-      }
-      expect(fetchUrl).toBe('http://localhost:8081/api/v1/dispatch/invoke')
-      expect(fetchOpts.method).toBe('POST')
-      expect(fetchOpts.headers['content-type']).toBe('application/json')
-      const dispatched = JSON.parse(fetchOpts.body) as {
-        agentDaemonId: string
-        runId: string
-        prompt: string
-        execOptions: { cwd?: string }
-      }
-      expect(dispatched.agentDaemonId).toBe(agentId)
-      expect(dispatched.runId).toBe(body.data.payload?.runId)
-      expect(dispatched.prompt).toBe('rebuild the index')
-      expect(dispatched.execOptions.cwd).toBe(expectedDirPath)
-
-      // Chat should be marked running.
-      const { records } = await runQuery<{ status: string }>(
-        `SELECT status FROM chats WHERE id = $1::uuid`,
-        [chatId],
-      )
-      expect(records[0]?.status).toBe('running')
-    } finally {
-      vi.unstubAllGlobals()
     }
+    expect(body.success).toBe(true)
+    expect(body.data.mode).toBe('json')
+    expect(body.data.payload?.taskId).toBe(expectedTaskId)
+    expect(body.data.payload?.runId).toBeTruthy()
+    expect(body.data.payload?.ack).toMatch(/Daemon invoked: rebuild the index/)
+    expect(body.data.payload?.command?.kind).toBe('daemon')
+
+    // Verify enqueueTask was called with the right contract (Plan A: no HTTP).
+    expect(mockEnqueue).toHaveBeenCalledTimes(1)
+    expect(mockEnqueue).toHaveBeenCalledWith({
+      agentDaemonId: agentId,
+      runId: body.data.payload?.runId,
+      prompt: 'rebuild the index',
+      execOptions: { cwd: expectedDirPath },
+    })
+
+    // Chat should be marked running.
+    const { records } = await runQuery<{ status: string }>(
+      `SELECT status FROM chats WHERE id = $1::uuid`,
+      [chatId],
+    )
+    expect(records[0]?.status).toBe('running')
   })
 
-  it('returns error payload when dispatch returns non-ok status', async () => {
+  it('returns error payload when enqueueTask throws', async () => {
     const agentId = randomUUID()
     const { chatId } = await seedDirAndChat({ agentId })
 
-    const mockFetch = vi.fn().mockResolvedValue({
-      ok: false,
-      status: 422,
-      text: () => Promise.resolve('enqueue failed'),
-    })
-    vi.stubGlobal('fetch', mockFetch)
+    const mockEnqueue = vi.mocked(enqueueTask)
+    mockEnqueue.mockRejectedValue(new Error('enqueue failed'))
 
-    try {
-      const res = await app.request(`/api/v1/chats/${chatId}/messages`, {
-        method: 'POST',
-        headers: { 'content-type': 'application/json' },
-        body: JSON.stringify({ content: '@daemon do thing' }),
-      })
-      expect(res.status).toBe(200)
-      const body = (await res.json()) as {
-        success: boolean
-        data: { mode: string; payload?: { error?: string; ack?: string } }
-      }
-      expect(body.data.mode).toBe('json')
-      expect(body.data.payload?.error).toBe('dispatch invoke failed')
-      expect(body.data.payload?.ack).toMatch(/Daemon invoke failed: 422/)
-    } finally {
-      vi.unstubAllGlobals()
+    const res = await app.request(`/api/v1/chats/${chatId}/messages`, {
+      method: 'POST',
+      headers: { 'content-type': 'application/json' },
+      body: JSON.stringify({ content: '@daemon do thing' }),
+    })
+    expect(res.status).toBe(200)
+    const body = (await res.json()) as {
+      success: boolean
+      data: { mode: string; payload?: { error?: string; ack?: string } }
     }
+    expect(body.data.mode).toBe('json')
+    expect(body.data.payload?.error).toMatch(/enqueue failed/)
+    expect(body.data.payload?.ack).toMatch(/Daemon invoke error/)
   })
 })

@@ -1,5 +1,4 @@
-import { Hono, type Context } from 'hono'
-import type { ContentfulStatusCode } from 'hono/utils/http-status'
+import { Hono } from 'hono'
 import { context, trace } from '@opentelemetry/api'
 import { createLogger, getTracer } from '@dagents/shared'
 import { llmRoutes } from './routes/llm.js'
@@ -11,6 +10,7 @@ import { llmProviderRoutes } from './routes/llm-providers.js'
 import { workflowsRoutes } from './routes/workflows.js'
 import { authRoutes, currentUser } from './routes/auth.js'
 import { internalRunsRoutes } from './routes/internal-runs.js'
+import { dispatchRoutes } from './routes/dispatch/index.js'
 import { requireLogin, stampSsoUser, type SsoContextVars } from './auth.js'
 
 // `app` is exported separately from the `serve()` entry so tests can drive it
@@ -21,14 +21,10 @@ export const app = new Hono<{ Variables: SsoContextVars }>()
 
 const log = createLogger({ svc: 'gateway' })
 
-// Dispatch listens on 8081 (see packages/daemon — daemons dial it directly at
-// `http://localhost:8081`). Override with DISPATCH_URL.
-const dispatchUrl = (): string => process.env.DISPATCH_URL ?? 'http://localhost:8081'
-
 // Scheduler listens on 8082 (see apps/scheduler/src/index.ts). Override with
 // SCHEDULER_URL. The scheduler exposes run trace data through the gateway →
 // scheduler proxy below, so the scheduler stays behind the gateway's single
-// port / auth surface like dispatch.
+// port / auth surface.
 const schedulerUrl = (): string => process.env.SCHEDULER_URL ?? 'http://localhost:8082'
 
 // Hop-by-hop / client-specific headers. Per RFC 7230 §6.1 these must not be
@@ -112,7 +108,11 @@ app.use('*', async (c, next) => {
   }
   // REQUIRE_LOGIN is on. Exempt the public surface so login is reachable.
   const path = new URL(c.req.url).pathname
-  const isPublic = path === '/health' || path.startsWith('/api/v1/auth/') || path.startsWith('/api/v1/llm/')
+  const isPublic =
+    path === '/health' ||
+    path.startsWith('/api/v1/auth/') ||
+    path.startsWith('/api/v1/llm/') ||
+    path.startsWith('/api/v1/dispatch/')  // daemon protocol — machine-to-machine, network-isolated (gateway binds 127.0.0.1)
   if (isPublic || user) {
     await next()
     return
@@ -176,82 +176,19 @@ app.route('/api/v1/llm-providers', llmProviderRoutes)
 app.route('/api/v1/workflows', workflowsRoutes)
 
 /**
- * Gateway → dispatch proxy (M2.9b / P1.9).
+ * Dispatch protocol routes (spec §1.5), merged into gateway (Plan A, 2026-08-01).
  *
- * Unlike the dispatch proxy below, this is a *blind* passthrough — no path
- * rewrite. Dispatch mounts its own routes under `/api/v1/dispatch/*` (see
- * packages/daemon/src/client.ts: `/api/v1/dispatch/daemons/...`,
- * `/api/v1/dispatch/tasks/...`, `/api/v1/dispatch/invoke`, …), so the path is
- * forwarded verbatim: `/api/v1/dispatch/<rest>` → `${DISPATCH_URL}/api/v1/dispatch/<rest>`.
+ * Originally a separate `apps/dispatch/` Hono app on :8081; now mounted inline.
+ * Daemon clients dial gateway (:8080) instead of a separate dispatch port.
+ * The 20 routes (daemons/tasks/agents/invoke/runs-usage/fleet-stats) + 2 service
+ * modules live in `src/routes/dispatch/`.
  *
- * No `x-run-id` is generated — dispatch keys its own runs by taskId — but a
- * caller-supplied `x-run-id` is forwarded like any other non-hop-by-hop
- * header (it isn't in DROP_REQUEST_HEADERS).
+ * SSO posture: `/api/v1/dispatch/*` is on the public allowlist above — daemon
+ * protocol paths are machine-to-machine and rely on network isolation (gateway
+ * binds 127.0.0.1) rather than session auth. Production deployments should put
+ * a reverse proxy with IP allowlist in front for the dispatch paths.
  */
-app.all('/api/v1/dispatch/*', async (c) => {
-  const inbound = new URL(c.req.url)
-  const upstreamPath = inbound.pathname
-
-  const method = c.req.method
-  const hasBody = !['GET', 'HEAD', 'OPTIONS'].includes(method)
-
-  // Hop-by-hop headers (static set) PLUS any field the client named in its
-  // `Connection` header (RFC 7230 §6.1 requires stripping those too).
-  const dropReq = new Set(DROP_REQUEST_HEADERS)
-  for (const f of connectionListedFields(c.req.raw.headers.get('connection'))) {
-    dropReq.add(f)
-  }
-  const fwdHeaders = new Headers()
-  for (const [k, v] of c.req.raw.headers.entries()) {
-    if (dropReq.has(k.toLowerCase())) continue
-    fwdHeaders.set(k, v)
-  }
-
-  // Buffer the body so undici sets an accurate content-length and we avoid
-  // `duplex: 'half'` streaming complexity. Dispatch bodies (invoke payload,
-  // task messages) are small JSON.
-  const body = hasBody ? await c.req.text() : undefined
-
-  const upstreamUrl = new URL(upstreamPath, dispatchUrl())
-  upstreamUrl.search = inbound.search
-
-  let upstream: Response
-  try {
-    upstream = await fetch(upstreamUrl, { method, headers: fwdHeaders, body })
-  } catch (err) {
-    log.error('dispatch proxy failed', { path: upstreamPath, method, error: String(err) })
-    return c.json({ success: false, error: 'upstream unavailable' }, 502)
-  }
-
-  // Upstream *application* 5xx: don't forward the body/headers verbatim —
-  // dispatch error bodies can carry stacks, DB strings, internal hostnames.
-  // Collapse to a sanitized 502; the real detail stays in the server log.
-  // 4xx (400 bad request / 404 not found / 422 validation) forwards the
-  // real status code so the console can distinguish "bad input" from
-  // "dispatch down", but the body is still sanitized (not forwarded verbatim)
-  // to avoid leaking internal details like DB connection strings.
-  if (!upstream.ok) {
-    if (upstream.status >= 400 && upstream.status < 500) {
-      // Drain the body so the socket can be reused, but don't forward it.
-      await upstream.text().catch(() => '')
-      return c.json({ success: false, error: 'upstream client error', upstreamStatus: upstream.status }, upstream.status as ContentfulStatusCode)
-    }
-    log.warn('upstream error', { path: upstreamPath, method, status: upstream.status })
-    return c.json({ success: false, error: 'upstream error', upstreamStatus: upstream.status }, 502)
-  }
-
-  // Success path: allowlist response headers (no upstream `x-*` / `set-cookie`
-  // / server banner leak). No x-run-id is forced here — dispatch owns its own
-  // run/task id model.
-  const respHeaders = new Headers()
-  for (const [k, v] of upstream.headers.entries()) {
-    if (ALLOW_RESPONSE_HEADERS.has(k.toLowerCase())) respHeaders.set(k, v)
-  }
-
-  log.info('proxy dispatch', { path: upstreamPath, method, status: upstream.status })
-
-  return new Response(upstream.body, { status: upstream.status, headers: respHeaders })
-})
+app.route('/api/v1/dispatch', dispatchRoutes)
 
 /**
  * Gateway → scheduler proxy (M6.4 / P1.11.T5): a read-only passthrough for a

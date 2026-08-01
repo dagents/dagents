@@ -72,7 +72,7 @@ case "${1:-dev}" in
     echo $! > "$ROOT/.dev.pid"
     # Wait a moment for dispatch to come up before daemon tries to register
     sleep 3
-    export DISPATCH_URL="${DISPATCH_URL:-http://localhost:8081}"
+    export DISPATCH_URL="${DISPATCH_URL:-http://localhost:8080}"
     DAEMON_LABEL="${DAEMON_LABEL:-dev-laptop}"
     DAEMON_TYPE="${DAEMON_TYPE:-claude}"
     pnpm --filter @dagents/daemon dev -- "$DISPATCH_URL" "$DAEMON_LABEL" "$DAEMON_TYPE" &

@@ -1,5 +1,5 @@
 import { describe, it, expect, beforeAll, afterAll, beforeEach } from 'vitest'
-import { app, bootstrap } from '../app.js'
+import { app } from '../../app.js'
 import { AppDataSource } from '@dagents/db'
 import { randomUUID } from 'node:crypto'
 
@@ -22,7 +22,7 @@ let agentDaemonId: string
 let daemonId: string
 
 beforeAll(async () => {
-  await bootstrap()
+  if (!AppDataSource.isInitialized) await AppDataSource.initialize()
 })
 
 afterAll(async () => {

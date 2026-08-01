@@ -5,7 +5,7 @@
  *   mil-daemon <serverUrl> <label> <agentType>
  *
  * Example:
- *   mil-daemon http://localhost:8081 dev-laptop claude
+ *   mil-daemon http://localhost:8080 dev-laptop claude
  *
  * The daemon runs until SIGINT/SIGTERM. It logs to stdout (pino) and exits 0
  * on a graceful drain, 1 on a fatal register failure or unexpected crash.
@@ -34,12 +34,12 @@ function usage(): string {
   return [
     'usage: mil-daemon <serverUrl> <label> <agentType>',
     '',
-    '  serverUrl   dispatch server base URL (e.g. http://localhost:8081)',
+    '  serverUrl   dispatch server base URL (e.g. http://localhost:8080)',
     '  label       human-readable daemon label (e.g. dev-laptop)',
     `  agentType   one of: ${AGENT_TYPES.join(', ')}`,
     '',
     'example:',
-    '  mil-daemon http://localhost:8081 dev-laptop claude',
+    '  mil-daemon http://localhost:8080 dev-laptop claude',
   ].join('\n')
 }
 

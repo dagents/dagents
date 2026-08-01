@@ -2,12 +2,12 @@ import { Hono } from 'hono'
 import { z } from 'zod'
 import { randomUUID } from 'node:crypto'
 import { runQuery } from '@dagents/db'
-import { ok, fail } from '../app.js'
+import { ok, fail } from './index.js'
 
 /**
  * POST /api/v1/dispatch/invoke — enqueue a task (spec §1.5.T2).
  *
- * Flowise-side entry: insert a `dispatch_tasks` row at status `queued` and
+ * workflow-side entry: insert a `dispatch_tasks` row at status `queued` and
  * return `{ taskId }`. The daemon later pulls it via `/daemons/:id/tasks/claim`.
  *
  * `agentDaemonId` is a UUID-shaped FK into `agent_daemons`; we validate the

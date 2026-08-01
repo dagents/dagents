@@ -2,7 +2,7 @@ import { Hono } from 'hono'
 import { z } from 'zod'
 import { randomUUID } from 'node:crypto'
 import { runQuery } from '@dagents/db'
-import { ok, fail } from '../app.js'
+import { ok, fail } from './index.js'
 
 /**
  * Agent catalogue read routes (M5a.2 / P1.10.T4).

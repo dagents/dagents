@@ -1,5 +1,5 @@
 import { describe, it, expect, beforeAll, afterAll, beforeEach } from 'vitest'
-import { app, bootstrap } from '../app.js'
+import { app } from '../../app.js'
 import { AppDataSource } from '@dagents/db'
 import { randomUUID } from 'node:crypto'
 
@@ -12,7 +12,6 @@ import { randomUUID } from 'node:crypto'
  * between runs so state never leaks across tests.
  *
  * Coverage:
- * - /health reports db initialized
  * - register → { daemonId, token }; heartbeat updates; deregister 404s after
  * - invoke enqueues a queued task; claim atomically pulls it (FIFO + SKIP LOCKED)
  * - second claim returns null when the queue is empty
@@ -25,7 +24,7 @@ let agentDaemonId: string
 let daemonId: string
 
 beforeAll(async () => {
-  await bootstrap()
+  if (!AppDataSource.isInitialized) await AppDataSource.initialize()
 })
 
 afterAll(async () => {
@@ -56,16 +55,6 @@ beforeEach(async () => {
     [daemonId],
   )
   agentDaemonId = adRows[0].id
-})
-
-describe('dispatch /health', () => {
-  it('reports ok with db initialized', async () => {
-    const res = await app.request('/health')
-    expect(res.status).toBe(200)
-    const body = (await res.json()) as { ok: boolean; db: boolean }
-    expect(body.ok).toBe(true)
-    expect(body.db).toBe(true)
-  })
 })
 
 describe('daemon lifecycle', () => {

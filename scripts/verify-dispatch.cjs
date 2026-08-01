@@ -1,6 +1,6 @@
 // Manual curl-equivalent verification of all dispatch endpoints (M2.2 验收).
-// Runs against the locally-started dispatch server on :8081.
-const B = 'http://localhost:8081/api/v1/dispatch'
+// Runs against the gateway (dispatch routes merged into gateway, Plan A 2026-08-01) on :8080.
+const B = 'http://localhost:8080/api/v1/dispatch'
 const code = async (r) => `${r.status} ${r.ok ? 'OK' : ''}`
 
 async function main() {

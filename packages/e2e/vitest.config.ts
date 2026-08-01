@@ -4,9 +4,9 @@ import { defineConfig } from 'vitest/config'
 // gateway Hono apps on ephemeral ports (so the W3C `traceparent` the undici
 // auto-instrumentation injects is actually extracted on the receiving hop by
 // the `http` server instrumentation — the property `app.request()` in-process
-// calls cannot exercise), a stub Flowise + stub LLM/new-api as real `node:http`
-// servers, and a real `runDaemon` with a fake claude backend. It drives one
-// `run_id` through scheduler fanOut → gateway → flowise → dispatch → daemon →
+// calls cannot exercise), a stub LLM provider as a real `node:http` server,
+// and a real `runDaemon` with a fake claude backend. It drives one `run_id`
+// through scheduler fanOut → gateway → @dagents/workflow → dispatch → daemon →
 // LLM and asserts the run_id + one OTel traceId thread every hop, with
 // text/tool-use events, usage, and node spans all landed.
 //

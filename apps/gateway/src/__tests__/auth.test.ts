@@ -163,9 +163,11 @@ describe('POST /api/v1/auth/logout', () => {
 describe('REQUIRE_LOGIN session gate', () => {
   it('gates a non-public route with 401 when no session', async () => {
     process.env.REQUIRE_LOGIN = '1'
-    // The dispatch proxy is a non-public route; with REQUIRE_LOGIN on + no
-    // session it must 401 before dialing dispatch.
-    const res = await app.request('/api/v1/dispatch/agents', { method: 'GET' })
+    // /api/v1/agents is a non-public gateway-owned route; with REQUIRE_LOGIN
+    // on + no session it must 401 before hitting the DB. (Note: /api/v1/dispatch/*
+    // is intentionally public under Plan A — daemon protocol is machine-to-machine
+    // and relies on network isolation, not session auth.)
+    const res = await app.request('/api/v1/agents', { method: 'GET' })
     expect(res.status).toBe(401)
   })
 

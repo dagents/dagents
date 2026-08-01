@@ -1,8 +1,8 @@
 import { describe, it, expect, beforeAll, afterAll, beforeEach } from 'vitest'
-import { app, bootstrap } from '../app.js'
+import { app } from '../../app.js'
 import { AppDataSource } from '@dagents/db'
-import { aggregateUsage } from '../runs-usage.js'
-import { windowSince, FLEET_WINDOW_HOURS } from '../fleet-stats.js'
+import { aggregateUsage } from '../../routes/dispatch/runs-usage.js'
+import { windowSince, FLEET_WINDOW_HOURS } from '../../routes/dispatch/fleet-stats.js'
 import { randomUUID } from 'node:crypto'
 
 /**
@@ -32,7 +32,7 @@ let daemonId: string
 let agentDaemonId: string
 
 beforeAll(async () => {
-  await bootstrap()
+  if (!AppDataSource.isInitialized) await AppDataSource.initialize()
 })
 
 afterAll(async () => {

@@ -3,7 +3,7 @@ import { z } from 'zod'
 import { randomUUID } from 'node:crypto'
 import { runQuery } from '@dagents/db'
 import { createLogger } from '@dagents/shared'
-import { ok, fail } from '../app.js'
+import { ok, fail } from './index.js'
 
 /**
  * Daemon lifecycle routes (spec §1.5.T3/T4):

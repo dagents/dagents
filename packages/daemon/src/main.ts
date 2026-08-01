@@ -38,7 +38,7 @@ function isTerminalConflict(err: unknown): boolean {
 }
 
 export interface DaemonOpts {
-  /** Dispatch server base URL, e.g. `http://localhost:8081`. */
+  /** Dispatch server base URL, e.g. `http://localhost:8080`. */
   serverUrl: string
   /** Human-readable label for this daemon (logged, stored on the daemons row). */
   label: string

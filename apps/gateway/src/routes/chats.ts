@@ -10,6 +10,7 @@ import {
   routeMessage,
   type RouteResult,
 } from './chat-execute.js'
+import { enqueueTask, getTask, getTaskEvents } from './dispatch/service.js'
 
 export const chatRoutes = new Hono()
 
@@ -456,11 +457,10 @@ chatRoutes.post('/:id/messages', async (c) => {
  * service and stream the output back as SSE.
  *
  * When the user selects an agent in the chat UI (e.g. claude-code), the
- * chat has agent_id but no flow_id. We POST a task to dispatch, then poll
+ * chat has agent_id but no flow_id. We enqueue a dispatch task (via the
+ * in-process service function — no HTTP round-trip), then poll
  * dispatch_task_events and stream them as SSE tokens to the client.
  */
-const DISPATCH_URL = (): string => process.env.DISPATCH_URL ?? 'http://localhost:8081'
-
 async function streamAgentExecution(
   c: Context,
   chatId: string,
@@ -469,28 +469,18 @@ async function streamAgentExecution(
 ): Promise<Response> {
   const runId = randomUUID()
 
-  // 1. Create a dispatch task for this agent.
+  // 1. Create a dispatch task for this agent (in-process service call).
   let taskId: string
   try {
-    const res = await fetch(`${DISPATCH_URL()}/api/v1/dispatch/invoke`, {
-      method: 'POST',
-      headers: { 'content-type': 'application/json' },
-      body: JSON.stringify({
-        agentDaemonId: agentId,
-        runId,
-        prompt: prompt ?? '',
-      }),
+    const result = await enqueueTask({
+      agentDaemonId: agentId,
+      runId,
+      prompt: prompt ?? '',
     })
-    if (!res.ok) {
-      const detail = await res.text().catch(() => '')
-      log.error('dispatch invoke failed', { agentId, status: res.status, detail: detail.slice(0, 200) })
-      return c.json({ success: false, error: 'dispatch invoke failed', detail }, 502 as ContentfulStatusCode)
-    }
-    const body = (await res.json()) as { success: boolean; data?: { taskId?: string }; error?: string }
-    taskId = body.data?.taskId ?? runId
+    taskId = result.taskId
   } catch (err) {
-    log.error('dispatch invoke fetch failed', { agentId, error: String(err) })
-    return c.json({ success: false, error: 'dispatch unavailable' }, 502 as ContentfulStatusCode)
+    log.error('dispatch invoke failed', { agentId, error: String(err) })
+    return c.json({ success: false, error: 'dispatch invoke failed', detail: String(err) }, 502 as ContentfulStatusCode)
   }
 
   log.info('dispatched agent task', { chatId, agentId, taskId, runId })
@@ -508,42 +498,26 @@ async function streamAgentExecution(
 
       while (!terminal) {
         try {
-          // Check task status
-          const statusRes = await fetch(
-            `${DISPATCH_URL()}/api/v1/dispatch/tasks/${encodeURIComponent(taskId)}`,
-          )
-          if (statusRes.ok) {
-            const statusBody = (await statusRes.json()) as {
-              success: boolean
-              data?: { task?: { status: string } }
-            }
-            const taskStatus = statusBody.data?.task?.status
-            if (taskStatus === 'done' || taskStatus === 'failed' || taskStatus === 'cancelled') {
+          // Check task status (in-process service call)
+          const task = await getTask(taskId)
+          if (task) {
+            if (task.status === 'completed' || task.status === 'failed') {
               terminal = true
             }
           }
 
-          // Fetch new events since lastSeq
-          const eventsRes = await fetch(
-            `${DISPATCH_URL()}/api/v1/dispatch/tasks/${encodeURIComponent(taskId)}/events?after=${lastSeq}`,
-          )
-          if (eventsRes.ok) {
-            const eventsBody = (await eventsRes.json()) as {
-              success: boolean
-              data?: { events?: Array<{ seq: number; kind: string; payload: unknown }> }
-            }
-            const events = eventsBody.data?.events ?? []
-            for (const evt of events) {
-              if (evt.seq <= lastSeq) continue
-              lastSeq = evt.seq
-              const p = (evt.payload ?? {}) as Record<string, unknown>
-              const text =
-                typeof p.content === 'string' ? p.content
-                : typeof p.output === 'string' ? p.output
-                : typeof p.status === 'string' ? p.status
-                : JSON.stringify(p)
-              controller.enqueue(encoder.encode(`event: token\ndata: ${text}\n\n`))
-            }
+          // Fetch new events since lastSeq (in-process service call)
+          const events = await getTaskEvents(taskId, lastSeq)
+          for (const evt of events) {
+            if (evt.seq <= lastSeq) continue
+            lastSeq = evt.seq
+            const p = (evt.payload ?? {}) as Record<string, unknown>
+            const text =
+              typeof p.content === 'string' ? p.content
+              : typeof p.output === 'string' ? p.output
+              : typeof p.status === 'string' ? p.status
+              : JSON.stringify(p)
+            controller.enqueue(encoder.encode(`event: token\ndata: ${text}\n\n`))
           }
         } catch (err) {
           log.warn('agent event poll error', { taskId, error: String(err) })

@@ -471,8 +471,8 @@ describe('fetchFleetStats', () => {
 //
 // The unit `SNAPSHOT` above is a hand-rolled fixture convenient for the
 // formatter/KPI assertions. This block pins the *backend's* real
-// `GET /fleet-stats` shape (apps/dispatch/src/routes/fleet-stats.ts, asserted
-// by apps/dispatch/src/__tests__/fleet-stats.test.ts). It runs the full
+// `GET /fleet-stats` shape (apps/gateway/src/routes/dispatch/fleet-stats-route.ts,
+// asserted by apps/gateway/src/__tests__/dispatch/*.test.ts). It runs the full
 // projection (deriveKpis + daemonSegments + usageRows + statusBadge) against
 // that real shape so a future drift — e.g. flattening `fleet.daemons` again —
 // fails here instead of silently reading `undefined` at runtime.

@@ -49,7 +49,7 @@ export class DispatchHttpError extends Error {
 }
 
 export interface DispatchClientOptions {
-  /** Base URL of the dispatch server, e.g. `http://localhost:8081`. */
+  /** Base URL of the dispatch server, e.g. `http://localhost:8080`. */
   baseUrl: string
   /** Bearer token; empty until `register` returns one. */
   token?: string

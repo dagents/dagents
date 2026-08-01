@@ -28,11 +28,11 @@ describe('mil-daemon CLI — arg parsing', () => {
     const exitSpy = vi.spyOn(process, 'exit').mockImplementation((() => {}) as never)
     const errSpy = vi.spyOn(console, 'error').mockImplementation(() => {})
     try {
-      main(['http://localhost:8081', 'dev-laptop', 'claude'])
+      main(['http://localhost:8080', 'dev-laptop', 'claude'])
       expect(runDaemonMock).toHaveBeenCalledTimes(1)
       expect(runDaemonMock).toHaveBeenCalledWith(
         expect.objectContaining({
-          serverUrl: 'http://localhost:8081',
+          serverUrl: 'http://localhost:8080',
           label: 'dev-laptop',
           agentType: 'claude',
         }),
@@ -49,7 +49,7 @@ describe('mil-daemon CLI — arg parsing', () => {
     }) as never)
     const errSpy = vi.spyOn(console, 'error').mockImplementation(() => {})
     try {
-      expect(() => main(['http://localhost:8081'])).toThrow('exit:2')
+      expect(() => main(['http://localhost:8080'])).toThrow('exit:2')
       expect(runDaemonMock).not.toHaveBeenCalled()
     } finally {
       exitSpy.mockRestore()

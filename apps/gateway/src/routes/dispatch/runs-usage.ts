@@ -5,7 +5,8 @@ import { createLogger } from '@dagents/shared'
 /**
  * `runs.agent_daemon_calls` persistence (spec §5.3; plan M6.2 / P1.11.T3).
  *
- * The daemon reports a task's terminal `usage` (per-model tokens) + `durationMs`
+ * Merged from `apps/dispatch/src/runs-usage.ts` (Plan A, 2026-08-01). The
+ * daemon reports a task's terminal `usage` (per-model tokens) + `durationMs`
  * + `sessionId` to dispatch via `POST /tasks/:id/complete` (or `/fail`).
  * Dispatch appends one {@link AgentDaemonCall} to the owning run's
  * `agent_daemon_calls` JSONB array so the per-agent spend is queryable for the
@@ -16,7 +17,7 @@ import { createLogger } from '@dagents/shared'
  * does not correspond to a real `runs` row is silently skipped here — the task
  * still completes, only the run-level rollup is dropped. The owning run need
  * not be `running`; an appended call on a `completed` run is valid (the run
- * completed at the Flowise layer before the dispatch task did) and is what the
+ * completed at the workflow layer before the dispatch task did) and is what the
  * agents page reads.
  *
  * All access goes through `runQuery` parameterised raw SQL — same decorator-
@@ -24,7 +25,7 @@ import { createLogger } from '@dagents/shared'
  * schema + typing, not runtime queries.
  */
 
-const log = createLogger({ svc: 'dispatch:runs-usage' })
+const log = createLogger({ svc: 'gateway:dispatch:runs-usage' })
 
 /** One entry appended to `runs.agent_daemon_calls` on a terminal transition. */
 export interface AppendCallInput {
