@@ -2,10 +2,6 @@
   "$schema": "https://turbo.build/schema.json",
   "globalEnv": [
     "POSTGRES_URL",
-    "MINIO_ENDPOINT",
-    "MINIO_ACCESS_KEY",
-    "MINIO_SECRET_KEY",
-    "MINIO_BUCKET",
     "DB_LOG",
     "NEWAPI_BASE_URL",
     "NEWAPI_ADMIN_KEY",

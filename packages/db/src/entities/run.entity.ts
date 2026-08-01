@@ -67,7 +67,11 @@ export class Run {
   @Column({ name: 'pipeline_id', type: 'text' })
   pipelineId!: string
 
-  /** Repro snapshot hash (M4); nullable until `bindRunToVersion` runs. */
+  /**
+   * Repro snapshot hash (M4); nullable. The runtime consumer (`@dagents/repro`)
+   * was removed on 2026-08-01 — this column is currently always NULL. Retained
+   * for schema continuity; re-wire if run-reproducibility is re-introduced.
+   */
   @Column({ name: 'pipeline_version_hash', type: 'char', length: 64, nullable: true })
   pipelineVersionHash!: string | null
 

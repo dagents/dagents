@@ -7,18 +7,23 @@ import {
 } from 'typeorm'
 
 /**
- * A reproducible snapshot of a Flowise flow's JSON (spec §5.3, architecture v0.2
- * §5.3; plan M4.1 / P1.2.T5 + P1.8.T2).
+ * A reproducible snapshot of a flow's JSON (spec §5.3, architecture v0.2 §5.3;
+ * plan M4.1 / P1.2.T5 + P1.8.T2).
  *
- * Flowise has no native version locking (architecture v0.2 §5.3 "补 Flowise 无
- * 版本锁定的短板"), so the platform owns `pipeline_versions` as the immutable
- * content-addressed snapshot: the full flow JSON plus its SHA-256, with
- * `version_hash` UNIQUE so a re-snapshot of an unchanged flow reuses the same
- * row instead of duplicating it. `pipeline_id` is the Flowise flow id.
+ * Originally created to补 Flowise 无版本锁定的短板 (architecture v0.2 §5.3):
+ * the platform owns `pipeline_versions` as the immutable content-addressed
+ * snapshot — the full flow JSON plus its SHA-256, with `version_hash` UNIQUE
+ * so a re-snapshot of an unchanged flow reuses the same row. `pipeline_id` is
+ * the flow id.
+ *
+ * NOTE: The runtime consumer (`@dagents/repro`) was removed on 2026-08-01
+ * (its sole caller, apps/scheduler, was merged into gateway without migrating
+ * the repro integration). This entity + migration are retained for schema
+ * continuity; the table currently has no runtime readers or writers. If
+ * run-reproducibility is re-introduced, this is the seam to wire back in.
  *
  * Like `Run`, this entity exists for schema definition + repository typing;
- * runtime queries go through `runQuery` parameterised raw SQL in `packages/repro`,
- * so no entity class is loaded on the hot path (same decorator-free-reads
+ * no entity class is loaded on the hot path (same decorator-free-reads
  * rationale as `token_meta` / `runs`).
  */
 

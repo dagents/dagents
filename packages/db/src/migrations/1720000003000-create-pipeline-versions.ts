@@ -1,18 +1,16 @@
 import type { MigrationInterface, QueryRunner } from 'typeorm'
 
 /**
- * M4.1 — pipeline_versions table (spec §5.3, architecture v0.2 §5.3; P1.2.T5
- * lands late because it ships with its first real consumer — M4.1 repro).
+ * M4.1 — pipeline_versions table (spec §5.3, architecture v0.2 §5.3).
  *
- * Flowise has no native version locking (architecture v0.2 §5.3 "补 Flowise 无
- * 版本锁定的短板"), so the platform owns `pipeline_versions` as the immutable
- * content-addressed snapshot of a flow: the full JSON plus its SHA-256, with
- * `version_hash` UNIQUE so a re-snapshot of an unchanged flow reuses the row.
+ * Originally created to补 Flowise 无版本锁定的短板: the platform owns
+ * `pipeline_versions` as the immutable content-addressed snapshot of a flow —
+ * the full JSON plus its SHA-256, with `version_hash` UNIQUE so a re-snapshot
+ * of an unchanged flow reuses the row.
  *
- * Mirrors the raw-SQL-1:1 style of the runs / token_meta migrations: `packages/repro`
- * queries this table with parameterised raw SQL via `runQuery`; the entity class
- * exists for the schema definition + repository typing and is not loaded on the
- * runtime query path.
+ * NOTE: The runtime consumer (`@dagents/repro`) was removed on 2026-08-01.
+ * This migration is retained for schema continuity — never delete applied
+ * migrations. The table currently has no runtime readers or writers.
  *
  * Indexes (spec §5.3):
  *   - (version_hash) UNIQUE   dedup + content-addressed lookup

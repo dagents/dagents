@@ -190,14 +190,16 @@ export function recordAudit(c: Context, ctx: AuditCtx): Promise<void> {
 }
 
 /**
- * Record a version-lock audit without an HTTP context — the scheduler's repro
- * client snapshots a flow outside a request lifecycle (worker / fan-out), so it
- * has no `x-run-id` header. The caller passes the run id it already has (every
- * snapshot is bound to a run), and the actor is `system:scheduler`.
+ * Record a version-lock audit without an HTTP context. Historically used by
+ * the scheduler's repro client (removed 2026-08-01) to snapshot a flow outside
+ * a request lifecycle (worker / fan-out, no `x-run-id` header). The caller
+ * passes the run id it already has (every snapshot is bound to a run), and
+ * the actor is `system:scheduler`.
  *
+ * Retained for callers that may re-wire run-reproducibility in the future.
  * Same fire-and-forget contract as `recordAudit`: never throws, logs on
- * failure. Kept as a separate entry point (not a Context overload) so the
- * scheduler doesn't depend on Hono types.
+ * failure. Kept as a separate entry point (not a Context overload) so a
+ * non-Hono caller doesn't depend on Hono types.
  */
 export function recordVersionLockAudit(args: {
   /** The version hash the lock pinned (the content address). */

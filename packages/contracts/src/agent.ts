@@ -8,7 +8,7 @@
  *   - `ExecOptions.inactivityTimeoutMs` (multica `SemanticInactivityTimeout`)
  *   - `AgentEvent` `log` variant (multica `MessageLog`)
  * This package is zero-dependency and is the Gate-1 产出物: every layer
- * (daemon, dispatch, db, repro) depends on these types.
+ * (daemon, dispatch, db) depends on these types.
  */
 
 /** Canonical MVP agent-type whitelist (14 types). Mirrors multica `SupportedTypes`. */

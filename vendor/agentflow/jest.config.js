@@ -16,6 +16,18 @@ const baseConfig = {
         '\\.svg$': '<rootDir>/src/__mocks__/styleMock.js',
         '^@/(.*)$': '<rootDir>/src/$1',
         '^@test-utils/(.*)$': '<rootDir>/src/__test_utils__/$1',
+        // @agentflow/* path aliases — must mirror tsconfig.json paths
+        '^@agentflow/core$': '<rootDir>/src/core',
+        '^@agentflow/core/(.*)$': '<rootDir>/src/core/$1',
+        '^@agentflow/atoms$': '<rootDir>/src/atoms',
+        '^@agentflow/atoms/(.*)$': '<rootDir>/src/atoms/$1',
+        '^@agentflow/infrastructure$': '<rootDir>/src/infrastructure',
+        '^@agentflow/infrastructure/(.*)$': '<rootDir>/src/infrastructure/$1',
+        '^@agentflow/features$': '<rootDir>/src/features',
+        '^@agentflow/features/(.*)$': '<rootDir>/src/features/$1',
+        '^@agentflow/assets/(.*)$': '<rootDir>/src/assets/$1',
+        '^@agentflow/canvas$': '<rootDir>/src/features/canvas',
+        '^@agentflow/canvas/(.*)$': '<rootDir>/src/features/canvas/$1',
         // TipTap + lowlight ship ESM-only — Jest (CJS) cannot import them,
         // so we redirect to lightweight CJS stubs under src/__mocks__/.
         '^@tiptap/(.+)$': '<rootDir>/src/__mocks__/@tiptap/$1.ts',

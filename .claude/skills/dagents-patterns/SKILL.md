@@ -57,7 +57,7 @@ docs/
     ├── specs/                   # 历史 specs
     └── verification/            # Gate-1/2、M0/M1/M2/M6.7 验证证据
 CLAUDE.md                        # Claude Code 工作指南（保持与代码同步）
-infra/README.md                  # 本地基础设施（Postgres/Redis/MinIO/Langfuse）
+infra/README.md                  # 本地基础设施（Postgres/Langfuse）
 ```
 
 > 注：原 `INTERACTION-FLOW.md`（9 屏设计交互流程）已删除，被 `docs/superpowers/specs/2026-07-25-system-architecture-redesign.md` 的 Chat-First 双维度模型取代。
@@ -97,7 +97,7 @@ Historical Gates (both resolved):
 ## Testing Patterns
 
 - **TDD strictly**: write failing test → run (red) → minimal impl → run (green) → commit. Every task.
-- **Vitest** for TS packages (contracts/shared/db/agent-adapters/daemon/repro/workflow/gateway/scheduler).
+- **Vitest** for TS packages (contracts/shared/db/agent-adapters/daemon/workflow/gateway).
 - **Type tests** (`expectTypeOf`) for pure-type packages like `contracts`.
 - **Playwright E2E** in `apps/console/tests/e2e/`：36+ active tests 覆盖 Chat-First 用户旅程（UC-CHAT / UC-TRG / UC-DAE / UC-WF 系列）。
 - **Full-chain trace E2E** in `packages/e2e/`：boots real Hono apps + stub LLM provider + real `runDaemon` + fake claude backend，验证 W3C traceparent + business run_id 跨进程透传。

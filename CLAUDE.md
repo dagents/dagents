@@ -45,7 +45,7 @@ pnpm --filter @dagents/db migration:run          # apply pending
 pnpm --filter @dagents/db migration:revert       # roll back the last
 ```
 
-Local infra (Postgres + MinIO + Langfuse):
+Local infra (Postgres + Langfuse):
 ```bash
 cd infra && docker compose up -d && docker compose ps
 ```
@@ -58,7 +58,6 @@ cd infra && docker compose up -d && docker compose ps
 | gateway | 8080 | `GATEWAY_URL` |
 | console (Next) | 3000 | `apps/console` |
 | Langfuse | 3001 | v2.x pinned — **v3 requires ClickHouse**; see `infra/README.md` |
-| MinIO | 9000 / 9001 | `MINIO_ENDPOINT`, bucket `dagents` |
 | Postgres | host **15432** → 5432 | remapped to avoid host collisions; `POSTGRES_URL` |
 
 Env templates: `infra/.env.example` (infra) and per-app reads in `apps/*/src/index.ts`. Gateway dev SSO: `SSO_DEV_USERNAME` / `SSO_DEV_PASSWORD` / `SSO_SESSION_SECRET` + `REQUIRE_LOGIN=1` to gate routes.
@@ -72,14 +71,13 @@ console (Next) → gateway (Hono) → @dagents/workflow engine (in-repo)
    → [dispatch routes inline] → local daemon → claude/codex CLI → LLM Provider (用户自定义配置)
 ```
 - Every hop carries a business `run_id` (via `x-run-id` header) **and** a W3C `traceparent` (via OTel auto-instrumentation of `fetch`/`http`). These are different: `run_id` is the platform's; `traceId` is OTel's. Both must thread end-to-end.
-- Every run is snapshotted + bound to a `pipeline_version_hash` (`@dagents/repro`) inline at `createRun` time; output is archived to MinIO (`runs.artifact_uri`).
 - **Workflow engine** lives in `packages/workflow/` (Plan A/B/C 完成)。14 节点 + DAG 执行器 + SSE 流式 + 变量解析。Canvas 编辑器在 `vendor/agentflow/`（前端组件），数据持久化在 `flows` 表，通过 gateway `/api/v1/workflows/*` 路由 CRUD。
 
 ### Monorepo & dependency direction (enforced, no cycles)
 
 ```
 contracts  ←  agent-adapters  ←  daemon
-contracts  ←  db ← repro
+contracts  ←  db
 shared     ←  (all)
 workflow   ←  gateway (engine + 14 nodes)
 db         ←  gateway

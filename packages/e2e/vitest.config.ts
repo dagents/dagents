@@ -14,7 +14,7 @@ import { defineConfig } from 'vitest/config'
 // `fileParallelism: false` is belt-and-suspenders against any future sibling
 // file racing the shared `runs` / `dispatch_tasks` tables. `setupFiles` runs
 // `setup.ts` once per file: env defaults + pending migrations so `runs` /
-// `run_node_spans` exist on a fresh DB (same pattern as packages/repro).
+// `run_node_spans` exist on a fresh DB.
 export default defineConfig({
   test: {
     fileParallelism: false,

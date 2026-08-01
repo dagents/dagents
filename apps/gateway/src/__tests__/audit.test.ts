@@ -20,9 +20,9 @@ import { randomUUID } from 'node:crypto'
  *   paginates with a nextBefore cursor
  * - GET /api/v1/audit validates query params (400 on bad enum / uuid)
  *
- * This file covers the gateway side. The repro package's version-lock audit
- * path was historically covered by scheduler integration tests; after the
- * scheduler merge (Plan A 2026-08-01) the gateway owns audit writing.
+ * This file covers the gateway side. The version-lock audit path was
+ * historically covered by scheduler integration tests (scheduler + repro
+ * removed 2026-08-01); the gateway now owns audit writing.
  */
 
 beforeAll(async () => {
