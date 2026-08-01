@@ -117,6 +117,33 @@ export const CANVAS_NODES: CanvasNodeMeta[] = [
     },
   },
   {
+    name: 'platformAgentAgentflow',
+    label: 'Platform Agent',
+    category: 'agent',
+    color: '#8b5cf6',
+    icon: 'Bot',
+    description: '引用平台上的 Agent，使用其指令和模型配置进行推理',
+    inputs: [
+      {
+        label: 'Agent',
+        name: 'agentId',
+        type: 'string',
+        required: true,
+        description: '平台 Agent ID（UUID）',
+      },
+      {
+        label: 'Max Iterations',
+        name: 'maxIterations',
+        type: 'number',
+        default: 10,
+      },
+    ],
+    defaultData: {
+      agentId: '',
+      maxIterations: 10,
+    },
+  },
+  {
     name: 'llmAgentflow',
     label: 'LLM',
     category: 'agent',

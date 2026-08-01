@@ -75,8 +75,9 @@ export class AgentNode implements INode {
     return {
       id: nodeData.id,
       name: this.name,
-      input: {},
+      input: { model, systemPrompt: resolvedSystemPrompt, userMessage },
       output: { text: result.text, content: result.text },
+      usage: result.usage,
     }
   }
 }

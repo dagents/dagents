@@ -18,16 +18,16 @@
  * under vitest (matching agents-catalog.test.ts). Kept separate from the view
  * so the derivations are unit-testable in the node environment.
  *
- * Backend-contract gaps (docs/v0.3-fidelity-audit.md §后端契约 1): the
- * design's agent shape carries `model` / `owner` / `instructions` /
- * `concurrency` / `progress` / `activity` fields the dispatch `GET /agents/:id`
- * payload does not yet surface (pinned to M9 backend-contract alignment). This
- * module derives what it can from the real payload (runtime from kind+daemon,
- * progress from status+elapsed, activity from task-history day buckets,
- * availability from the daemon heartbeat) and falls back to an honest `—` /
- * `（未设置提示词）` for the rest rather than fabricating values. When M9 lands
- * the real fields, swap the fallbacks — the page model + view already shape
- * to receive them.
+ * Backend-contract alignment (v0.3-M9.1 / 后端契约 1): the gateway's
+ * `GET /api/v1/agents/:id` now returns design-aligned camelCase fields
+ * (`model` / `owner` / `instructions` / `concurrency` / `summary` / `skills`
+ * / `inputSchema` / `outputSchema`) at the top level alongside the snake_case
+ * runtime aliases. `derivePageModel` reads the camelCase design fields with
+ * fallbacks to the capability descriptor / `—` / `（未设置提示词）` for
+ * dispatch-shaped rows that lack them, and derives what it can from the
+ * runtime payload (runtime from kind+daemon, progress from status+elapsed,
+ * activity from task-history day buckets, availability from the daemon
+ * heartbeat).
  */
 
 import type { AgentDetail, AgentKind, AgentLogLine, AgentStatus } from './agents-catalog'
@@ -257,21 +257,25 @@ export function derivePageModel(
     name: agent.name,
     kind: agent.kind,
     roles: agent.roles,
-    summary: agent.capability.summary ?? '—',
+    // summary: gateway top-level design field, falling back to the capability
+    // descriptor's summary for dispatch-shaped rows that lack it.
+    summary: agent.summary ?? agent.capability.summary ?? '—',
     status: agent.status,
     availability,
-    // M9: dispatch payload has no per-agent model / owner / concurrency columns
-    // yet — honest placeholders until the backend-contract alignment lands.
-    model: '—',
-    owner: '—',
-    concurrency: '—',
+    // camelCase design fields (gateway DTO top-level). Fall back to `—` /
+    // `（未设置提示词）` for rows that lack them (dispatch-shaped test fixtures).
+    model: agent.model || '—',
+    owner: agent.owner || '—',
+    concurrency: agent.concurrency != null ? String(agent.concurrency) : '—',
     runtime,
     visibility,
     createdAt: agent.createdAt,
-    instructions: '（未设置提示词）',
-    inputSchema: agent.capability.inputSchema ?? '—',
-    outputSchema: agent.capability.outputSchema ?? '—',
-    skills: agent.roles,
+    instructions: agent.instructions || '（未设置提示词）',
+    inputSchema: agent.inputSchema ?? agent.capability.inputSchema ?? '—',
+    outputSchema: agent.outputSchema ?? agent.capability.outputSchema ?? '—',
+    // skills: gateway top-level design field, falling back to roles
+    // (capability descriptor tags) for dispatch-shaped rows.
+    skills: agent.skills && agent.skills.length > 0 ? agent.skills : agent.roles,
     currentRun: agent.run,
     progress: deriveProgressPct(agent.status, agent.elapsedMs),
     elapsed: formatElapsedMs(elapsedMs, agent.status),

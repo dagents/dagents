@@ -175,6 +175,12 @@ export interface FlowNodeView {
   type: string
   position: { x: number; y: number }
   status: NodeRunStatus
+  /** 节点配置（model, systemPrompt, prompt, agentId 等）—来自 flowData.nodes[i].data */
+  config?: Record<string, unknown>
+  /** 节点类型描述（来自 CanvasNodeMeta.description） */
+  description?: string
+  /** 节点类型名（如 'agentAgentflow', 'llmAgentflow'）—来自 data.name */
+  nodeType?: string
 }
 
 /** An edge in the rendered DAG. */

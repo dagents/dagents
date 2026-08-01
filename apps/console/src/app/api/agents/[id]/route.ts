@@ -2,8 +2,8 @@
  * Console → gateway agent-detail proxy (M5a.2 / P1.10.T4).
  *
  * Forwards `GET /api/agents/:id` to
- * `${gatewayUrl()}/api/v1/dispatch/agents/:id` (dispatch detail route). The
- * dispatch route 404s for an unknown agent id; that 404 is forwarded verbatim
+ * `${gatewayUrl()}/api/v1/agents/:id` (gateway unified agents detail route).
+ * The gateway 404s for an unknown agent id; that 404 is forwarded verbatim
  * so the drawer can show "agent not found" rather than a generic 502.
  *
  * M5b.4: `x-run-id` is always forwarded (generated if absent) and the SSO
@@ -22,7 +22,7 @@ export async function GET(
   { params }: { params: Promise<{ id: string }> },
 ): Promise<NextResponse> {
   const { id } = await params
-  const upstreamUrl = `${gatewayUrl()}/api/v1/dispatch/agents/${encodeURIComponent(id)}`
+  const upstreamUrl = `${gatewayUrl()}/api/v1/agents/${encodeURIComponent(id)}`
 
   const headers = forwardSessionHeaders(req, resolveRunId(req.headers.get('x-run-id')))
 

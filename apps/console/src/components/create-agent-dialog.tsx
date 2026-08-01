@@ -3,9 +3,14 @@
 /**
  * Create Agent dialog (multica-inspired).
  *
- * Modal form for registering a new agent_daemons row. Collects name / kind /
- * daemon / summary / visibility / executable_path, then POSTs /api/agents.
- * On success the parent reloads the list and the dialog closes.
+ * Modal form for registering a new agent. Collects name / kind / workspace /
+ * daemon / summary / visibility / executable_path, then POSTs /api/agents
+ * (→ gateway POST /api/v1/agents). On success the parent reloads the list
+ * and the dialog closes.
+ *
+ * The gateway POST requires `workspaceId` (uuid) and `ownerId`. `ownerId` is
+ * pulled from the session (`useSession().user.sub`); `workspaceId` has no
+ * app-wide context today, so it is collected via a text input.
  *
  * multica's full AgentCreationStudio (mode chooser → templates → AI builder)
  * is intentionally out of scope for the initial version — this is the simpler
@@ -15,6 +20,7 @@
 
 import { useEffect, useState } from 'react'
 import { Icon } from '@/components/icon'
+import { useSession } from '@/lib/auth-client'
 import {
   type AgentKind,
   type DaemonOption,
@@ -50,9 +56,13 @@ export function CreateAgentDialog({
   const [submitting, setSubmitting] = useState(false)
   const [error, setError] = useState<string | null>(null)
 
+  // Session — gateway POST requires ownerId (the current user's sub).
+  const { user } = useSession()
+
   // Form state
   const [name, setName] = useState('')
   const [kind, setKind] = useState<AgentKind>('prompt')
+  const [workspaceId, setWorkspaceId] = useState('')
   const [daemonId, setDaemonId] = useState('')
   const [summary, setSummary] = useState('')
   const [visibility, setVisibility] = useState<'workspace' | 'public'>('workspace')
@@ -97,6 +107,7 @@ export function CreateAgentDialog({
     if (open) return
     setName('')
     setKind('prompt')
+    setWorkspaceId('')
     setDaemonId('')
     setSummary('')
     setVisibility('workspace')
@@ -107,8 +118,10 @@ export function CreateAgentDialog({
   if (!open) return null
 
   const nameValid = name.trim().length > 0 && name.trim().length <= 128
+  const workspaceValid = workspaceId.trim().length > 0
   const daemonValid = daemonId.length > 0
-  const canSubmit = nameValid && daemonValid && !submitting && !loadingDaemons
+  const ownerId = user?.sub ?? ''
+  const canSubmit = nameValid && workspaceValid && daemonValid && ownerId.length > 0 && !submitting && !loadingDaemons
 
   const handleSubmit = async () => {
     if (!canSubmit) return
@@ -118,6 +131,8 @@ export function CreateAgentDialog({
       const id = await createAgent({
         name: name.trim(),
         kind,
+        workspaceId: workspaceId.trim(),
+        ownerId,
         daemonId,
         executablePath: executablePath.trim() || null,
         visibility,
@@ -176,6 +191,17 @@ export function CreateAgentDialog({
                     placeholder="例如 claude-code"
                     maxLength={128}
                     autoFocus
+                  />
+                </div>
+                <div className="field">
+                  <label htmlFor="agent-workspace">工作区 ID *</label>
+                  <input
+                    id="agent-workspace"
+                    type="text"
+                    className={`input${workspaceId.length === 0 ? '' : workspaceValid ? '' : ' invalid'}`}
+                    value={workspaceId}
+                    onChange={(e) => setWorkspaceId(e.target.value)}
+                    placeholder="例如 00000000-0000-4000-8000-000000000000"
                   />
                 </div>
                 <div className="field">

@@ -12,6 +12,7 @@ import { RetrieverNode } from './retriever/retriever.node.js'
 import { StartNode } from './start/start.node.js'
 import { LLMNode } from './llm/llm.node.js'
 import { AgentNode } from './agent/agent.node.js'
+import { PlatformAgentNode } from './platform-agent/platform-agent.node.js'
 import type { INode } from '../types/index.js'
 
 // Re-export node classes for direct import
@@ -29,6 +30,7 @@ export { RetrieverNode } from './retriever/retriever.node.js'
 export { StartNode } from './start/start.node.js'
 export { LLMNode } from './llm/llm.node.js'
 export { AgentNode } from './agent/agent.node.js'
+export { PlatformAgentNode } from './platform-agent/platform-agent.node.js'
 
 // Canvas node registry (metadata for the frontend editor)
 export { CANVAS_NODES, NODE_CATEGORIES, getNodeMeta, getNodesByCategory } from './node-registry-canvas.js'
@@ -45,6 +47,7 @@ export function allNodes(): INode[] {
     new StartNode(),
     new LLMNode(),
     new AgentNode(),
+    new PlatformAgentNode(),
     new DirectReplyNode(),
     new IterationNode(),
     new LoopNode(),

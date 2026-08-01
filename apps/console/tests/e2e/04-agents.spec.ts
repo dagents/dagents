@@ -28,7 +28,7 @@ import { createSeedContext, seedAgent, type SeedContext } from './helpers/seed'
  * ## Prerequisites
  *
  * The dev stack must be up — Postgres :15432, Redis :16479, gateway :8080,
- * dispatch :8081 — so `/api/agents` (→ gateway → dispatch → DB) and
+ * dispatch :8081 — so `/api/agents` (→ gateway `/api/v1/agents` → DB) and
  * `/api/agents/:id` resolve. The webServer in playwright.config.ts only owns
  * the Next dev process; everything else must be brought up first (see
  * infra/README.md).
@@ -36,11 +36,12 @@ import { createSeedContext, seedAgent, type SeedContext } from './helpers/seed'
  * ## Agent seed
  *
  * Agent seed requires the dispatch API for daemon registration: `seedAgent`
- * POSTs `/api/v1/dispatch/daemons/register` (creating the `daemons` host row)
- * and inserts the `agent_daemons` catalogue row via `@dagents/db`'s `runQuery`
- * (no create-agent API route exists today — see seed.ts header). `afterAll`
+ * POSTs `/api/v1/dispatch/daemons/register` (creating the `daemons` host row),
+ * seeds a `workspaces` row, then inserts both an `agents` table row (the
+ * gateway's primary table) and an `agent_daemons` catalogue row (runtime
+ * fields for the gateway's LEFT JOIN) via `@dagents/db`'s `runQuery`. `afterAll`
  * calls `ctx.dispose()` which deletes messages → chats → directories →
- * agent_daemons → daemons in FK-safe order.
+ * agent_daemons → agents → daemons → workspaces in FK-safe order.
  */
 
 /** Deterministic name so the list-row assertion can match the seeded agent by

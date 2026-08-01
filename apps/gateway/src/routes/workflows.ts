@@ -2,9 +2,10 @@ import { Hono, type Context } from 'hono'
 import type { ContentfulStatusCode } from 'hono/utils/http-status'
 import { randomUUID } from 'node:crypto'
 import { z } from 'zod'
-import { runQuery } from '@dagents/db'
+import { runQuery, type NodeSpanStatus } from '@dagents/db'
 import { createLogger } from '@dagents/shared'
-import { DagExecutor, NodeRegistry, allNodes, type FlowData } from '@dagents/workflow'
+import { DagExecutor, NodeRegistry, allNodes, CANVAS_NODES, type FlowData, type IExecutedNode } from '@dagents/workflow'
+import { createLlmClient, createAgentFetcher, resetProviderCache } from './workflow-clients.js'
 import { recordAudit } from '../audit.js'
 
 export const workflowsRoutes = new Hono()
@@ -305,6 +306,34 @@ const runBodySchema = z.object({
 const MAX_RUN_ID_LEN = 128
 
 /**
+ * Map the executor's IExecutedNode.status or a persisted run_node_spans.status
+ * onto the NodeSpanStatus domain used by the scheduler proxy. Kept consistent
+ * with the scheduler's own status map.
+ */
+function toNodeSpanStatus(raw: string): NodeSpanStatus {
+  switch (raw) {
+    case 'success':
+    case 'done':
+    case 'completed':
+      return 'done'
+    case 'fail':
+    case 'failed':
+    case 'error':
+      return 'failed'
+    case 'running':
+    case 'INPROGRESS':
+      return 'running'
+    case 'cancel':
+    case 'cancelled':
+    case 'STOPPED':
+    case 'paused':
+      return 'paused'
+    default:
+      return 'unknown'
+  }
+}
+
+/**
  * POST /:id/run — Execute a workflow using the internal @dagents/workflow engine.
  *
  * Reads the flow_data from the flows table, builds a NodeRegistry with all
@@ -362,31 +391,225 @@ workflowsRoutes.post('/:id/run', async (c) => {
   registry.registerMany(allNodes())
   const executor = new DagExecutor(registry)
 
+  // Build node-label and node-type lookup maps from the DAG so spans carry the
+  // same human-readable metadata the canvas inspector displays.
+  const nodeLabelById = new Map<string, string>()
+  const nodeTypeById = new Map<string, string>()
+  for (const n of flowData.nodes) {
+    nodeLabelById.set(n.id, (n.data as { label?: string })?.label ?? n.id)
+    nodeTypeById.set(n.id, n.type ?? 'customNode')
+  }
+
+  const startedAt = new Date()
+  // Reset the LLM provider cache so each run picks up the latest config.
+  resetProviderCache()
+  const llmClient = createLlmClient()
+  const agentFetcher = createAgentFetcher()
+
+  let result: { status: string; finalOutput: unknown; executedNodes: IExecutedNode[]; state: Record<string, unknown>; error?: string }
   try {
-    const result = await executor.execute(flowData, data.input, {
+    result = await executor.execute(flowData, data.input, {
       chatId,
       runId,
       state: data.state ?? {},
       isLastNode: true,
       startInput,
+      llmClient,
+      agentFetcher,
+      // Tool registry for the Platform Agent / Agent tool-calling loop. Empty
+      // today — tools are wired through the context contract so nodes can
+      // consume them as soon as a tool source (e.g. Tool nodes in the graph)
+      // is registered here.
+      toolRegistry: {},
     })
-
-    c.header('x-run-id', runId)
-
-    if (result.status === 'success') {
-      return ok(c, {
-        output: result.finalOutput,
-        executedNodes: result.executedNodes,
-        state: result.state,
-      })
-    } else {
-      return fail(c, 500, result.error ?? 'workflow execution failed', {
-        executedNodes: result.executedNodes,
-        state: result.state,
-      })
-    }
   } catch (err) {
     log.error('workflow execution failed', { id, error: String(err) })
     return fail(c, 500, 'workflow execution failed')
   }
+  const finishedAt = new Date()
+  const durationMs = Math.round(finishedAt.getTime() - startedAt.getTime())
+  const runStatus: 'running' | 'completed' | 'failed' =
+    result.status === 'success' ? 'completed' : 'failed'
+
+  try {
+    // Persist a single `runs` row so the run id is authoritative in the DB
+    // (scheduler proxy paths resolve a run id → spans from this table too).
+    await runQuery(
+      `INSERT INTO runs (id, identifier, pipeline_id, status, input, output, started_at, finished_at, duration_ms)
+       VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9)
+       ON CONFLICT (id) DO UPDATE SET
+         status = EXCLUDED.status,
+         output = EXCLUDED.output,
+         finished_at = EXCLUDED.finished_at,
+         duration_ms = EXCLUDED.duration_ms`,
+      [
+        runId,
+        runId,
+        id,
+        runStatus,
+        JSON.stringify(data.input ?? null),
+        JSON.stringify(result.finalOutput ?? null),
+        startedAt,
+        finishedAt,
+        durationMs,
+      ],
+    )
+  } catch (err) {
+    log.warn('persist runs row failed, spans still written below', { id, runId, error: String(err) })
+  }
+
+  // Persist one run_node_spans row per executed node so the canvas /
+  // inspector can paint node status + read duration. Nodes the executor never
+  // reached (e.g. early-return / skipped branch) are not written — the canvas
+  // leaves them `idle`.
+  try {
+    const spanPlaceholders: string[] = []
+    const spanValues: unknown[] = []
+    let i = 1
+    for (const en of result.executedNodes) {
+      const started = en.startedAt ? new Date(en.startedAt) : startedAt
+      const finished = en.endedAt ? new Date(en.endedAt) : finishedAt
+      const durMs = Math.max(0, finished.getTime() - started.getTime())
+      const status: NodeSpanStatus = en.status === 'success'
+        ? 'done'
+        : en.status === 'failed'
+        ? 'failed'
+        : en.status === 'running'
+        ? 'running'
+        : en.status === 'cancelled'
+        ? 'paused'
+        : 'unknown'
+      // 14 columns: run_id, flow_id, node_id, node_label, node_type, status,
+      // started_at, finished_at, duration_ms, tokens, cost, error, input, output
+      spanPlaceholders.push(`($${i++}, $${i++}, $${i++}, $${i++}, $${i++}, $${i++}, $${i++}, $${i++}, $${i++}, $${i++}, $${i++}, $${i++}, $${i++}, $${i++})`)
+      spanValues.push(
+        runId,
+        id,
+        en.nodeId,
+        nodeLabelById.get(en.nodeId) ?? null,
+        nodeTypeById.get(en.nodeId) ?? null,
+        status,
+        started,
+        finished,
+        durMs,
+        en.tokens ? JSON.stringify(en.tokens) : null,
+        en.cost ?? null,
+        en.error ?? null,
+        Object.keys(en.input ?? {}).length > 0 ? JSON.stringify(en.input) : null,
+        Object.keys(en.output ?? {}).length > 0 ? JSON.stringify(en.output) : null,
+      )
+    }
+    if (spanPlaceholders.length > 0) {
+      await runQuery(
+        `INSERT INTO run_node_spans (run_id, flow_id, node_id, node_label, node_type, status, started_at, finished_at, duration_ms, tokens, cost, error, input, output)
+         VALUES ${spanPlaceholders.join(', ')}
+         ON CONFLICT DO NOTHING`,
+        spanValues,
+      )
+    }
+  } catch (err) {
+    log.warn('persist run_node_spans failed', { id, runId, error: String(err) })
+  }
+
+  c.header('x-run-id', runId)
+
+  if (runStatus === 'completed') {
+    return ok(c, {
+      output: result.finalOutput,
+      executedNodes: result.executedNodes,
+      state: result.state,
+    })
+  } else {
+    return fail(c, 500, result.error ?? 'workflow execution failed', {
+      executedNodes: result.executedNodes,
+      state: result.state,
+    })
+  }
+})
+
+interface NodeSpanRow {
+  node_id: string
+  node_label: string | null
+  node_type: string | null
+  status: string
+  started_at: Date | string | null
+  finished_at: Date | string | null
+  duration_ms: number | null
+  tokens: unknown
+  cost: string | number | null
+  error: string | null
+  trace_id: string | null
+  input: unknown
+  output: unknown
+}
+
+/**
+ * GET /runs/:runId/node-spans — Gateway-owned read path for a run's node trace.
+ *
+ * The scheduler proxy (M6.4) is authoritative only for fan-out runs that the
+ * scheduler produced. For single-run workflows executed directly through the
+ * gateway (`POST /:id/run`), we write `run_node_spans` from the executor's
+ * executedNodes. This route surfaces them with the same envelope shape the
+ * console's node-spans module consumes, so the browser can render node status
+ * / duration / labels for gateway-run flows too.
+ *
+ * 404 for an unknown runId → empty spans (the console degrades to `idle` for
+ * every node).
+ */
+workflowsRoutes.get('/runs/:runId/node-spans', async (c) => {
+  const runId = c.req.param('runId')
+  if (runId.length > MAX_RUN_ID_LEN) {
+    return fail(c, 400, 'invalid run id', { runId })
+  }
+
+  let rows: NodeSpanRow[] = []
+  try {
+    const { records } = await runQuery<NodeSpanRow>(
+      `SELECT node_id, node_label, node_type, status, started_at, finished_at, duration_ms, tokens, cost, error, trace_id, input, output
+         FROM run_node_spans
+         WHERE run_id = $1
+         ORDER BY COALESCE(started_at, created_at) ASC`,
+      [runId],
+    )
+    rows = records
+  } catch (err) {
+    log.error('node-spans query failed', { runId, error: String(err) })
+    return fail(c, 502, 'node-spans query failed')
+  }
+
+  const spans = rows.map((r) => {
+    const startedAt = r.started_at instanceof Date
+      ? r.started_at.toISOString()
+      : r.started_at != null ? new Date(r.started_at).toISOString() : null
+    const finishedAt = r.finished_at instanceof Date
+      ? r.finished_at.toISOString()
+      : r.finished_at != null ? new Date(r.finished_at).toISOString() : null
+    const cost = r.cost == null ? null : Number(r.cost)
+    return {
+      nodeId: r.node_id,
+      nodeLabel: r.node_label,
+      nodeType: r.node_type,
+      status: toNodeSpanStatus(r.status),
+      startedAt,
+      finishedAt,
+      durationMs: r.duration_ms,
+      tokens: r.tokens ?? null,
+      cost: Number.isFinite(cost) ? cost : null,
+      error: r.error,
+      traceId: r.trace_id,
+      input: r.input ?? null,
+      output: r.output ?? null,
+    }
+  })
+
+  return ok(c, { runId, spans })
+})
+
+/**
+ * GET /canvas/nodes — Expose canvas node metadata (descriptions, inputs,
+ * categories) so the frontend can render node type info without importing
+ * the workflow package directly.
+ */
+workflowsRoutes.get('/canvas/nodes', (c) => {
+  return ok(c, { nodes: CANVAS_NODES })
 })

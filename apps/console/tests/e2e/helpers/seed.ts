@@ -41,10 +41,12 @@ export interface SeedContext {
   directoryIds: string[]
   /** Chat IDs created by this spec — cleaned up in dispose(). */
   chatIds: string[]
-  /** Agent IDs (agent_daemons rows) created by this spec. */
+  /** Agent IDs (agents + agent_daemons rows) created by this spec. */
   agentIds: string[]
   /** Daemon IDs (daemons rows) created by this spec. */
   daemonIds: string[]
+  /** Workspace IDs created by this spec — cleaned up after agents. */
+  workspaceIds: string[]
   /** Message IDs created by this spec — cleaned up before chats. */
   messageIds: string[]
   /** Resolved runQuery + initDb from the dynamic import. `initDb` returns the
@@ -74,10 +76,14 @@ export async function createSeedContext(): Promise<SeedContext> {
     chatIds: [],
     agentIds: [],
     daemonIds: [],
+    workspaceIds: [],
     messageIds: [],
     db: { runQuery, initDb },
     async dispose() {
-      // Order matters: messages → chats → directories; agent_daemons → daemons.
+      // Order matters: messages → chats → directories;
+      // agent_daemons → agents → daemons → workspaces.
+      // `agents` has no FK cascade to `workspaces`, so agents must be deleted
+      // before workspaces (deleting the workspace first would orphan agent rows).
       if (this.messageIds.length) {
         await runQuery(`DELETE FROM chat_messages WHERE id = ANY($1::uuid[])`, [this.messageIds])
       }
@@ -90,8 +96,14 @@ export async function createSeedContext(): Promise<SeedContext> {
       if (this.agentIds.length) {
         await runQuery(`DELETE FROM agent_daemons WHERE id = ANY($1::uuid[])`, [this.agentIds])
       }
+      if (this.agentIds.length) {
+        await runQuery(`DELETE FROM agents WHERE id = ANY($1::uuid[])`, [this.agentIds])
+      }
       if (this.daemonIds.length) {
         await runQuery(`DELETE FROM daemons WHERE id = ANY($1::uuid[])`, [this.daemonIds])
+      }
+      if (this.workspaceIds.length) {
+        await runQuery(`DELETE FROM workspaces WHERE id = ANY($1::uuid[])`, [this.workspaceIds])
       }
     },
   }
@@ -159,12 +171,17 @@ export async function seedMessage(
 }
 
 /**
- * Seed a daemon host via the real dispatch API + an `agent_daemons` catalogue
- * row via runQuery. Mirrors the v0.3-design.spec.ts pattern. Returns the
- * agent_daemons id (the "agent id" the console UI consumes).
+ * Seed a daemon host via the real dispatch API + an `agents` table row (the
+ * gateway's primary table) + an `agent_daemons` catalogue row (runtime fields
+ * for the gateway's LEFT JOIN). Mirrors the
+ * apps/gateway/src/__tests__/agents-shape.test.ts seedAgent pattern for the
+ * `agents` insert, but also keeps the daemon registration + agent_daemons row
+ * so chat routing (which may still read agent_daemons) and the gateway's
+ * runtime JOIN both resolve. Returns the agent id (the "agent id" the console
+ * UI consumes) + the daemon id.
  *
  * The daemon is created with status 'online' so the agent-detail presence pill
- * derives `online` (在线) for the happy path.
+ * can derive `online` (在线) for the happy path.
  */
 export async function seedAgent(
   ctx: SeedContext,
@@ -189,8 +206,17 @@ export async function seedAgent(
   const daemonId = regBody.data.daemonId
   ctx.daemonIds.push(daemonId)
 
-  // Insert the agent_daemons catalogue row. Same column set as the dispatch
-  // test helpers (apps/dispatch/src/__tests__/agents.test.ts).
+  // Seed a workspace — the gateway's `agents` table requires workspace_id.
+  const workspaceId = randomUUID()
+  await ctx.db.runQuery(
+    `INSERT INTO workspaces (id, name, description, owner_user_id, status, quota, glyph)
+     VALUES ($1, $2, NULL, NULL, 'active', '{}'::jsonb, 'W')`,
+    [workspaceId, `e2e-ws-${workspaceId.slice(0, 8)}`],
+  )
+  ctx.workspaceIds.push(workspaceId)
+
+  // Insert the agent_daemons catalogue row (runtime fields for the gateway's
+  // LEFT JOIN). Same column set as the dispatch test helpers.
   const { records } = await ctx.db.runQuery<{ id: string }>(
     `INSERT INTO agent_daemons
        (name, kind, daemon_id, capability_descriptor, executable_path, visibility)
@@ -210,6 +236,31 @@ export async function seedAgent(
   )
   const agentId = records[0]?.id
   if (!agentId) throw new Error('agent_daemons insert did not RETURNING an id')
+
+  // Insert the agents table row (gateway's primary table). Same id as the
+  // agent_daemons row so the LEFT JOIN picks up runtime fields. Follows the
+  // apps/gateway/src/__tests__/agents-shape.test.ts seedAgent column set.
+  await ctx.db.runQuery(
+    `INSERT INTO agents (id, workspace_id, name, kind, roles, instructions, skills,
+                         visibility, concurrency, model, runtime, owner_id,
+                         status, availability, activity,
+                         summary, input_schema, output_schema)
+     VALUES ($1, $2, $3, 'claude', $4::jsonb, $5, $6::jsonb,
+             'workspace', 1, '', '', 'e2e',
+             'idle', 'offline', $7::jsonb,
+             $8, '{}', '{}')`,
+    [
+      agentId,
+      workspaceId,
+      name,
+      JSON.stringify(['e2e']),
+      'e2e seed agent',
+      JSON.stringify([]),
+      JSON.stringify([{ total: 0, fail: 0 }]),
+      'e2e seed agent for Chat-First user-case suite',
+    ],
+  )
+
   ctx.agentIds.push(agentId)
   return { agentId, daemonId }
 }

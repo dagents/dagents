@@ -99,6 +99,8 @@ export interface RunNodeSpanRow {
   cost: string | null
   error: string | null
   traceId: string | null
+  input: unknown
+  output: unknown
   createdAt: Date
 }
 
@@ -113,7 +115,7 @@ export async function listRunNodeSpans(runId: string): Promise<RunNodeSpanRow[]>
             node_id AS "nodeId", node_label AS "nodeLabel", node_type AS "nodeType",
             status, started_at AS "startedAt", finished_at AS "finishedAt",
             duration_ms AS "durationMs", tokens, cost, error, trace_id AS "traceId",
-            created_at AS "createdAt"
+            input, output, created_at AS "createdAt"
        FROM run_node_spans
       WHERE run_id = $1
       ORDER BY created_at`,

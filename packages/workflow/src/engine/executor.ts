@@ -26,6 +26,12 @@ export interface ExecuteOptions {
   startInput?: string
   sessionId?: string
   signal?: AbortSignal
+  /** LLM client — passed through to LLM/Agent/PlatformAgent nodes. */
+  llmClient?: IExecutionContext['llmClient']
+  /** Platform agent fetcher — passed through to PlatformAgentNode. */
+  agentFetcher?: IExecutionContext['agentFetcher']
+  /** Tool registry — passed through to Agent/PlatformAgent tool-calling loops. */
+  toolRegistry?: IExecutionContext['toolRegistry']
 }
 
 /**
@@ -143,6 +149,9 @@ export class DagExecutor {
           sessionId: opts.sessionId,
           signal: opts.signal,
           agentflowRuntime: { state: runtime.state },
+          llmClient: opts.llmClient,
+          agentFetcher: opts.agentFetcher,
+          toolRegistry: opts.toolRegistry,
         }
 
         const startedAt = new Date().toISOString()
@@ -179,6 +188,8 @@ export class DagExecutor {
           status: 'success',
           input: output.input,
           output: output.output,
+          tokens: output.usage ?? null,
+          cost: null,
         })
 
         runtime.merge(output.state)

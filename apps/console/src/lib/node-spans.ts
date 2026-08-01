@@ -34,6 +34,10 @@ export interface RunNodeSpan {
   error: string | null
   /** OTel traceId (M6.1) for end-to-end trace correlation; null when none. */
   traceId: string | null
+  /** 节点实际输入（JSONB — model, systemPrompt, userMessage 等） */
+  input?: Record<string, unknown> | null
+  /** 节点实际输出（JSONB — text, content 等） */
+  output?: Record<string, unknown> | null
 }
 
 /** The scheduler's `run_node_spans` row shape (only the fields the console reads). */
@@ -50,6 +54,8 @@ export interface SchedulerNodeSpanRow {
   cost: string | null
   error: string | null
   traceId: string | null
+  input?: Record<string, unknown> | null
+  output?: Record<string, unknown> | null
 }
 
 /** The envelope the scheduler's node-spans route returns. */
@@ -102,6 +108,8 @@ export function toRunNodeSpan(row: SchedulerNodeSpanRow): RunNodeSpan {
     cost: toCost(row.cost),
     error: row.error,
     traceId: row.traceId,
+    input: row.input ?? null,
+    output: row.output ?? null,
   }
 }
 

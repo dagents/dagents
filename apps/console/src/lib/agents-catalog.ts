@@ -2,19 +2,21 @@
  * Agents catalogue client + domain mapping (M5a.2 / P1.10.T4).
  *
  * The Agents 管理页 talks to the console's own `/api/agents/*` proxy routes
- * (which forward to the gateway → dispatch `GET /agents[/:id[/logs]]`). This
- * module owns:
+ * (which forward to the gateway's unified `GET /api/v1/agents[/:id[/logs]]`).
+ * The gateway queries the `agents` table (LEFT JOIN agent_daemons + daemons +
+ * dispatch_tasks) and returns a design-aligned DTO that carries BOTH
+ * camelCase design fields AND snake_case runtime aliases. This module owns:
  *   - the typed domain model the view renders (`CatalogAgent`, `AgentDetail`,
  *     `AgentLogLine`)
  *   - thin `fetch` wrappers (`fetchAgents` / `fetchAgentDetail` /
  *     `fetchAgentLogs`) that throw on non-2xx, mirroring chat-client.ts
- *   - **pure** mappers that turn the raw dispatch rows into the domain model
+ *   - **pure** mappers that turn the raw gateway rows into the domain model
  *     (`mapRowToCatalogAgent`, `deriveStatus`, `deriveLoad`, `deriveCost`,
  *     `deriveKpis`, `filterAgents`, `eventToLogLine`). Pure = no network, no
  *     React — so they are unit-testable in vitest's node environment with no
  *     jsdom, matching sse.test.ts.
  *
- * `agent_daemons.kind` is free TEXT. The design's 4 kinds (prompt / claude /
+ * `agents.kind` is free TEXT. The design's 4 kinds (prompt / claude /
  * codex / remote) are the catalogue's filter set; an unknown kind maps to
  * `remote` so the fleet still renders. `region` is best-effort: there is no
  * region column, so it is derived from a daemon-capability `region`/`tags`
@@ -63,6 +65,21 @@ export interface CatalogAgent {
    *  Surfaced for the detail inspector's 可见性 row (dropped by the M5a.2
    *  mapper; restored here so the detail page reads real data). */
   visibility: string | null
+  // ── camelCase design fields (gateway DTO top-level; the agent-detail page
+  //    reads these instead of the M9 `—` placeholders). Optional because the
+  //    raw dispatch-shaped test fixtures (no gateway camelCase fields) omit
+  //    them — the detail page falls back to capability descriptor / `—`. */
+  model?: string
+  owner?: string
+  concurrency?: number
+  instructions?: string
+  /** Top-level summary (gateway design field). Falls back to
+   *  `capability.summary` when absent (dispatch-shaped rows). */
+  summary?: string
+  /** Top-level skills (gateway design field). Falls back to `roles` when absent. */
+  skills?: string[]
+  inputSchema?: string
+  outputSchema?: string
 }
 
 /** Capability descriptor shape (agent_daemons.capability_descriptor JSONB). */
@@ -118,7 +135,11 @@ export interface AgentKpis {
   failedRate: number
 }
 
-/** The raw list-row shape from `GET /agents` (snake_case from pg). */
+/** The raw list-row shape from `GET /api/v1/agents` (gateway DTO). Carries
+ *  BOTH snake_case runtime aliases (historically consumed by this catalogue)
+ *  AND camelCase design fields (gateway design-aligned top-level fields).
+ *  Date fields are now ISO strings (or null) — the gateway returns strings,
+ *  not Date objects. */
 interface AgentListRow {
   id: string
   name: string
@@ -126,18 +147,28 @@ interface AgentListRow {
   capability_descriptor: unknown
   executable_path: string | null
   visibility: string | null
-  created_at: Date | string
+  created_at: string
   daemon_label: string | null
   daemon_status: string | null
-  last_heartbeat_at: Date | string | null
+  last_heartbeat_at: string | null
   daemon_capabilities: unknown
   task_id: string | null
   run_id: string | null
   task_status: string | null
   usage: unknown
   duration_ms: number | null
-  task_created_at: Date | string | null
-  finished_at: Date | string | null
+  task_created_at: string | null
+  finished_at: string | null
+  // ── camelCase design fields (gateway DTO top-level; optional because
+  //    dispatch-shaped test rows omit them). */
+  model?: string
+  owner?: string
+  concurrency?: number
+  instructions?: string
+  summary?: string
+  skills?: string[]
+  inputSchema?: string
+  outputSchema?: string
 }
 
 interface AgentDetailRow {
@@ -148,8 +179,8 @@ interface AgentDetailRow {
     status: string
     usage: unknown
     duration_ms: number | null
-    created_at: Date | string
-    finished_at: Date | string | null
+    created_at: string
+    finished_at: string | null
   }[]
   runs: { id: string; identifier: string; status: string; cost: string }[]
 }
@@ -295,7 +326,7 @@ export function deriveCost(usage: unknown): string {
   return `$${dollars.toFixed(2)}`
 }
 
-/** Map a raw dispatch list row to the catalogue domain model. */
+/** Map a raw gateway list row to the catalogue domain model. */
 export function mapRowToCatalogAgent(row: AgentListRow): CatalogAgent {
   const cap = parseCapability(row.capability_descriptor)
   const status = deriveStatus(row.task_status, row.daemon_status)
@@ -318,6 +349,19 @@ export function mapRowToCatalogAgent(row: AgentListRow): CatalogAgent {
     createdAt: toDateStr(row.created_at),
     daemonStatus: row.daemon_status,
     visibility: row.visibility,
+    // camelCase design fields — passed through from the gateway DTO top-level.
+    // When absent (dispatch-shaped test rows), they are `undefined` and the
+    // detail page falls back to capability descriptor / `—`.
+    model: row.model,
+    owner: row.owner,
+    concurrency: row.concurrency,
+    instructions: row.instructions,
+    summary: row.summary,
+    skills: Array.isArray(row.skills)
+      ? row.skills.filter((t): t is string => typeof t === 'string')
+      : undefined,
+    inputSchema: row.inputSchema,
+    outputSchema: row.outputSchema,
   }
 }
 
@@ -379,7 +423,7 @@ export function eventToLogLine(
 
 // ─── fetch wrappers ──────────────────────────────────────────────────────
 
-/** Envelope shared by all dispatch routes (`{ success, data }` / `{ success, error }`). */
+/** Envelope shared by all gateway routes (`{ success, data }` / `{ success, error }`). */
 interface Envelope<T> {
   success: boolean
   data?: T
@@ -461,15 +505,21 @@ export async function fetchDaemons(): Promise<DaemonOption[]> {
   return data.daemons
 }
 
-/** Request body for createAgent — matches dispatch POST /agents schema. */
+/** Request body for createAgent — matches gateway POST /api/v1/agents schema.
+ *  Required: name, kind, workspaceId, ownerId. */
 export interface CreateAgentRequest {
   name: string
   kind: AgentKind
+  /** Required by gateway — the workspace this agent belongs to. */
+  workspaceId: string
+  /** Required by gateway — the owner's user id (from session). */
+  ownerId: string
   daemonId: string
   executablePath?: string | null
   visibility?: 'workspace' | 'public' | null
   summary?: string | null
-  tags?: string[]
+  /** Role tags (gateway POST `roles` field). */
+  roles?: string[]
 }
 
 /** Create a new agent. Returns the new agent's id. */

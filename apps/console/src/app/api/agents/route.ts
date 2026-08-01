@@ -2,11 +2,11 @@
  * Console → gateway agents-list proxy (M5a.2 / P1.10.T4).
  *
  * The browser agents view GETs `/api/agents`; this route forwards to the
- * gateway's blind dispatch passthrough
- * (`${gatewayUrl()}/api/v1/dispatch/agents`), which forwards verbatim to the
- * dispatch server's `GET /agents` (apps/dispatch/src/routes/agents.ts). Keeping
- * the gateway URL server-side matches the chat proxy's posture (see
- * api/chat/route.ts): no CORS, no origin leak, one consistent proxy layer.
+ * gateway's unified agents route
+ * (`${gatewayUrl()}/api/v1/agents`), which queries the `agents` table (LEFT
+ * JOIN agent_daemons + daemons + dispatch_tasks) and returns a design-aligned
+ * DTO. Keeping the gateway URL server-side matches the chat proxy's posture
+ * (see api/chat/route.ts): no CORS, no origin leak, one consistent proxy layer.
  *
  * Query params (`kind`/`status`/`role`/`region`/`q`) are forwarded as-is even
  * though the dispatch route currently filters client-side — the gateway passes
@@ -24,7 +24,7 @@ import { forwardSessionHeaders } from '@/lib/proxy-headers'
 export const runtime = 'nodejs'
 
 export async function GET(req: NextRequest): Promise<NextResponse> {
-  const upstreamUrl = `${gatewayUrl()}/api/v1/dispatch/agents${req.nextUrl.search}`
+  const upstreamUrl = `${gatewayUrl()}/api/v1/agents${req.nextUrl.search}`
 
   const headers = forwardSessionHeaders(req, resolveRunId(req.headers.get('x-run-id')))
 
@@ -57,14 +57,15 @@ export async function GET(req: NextRequest): Promise<NextResponse> {
 }
 
 /**
- * POST /api/agents — proxy agent creation to dispatch.
+ * POST /api/agents — proxy agent creation to the gateway.
  *
- * Forwards the JSON body verbatim to `${gatewayUrl()}/api/v1/dispatch/agents`,
- * which the dispatch server's POST /agents handler validates + inserts. The
- * response carries the new agent's id in `{ success, data: { id } }`.
+ * Forwards the JSON body verbatim to `${gatewayUrl()}/api/v1/agents`,
+ * which the gateway's POST handler validates (zod) + inserts into the
+ * `agents` table. The response carries the new agent's id in
+ * `{ success, data: { id } }`.
  */
 export async function POST(req: NextRequest): Promise<NextResponse> {
-  const upstreamUrl = `${gatewayUrl()}/api/v1/dispatch/agents`
+  const upstreamUrl = `${gatewayUrl()}/api/v1/agents`
   const headers = forwardSessionHeaders(req, resolveRunId(req.headers.get('x-run-id')), true)
 
   let body: string

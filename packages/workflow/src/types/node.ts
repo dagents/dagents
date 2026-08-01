@@ -57,6 +57,8 @@ export interface INodeOutput {
   state?: Record<string, unknown>
   /** Optional chat history entries to append (for LLM/Agent nodes in Plan B). */
   chatHistory?: unknown[]
+  /** Optional token usage reported by the node (LLM/Agent nodes). */
+  usage?: import('./execution.js').ITokenUsage
 }
 
 /** The node interface. Every node class implements this. */

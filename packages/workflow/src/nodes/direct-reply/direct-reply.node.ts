@@ -31,7 +31,13 @@ export class DirectReplyNode implements INode {
   ]
 
   async run(nodeData: INodeData, _input: unknown, options: IExecutionContext): Promise<INodeOutput> {
-    const rawMessage = (nodeData.inputs?.directReplyMessage as string) ?? ''
+    // Read the configured message. Prefer the canonical `directReplyMessage`
+    // input name; fall back to `content` for older flow data that used that
+    // field name before the canvas metadata standardised on `directReplyMessage`.
+    const rawMessage =
+      (nodeData.inputs?.directReplyMessage as string) ??
+      (nodeData.inputs?.content as string) ??
+      ''
     const directReplyMessage = resolveVariables(rawMessage, options.state) as string
     const isStreamable = options.isLastNode && options.sseStreamer !== undefined
 
@@ -42,7 +48,7 @@ export class DirectReplyNode implements INode {
     return {
       id: nodeData.id,
       name: this.name,
-      input: {},
+      input: { message: rawMessage },
       output: { content: directReplyMessage },
       state: options.state,
     }

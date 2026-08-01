@@ -2,8 +2,8 @@
  * Console → gateway agent-logs proxy (M5a.2 / P1.10.T4).
  *
  * Forwards `GET /api/agents/:id/logs` to
- * `${gatewayUrl()}/api/v1/dispatch/agents/:id/logs` (dispatch log stream
- * route). Returns the mapped `{ logs: [{ ts, level, msg }] }` envelope for the
+ * `${gatewayUrl()}/api/v1/agents/:id/logs` (gateway unified agents log route).
+ * Returns the mapped `{ logs: [{ ts, level, msg }] }` envelope for the
  * drawer's `.log` section.
  *
  * M5b.4: `x-run-id` is always forwarded (generated if absent) and the SSO
@@ -22,7 +22,7 @@ export async function GET(
   { params }: { params: Promise<{ id: string }> },
 ): Promise<NextResponse> {
   const { id } = await params
-  const upstreamUrl = `${gatewayUrl()}/api/v1/dispatch/agents/${encodeURIComponent(id)}/logs`
+  const upstreamUrl = `${gatewayUrl()}/api/v1/agents/${encodeURIComponent(id)}/logs`
 
   const headers = forwardSessionHeaders(req, resolveRunId(req.headers.get('x-run-id')))
 

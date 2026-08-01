@@ -98,6 +98,14 @@ export class RunNodeSpan {
   @Column({ name: 'error', type: 'text', nullable: true })
   error!: string | null
 
+  /** The input that was passed to the node (JSONB — model config, prompt, etc.). */
+  @Column({ name: 'input', type: 'jsonb', nullable: true })
+  input!: unknown
+
+  /** The output the node produced (JSONB — LLM response text, etc.). */
+  @Column({ name: 'output', type: 'jsonb', nullable: true })
+  output!: unknown
+
   /** OTel traceId the run participated in (M6.1), for end-to-end trace correlation. */
   @Column({ name: 'trace_id', type: 'text', nullable: true })
   traceId!: string | null

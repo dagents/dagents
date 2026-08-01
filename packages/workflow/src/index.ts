@@ -12,9 +12,10 @@
 // Types — exported for node implementers
 export type { INode, INodeData, INodeParams, INodeOutput, INodeOptionsValue } from './types/node.js'
 export type { FlowNode, FlowEdge, FlowData } from './types/flow.js'
-export type { ExecutionStatus, IExecutedNode, IExecutionContext } from './types/execution.js'
+export type { ExecutionStatus, IExecutedNode, IExecutionContext, ITokenUsage, PlatformAgentConfig, IChatMessage, IToolCall, IToolSchema, IAgentTool } from './types/execution.js'
 export type { IServerSideEventStreamer, StreamEvent } from './types/stream.js'
 export type { CanvasNodeMeta } from './nodes/node-registry-canvas.js'
+export { CANVAS_NODES, getNodeMeta, getNodesByCategory, NODE_CATEGORIES } from './nodes/node-registry-canvas.js'
 
 // Engine (Task 3+ — uncomment when modules land)
 export { NodeRegistry } from './engine/node-registry.js'

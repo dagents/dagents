@@ -11,6 +11,54 @@ import type { IServerSideEventStreamer } from './stream.js'
 /** Execution status for a node or the overall flow run. */
 export type ExecutionStatus = 'idle' | 'running' | 'success' | 'failed' | 'cancelled'
 
+/** Token usage reported by an LLM call. */
+export interface ITokenUsage {
+  prompt_tokens?: number
+  completion_tokens?: number
+  total_tokens?: number
+  [key: string]: unknown
+}
+
+/** A single chat message — supports the tool-calling message roles. */
+export interface IChatMessage {
+  role: string
+  content: string
+  /** Present on assistant messages that requested tool calls. */
+  tool_calls?: Array<{
+    id: string
+    type: 'function'
+    function: { name: string; arguments: string }
+  }>
+  /** Present on role: 'tool' messages, linking back to the tool_call id. */
+  tool_call_id?: string
+}
+
+/** A tool call returned by the LLM, to be dispatched via the tool registry. */
+export interface IToolCall {
+  id: string
+  function: { name: string; arguments: string }
+}
+
+/** Tool definition passed to the LLM API (OpenAI function-tool shape). */
+export interface IToolSchema {
+  type: 'function'
+  function: {
+    name: string
+    description: string
+    parameters: Record<string, unknown>
+  }
+}
+
+/** A tool the agent can call during its reasoning loop. */
+export interface IAgentTool {
+  name: string
+  description: string
+  /** JSON Schema describing the tool's parameters. */
+  parameters: Record<string, unknown>
+  /** Execute the tool; the returned string is fed back to the LLM. */
+  handler: (args: Record<string, unknown>) => Promise<string>
+}
+
 /** The result of executing one node — stored in the execution log. */
 export interface IExecutedNode {
   /** The node instance id. */
@@ -29,6 +77,10 @@ export interface IExecutedNode {
   output: Record<string, unknown>
   /** Error message if status === 'failed'. */
   error?: string
+  /** Token usage reported by the node (LLM/Agent nodes); null when not applicable. */
+  tokens?: ITokenUsage | null
+  /** Monetary cost of the node's LLM call, when reported. */
+  cost?: number | null
 }
 
 /**
@@ -62,14 +114,32 @@ export interface IExecutionContext {
   llmClient?: {
     chat(params: {
       model: string
-      messages: Array<{ role: string; content: string }>
+      messages: IChatMessage[]
       temperature?: number
-    }): Promise<{ text: string }>
+      /** Function tools the model may call (OpenAI tool format). */
+      tools?: IToolSchema[]
+    }): Promise<{ text: string; tool_calls?: IToolCall[]; usage?: ITokenUsage }>
   }
-  /** Tool registry for Agent nodes. */
-  toolRegistry?: Record<string, unknown>
+  /** Tool registry for Agent / Platform Agent nodes' tool-calling loop. */
+  toolRegistry?: Record<string, IAgentTool>
+  /** Platform agent fetcher — resolves an agentId to its config (instructions, model, etc.). */
+  agentFetcher?: (agentId: string) => Promise<PlatformAgentConfig | null>
   /** Human input resolver for HumanInputNode. */
   humanInputResolver?: (prompt: string, inputType: string, options?: unknown[]) => Promise<string>
   /** Flow executor for ExecuteFlowNode. */
   flowExecutor?: (flowId: string, input: unknown) => Promise<Record<string, unknown>>
+}
+
+/** Platform agent configuration — fetched by PlatformAgentNode via `agentFetcher`. */
+export interface PlatformAgentConfig {
+  id: string
+  name: string
+  /** System instructions (equivalent to systemPrompt). */
+  instructions: string
+  /** LLM model identifier. */
+  model: string
+  /** Agent kind (prompt, claude, codex, remote). */
+  kind: string
+  /** Skills / tools the agent has. */
+  skills?: unknown[]
 }

@@ -75,8 +75,8 @@ describe('GET /api/agents', () => {
     expect(json.data.agents).toHaveLength(1)
     expect(json.data.agents[0].id).toBe('a1')
 
-    // The route forwards to the gateway's dispatch passthrough path.
-    expect(receivedPath).toBe('/api/v1/dispatch/agents')
+    // The route forwards to the gateway's unified agents path.
+    expect(receivedPath).toBe('/api/v1/agents')
     expect(receivedRunId).toBe('run-agents-1')
   })
 
@@ -106,14 +106,14 @@ describe('GET /api/agents', () => {
 
     const res = await GET(agentsReq())
     await res.json()
-    expect(receivedSearch).toBe('/api/v1/dispatch/agents')
+    expect(receivedSearch).toBe('/api/v1/agents')
 
     // With a query string, it should be forwarded.
     const reqWithQuery = new NextRequest('http://localhost/api/agents?kind=claude&status=running', {
       method: 'GET',
     })
     await GET(reqWithQuery)
-    expect(receivedSearch).toBe('/api/v1/dispatch/agents?kind=claude&status=running')
+    expect(receivedSearch).toBe('/api/v1/agents?kind=claude&status=running')
   })
 
   // M5b.4: an absent caller id is replaced with a generated UUID so the

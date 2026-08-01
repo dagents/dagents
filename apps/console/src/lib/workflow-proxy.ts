@@ -49,5 +49,9 @@ export async function pipeUpstream(upstream: Response): Promise<NextResponse> {
   const headers = new Headers()
   const ct = upstream.headers.get('content-type')
   if (ct) headers.set('content-type', ct)
+  // Forward the run id so the browser can open the detail page for the
+  // run that was just executed (the gateway sets it on POST /:id/run).
+  const runId = upstream.headers.get('x-run-id')
+  if (runId) headers.set('x-run-id', runId)
   return new NextResponse(body, { status: upstream.status, headers })
 }

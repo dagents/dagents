@@ -157,6 +157,25 @@ function mapFlowList(data: FlowListResponse['data']): FlowSummary[] {
   return []
 }
 
+/** 静态节点类型描述 — 镜像 packages/workflow 的 CanvasNodeMeta.description。 */
+const CANVAS_NODE_DESCRIPTIONS: Record<string, string> = {
+  startAgentflow: '工作流入口节点',
+  agentAgentflow: '自主推理 Agent，可使用工具进行多轮推理',
+  platformAgentAgentflow: '引用平台上的 Agent，使用其指令和模型配置',
+  llmAgentflow: '大语言模型调用',
+  toolAgentflow: '自定义工具定义，包含处理代码',
+  httpAgentflow: '发起 HTTP 请求',
+  conditionAgentflow: '基于条件的分支',
+  conditionAgentAgentflow: '基于 LLM 的场景路由',
+  iterationAgentflow: '遍历列表项',
+  loopAgentflow: '循环直到条件满足',
+  humanInputAgentflow: '暂停等待人工输入',
+  directReplyAgentflow: '直接回复用户',
+  customFunctionAgentflow: '执行自定义 JavaScript 代码',
+  executeFlowAgentflow: '执行子工作流',
+  retrieverAgentflow: '从向量存储检索文档',
+}
+
 /**
  * Map the gateway's detail response onto `FlowDetailView`. The gateway returns
  * the raw `flowData` object (React Flow's `{ nodes, edges, viewport }`), which
@@ -183,13 +202,22 @@ function mapFlowDetail(data: FlowDetailResponse['data']): FlowDetailView | null 
       status: 'idle',
       latestExecutionId: undefined,
       latestRunId: null,
-      nodes: dag.nodes.map((n) => ({
-        id: n.id,
-        label: n.data?.label || n.id,
-        type: n.type ?? 'customNode',
-        position: n.position,
-        status: 'idle',
-      })),
+      nodes: dag.nodes.map((n) => {
+        const nodeTypeName = (n.data?.name as string) ?? ''
+        // 从 CANVAS_NODES 静态元数据获取 description
+        // 内联一个简单的 lookup 避免引入 packages/workflow 依赖
+        const meta = CANVAS_NODE_DESCRIPTIONS[nodeTypeName]
+        return {
+          id: n.id,
+          label: n.data?.label || n.id,
+          type: n.type ?? 'customNode',
+          position: n.position,
+          status: 'idle' as NodeRunStatus,
+          config: n.data as Record<string, unknown> | undefined,
+          description: meta,
+          nodeType: nodeTypeName,
+        }
+      }),
       edges: dag.edges.map((e, i) => ({
         id: e.id ?? `e-${e.source}-${e.target}-${i}`,
         source: e.source,
@@ -221,6 +249,7 @@ export function FlowsView(): React.ReactElement {
   const [loadingList, setLoadingList] = useState(true)
   const [loadingDetail, setLoadingDetail] = useState(false)
   const [createOpen, setCreateOpen] = useState(false)
+  const [runningId, setRunningId] = useState<string | null>(null)
 
   /** showDetail(flowId, runId) — mirrors design/agentflows.html L432-462.
    *  Sets both ids; the detail effect fetches the flow + drives the swap.
@@ -230,6 +259,35 @@ export function FlowsView(): React.ReactElement {
     setSelectedFlowId(flowId)
     setSelectedRunId(runId)
   }, [])
+
+  /** Run a flow by POSTing to the gateway's /:id/run endpoint, then open the
+   *  detail page with the returned run id so the user sees the DAG + result.
+   *  The gateway executes the workflow synchronously and returns the runId via
+   *  the `x-run-id` response header. */
+  const runFlow = useCallback(async (flowId: string) => {
+    setRunningId(flowId)
+    setListError(null)
+    try {
+      const res = await fetch(`/api/workflows/${encodeURIComponent(flowId)}/run`, {
+        method: 'POST',
+        headers: { 'content-type': 'application/json' },
+        body: JSON.stringify({}),
+      })
+      const runId = res.headers.get('x-run-id')
+      const json = (await res.json()) as { success: boolean; error?: string }
+      if (!res.ok || !json.success) {
+        setListError(json.error ?? `运行失败 (${res.status})`)
+        return
+      }
+      if (runId) {
+        showDetail(flowId, runId)
+      }
+    } catch (err) {
+      setListError(err instanceof Error ? err.message : String(err))
+    } finally {
+      setRunningId(null)
+    }
+  }, [showDetail])
 
   /** 返回 AgentFlows — mirrors design `hideDetail` (L464-469): clears both. */
   const hideDetail = useCallback(() => {
@@ -427,10 +485,33 @@ export function FlowsView(): React.ReactElement {
     setSelectedNodeId(nodeId)
   }, [])
 
+  /**
+   * Merged flow: when the gateway's `mapFlowDetail` hard-codes every node
+   * status to `idle` (it has no executions concept), we layer the spans from
+   * the run_node_spans endpoint on top so the canvas + inspector paint the
+   * correct per-node status for the active run. A node with no span stays
+   * idle (it genuinely wasn't reached).
+   */
+  const mergedFlow = useMemo<FlowDetailView | null>(() => {
+    if (!detail) return null
+    if (Object.keys(spansByNode).length === 0) return detail
+    const mergedNodes = detail.nodes.map((n) => {
+      const span = spansByNode[n.id]
+      if (!span) return n
+      // Scheduler/node-span status → console node-status domain. Both share
+      // `running | done | failed | paused | unknown` — map `unknown` to
+      // `idle` (safer than painting a misleading state).
+      const status: NodeRunStatus =
+        span.status === 'unknown' ? 'idle' : (span.status as NodeRunStatus)
+      return { ...n, status }
+    })
+    return { ...detail, nodes: mergedNodes }
+  }, [detail, spansByNode])
+
   const selectedNode = useMemo(() => {
-    if (!detail || !selectedNodeId) return null
-    return detail.nodes.find((n) => n.id === selectedNodeId) ?? null
-  }, [detail, selectedNodeId])
+    if (!mergedFlow || !selectedNodeId) return null
+    return mergedFlow.nodes.find((n) => n.id === selectedNodeId) ?? null
+  }, [mergedFlow, selectedNodeId])
 
   const inDetail = Boolean(selectedFlowId && selectedRunId)
 
@@ -620,12 +701,13 @@ export function FlowsView(): React.ReactElement {
                         data-action="run"
                         data-flow-id={f.id}
                         title="运行此 flow"
+                        disabled={runningId === f.id}
                         onClick={(e) => {
                           e.stopPropagation()
-                          showDetail(f.id, f.latestRunId ?? '')
+                          void runFlow(f.id)
                         }}
                       >
-                        ▶ 运行
+                        {runningId === f.id ? '运行中…' : '▶ 运行'}
                       </button>
                     </div>
                   </div>
@@ -723,8 +805,8 @@ export function FlowsView(): React.ReactElement {
               <div className="muted" style={{ padding: 'var(--space-6)', color: 'var(--danger)' }}>
                 {detailError}
               </div>
-            ) : detail ? (
-              <FlowDag flow={detail} selectedNodeId={selectedNodeId} onSelectNode={onSelectNode} />
+            ) : mergedFlow ? (
+              <FlowDag flow={mergedFlow} selectedNodeId={selectedNodeId} onSelectNode={onSelectNode} />
             ) : (
               <div className="muted" style={{ padding: 'var(--space-6)' }}>
                 {loadingDetail ? '加载 DAG…' : '—'}
@@ -751,11 +833,11 @@ export function FlowsView(): React.ReactElement {
                 <NodeInspector
                   nodeId={selectedNode.id}
                   runId={selectedRunId ?? detail?.latestRunId ?? null}
-                  detail={detail}
+                  detail={mergedFlow}
                   span={spansByNode[selectedNode.id]}
                 />
               ) : (
-                <FlowOverview detail={detail} />
+                <FlowOverview detail={mergedFlow} />
               )}
             </div>
           </div>
@@ -837,8 +919,8 @@ function NodeInspector({
           <dd>{runId ? runId.slice(0, 16) : (metrics?.executionId?.slice(0, 8) ?? '—')}{runId ? '…' : (metrics?.executionId ? '…' : '')}</dd>
           <dt>所属 flow</dt>
           <dd>{detail?.id.slice(0, 8) ?? '—'}…</dd>
-          <dt>调用 agent</dt>
-          <dd>{span?.nodeType ?? '—'}</dd>
+          <dt>节点类型</dt>
+          <dd>{node.nodeType ?? node.type ?? '—'}</dd>
           {span?.traceId ? (
             <>
               <dt>trace</dt>
@@ -847,6 +929,18 @@ function NodeInspector({
           ) : null}
         </dl>
       </div>
+      {node.description ? (
+        <div className="flow-insp-section">
+          <div className="lbl">节点说明</div>
+          <p className="muted" style={{ fontSize: 12 }}>{node.description}</p>
+        </div>
+      ) : null}
+      {node.config && Object.keys(node.config).length > 0 ? (
+        <div className="flow-insp-section">
+          <div className="lbl">节点配置</div>
+          <div className="io-box">{formatJson(node.config)}</div>
+        </div>
+      ) : null}
       <div className="flow-insp-section">
         <div className="lbl">输入</div>
         <div className="io-box">{input}</div>
@@ -1007,16 +1101,18 @@ function formatDuration(ms: number): string {
  * specific value) while not fabricating io that wasn't persisted.
  */
 function extractIo(span: RunNodeSpan | undefined): { input: string; output: string } {
-  if (!span?.tokens || typeof span.tokens !== 'object' || Array.isArray(span.tokens)) {
-    return { input: '—', output: '—' }
-  }
-  const t = span.tokens as Record<string, unknown>
-  const inputTokens = readNum(t.input_tokens) ?? readNum(t.prompt_tokens)
-  const outputTokens = readNum(t.output_tokens) ?? readNum(t.completion_tokens)
-  if (inputTokens == null && outputTokens == null) return { input: '—', output: '—' }
-  return {
-    input: inputTokens != null ? `{ input_tokens: ${inputTokens} }` : '—',
-    output: outputTokens != null ? `{ output_tokens: ${outputTokens} }` : '—',
+  if (!span) return { input: '—', output: '—' }
+  const inputStr = span.input ? formatJson(span.input) : '—'
+  const outputStr = span.output ? formatJson(span.output) : '—'
+  return { input: inputStr, output: outputStr }
+}
+
+function formatJson(obj: unknown): string {
+  try {
+    const s = JSON.stringify(obj, null, 2)
+    return s.length > 2000 ? s.slice(0, 2000) + '\n…' : s
+  } catch {
+    return String(obj)
   }
 }
 

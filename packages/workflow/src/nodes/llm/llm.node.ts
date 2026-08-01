@@ -78,8 +78,9 @@ export class LLMNode implements INode {
     return {
       id: nodeData.id,
       name: this.name,
-      input: {},
+      input: { model, systemPrompt: resolvedSystemPrompt, prompt: resolvedPrompt, temperature },
       output: { text: result.text, content: result.text },
+      usage: result.usage,
     }
   }
 }

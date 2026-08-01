@@ -35,6 +35,20 @@ vi.mock('next/navigation', () => ({
   usePathname: () => '/agents',
 }))
 
+// `CreateAgentDialog` (mounted inside AgentsView) calls `useSession()` before
+// its `open` guard, so the hook must resolve even though the list-page test
+// never opens the dialog. Stub the session with an unauthed value — the dialog
+// is never submitted in this suite, so a null user is sufficient.
+vi.mock('@/lib/auth-client', () => ({
+  useSession: () => ({
+    user: null,
+    status: 'unauthed' as const,
+    refresh: vi.fn(),
+    logout: vi.fn(),
+  }),
+  SessionProvider: ({ children }: { children: React.ReactNode }) => children,
+}))
+
 // A raw snake_case `AgentListRow[]` envelope — what `GET /api/agents` returns
 // from dispatch (before `fetchAgents` maps it). Two active rows + one failed
 // (archived) row so the `all` scope shows 2 and the `archived` scope shows 1;
