@@ -25,7 +25,7 @@ import { createLogger } from '@dagents/shared'
  *   gates every non-public route behind a valid session. When they are unset,
  *   the gateway runs open (the pre-M5b.4 dev posture) so `pnpm test` + local
  *   dev without SSO keep working — exactly the same env-gated posture the
- *   new-api probe worker (`probe.ts`) takes for `NEWAPI_ADMIN_KEY`.
+ *   LLM provider routes take for their configuration.
  *
  * - **No new deps.** Uses only `node:crypto` (HMAC + timing-safe compare) so
  *   no `jose`/`jsonwebtoken` dependency is added to the gateway. The token

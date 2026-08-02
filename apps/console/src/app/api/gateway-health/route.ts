@@ -1,8 +1,8 @@
 /**
  * Console → gateway health probe (P1.10.T8).
  *
- * The settings "API Key" tab shows the new-api gateway connection card
- * (design/settings.html `.gateway`): connected / base URL / token count.
+ * The settings page shows the gateway connection card
+ * (design/settings.html `.gateway`): connected / base URL.
  * The gateway exposes `/health` (plain JSON `{ ok, svc }`) which we proxy
  * so the browser can tell "gateway up" from "gateway down" without the
  * gateway URL leaking client-side. We attach a short server-side timeout

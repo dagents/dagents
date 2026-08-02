@@ -2,24 +2,15 @@
  * Settings page 6-tab UI (P1.10.T8 / M5a.4 → M8.2 形状对齐 design).
  *
  * Ported from design/settings.html: a sticky left sub-nav (6 tabs grouped
- * 密钥/模型/治理/账户) switches the visible `<section>`. The API Key tab is
- * the only one with live wiring — it CRUDs new-api tokens via the
- * `/api/tokens/*` proxy (browser → gateway → new-api + token_meta sync).
+ * 密钥/模型/治理/账户) switches the visible `<section>`. The LLM Provider
+ * tab is the only one with live wiring — it CRUDs providers via the
+ * `/api/llm-providers/*` proxy (browser → gateway → llm_providers table).
  *
  * M8.2 对齐 design/settings.html 全 690 行：其余 5 tab（默认模型 / 预算配额
  * / 通知 / 账户与团队 / 危险区）按 design 的 DOM 形状逐一回填 — model-row /
  * toggle-row / kv / danger-zone 原语 + design 的占位数据。数据接线延后但形状
  * 在（coverage analysis §2.2/2.3 明确推迟通知与账户/团队，默认模型→workflow
  * 配置、熔断→scheduler、成本→资源面板聚合 API）。
- *
- * 各 tab 的占位数据来自 design 的静态 HTML / tokens-data.js，标注待接入
- * 里程碑，避免假交互；API Key tab 是唯一真 CRUD 的地方。
- *
- * Token table columns mirror the design: 名称 / Key / 分组 / 额度 / 过期 / 操作.
- * The key is new-api-masked (the raw key never reaches the browser); copy
- * is disabled for the masked form. Row actions: 启用/禁用 toggle, 编辑, 删除
- * (delete opens a confirm modal). New/edit open a modal form with the
- * new-api token fields + a local-only remark.
  *
  * Tab buttons use role="tab" so the fidelity test can `getByRole('tab')`;
  * `aria-current` is the design's active affordance.

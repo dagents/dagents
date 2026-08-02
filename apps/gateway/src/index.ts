@@ -1,10 +1,11 @@
 import { serve } from '@hono/node-server'
-import { initDb } from '@dagents/db'
-import { startTracing } from '@dagents/shared'
+import { initDb, runQuery } from '@dagents/db'
+import { startTracing, createLogger } from '@dagents/shared'
 import { app } from './app.js'
 import { wsHub } from './ws-hub.js'
 
 const tracing = startTracing('gateway')
+const log = createLogger({ svc: 'gateway:reaper' })
 
 const port = Number(process.env.GATEWAY_PORT ?? 8080)
 // 默认绑定 127.0.0.1，防止网关被局域网直接访问绕过 console 代理层。
@@ -13,8 +14,48 @@ const hostname = process.env.GATEWAY_HOST ?? '127.0.0.1'
 
 await initDb()
 
+/**
+ * Daemon offline reaper — marks daemons as `offline` when their
+ * `last_heartbeat_at` is older than the staleness threshold.
+ *
+ * Without this, a daemon that crashes without sending a final `offline`
+ * heartbeat stays `online` forever in the `daemons` table, causing the fleet
+ * panel to show stale data and allowing the task router to dispatch work to a
+ * dead daemon. The reaper runs every 15s and only updates rows whose status
+ * is `online` or `draining` (not already `offline`), so it's idempotent.
+ *
+ * Staleness threshold: 3x the default heartbeat interval (5s × 3 = 15s),
+ * giving a daemon enough grace to survive a transient network blip before
+ * being marked offline.
+ */
+const REAPER_INTERVAL_MS = 15_000
+const STALE_THRESHOLD_SECONDS = 15
+
+let reaperTimer: NodeJS.Timeout | undefined
+
+async function reapStaleDaemons(): Promise<void> {
+  try {
+    const { affected } = await runQuery(
+      `UPDATE daemons
+         SET status = 'offline'
+       WHERE status IN ('online', 'draining')
+         AND last_heartbeat_at < NOW() - ($1 || ' seconds')::interval`,
+      [String(STALE_THRESHOLD_SECONDS)],
+    )
+    if (affected && affected > 0) {
+      log.info('marked stale daemons offline', { count: affected, thresholdSec: STALE_THRESHOLD_SECONDS })
+    }
+  } catch (err) {
+    log.warn('reaper query failed', { error: err instanceof Error ? err.message : String(err) })
+  }
+}
+
+reaperTimer = setInterval(() => { void reapStaleDaemons() }, REAPER_INTERVAL_MS)
+reaperTimer.unref?.()
+
 function shutdown(): void {
   void (async () => {
+    if (reaperTimer) clearInterval(reaperTimer)
     try {
       await tracing.shutdown()
     } catch (err) {

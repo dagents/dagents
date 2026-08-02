@@ -30,7 +30,7 @@ import {
  * server-side session store.
  *
  * When SSO isn't configured (`SSO_SESSION_SECRET` etc. unset), `login` 503s
- * and `session` 401s — matching the tokens route's "not configured = 503"
+ * and `session` 401s — matching the "not configured = 503"
  * posture so the console can render a "SSO 未配置" state instead of a confusing
  * 401. `REQUIRE_LOGIN=1` does not affect these routes (they ARE the auth
  * surface); the session middleware exempts them.

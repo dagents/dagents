@@ -8,15 +8,15 @@ import type { SsoUser } from './auth.js'
  * Audit logging for sensitive gateway operations (spec §1.4 gateway 职责 #5
  * "审计日志（敏感操作）"; plan M6.6 / P1.4.T6; risk R15).
  *
- * The gateway is the single choke point for key / permission / version-lock /
- * token-rotation mutations, so it owns the audit trail. `recordAudit` is the
+ * The gateway is the single choke point for key / permission / version-lock
+ * mutations, so it owns the audit trail. `recordAudit` is the
  * one entry point every sensitive route calls after its main operation
  * succeeds (and, for destructive ops, before the response leaves the gateway).
  *
  * ## Fire-and-forget
  *
  * An audit write must NEVER block or fail the user's operation — losing an
- * audit row is acceptable; breaking a token delete because the audit INSERT
+ * audit row is acceptable; breaking a provider delete because the audit INSERT
  * threw is not. `recordAudit` therefore swallows every error and only logs a
  * warn (R15: "审计记录写入失败不应阻断主操作流"). Callers do NOT await it on the
  * hot path; the returned promise resolves after the write settles (or fails)
@@ -47,12 +47,12 @@ const MAX_UA_LEN = 512
 
 export interface AuditTarget {
   type: AuditTargetType
-  /** Id of the target object (new-api token id, version hash, …). */
+  /** Id of the target object (llm provider id, version hash, …). */
   id: string
 }
 
 export interface AuditCtx {
-  /** Sensitive action, e.g. 'token.create' / 'pipeline_version.lock'. */
+  /** Sensitive action, e.g. 'llm_provider.create' / 'pipeline_version.lock'. */
   action: string
   target: AuditTarget
   /** Operation-specific context (changed fields, pinned hash, …). NEVER the raw key. */
@@ -63,7 +63,7 @@ export interface AuditCtx {
 
 /**
  * Read the OTel-threaded run id off the request. The flows proxy generates one
- * if absent; the token routes don't, so a caller-supplied `x-run-id` (threaded
+ * if absent; the llm-provider routes don't, so a caller-supplied `x-run-id` (threaded
  * by the console proxy) is the common case. Falls back to null — a missing run
  * id is fine for audit; the actor + action + target are the durable facts.
  */

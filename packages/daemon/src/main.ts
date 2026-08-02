@@ -107,14 +107,29 @@ export function runDaemon(opts: DaemonOpts): DaemonHandle {
 
   const done = (async (): Promise<void> => {
     // ── register ────────────────────────────────────────────────────────
-    let daemonId: string
-    try {
+    let daemonId = ''
+
+    /**
+     * Register (or re-register) the daemon with dispatch. Extracted so the
+     * heartbeat and claim loops can re-register when they detect the daemon
+     * row is gone (404). Re-registration creates a new daemonId + token; the
+     * old row (if any) will be reaped by the gateway's offline reaper.
+     */
+    async function register(): Promise<void> {
       const reg = await client.register({
         daemonLabel: opts.label,
         capabilities: [{ agentType: opts.agentType }],
       })
       client.setToken(reg.token)
       daemonId = reg.daemonId
+    }
+
+    /** Track consecutive heartbeat failures to trigger re-registration. */
+    let heartbeatFailures = 0
+    const HEARTBEAT_FAILURE_THRESHOLD = 5
+
+    try {
+      await register()
       log.info('daemon registered', { daemonId, agentType: opts.agentType })
     } catch (err) {
       // Register failing is fatal — without a daemonId we can't claim or
@@ -127,7 +142,46 @@ export function runDaemon(opts: DaemonOpts): DaemonHandle {
     heartbeatTimer = setInterval(() => {
       client
         .heartbeat({ daemonId, status: draining ? 'draining' : 'online', activeTasks: inFlight ? 1 : 0 })
-        .catch((err) => log.warn('heartbeat failed', { error: String(err) }))
+        .then(() => {
+          heartbeatFailures = 0
+        })
+        .catch(async (err) => {
+          if (err instanceof DispatchHttpError && err.status === 404) {
+            // The daemon row was lost (DB reset, gateway restart with data
+            // loss, manual deletion). Re-register immediately to get a new
+            // daemonId + token so subsequent heartbeats and claims succeed.
+            log.warn('heartbeat got 404 — daemon row lost, re-registering', { daemonId })
+            try {
+              await register()
+              heartbeatFailures = 0
+              log.info('daemon re-registered from heartbeat', { daemonId })
+            } catch (regErr) {
+              log.error('re-registration from heartbeat failed', { error: String(regErr) })
+            }
+          } else {
+            heartbeatFailures++
+            log.warn('heartbeat failed', {
+              error: String(err),
+              consecutiveFailures: heartbeatFailures,
+            })
+            // If we've failed too many consecutive heartbeats, the daemonId
+            // might be stale even without an explicit 404 (e.g., gateway
+            // returned 500s during a restart that lost the row).
+            if (heartbeatFailures >= HEARTBEAT_FAILURE_THRESHOLD) {
+              log.warn('heartbeat failure threshold reached, re-registering', {
+                daemonId,
+                failures: heartbeatFailures,
+              })
+              try {
+                await register()
+                heartbeatFailures = 0
+                log.info('daemon re-registered from failure threshold', { daemonId })
+              } catch (regErr) {
+                log.error('re-registration from threshold failed', { error: String(regErr) })
+              }
+            }
+          }
+        })
     }, heartbeatIntervalMs)
     // setInterval keeps the event loop alive; unref so tests / signal-driven
     // shutdown aren't held open by a pending heartbeat alone.
@@ -139,6 +193,18 @@ export function runDaemon(opts: DaemonOpts): DaemonHandle {
       try {
         claimed = await client.claimTask(daemonId)
       } catch (err) {
+        if (err instanceof DispatchHttpError && err.status === 404) {
+          // Daemon row lost — re-register before continuing to claim.
+          log.warn('claim got 404 — daemon row lost, re-registering', { daemonId })
+          try {
+            await register()
+            log.info('daemon re-registered from claim', { daemonId })
+          } catch (regErr) {
+            log.error('re-registration from claim failed', { error: String(regErr) })
+            await sleep(pollIntervalMs)
+          }
+          continue
+        }
         // A transient dispatch error during claim is recoverable — back off
         // and retry the next tick rather than crashing the daemon.
         log.warn('claim failed, backing off', { error: String(err) })
