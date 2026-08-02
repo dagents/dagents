@@ -84,6 +84,7 @@ export class DagExecutor {
       const nodeOutputs = new Map<string, Record<string, unknown>>()
       const executedNodeIds = new Set<string>()
       const incomingEdges = this.buildIncomingEdges(flow.edges)
+      const outgoingEdges = this.buildOutgoingEdges(flow.edges)
 
       let lastOutput: Record<string, unknown> = {}
       let lastExecutedIndex = -1
@@ -130,14 +131,7 @@ export class DagExecutor {
           inputs: flowNode.data,
         }
 
-        const isLast = this.isLastExecutableNode(
-          i,
-          order,
-          flow.edges,
-          nodeOutputs,
-          executedNodeIds,
-          opts.isLastNode,
-        )
+        const isLast = this.isLastExecutableNode(flowNode, outgoingEdges, opts.isLastNode)
 
         const ctx: IExecutionContext = {
           chatId: opts.chatId,
@@ -316,23 +310,35 @@ export class DagExecutor {
   }
 
   /**
-   * Determine if the node at currentIndex is the last executable node.
-   * A node is "last" if there are no subsequent nodes in topo order that
-   * would be reachable via active edges.
+   * Build a map of node id → list of outgoing edges.
+   */
+  private buildOutgoingEdges(edges: FlowEdge[]): Map<string, FlowEdge[]> {
+    const outgoing = new Map<string, FlowEdge[]>()
+    for (const edge of edges) {
+      const list = outgoing.get(edge.source) ?? []
+      list.push(edge)
+      outgoing.set(edge.source, list)
+    }
+    return outgoing
+  }
+
+  /**
+   * Determine if the node is the last executable node.
+   * A node is "last" when it has no outgoing edges at all. This is a pre-run
+   * heuristic: edges whose sourceHandle won't match the current output cannot be
+   * detected here, but it correctly handles linear DAGs and active branch tails
+   * (which themselves have no outgoing edges).
    *
-   * For simplicity and backward compatibility: returns true only when
-   * opts.isLastNode is true AND this is the last node in topological order.
+   * Returns false when the caller disabled last-node handling (`isLastNodeFlag`).
    */
   private isLastExecutableNode(
-    currentIndex: number,
-    order: FlowNode[],
-    _edges: FlowEdge[],
-    _nodeOutputs: Map<string, Record<string, unknown>>,
-    _executedNodeIds: Set<string>,
+    currentNode: FlowNode,
+    outgoingEdges: Map<string, FlowEdge[]>,
     isLastNodeFlag: boolean,
   ): boolean {
     if (!isLastNodeFlag) return false
-    return currentIndex === order.length - 1
+    const outgoing = outgoingEdges.get(currentNode.id) ?? []
+    return outgoing.length === 0
   }
 
   /**

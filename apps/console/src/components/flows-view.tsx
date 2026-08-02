@@ -204,26 +204,27 @@ function mapFlowDetail(data: FlowDetailResponse['data']): FlowDetailView | null 
       latestRunId: null,
       nodes: dag.nodes.map((n) => {
         const nodeTypeName = (n.data?.name as string) ?? ''
-        // 从 CANVAS_NODES 静态元数据获取 description
-        // 内联一个简单的 lookup 避免引入 packages/workflow 依赖
         const meta = CANVAS_NODE_DESCRIPTIONS[nodeTypeName]
         return {
           id: n.id,
-          label: n.data?.label || n.id,
+          label: typeof n.data?.label === 'string' ? n.data.label : n.id,
           type: n.type ?? 'customNode',
-          position: n.position,
+          position: n.position ?? { x: 0, y: 0 },
           status: 'idle' as NodeRunStatus,
           config: n.data as Record<string, unknown> | undefined,
           description: meta,
           nodeType: nodeTypeName,
         }
       }),
-      edges: dag.edges.map((e, i) => ({
-        id: e.id ?? `e-${e.source}-${e.target}-${i}`,
-        source: e.source,
-        target: e.target,
-        label: e.label ?? e.data?.label,
-      })),
+      edges: dag.edges.map((e, i) => {
+        const rawLabel = (e.label ?? e.data?.label) as unknown
+        return {
+          id: e.id ?? `e-${e.source}-${e.target}-${i}`,
+          source: e.source,
+          target: e.target,
+          label: typeof rawLabel === 'string' ? rawLabel : undefined,
+        }
+      }),
       nodeMetrics: {},
       updatedAt: f.updatedAt,
     }

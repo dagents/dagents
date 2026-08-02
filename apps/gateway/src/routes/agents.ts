@@ -4,6 +4,7 @@ import { z } from 'zod'
 import { randomUUID } from 'node:crypto'
 import { runQuery } from '@dagents/db'
 import { createLogger } from '@dagents/shared'
+import { findAgentReferences } from '@dagents/workflow'
 
 /**
  * `/api/v1/agents/*` — Agent catalogue read API aligned to the v0.3 design
@@ -516,54 +517,6 @@ interface AgentFlowReference {
 }
 
 /**
- * Find Platform Agent nodes (by `platformAgentAgentflow` type) in a flow's
- * `flow_data` whose `agentId` input matches the given agent id. Returns the
- * node instance ids; empty when the flow does not reference the agent.
- *
- * `agentId` may be stored at `data.inputs.agentId` (the canvas metadata shape)
- * or flattened onto `data.agentId` (some Flowise serialisations); both are
- * checked so a storage-layout drift does not silently miss a reference.
- */
-function findAgentRefsInFlow(
-  flowData: unknown,
-  agentId: string,
-): string[] {
-  if (!flowData || typeof flowData !== 'object') return []
-  const nodes = (flowData as { nodes?: unknown }).nodes
-  if (!Array.isArray(nodes)) return []
-  const matched: string[] = []
-  for (const n of nodes) {
-    if (!n || typeof n !== 'object') continue
-    const node = n as {
-      id?: unknown
-      type?: unknown
-      name?: unknown
-      data?: unknown
-    }
-    // Only Platform Agent nodes reference a platform agent id; other node
-    // types are ignored so a coincidental `agentId` field elsewhere does not
-    // produce a false positive.
-    if (node.type !== 'platformAgentAgentflow' && node.name !== 'platformAgentAgentflow') {
-      continue
-    }
-    const data = node.data
-    if (!data || typeof data !== 'object') continue
-    const d = data as Record<string, unknown>
-    const inputs = d.inputs
-    const fromInputs =
-      inputs && typeof inputs === 'object'
-        ? (inputs as Record<string, unknown>).agentId
-        : undefined
-    const fromFlat = d.agentId
-    const candidate = fromInputs ?? fromFlat
-    if (candidate === agentId && typeof node.id === 'string') {
-      matched.push(node.id)
-    }
-  }
-  return matched
-}
-
-/**
  * DELETE /api/v1/agents/:id — delete a platform agent, blocked while any flow
  * still references it via a Platform Agent node.
  *
@@ -573,6 +526,9 @@ function findAgentRefsInFlow(
  * any are found, return 409 with the reference list so the caller can update
  * or remove those nodes first. Only when no references remain is the agent
  * row deleted.
+ *
+ * Reference scanning is delegated to `@dagents/workflow` so the agent route
+ * does not depend on the canvas node storage layout.
  *
  * 400 on a malformed id, 404 when no agent row matches, 409 when blocked by
  * references. On success returns `{ id, deleted: true }`.
@@ -602,7 +558,7 @@ agentsRoutes.delete('/:id', async (c) => {
 
   const references: AgentFlowReference[] = []
   for (const f of flowRows) {
-    const nodeIds = findAgentRefsInFlow(f.flow_data, id)
+    const nodeIds = findAgentReferences(f.flow_data, id)
     if (nodeIds.length > 0) {
       references.push({ flowId: f.id, flowName: f.name, nodeIds })
     }

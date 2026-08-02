@@ -23,8 +23,14 @@ export { RuntimeState } from './engine/runtime.js'
 export { DagExecutor } from './engine/executor.js'
 export { SseStreamer } from './engine/sse-streamer.js'
 
-// Utils (Task 3+ — uncomment when modules land)
+// Utils (Task 3+ — uncomment when modules landed)
 export { resolveVariables } from './utils/variables.js'
+export { parseFlowData, flowDataSchema } from './utils/flow-data.js'
+export { findAgentReferences } from './utils/agent-refs.js'
+
+// Flowise schema conversion for the vendored canvas editor
+export { convertNodeToFlowiseSchema } from './flowise/convert-node.js'
+export type { AgentOption } from './flowise/convert-node.js'
 
 // Nodes (barrel) (Task 3+ — uncomment when modules land)
 export * from './nodes/index.js'

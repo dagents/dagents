@@ -197,7 +197,7 @@ describe('toFlowDetailView', () => {
       }),
     }
     const view = toFlowDetailView(flowNoEdgeIds, [])
-    expect(view.edges[0]!.id).toBe('e-a-b-0')
+    expect(view.edges[0]!.id).toBe('a-b')
   })
 
   it('reports idle status + empty nodeMetrics when there are no executions', () => {

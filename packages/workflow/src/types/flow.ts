@@ -34,6 +34,10 @@ export interface FlowEdge {
   targetHandle?: string | null
   type?: string
   animated?: boolean
+  /** Optional edge label (canvas display). */
+  label?: string
+  /** Additional canvas metadata (e.g. nested label). */
+  data?: Record<string, unknown>
 }
 
 /** The complete flow definition — what's stored in the `flows` table's flow_data. */

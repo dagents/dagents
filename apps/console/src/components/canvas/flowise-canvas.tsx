@@ -26,7 +26,7 @@ interface FlowiseCanvasProps {
  * 生成默认输出锚点，保证 Flowise 原生 AgentFlowNode 的 NodeOutputHandles
  * 能正确渲染连线端口。
  */
-function convertToFlowiseFormat(initialFlow: FlowiseCanvasProps['initialFlow']): FlowData {
+export function convertToFlowiseFormat(initialFlow: FlowiseCanvasProps['initialFlow']): FlowData {
   const nodes = initialFlow.nodes.map((node) => {
     const name = node.data?.name || node.name || 'startAgentflow'
     const meta = getNodeMeta(name)

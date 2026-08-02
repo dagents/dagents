@@ -37,6 +37,7 @@
  */
 
 import { z } from 'zod'
+import { parseFlowData, type FlowData } from '@dagents/workflow'
 
 // ─── Gateway source shapes (only the fields we read) ───────────────────────
 
@@ -66,43 +67,8 @@ export const executionSchema = z.object({
 })
 export type Execution = z.infer<typeof executionSchema>
 
-/** A React Flow node as stored in `flowData`. */
-const flowDataNodeSchema = z.object({
-  id: z.string(),
-  position: z.object({ x: z.number(), y: z.number() }),
-  type: z.string().optional(),
-  data: z
-    .object({
-      label: z.string().optional(),
-      // Nodes carry an `id` inside `data` too (the node instance id);
-      // it can differ from the React Flow `id`. We read `label` for display and
-      // ignore the rest of the params/credentials payload.
-    })
-    .passthrough()
-    .optional(),
-})
-
-/** A React Flow edge as stored in `flowData`. */
-const flowDataEdgeSchema = z.object({
-  id: z.string().optional(),
-  source: z.string(),
-  target: z.string(),
-  sourceHandle: z.string().optional(),
-  targetHandle: z.string().optional(),
-  type: z.string().optional(),
-  label: z.string().optional(),
-  data: z.object({ label: z.string().optional() }).optional(),
-})
-
-/** Parsed `flowData` — React Flow's `{ nodes, edges, viewport }`. */
-export const flowDataSchema = z.object({
-  nodes: z.array(flowDataNodeSchema).default([]),
-  edges: z.array(flowDataEdgeSchema).default([]),
-  viewport: z
-    .object({ x: z.number(), y: z.number(), zoom: z.number() })
-    .optional(),
-})
-export type FlowData = z.infer<typeof flowDataSchema>
+/** Parsed `flowData` — re-exported from @dagents/workflow. */
+export type { FlowData }
 
 /** A `ChatFlow` row (only the fields the browse page reads). */
 export const chatflowSchema = z.object({
@@ -152,19 +118,10 @@ export function mapExecutionState(state: string | undefined): NodeRunStatus {
  * — a flow with no canvas shouldn't crash the browse page, it just renders an
  * empty stage. A non-object `flowData` (some legacy rows) also degrades to the
  * empty DAG rather than throwing.
+ *
+ * Delegates to @dagents/workflow so the canonical parser lives in one place.
  */
-export function parseFlowData(flowData: string | undefined | null): FlowData {
-  if (!flowData) return { nodes: [], edges: [] }
-  let parsed: unknown
-  try {
-    parsed = JSON.parse(flowData)
-  } catch {
-    return { nodes: [], edges: [] }
-  }
-  const result = flowDataSchema.safeParse(parsed)
-  if (!result.success) return { nodes: [], edges: [] }
-  return result.data
-}
+export { parseFlowData }
 
 /** A node in the rendered DAG, with its run status attached. */
 export interface FlowNodeView {
@@ -343,20 +300,21 @@ export function toFlowDetailView(
 
   const nodes: FlowNodeView[] = dag.nodes.map((n) => ({
     id: n.id,
-    label: n.data?.label || n.id,
+    label: typeof n.data?.label === 'string' ? n.data.label : n.id,
     type: n.type ?? 'customNode',
-    position: n.position,
+    position: n.position ?? { x: 0, y: 0 },
     status: statusByNode[n.id] ?? 'idle',
   }))
 
-  const edges: FlowEdgeView[] = dag.edges.map((e, i) => ({
-    id: e.id ?? `e-${e.source}-${e.target}-${i}`,
-    source: e.source,
-    target: e.target,
-    // Edge label may be stored either at top-level `label` or nested in
-    // `data.label` (both shapes appear across versions); surface whichever is set.
-    label: e.label ?? e.data?.label,
-  }))
+  const edges: FlowEdgeView[] = dag.edges.map((e, i) => {
+    const rawLabel = (e.label ?? e.data?.label) as unknown
+    return {
+      id: e.id ?? `e-${e.source}-${e.target}-${i}`,
+      source: e.source,
+      target: e.target,
+      label: typeof rawLabel === 'string' ? rawLabel : undefined,
+    }
+  })
 
   // Per-node metrics: walk executions most-recent-first, keep the first (latest)
   // status + logs per node. A node untouched by any execution has no entry here;
