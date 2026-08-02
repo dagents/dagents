@@ -11,3 +11,4 @@ vendor/flowise/.turbo/
 
 # superpowers brainstorming temp dir (pid files, server state, scratch HTML)
 .superpowers/
+.codegraph/
