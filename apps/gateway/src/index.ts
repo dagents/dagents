@@ -1,6 +1,7 @@
 import { serve } from '@hono/node-server'
 import { initDb, runQuery } from '@dagents/db'
-import { startTracing, createLogger } from '@dagents/shared'
+import { createLogger } from '@dagents/shared'
+import { startTracing } from '@dagents/shared/otel'
 import { app } from './app.js'
 import { wsHub } from './ws-hub.js'
 
@@ -31,8 +32,6 @@ await initDb()
 const REAPER_INTERVAL_MS = 15_000
 const STALE_THRESHOLD_SECONDS = 15
 
-let reaperTimer: NodeJS.Timeout | undefined
-
 async function reapStaleDaemons(): Promise<void> {
   try {
     const { affected } = await runQuery(
@@ -50,7 +49,7 @@ async function reapStaleDaemons(): Promise<void> {
   }
 }
 
-reaperTimer = setInterval(() => { void reapStaleDaemons() }, REAPER_INTERVAL_MS)
+const reaperTimer = setInterval(() => { void reapStaleDaemons() }, REAPER_INTERVAL_MS)
 reaperTimer.unref?.()
 
 function shutdown(): void {

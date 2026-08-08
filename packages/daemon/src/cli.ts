@@ -12,7 +12,8 @@
  */
 import { runDaemon } from './main.js'
 import type { AgentType } from '@dagents/contracts'
-import { createLogger, startTracing } from '@dagents/shared'
+import { createLogger } from '@dagents/shared'
+import { startTracing } from '@dagents/shared/otel'
 
 // Start OTel BEFORE the daemon loop so the auto-instrumentations patch
 // `fetch` (undici) + `http` before the first dispatch call — W3C `traceparent`

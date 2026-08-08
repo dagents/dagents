@@ -1,6 +1,7 @@
 import { describe, it, expect, beforeEach, afterEach } from 'vitest'
 import { context, trace } from '@opentelemetry/api'
-import { createLogger, createTestTracing } from '../index.js'
+import { createLogger } from '../index.js'
+import { createTestTracing } from '../otel.js'
 
 describe('logger', () => {
   it('createLogger 返回带 runId 的 logger', () => {

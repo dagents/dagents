@@ -2,7 +2,8 @@ import { describe, it, expect, beforeAll, afterAll, afterEach } from 'vitest'
 import { createServer, type Server } from 'node:http'
 import type { AddressInfo } from 'node:net'
 import { trace, context } from '@opentelemetry/api'
-import { createTestTracing, getTracer } from '../index.js'
+import { getTracer } from '../index.js'
+import { createTestTracing } from '../otel.js'
 
 /**
  * OTel SDK + W3C `traceparent` propagation tests (plan M6.1).
