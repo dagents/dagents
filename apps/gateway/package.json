@@ -8,7 +8,8 @@
     "build": "tsup src/index.ts --format esm",
     "start": "node dist/index.js",
     "typecheck": "tsc --noEmit",
-    "test": "vitest run"
+    "test": "vitest run",
+    "lint": "eslint src --ext .ts"
   },
   "dependencies": {
     "@hono/node-server": "^1.12.0",

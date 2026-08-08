@@ -9,10 +9,14 @@
     "dev:daemon": "tsx packages/daemon/src/cli.ts http://localhost:8080 dev-laptop claude",
     "dev:all": "scripts/dev.sh --with-daemon",
     "test": "turbo run test",
-    "lint": "turbo run lint",
+    "lint": "turbo run lint --filter='!@dagents/agentflow'",
     "typecheck": "turbo run typecheck"
   },
   "devDependencies": {
+    "eslint": "^8.57.0",
+    "@typescript-eslint/parser": "^8.65.0",
+    "@typescript-eslint/eslint-plugin": "^8.65.0",
+    "eslint-plugin-react-hooks": "^5.2.0",
     "turbo": "^2.0.0",
     "typescript": "^5.5.0"
   }

@@ -9,7 +9,8 @@
     "dev": "tsx src/cli.ts",
     "build": "tsup src/main.ts src/cli.ts src/index.ts --format esm --dts",
     "typecheck": "tsc --noEmit",
-    "test": "vitest run"
+    "test": "vitest run",
+    "lint": "eslint src --ext .ts"
   },
   "dependencies": {
     "@dagents/contracts": "workspace:*",

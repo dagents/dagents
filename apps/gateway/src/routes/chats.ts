@@ -538,7 +538,9 @@ async function streamAgentExecution(
           `UPDATE chats SET status = 'idle', updated_at = NOW() WHERE id = $1::uuid`,
           [chatId],
         )
-      } catch {}
+      } catch {
+        // best-effort status reset — ignore errors once the stream has closed
+      }
     },
   })
 

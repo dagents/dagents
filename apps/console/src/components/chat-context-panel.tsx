@@ -33,7 +33,9 @@ export function ChatContextPanel({ chat, directory }: ChatContextPanelProps): Re
       try {
         const r = await fetchChatRuns(chat.id)
         if (!cancelled) setRuns(r)
-      } catch {}
+      } catch {
+        // best-effort run-history load; a fetch failure here must not surface
+      }
     })()
     return () => { cancelled = true }
   }, [chat?.id, chat?.updatedAt])

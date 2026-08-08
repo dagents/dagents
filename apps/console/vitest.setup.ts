@@ -21,7 +21,7 @@ class ResizeObserverPolyfill {
   disconnect(): void {}
 }
 if (!('ResizeObserver' in globalThis)) {
-  ;(globalThis as { ResizeObserver?: unknown }).ResizeObserver = ResizeObserverPolyfill
+  (globalThis as { ResizeObserver?: unknown }).ResizeObserver = ResizeObserverPolyfill
 }
 
 afterEach(() => {

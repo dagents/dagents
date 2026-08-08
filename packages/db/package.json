@@ -10,6 +10,7 @@
     "build": "tsup src/index.ts --format esm --dts",
     "typecheck": "tsc --noEmit",
     "test": "vitest run",
+    "lint": "eslint src --ext .ts",
     "typeorm": "typeorm-ts-node-esm",
     "migration:generate": "pnpm typeorm migration:generate -d src/data-source.ts",
     "migration:run": "pnpm typeorm migration:run -d src/data-source.ts",

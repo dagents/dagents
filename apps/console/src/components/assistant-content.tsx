@@ -168,7 +168,7 @@ function parseOrphanTags(text: string): Segment[] {
   const segments: Segment[] = []
   // Match an orphan opening tag + its content up to end-of-line / next `[`.
   // `[^\[\n]*` stops at newline or `[`, so multi-line replies stay separate.
-  const orphanRe = /\[(thinking|tool-result|tool|status|error|log)(?::([^\]]+))?\][ \t]*([^\[\n]*)(?=\n|\[|$)/g
+  const orphanRe = /\[(thinking|tool-result|tool|status|error|log)(?::([^\]]+))?\][ \t]*([^[\n]*)(?=\n|\[|$)/g
   let lastIndex = 0
   let match: RegExpExecArray | null
   while ((match = orphanRe.exec(text)) !== null) {

@@ -149,7 +149,9 @@ export async function executeInline(
       `UPDATE chats SET status = 'running', updated_at = NOW() WHERE id = $1::uuid`,
       [chatId],
     )
-  } catch {}
+  } catch {
+    // best-effort status flip — a failure here must not block the spawn below
+  }
 
   // spawn claude
   const backend = claudeBackend({ executablePath: execPath, logger: log })
@@ -162,7 +164,7 @@ export async function executeInline(
   }
 
   // 异步消费 AgentEvent 流，推送到 wsHub
-  ;(async () => {
+  (async () => {
     let output = ''
     let result: AgentResult | null = null
     try {

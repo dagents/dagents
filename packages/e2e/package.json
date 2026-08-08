@@ -6,7 +6,8 @@
   "scripts": {
     "build": "echo 'no build step — vitest transforms TS source in place'",
     "typecheck": "tsc --noEmit",
-    "test": "vitest run --passWithNoTests"
+    "test": "vitest run --passWithNoTests",
+    "lint": "eslint src --ext .ts"
   },
   "dependencies": {
     "@hono/node-server": "^1.12.0",

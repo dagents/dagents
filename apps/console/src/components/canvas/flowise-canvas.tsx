@@ -1,5 +1,7 @@
 'use client'
 
+/* eslint-disable @typescript-eslint/no-explicit-any -- adapter for @dagents/agentflow React Flow node/edge shapes that aren't exported as concrete types */
+
 import { useCallback, useMemo, useRef, useState } from 'react'
 import { Agentflow } from '@dagents/agentflow'
 import type { AgentFlowInstance, FlowData, HeaderRenderProps } from '@dagents/agentflow'
