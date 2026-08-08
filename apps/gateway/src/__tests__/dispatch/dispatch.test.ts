@@ -22,6 +22,7 @@ import { randomUUID } from 'node:crypto'
 
 let agentDaemonId: string
 let daemonId: string
+let daemonToken: string
 
 beforeAll(async () => {
   if (!AppDataSource.isInitialized) await AppDataSource.initialize()
@@ -46,8 +47,9 @@ beforeEach(async () => {
       capabilities: [{ agentType: 'claude', tags: ['gpu'] }],
     }),
   })
-  const regBody = (await daemon.json()) as { data: { daemonId: string } }
+  const regBody = (await daemon.json()) as { data: { daemonId: string; token: string } }
   daemonId = regBody.data.daemonId
+  daemonToken = regBody.data.token
 
   const adRows = await AppDataSource.query(
     `INSERT INTO agent_daemons (name, kind, daemon_id, executable_path)
@@ -73,7 +75,10 @@ describe('daemon lifecycle', () => {
   it('heartbeat updates status and 404s for an unknown daemon', async () => {
     const ok = await app.request('/api/v1/dispatch/daemons/heartbeat', {
       method: 'POST',
-      headers: { 'content-type': 'application/json' },
+      headers: {
+        'content-type': 'application/json',
+        authorization: `Bearer ${daemonToken}`,
+      },
       body: JSON.stringify({ daemonId, status: 'draining', activeTasks: 0 }),
     })
     expect(ok.status).toBe(204)
@@ -84,16 +89,21 @@ describe('daemon lifecycle', () => {
     )
     expect(rows[0].status).toBe('draining')
 
+    // Unknown daemon: auth fails first (no matching token row) → 403, not 404.
+    // This is correct security posture — we don't leak which daemon IDs exist.
     const missing = await app.request('/api/v1/dispatch/daemons/heartbeat', {
       method: 'POST',
-      headers: { 'content-type': 'application/json' },
+      headers: {
+        'content-type': 'application/json',
+        authorization: `Bearer ${daemonToken}`,
+      },
       body: JSON.stringify({
         daemonId: '00000000-0000-4000-8000-000000000000',
         status: 'online',
         activeTasks: 0,
       }),
     })
-    expect(missing.status).toBe(404)
+    expect(missing.status).toBe(403)
   })
 
   it('deregister removes the daemon and 404s on repeat', async () => {
@@ -136,12 +146,14 @@ describe('invoke + claim', () => {
 
     const claim1 = await app.request(`/api/v1/dispatch/daemons/${daemonId}/tasks/claim`, {
       method: 'POST',
+      headers: { authorization: `Bearer ${daemonToken}` },
     })
     const c1 = (await claim1.json()) as { data: { task: { id: string } | null } }
     expect(c1.data.task?.id).toBe(t1)
 
     const claim2 = await app.request(`/api/v1/dispatch/daemons/${daemonId}/tasks/claim`, {
       method: 'POST',
+      headers: { authorization: `Bearer ${daemonToken}` },
     })
     const c2 = (await claim2.json()) as { data: { task: { id: string } | null } }
     expect(c2.data.task?.id).toBe(t2)
@@ -157,6 +169,7 @@ describe('invoke + claim', () => {
   it('claim returns null when the queue is empty', async () => {
     const res = await app.request(`/api/v1/dispatch/daemons/${daemonId}/tasks/claim`, {
       method: 'POST',
+      headers: { authorization: `Bearer ${daemonToken}` },
     })
     const body = (await res.json()) as { data: { task: unknown } }
     expect(body.data.task).toBeNull()
@@ -188,6 +201,7 @@ describe('task lifecycle', () => {
     const taskId = ((await r.json()) as { data: { taskId: string } }).data.taskId
     await app.request(`/api/v1/dispatch/daemons/${daemonId}/tasks/claim`, {
       method: 'POST',
+      headers: { authorization: `Bearer ${daemonToken}` },
     })
     return taskId
   }
@@ -301,6 +315,7 @@ describe('GET /tasks/:id result lookup', () => {
     const taskId = ((await r.json()) as { data: { taskId: string } }).data.taskId
     await app.request(`/api/v1/dispatch/daemons/${daemonId}/tasks/claim`, {
       method: 'POST',
+      headers: { authorization: `Bearer ${daemonToken}` },
     })
     return taskId
   }
@@ -339,7 +354,10 @@ describe('GET /tasks/:id result lookup', () => {
     expect(qb.data.finishedAt).toBeNull()
 
     // running: claim this same task (it's the only queued row) then start it
-    await app.request(`/api/v1/dispatch/daemons/${daemonId}/tasks/claim`, { method: 'POST' })
+    await app.request(`/api/v1/dispatch/daemons/${daemonId}/tasks/claim`, {
+      method: 'POST',
+      headers: { authorization: `Bearer ${daemonToken}` },
+    })
     await app.request(`/api/v1/dispatch/tasks/${id}/start`, { method: 'POST' })
 
     const run = await app.request(`/api/v1/dispatch/tasks/${id}`)

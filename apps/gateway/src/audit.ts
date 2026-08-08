@@ -95,16 +95,39 @@ function actorFromContext(c: Context): { type: AuditActorType; id: string } {
 }
 
 /**
- * Best-effort caller IP. Hono exposes the raw socket address; behind a proxy
- * the forwarded chain lives in `x-forwarded-for` (first hop is the client).
- * Returns null when neither is available.
+ * Best-effort caller IP. Checks headers in priority order:
+ * 1. `x-forwarded-for` (first hop is the client) — set by reverse proxies.
+ * 2. `x-real-ip` — set by some proxies (nginx, Cloudflare).
+ * 3. `c.env.incoming.socket.remoteAddress` — direct TCP connection (no proxy).
+ *
+ * Returns null when none is available. A wrong IP is worse for forensics than
+ * a missing one, so we never guess.
+ *
+ * ⚠️ Security note: `x-forwarded-for` is only trustworthy when the gateway is
+ * behind a trusted reverse proxy that overwrites client-supplied headers.
+ * When the gateway is directly exposed (no proxy), the socket address is the
+ * honest IP. Operators MUST strip `x-forwarded-for` / `x-real-ip` at the edge
+ * if clients can reach the gateway directly.
  */
 function ipFromContext(c: Context): string | null {
+  // x-forwarded-for: standard proxy header (first hop = client).
   const fwd = c.req.header('x-forwarded-for')?.split(',')[0]?.trim()
   if (fwd) return fwd
-  // c.env has no reliable socket addr across Hono runtimes; the forwarded
-  // header is the production signal. Absent it, leave IP null rather than
-  // guess — a wrong IP is worse for forensics than a missing one.
+  // x-real-ip: alternative used by nginx / Cloudflare.
+  const realIp = c.req.header('x-real-ip')?.trim()
+  if (realIp) return realIp
+  // Direct socket: the actual TCP remote address when no proxy is involved.
+  // Hono's c.env under @hono/node-server exposes the IncomingMessage.
+  try {
+    const env = c.env as { incoming?: { socket?: { remoteAddress?: string } } }
+    const remoteAddr = env.incoming?.socket?.remoteAddress
+    if (remoteAddr) {
+      // Strip IPv6 prefix `::ffff:` for IPv4-mapped addresses.
+      return remoteAddr.replace(/^::ffff:/, '')
+    }
+  } catch {
+    // Cross-runtime fallback — not all Hono runtimes expose socket info.
+  }
   return null
 }
 

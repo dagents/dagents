@@ -30,13 +30,27 @@ import { persistComplete } from './routes/internal-runs-helpers.js'
 
 const log = createLogger({ svc: 'gateway:inline-executor' })
 
-/** Hardcoded price table (USD per 1M tokens) — replace with LLM Provider CRUD lookup in follow-up. */
-const MODEL_PRICES: Record<string, { input: number; output: number }> = {
+/**
+ * Reference price table (USD per 1M tokens) for Anthropic models.
+ *
+ * ⚠️ These are ONLY used as a fallback when the actual provider's pricing
+ * isn't known. Real cost tracking requires the LLM provider's own response
+ * usage data. The gateway reports `cost` as an *estimate* — never treat it
+ * as a billing-accurate number.
+ *
+ * For non-Anthropic providers (DeepSeek, Qwen, local models), this price
+ * table does NOT apply — `computeCost` returns `undefined` for unknown models
+ * instead of silently using a wrong price.
+ */
+const ANTHROPIC_MODEL_PRICES: Record<string, { input: number; output: number }> = {
+  'claude-sonnet-4-20250514': { input: 3, output: 15 },
+  'claude-opus-4-20250514': { input: 15, output: 75 },
+  'claude-haiku-3-5': { input: 0.8, output: 4 },
+  // Short aliases for CLI --model flag
   sonnet: { input: 3, output: 15 },
   opus: { input: 15, output: 75 },
-  haiku: { input: 0.25, output: 1.25 },
+  haiku: { input: 0.8, output: 4 },
 }
-const DEFAULT_PRICE = { input: 3, output: 15 } // default to sonnet pricing
 
 /**
  * Aggregate per-model token usage into a single summed `TokenUsage`.
@@ -76,17 +90,22 @@ export function aggregateUsage(
 
 /**
  * Compute USD cost from token usage and model name. Returns `undefined`
- * when usage is missing (no tokens to price).
+ * when usage is missing or the model's pricing is unknown (so we never
+ * silently report a wrong cost for non-Anthropic providers).
  */
 export function computeCost(
   usage: { inputTokens?: number; outputTokens?: number } | undefined | null,
   model?: string,
 ): number | undefined {
   if (!usage) return undefined
-  // `model && MODEL_PRICES[model]` returns `""` when model is an empty string
-  // and `undefined` for unknown models — use `||` (not `??`) so both fall back
-  // to DEFAULT_PRICE.
-  const price = (model && MODEL_PRICES[model]) || DEFAULT_PRICE
+  // Look up pricing — returns undefined for unknown models so we don't
+  // silently apply Anthropic prices to DeepSeek/Qwen/local models.
+  const price = model ? ANTHROPIC_MODEL_PRICES[model] : undefined
+  if (!price) {
+    // Unknown model: report token usage but don't fabricate a cost.
+    log.debug('computeCost: unknown model, skipping cost', { model })
+    return undefined
+  }
   const input = usage.inputTokens ?? 0
   const output = usage.outputTokens ?? 0
   if (input === 0 && output === 0) return undefined

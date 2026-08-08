@@ -9,7 +9,8 @@ import { workflowsRoutes } from './routes/workflows.js'
 import { authRoutes, currentUser } from './routes/auth.js'
 import { internalRunsRoutes } from './routes/internal-runs.js'
 import { dispatchRoutes } from './routes/dispatch/index.js'
-import { requireLogin, stampSsoUser, type SsoContextVars } from './auth.js'
+import { createLogger } from '@dagents/shared'
+import { requireAuth, stampSsoUser, verifyApiKey, bearerFromRequest, type SsoContextVars } from './auth.js'
 
 // `app` is exported separately from the `serve()` entry so tests can drive it
 // via `app.request()` without binding a port. `index.ts` is the only place
@@ -39,37 +40,68 @@ app.route('/api/v1/auth', authRoutes)
 app.route('/internal', internalRunsRoutes)
 
 /**
- * SSO session middleware (M5b.4 / P1.4.T2).
+ * Gateway auth middleware (M5b.4 / P1.4.T2 + security hardening).
  *
- * Resolves the session token off the cookie/bearer (`currentUser`), stamps the
- * `ssoUser` on the context when valid (so audit + future RBAC see the actor),
- * and — when `REQUIRE_LOGIN=1` — 401s any non-public route without a valid
- * session. Public routes: `/health`, `/api/v1/auth/*`, and the LLM
- * passthrough (the caller's own `sk-` token is its auth, not the session).
+ * Resolves the SSO session first (stamps `ssoUser` on the context for audit +
+ * future RBAC). Then, when *any* auth is configured (`requireAuth()` true),
+ * gates every non-public route. Auth is satisfied by EITHER a valid SSO
+ * session OR a valid `GATEWAY_API_KEY` bearer token.
  *
- * When SSO isn't configured (`SSO_SESSION_SECRET` unset) the middleware is a
+ * Public routes (always reachable):
+ *   - `/health`
+ *   - `/api/v1/auth/*`  (login/session/logout)
+ *   - `/api/v1/llm/*`   (LLM proxy; the upstream provider's own `sk-` token is the auth)
+ *
+ * Dispatch routes (`/api/v1/dispatch/*`) are passed through to per-route auth:
+ *   - `register` requires `DAEMON_REGISTER_TOKEN` (when set)
+ *   - `claim`/`heartbeat` require the daemon's own token (checked per-route)
+ *
+ * When no auth is configured (`requireAuth()` false) the middleware is a
  * no-op — the pre-M5b.4 open dev posture — so `pnpm test` + local dev without
- * SSO keep working. `REQUIRE_LOGIN` is only honored when SSO is configured, so
- * a stray `REQUIRE_LOGIN=1` without a secret can't lock everything out.
+ * any auth env keep working.
  */
 app.use('*', async (c, next) => {
+  // Resolve SSO session first (stamps user for audit).
   const user = currentUser(c)
   if (user) stampSsoUser(c, user)
-  if (!requireLogin()) {
+
+  if (!requireAuth()) {
     await next()
     return
   }
-  // REQUIRE_LOGIN is on. Exempt the public surface so login is reachable.
+
+  // Auth is configured. Check public routes.
   const path = new URL(c.req.url).pathname
   const isPublic =
     path === '/health' ||
     path.startsWith('/api/v1/auth/') ||
-    path.startsWith('/api/v1/llm/') ||
-    path.startsWith('/api/v1/dispatch/')  // daemon protocol — machine-to-machine, network-isolated (gateway binds 127.0.0.1)
-  if (isPublic || user) {
+    path.startsWith('/api/v1/llm/')        // LLM proxy uses the provider's own API key as auth
+  if (isPublic) {
     await next()
     return
   }
+
+  // Check SSO session first.
+  if (user) {
+    await next()
+    return
+  }
+
+  // Check API key (for programmatic access).
+  const bearer = bearerFromRequest(c)
+  if (verifyApiKey(bearer)) {
+    await next()
+    return
+  }
+
+  // Dispatch routes: check daemon token (not gateway API key).
+  if (path.startsWith('/api/v1/dispatch/')) {
+    // Daemon protocol routes are auth'd by daemon tokens, checked per-route
+    // (register needs DAEMON_REGISTER_TOKEN, claim/heartbeat need daemon token).
+    await next()
+    return
+  }
+
   return c.json({ success: false, error: 'authentication required' }, 401)
 })
 
@@ -142,3 +174,14 @@ app.route('/api/v1/workflows', workflowsRoutes)
  * a reverse proxy with IP allowlist in front for the dispatch paths.
  */
 app.route('/api/v1/dispatch', dispatchRoutes)
+
+// Unified error envelope — always JSON, never plain text. Hono's default 404
+// and 500 handlers emit text/plain, which leaks the framework + gives callers
+// nothing parseable; these wrap every error in the standard `{ success, error }`
+// shape the rest of the API uses.
+app.notFound((c) => c.json({ success: false, error: 'not found' }, 404))
+app.onError((err, c) => {
+  const log = createLogger({ svc: 'gateway:error' })
+  log.error('unhandled error', { error: err.message, stack: err.stack })
+  return c.json({ success: false, error: 'internal server error' }, 500)
+})

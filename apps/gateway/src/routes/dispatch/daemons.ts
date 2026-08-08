@@ -4,6 +4,7 @@ import { randomUUID } from 'node:crypto'
 import { runQuery } from '@dagents/db'
 import { createLogger } from '@dagents/shared'
 import { ok, fail } from './index.js'
+import { daemonRegisterToken } from '../../auth.js'
 
 /**
  * Daemon lifecycle routes (spec §1.5.T3/T4):
@@ -47,6 +48,18 @@ daemonsRoutes.post('/daemons/register', async (c) => {
     return fail(c, 400, 'invalid register body', { detail: String(err) })
   }
 
+  // Registration token gate (P1.4 security hardening). When
+  // `DAEMON_REGISTER_TOKEN` is set, only callers presenting it (as a bearer
+  // token) may register a new daemon. When unset, registration is open
+  // (preserves the dev/test posture where daemons boot without a token).
+  const regToken = daemonRegisterToken()
+  if (regToken) {
+    const provided = c.req.header('authorization')?.replace(/^Bearer\s+/i, '').trim()
+    if (!provided || provided !== regToken) {
+      return fail(c, 401, 'daemon registration requires valid token')
+    }
+  }
+
   const id = randomUUID()
   const token = randomUUID()
   try {
@@ -69,6 +82,21 @@ daemonsRoutes.post('/daemons/heartbeat', async (c) => {
     parsed = heartbeatSchema.parse(await c.req.json())
   } catch (err) {
     return fail(c, 400, 'invalid heartbeat body', { detail: String(err) })
+  }
+
+  // Daemon token auth (P1.4 security hardening). The daemon must present the
+  // token issued at registration as a bearer token. Checked against the row's
+  // stored token; an offline/non-existent daemon can't heartbeat.
+  const daemonToken = c.req.header('authorization')?.replace(/^Bearer\s+/i, '').trim()
+  if (!daemonToken) {
+    return fail(c, 401, 'daemon token required')
+  }
+  const { records: daemonRecords } = await runQuery<{ token: string }>(
+    `SELECT token FROM daemons WHERE id = $1 AND status != 'offline'`,
+    [parsed.daemonId],
+  )
+  if (!daemonRecords[0] || daemonRecords[0].token !== daemonToken) {
+    return fail(c, 403, 'invalid daemon token')
   }
 
   const { affected } = await runQuery(
@@ -127,6 +155,22 @@ daemonsRoutes.delete('/daemons/:id', async (c) => {
  */
 daemonsRoutes.post('/daemons/:id/tasks/claim', async (c) => {
   const daemonId = c.req.param('id')
+
+  // Daemon token auth (P1.4 security hardening). The daemon must present the
+  // token issued at registration as a bearer token. Checked against the row's
+  // stored token before any task is claimed.
+  const daemonToken = c.req.header('authorization')?.replace(/^Bearer\s+/i, '').trim()
+  if (!daemonToken) {
+    return fail(c, 401, 'daemon token required')
+  }
+  const { records: daemonRecords } = await runQuery<{ token: string }>(
+    `SELECT token FROM daemons WHERE id = $1 AND status != 'offline'`,
+    [daemonId],
+  )
+  if (!daemonRecords[0] || daemonRecords[0].token !== daemonToken) {
+    return fail(c, 403, 'invalid daemon token')
+  }
+
   let records: { id: string; agent_daemon_id: string; run_id: string; prompt: string; exec_options: unknown }[] = []
   try {
     const res = await runQuery<{

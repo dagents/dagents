@@ -1,6 +1,7 @@
 import { Hono, type Context } from 'hono'
 import { runQuery } from '@dagents/db'
 import { createLogger } from '@dagents/shared'
+import { decryptSecret } from '../crypto.js'
 
 export const llmRoutes = new Hono()
 
@@ -46,7 +47,7 @@ interface LlmProviderRow {
 }
 
 function decodeApiKey(encoded: string): string {
-  return Buffer.from(encoded, 'base64').toString('utf-8')
+  return decryptSecret(encoded)
 }
 
 async function getProviderById(id: string): Promise<LlmProviderRow | null> {

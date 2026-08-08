@@ -238,3 +238,66 @@ export function stampSsoUser(c: Context, user: SsoUser): void {
 export function generateDevSecret(): string {
   return randomBytes(48).toString('base64url')
 }
+
+// ---------------------------------------------------------------------------
+// API key + daemon token auth (P1.4 security hardening).
+//
+// SSO (above) is the browser/console path. These helpers add a parallel
+// *programmatic* auth surface so scripts, CI, and daemons can call the gateway
+// without a browser session. The gateway is secure-by-default when *either*
+// SSO OR a `GATEWAY_API_KEY` is configured (see `requireAuth()`).
+// ---------------------------------------------------------------------------
+
+/** The env-held API key for programmatic access (scripts, CI). */
+export function gatewayApiKey(): string {
+  return process.env.GATEWAY_API_KEY ?? ''
+}
+
+/** The token required to register new daemons. */
+export function daemonRegisterToken(): string {
+  return process.env.DAEMON_REGISTER_TOKEN ?? ''
+}
+
+/** True when any form of authentication is configured (SSO or API key). */
+export function authConfigured(): boolean {
+  return ssoConfigured() || gatewayApiKey().length >= 16
+}
+
+/**
+ * True when every non-public route requires authentication.
+ * Now returns true when EITHER:
+ * - SSO with REQUIRE_LOGIN=1 (session-based), OR
+ * - GATEWAY_API_KEY is set (API key-based)
+ * This makes the gateway secure-by-default when any auth env is configured.
+ */
+export function requireAuth(): boolean {
+  return (process.env.REQUIRE_LOGIN === '1' && ssoConfigured()) || gatewayApiKey().length >= 16
+}
+
+/**
+ * Verify a gateway API key in constant time. The expected key is read from
+ * `GATEWAY_API_KEY` (16+ chars). Returns false when no key is configured or
+ * when the provided key doesn't match — never throws.
+ */
+export function verifyApiKey(provided: string | null | undefined): boolean {
+  const expected = gatewayApiKey()
+  if (!expected || expected.length < 16) return false
+  if (!provided) return false
+  const a = Buffer.from(provided)
+  const b = Buffer.from(expected)
+  if (a.length !== b.length) return false
+  return timingSafeEqual(a, b)
+}
+
+/**
+ * Extract a bearer token from the `Authorization` header. Returns the token
+ * (trimmed) when present, null otherwise. Header matching is case-insensitive
+ * on the scheme per RFC 7235.
+ */
+export function bearerFromRequest(c: Context): string | null {
+  const auth = c.req.header('authorization')
+  if (auth?.toLowerCase().startsWith('bearer ')) {
+    return auth.slice(7).trim() || null
+  }
+  return null
+}

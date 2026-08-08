@@ -4,6 +4,7 @@ import { z } from 'zod'
 import { runQuery } from '@dagents/db'
 import { createLogger } from '@dagents/shared'
 import { recordAudit } from '../audit.js'
+import { decryptSecret, encrypt, encryptionConfigured } from '../crypto.js'
 
 export const llmProviderRoutes = new Hono()
 
@@ -66,11 +67,16 @@ function maskApiKey(key: string): string {
   return '...'
 }
 
-function decodeApiKey(encoded: string): string {
-  return Buffer.from(encoded, 'base64').toString('utf-8')
-}
-
+/**
+ * Encrypt an API key for at-rest storage. Uses AES-256-GCM when ENCRYPTION_KEY
+ * is configured; falls back to legacy Base64 for dev without encryption (with
+ * a log warning) so the gateway still boots.
+ */
 function encodeApiKey(plain: string): string {
+  if (encryptionConfigured()) {
+    return encrypt(plain)
+  }
+  log.warn('ENCRYPTION_KEY not set — API key stored with legacy Base64 (not secure!)')
   return Buffer.from(plain).toString('base64')
 }
 
@@ -79,7 +85,7 @@ function normalizeProvider(r: LlmProviderRow) {
   if (Array.isArray(r.models)) {
     models = r.models
   }
-  const decodedKey = decodeApiKey(r.api_key)
+  const decodedKey = decryptSecret(r.api_key)
   return {
     id: r.id,
     directoryId: r.directory_id,
@@ -359,7 +365,7 @@ llmProviderRoutes.post('/:id/test', async (c) => {
     return fail(c, 404, 'provider not found', { id })
   }
 
-  const decodedKey = decodeApiKey(row.api_key)
+  const decodedKey = decryptSecret(row.api_key)
   const baseUrl = row.base_url.endsWith('/') ? row.base_url.slice(0, -1) : row.base_url
   const testUrl = `${baseUrl}/models`
 

@@ -43,18 +43,18 @@ describe('computeCost', () => {
   })
 
   it('computes cost for haiku pricing', () => {
-    // haiku: $0.25 / 1M input, $1.25 / 1M output
+    // haiku: $0.8 / 1M input, $4 / 1M output
     const usage = { inputTokens: 1_000_000, outputTokens: 1_000_000 }
-    expect(computeCost(usage, 'haiku')).toBeCloseTo(1.5, 5) // 0.25 + 1.25
+    expect(computeCost(usage, 'haiku')).toBeCloseTo(4.8, 5) // 0.8 + 4
   })
 
-  it('falls back to default (sonnet) pricing for unknown model', () => {
+  it('returns undefined for unknown model (no fabricated cost)', () => {
     const usage = { inputTokens: 1_000_000, outputTokens: 1_000_000 }
-    expect(computeCost(usage, 'unknown-model')).toBeCloseTo(18, 5)
+    expect(computeCost(usage, 'unknown-model')).toBeUndefined()
   })
 
-  it('falls back to default pricing when model is undefined', () => {
+  it('returns undefined when model is undefined', () => {
     const usage = { inputTokens: 1_000_000, outputTokens: 1_000_000 }
-    expect(computeCost(usage, undefined)).toBeCloseTo(18, 5)
+    expect(computeCost(usage, undefined)).toBeUndefined()
   })
 })

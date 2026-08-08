@@ -2,6 +2,37 @@
 
 Chat-First 的异构 coding agent 平台。**中央调度（gateway）+ 本地 daemon** 两层架构，统一编排 claude / codex 等 CLI agent；工作流引擎内聚在 `@dagents/workflow`，画布编辑器使用 vendored `agentflow`。
 
+## ⚠️ 安全须知 — 部署前必读
+
+> **默认配置下，gateway 绑定 `127.0.0.1`（仅本机访问）。**
+> 如果你计划将 gateway 暴露到网络（反代、k8s Service、Cloudflare Tunnel 等），**必须**配置以下环境变量之一：
+
+### 方案 A：API Key 鉴权（最简单）
+```bash
+# 生成一个强随机 key（≥16 字符）
+GATEWAY_API_KEY=$(openssl rand -hex 32)
+```
+设置后，所有非公开 API 路由需要 `Authorization: Bearer <key>` 头。
+Daemon 注册需要额外的 `DAEMON_REGISTER_TOKEN`。
+
+### 方案 B：SSO 会话鉴权（浏览器 + Console）
+```bash
+SSO_DEV_USERNAME=admin
+SSO_DEV_PASSWORD=<strong-password>
+SSO_SESSION_SECRET=$(openssl rand -base64 48)  # ≥32 bytes
+REQUIRE_LOGIN=1
+```
+
+### 必须配置的安全变量
+| 变量 | 用途 | 生成方式 |
+|---|---|---|
+| `GATEWAY_API_KEY` | API 路由鉴权 | `openssl rand -hex 32` |
+| `DAEMON_REGISTER_TOKEN` | Daemon 注册令牌 | `openssl rand -hex 32` |
+| `ENCRYPTION_KEY` | LLM API Key 加密（AES-256-GCM） | `openssl rand -hex 32` |
+| `SSO_SESSION_SECRET` | SSO 会话签名 | `openssl rand -base64 48` |
+
+**不设 `ENCRYPTION_KEY` 时，LLM API Key 以 Base64 存储（可逆，不安全），gateway 会打印警告。**
+
 ## 架构
 
 ```
