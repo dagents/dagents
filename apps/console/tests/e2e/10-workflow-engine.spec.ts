@@ -3,44 +3,106 @@ import { test, expect } from '@playwright/test'
 /**
  * Workflow engine module e2e — UC-WF-01 ~ UC-WF-12.
  *
- * Module status: ❌ 0/12 implemented. The `packages/workflow/` package does not
- * exist; 14 nodes not migrated; DAG engine not built; new `flows` table not
- * built; new `/api/v1/workflows/*` API not built; legacy proxy code not
- * removed. See architecture §9 and gap-analysis §10.
+ * Status (updated 2026-08-08): the workflow engine landed via Plan A/B/C —
+ * `packages/workflow/` exists, the `flows` table backs it, and
+ * `/api/v1/workflows/*` (proxied by the console at `/api/workflows/*`) is live.
  *
- * All twelve user cases are marked `test.fixme` with the gap. This file is
- * deliberately a single suite (not split per UC) because the entire module is
- * one unit of work — when the workflow-engine plan lands, all twelve will be
- * activated together.
+ * The user-facing CRUD surface is now exercised by real `test()`:
+ *   - UC-WF-02 ~ 06: list / get / create / update / delete
  *
- * ## Out of scope for this file
+ * Still `test.fixme` (genuinely not coverable at this layer yet):
+ *   - UC-WF-01 / 12: run + SSE token stream — needs an executable flow against
+ *     a configured LLM provider; the empty flows provisioned here don't run.
+ *   - UC-WF-07: GET /:id/executions — route not implemented (only
+ *     /runs/:runId/node-spans exists today).
+ *   - UC-WF-08 ~ 11: 14 node types / DAG / branch / loop — engine-internal,
+ *     covered by unit tests in `packages/workflow/src/__tests__/` + node suites.
  *
- * The fourteen node types (UC-WF-08) and the DAG execution (UC-WF-09 ~ 11)
- * are engine-internal concerns better tested at the `packages/workflow/` unit
- * level. The e2e here only covers the user-facing surface (API + UI):
- * list/get/create/update/delete/run/history. When the engine lands, the unit
- * tests in `packages/workflow/src/__tests__/` should cover the DAG semantics;
- * these e2e specs stay focused on the HTTP + browser contract.
+ * Console proxy: `/api/workflows/*` → gateway `/api/v1/workflows/*`, piping the
+ * gateway's `{ success, data }` envelope through unchanged, so assertions read
+ * the gateway shape (data.flows, data.flow, data.deleted) over the console baseURL.
+ *
+ * Why UC-WF-04 (create) and UC-WF-06 (delete) provision their own flow instead
+ * of reusing the shared fixture: the suite runs serially (workers:1) but each
+ * test must pass independently — a delete that removed the shared flow would
+ * break later tests, so create/delete each spin up a throwaway and clean it up.
  */
-
 test.describe('Workflow engine module (UC-WF-01 ~ 12) — architecture §9', () => {
-  test.beforeEach(async ({ request }) => {
-    // Quick health check: the workflow API does not exist yet, so any request
-    // to /api/v1/workflows returns 404. This is intentional — when the route
-    // lands, the fixme markers below activate and the requests will start
-    // resolving. Keeping the health check here so a misconfigured dev stack
-    // (e.g. gateway down) surfaces as a clear failure rather than a confusing
-    // "route not found" inside each fixme test.
-    const res = await request.get('/api/v1/workflows')
-    // Currently 404 — expected. When the route lands, this becomes 200.
-    expect([404, 200]).toContain(res.status())
+  // Shared fixture for the read-only UCs (list / get / update). Created in
+  // beforeAll, removed in afterAll.
+  let sharedFlowId = ''
+
+  test.beforeAll(async ({ request }) => {
+    const res = await request.post('/api/workflows', {
+      data: { name: 'e2e-uc-wf-shared', flowData: { nodes: [], edges: [] } },
+    })
+    expect(res.status()).toBe(200)
+    sharedFlowId = (await res.json()).data.flow.id
   })
 
+  test.afterAll(async ({ request }) => {
+    if (sharedFlowId) await request.delete(`/api/workflows/${sharedFlowId}`)
+  })
+
+  test('UC-WF-02: list workflows', async ({ request }) => {
+    const res = await request.get('/api/workflows')
+    expect(res.status()).toBe(200)
+    const body = await res.json()
+    expect(body.success).toBe(true)
+    expect(Array.isArray(body.data?.flows)).toBe(true)
+    expect(body.data.flows.some((f: { id: string }) => f.id === sharedFlowId)).toBe(true)
+  })
+
+  test('UC-WF-03: get workflow definition', async ({ request }) => {
+    const res = await request.get(`/api/workflows/${sharedFlowId}`)
+    expect(res.status()).toBe(200)
+    const body = await res.json()
+    expect(body.data?.flow?.id).toBe(sharedFlowId)
+    expect(body.data?.flow?.flowData).toBeTruthy()
+  })
+
+  test('UC-WF-04: create workflow', async ({ request }) => {
+    const res = await request.post('/api/workflows', {
+      data: { name: 'e2e-uc-wf-04-create', flowData: { nodes: [], edges: [] } },
+    })
+    expect(res.status()).toBe(200)
+    const body = await res.json()
+    expect(body.data?.flow?.id).toBeTruthy()
+    // clean up the throwaway so the suite stays side-effect-free
+    await request.delete(`/api/workflows/${body.data.flow.id}`)
+  })
+
+  test('UC-WF-05: update workflow definition', async ({ request }) => {
+    const res = await request.put(`/api/workflows/${sharedFlowId}`, {
+      data: { name: 'e2e-uc-wf-05-renamed' },
+    })
+    expect(res.status()).toBe(200)
+    const body = await res.json()
+    expect(body.data?.flow?.name).toBe('e2e-uc-wf-05-renamed')
+  })
+
+  test('UC-WF-06: delete workflow', async ({ request }) => {
+    const created = await request.post('/api/workflows', {
+      data: { name: 'e2e-uc-wf-06-delete' },
+    })
+    const id = (await created.json()).data.flow.id
+
+    const res = await request.delete(`/api/workflows/${id}`)
+    expect(res.status()).toBe(200)
+    expect((await res.json()).data?.deleted).toBe(true)
+
+    // a follow-up GET must 404 — the row is really gone
+    const gone = await request.get(`/api/workflows/${id}`)
+    expect(gone.status()).toBe(404)
+  })
+
+  // ---- remaining UCs: not yet coverable at the HTTP/browser layer ----
+
   test.fixme('UC-WF-01: execute workflow (SSE streaming)', async ({ request }) => {
-    // Gap: 路由不存在;当前仍用 /api/v1/flows/:id/prediction (workflow proxy)。
-    // 期望: POST /api/v1/workflows/:id/run 返回 SSE,
-    //       推送 token / 工具调用 / 思考过程事件。
-    const res = await request.post('/api/v1/workflows/test-flow-id/run', {
+    // Gap: POST /api/workflows/:id/run exists, but a green SSE run needs an
+    // executable flow (real nodes) + a configured LLM provider; the empty flows
+    // provisioned in this suite won't produce a token stream.
+    const res = await request.post(`/api/workflows/${sharedFlowId}/run`, {
       headers: { accept: 'text/event-stream' },
       data: { input: 'hello' },
     })
@@ -48,87 +110,35 @@ test.describe('Workflow engine module (UC-WF-01 ~ 12) — architecture §9', () 
     expect(res.headers()['content-type']).toContain('text/event-stream')
   })
 
-  test.fixme('UC-WF-02: list workflows', async ({ request }) => {
-    // Gap: 路由不存在;当前用 /api/v1/flows (旧)。
-    const res = await request.get('/api/v1/workflows')
-    expect(res.status()).toBe(200)
-    const body = await res.json()
-    expect(Array.isArray(body.data?.items)).toBe(true)
-  })
-
-  test.fixme('UC-WF-03: get workflow definition', async ({ request }) => {
-    // Gap: 路由不存在;当前用 /api/v1/chatflows/:id (旧)。
-    const res = await request.get('/api/v1/workflows/test-flow-id')
-    expect(res.status()).toBe(200)
-    const body = await res.json()
-    expect(body.data?.flow_data).toBeTruthy()
-  })
-
-  test.fixme('UC-WF-04: create workflow', async ({ request }) => {
-    // Gap: 路由不存在;flows 表未建(§9.4)。
-    const res = await request.post('/api/v1/workflows', {
-      data: { name: 'e2e workflow', flow_data: { nodes: [], edges: [] } },
-    })
-    expect(res.status()).toBe(201)
-  })
-
-  test.fixme('UC-WF-05: update workflow definition', async ({ request }) => {
-    // Gap: 路由不存在。
-    const res = await request.put('/api/v1/workflows/test-flow-id', {
-      data: { flow_data: { nodes: [], edges: [] } },
-    })
-    expect(res.status()).toBe(200)
-  })
-
-  test.fixme('UC-WF-06: delete workflow', async ({ request }) => {
-    // Gap: 路由不存在。
-    const res = await request.delete('/api/v1/workflows/test-flow-id')
-    expect(res.status()).toBe(204)
-  })
-
   test.fixme('UC-WF-07: view execution history', async ({ request }) => {
-    // Gap: 路由不存在;当前用 /api/v1/executions (旧)。
-    const res = await request.get('/api/v1/workflows/test-flow-id/executions')
+    // Gap: GET /api/workflows/:id/executions is not implemented — only
+    // /api/workflows/runs/:runId/node-spans (per-run node trace) exists today.
+    const res = await request.get(`/api/workflows/${sharedFlowId}/executions`)
     expect(res.status()).toBe(200)
-    const body = await res.json()
-    expect(Array.isArray(body.data?.items)).toBe(true)
+    expect(Array.isArray((await res.json()).data?.items)).toBe(true)
   })
 
   test.fixme('UC-WF-08: support 14 node types', () => {
-    // Gap: packages/workflow/src/nodes/ 目录不存在;0/14 节点迁移。
-    // 期望节点: Start / Agent / LLM / Tool / HTTP / Condition /
-    //          ConditionAgent / Iteration / Loop / HumanInput /
-    //          DirectReply / CustomFunction / ExecuteFlow / Retriever。
-    //
-    // This is a developer-facing concern — covered by unit tests in
-    // packages/workflow/src/nodes/__tests__/, not by browser e2e. Kept here
-    // as a placeholder so the UC count matches the gap analysis.
-    expect(true).toBe(true)
+    // Engine-internal — covered by packages/workflow/src/nodes/*.node.test.ts
+    // (14 node suites). Kept as a placeholder so the UC count matches the gap analysis.
   })
 
   test.fixme('UC-WF-09: DAG topological execution', () => {
-    // Gap: packages/workflow/src/engine/executor.ts 不存在。
-    // 期望: 根据 edges 计算执行顺序,节点 output 作为下游 input。
-    // 引擎内部行为,unit test 覆盖。
-    expect(true).toBe(true)
+    // Engine-internal — covered by packages/workflow/src/__tests__/executor.test.ts.
   })
 
   test.fixme('UC-WF-10: branch handling (Condition / ConditionAgent)', () => {
-    // Gap: 节点未迁移。
-    // 期望: Condition 节点根据条件选路径;ConditionAgent 类似。
-    expect(true).toBe(true)
+    // Engine-internal — covered by condition / condition-agent node tests.
   })
 
   test.fixme('UC-WF-11: loop handling (Iteration / Loop)', () => {
-    // Gap: 节点未迁移。
-    // 期望: Iteration/Loop 重复执行子路径。
-    expect(true).toBe(true)
+    // Engine-internal — covered by iteration / loop node tests.
   })
 
   test.fixme('UC-WF-12: stream token / tool call / thinking', async ({ request }) => {
-    // Gap: packages/workflow/src/engine/sse-streamer.ts 不存在。
-    // 期望: SSE 推送多种事件类型 (token / tool_call / thinking / metadata / end)。
-    const res = await request.post('/api/v1/workflows/test-flow-id/run', {
+    // Gap: same executable-flow + LLM setup as UC-WF-01; asserts the SSE event
+    // types (token / tool_call / thinking) once a real run is wired here.
+    const res = await request.post(`/api/workflows/${sharedFlowId}/run`, {
       headers: { accept: 'text/event-stream' },
       data: { input: 'stream test' },
     })
