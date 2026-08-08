@@ -1,0 +1,87 @@
+# Continuous integration — runs on every push to main and on PRs.
+#
+# Pipeline: install (frozen lockfile) → build → typecheck → lint → apply DB
+# migrations → run the test suite.
+#
+# Why a Postgres service: several gateway/db tests hit a real database — they
+# call `AppDataSource.initialize()` + `runQuery` in beforeAll (see
+# apps/gateway/src/__tests__/directories.test.ts), and the DB layer runs with
+# `synchronize: false`, so the schema only exists after `migration:run`.
+#
+# Deliberately skipped:
+#   - @dagents/e2e: boots the full gateway+daemon stack against a fake LLM and
+#     needs the wider dev environment; belongs in a heavier, separate job.
+#
+# lint runs across every workspace except @dagents/agentflow (the vendored
+# Flowise canvas ships its own ESLint config, which isn't ours to maintain).
+# Only errors fail the job — `no-unused-vars` and `react-hooks/exhaustive-deps`
+# are warnings by design (see .eslintrc.cjs).
+#
+# .npmrc sets ignore-scripts=true, so vendored agentflow's husky postinstall is
+# skipped — install is safe under --frozen-lockfile.
+
+name: CI
+
+on:
+  push:
+    branches: [main]
+  pull_request:
+
+concurrency:
+  group: ci-${{ github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  ci:
+    name: build • typecheck • lint • test
+    runs-on: ubuntu-latest
+    timeout-minutes: 20
+
+    services:
+      postgres:
+        image: postgres:16
+        env:
+          POSTGRES_USER: dagents
+          POSTGRES_PASSWORD: dagents_dev
+          POSTGRES_DB: dagents
+        ports:
+          - 5432:5432
+        options: >-
+          --health-cmd "pg_isready -U dagents"
+          --health-interval 5s
+          --health-timeout 5s
+          --health-retries 10
+
+    env:
+      POSTGRES_URL: postgresql://dagents:dagents_dev@localhost:5432/dagents
+
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Setup pnpm
+        uses: pnpm/action-setup@v4
+
+      - name: Setup Node
+        uses: actions/setup-node@v4
+        with:
+          node-version: 20
+          cache: pnpm
+
+      - name: Install dependencies
+        run: pnpm install --frozen-lockfile
+
+      - name: Build
+        run: pnpm build
+
+      - name: Typecheck
+        run: pnpm typecheck
+
+      - name: Lint
+        run: pnpm exec turbo run lint --filter='!@dagents/agentflow'
+
+      - name: Apply DB migrations
+        run: pnpm --filter @dagents/db migration:run
+
+      - name: Test
+        run: pnpm exec turbo run test --filter='!@dagents/e2e'
