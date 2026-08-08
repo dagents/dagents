@@ -144,7 +144,7 @@ Reviewer roles seen: `code-reviewer` (adversarial review / 对抗式评审), `pr
 
 - Vitest, per-package. `*.test.ts` colocated with source (or in `__tests__/`).
 - E2E in `packages/e2e`: **boots real Hono apps on ephemeral ports** with a stub LLM provider as a real `node:http` server + a real `runDaemon` with a fake claude backend. Why real `serve()` and not `app.request()`: the W3C `traceparent` that undici auto-instrumentation injects is only extracted on the receiving hop by the `http` server instrumentation — in-process `app.request()` calls cannot exercise cross-process propagation.
-- E2E requires the docker-compose dev stack up (PG :15432, Redis :16479); `setup.ts` runs pending migrations before tests. `fileParallelism: false`, 60s timeouts.
+- E2E requires the Postgres dev stack up (PG :15432); `setup.ts` runs pending migrations before tests. `fileParallelism: false`, 60s timeouts.
 
 ## CodeGraph
 

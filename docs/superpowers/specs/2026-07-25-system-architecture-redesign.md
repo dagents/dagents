@@ -5,19 +5,19 @@
 > **基于**: `docs/archive/design/v0.3-9screen/` (v0.2/v0.3 平台控制台原型) + `docs/archive/design/chat-first/` (Chat-First 原型)
 > **决策模式**: 共存 (B) — Chat-First 升级为 home，9 屏精简保留
 
-## 实现状态总览（2026-07-26）
+## 实现状态总览（2026-07-26 起，更新于 2026-08-08）
 
 | 章节 | 内容 | 状态 |
 |------|------|------|
 | §2-3 | 路由表 + 数据模型（directories/chats/chat_messages） | ✅ 已实现 |
 | §4 | Directories/Chats API + console proxy routes | ✅ 已实现 |
 | §5 | Chat-First 前端（home/detail/directories/daemons） | ✅ 已实现 |
-| §6 | 服务层职责（gateway/dispatch/scheduler） | ✅ 已实现 |
-| §9 | 工作流引擎内聚（packages/workflow） | 🟡 Plan A 完成；Plan B/C 进行中 |
+| §6 | 服务层职责 | ✅ 已实现（dispatch/scheduler 已于 2026-08-01 Plan A 并入单一 gateway，原 :8082 端口与 Redis 依赖废弃） |
+| §9 | 工作流引擎内聚（packages/workflow） | ✅ Plan A/B/C 全部完成（14 节点 + DAG 执行器 + SSE 流式 + 变量解析） |
 | — | new-api 移除 + 自定义 LLM Provider | ✅ 已实现（spec 见 `docs/archive/specs/2026-07-26-remove-new-api-llm-config.md`） |
-| — | Flowise vendored fork | ⏳ 待 Plan C 完成后移除 |
+| — | Flowise vendored fork | ✅ `vendor/flowise/` 已移除；画布编辑器改用 `vendor/agentflow/`（从 Flowise Agentflow 抽取的纯前端 React Flow 组件） |
 
-> **当前进行中**: Plan B（Start/LLM/Agent 大节点 + 分支/循环执行）、Plan C（flows 表 + `/api/v1/workflows/*` API + console 前端切换 + Flowise proxy 删除）
+> **里程碑**：工作流引擎内聚（Plan A/B/C）与 Flowise 解耦已全部落地。后续工作以 `docs/superpowers/plans/` 为准。
 
 ---
 
