@@ -11,11 +11,11 @@
  * (daemon, dispatch, db) depends on these types.
  */
 
-/** Canonical MVP agent-type whitelist (14 types). Mirrors multica `SupportedTypes`. */
+/** Canonical MVP agent-type whitelist. Mirrors multica `SupportedTypes`. */
 export type AgentType =
   | 'claude' | 'codex' | 'copilot' | 'opencode' | 'openclaw'
   | 'hermes' | 'gemini' | 'pi' | 'cursor' | 'kimi' | 'kiro'
-  | 'antigravity' | 'codebuddy' | 'qoder'
+  | 'antigravity' | 'codebuddy' | 'qoder' | 'qwen'
 
 /**
  * Structured logger shape. Defined inline here so `@dagents/contracts` stays

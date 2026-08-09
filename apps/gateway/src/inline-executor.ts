@@ -20,7 +20,7 @@
  * 保留 dispatch/daemon 协议不动，未来切分布式模式时切换 routeMessage
  * 走 dispatch invoke 即可。
  */
-import { claudeBackend } from '@dagents/agent-adapters'
+import { createBackend } from '@dagents/agent-adapters'
 import { runQuery } from '@dagents/db'
 import { createLogger } from '@dagents/shared'
 import type { AgentEvent, AgentResult, TokenUsage } from '@dagents/contracts'
@@ -140,6 +140,7 @@ export async function executeInline(
   // 查 agent 信息，确定 executable_path（优先用 agent 自带的，否则用 'claude'）
   let execPath = 'claude'
   let agentName = 'agent'
+  let agentKind = 'claude'
   try {
     const { records } = await runQuery<{ name: string; executable_path: string | null; kind: string }>(
       `SELECT name, executable_path, kind FROM agent_daemons WHERE id = $1::uuid`,
@@ -151,10 +152,12 @@ export async function executeInline(
       return
     }
     agentName = agent.name
+    agentKind = agent.kind
     if (agent.executable_path) execPath = agent.executable_path
-    // 非 claude kind 暂不支持 inline 执行（只有 claude adapter）
-    if (agent.kind !== 'claude') {
-      await reportError(chatId, runId, `inline executor only supports 'claude' kind, got '${agent.kind}'`)
+    // 使用 createBackend factory 支持 claude/codex/qwen/copilot/opencode
+    const supportedKinds = ['claude', 'codex', 'qwen', 'copilot', 'opencode']
+    if (!supportedKinds.includes(agent.kind)) {
+      await reportError(chatId, runId, `inline executor only supports [${supportedKinds.join(', ')}], got '${agent.kind}'`)
       return
     }
   } catch (err) {
@@ -172,8 +175,8 @@ export async function executeInline(
     // best-effort status flip — a failure here must not block the spawn below
   }
 
-  // spawn claude
-  const backend = claudeBackend({ executablePath: execPath, logger: log })
+  // spawn agent via factory (supports claude/codex/qwen/copilot/opencode)
+  const backend = createBackend(agentKind as any, { executablePath: execPath, logger: log })
   let session: ReturnType<typeof backend.execute> | null = null
   try {
     session = backend.execute(prompt, { cwd: opts.cwd, model: opts.model })
