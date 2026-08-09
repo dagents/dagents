@@ -20,6 +20,7 @@
 
 import { Fragment, useCallback, useEffect, useMemo, useState } from 'react'
 import { PageShell } from '@/components/page-shell'
+import { AGENT_KINDS } from '@/lib/agents-catalog'
 import {
   createLlmProvider,
   deleteLlmProvider,
@@ -34,8 +35,8 @@ import {
   type LlmProviderStatus,
 } from '@/lib/llm-providers'
 
-/** The six settings tabs, grouped as the design's sub-nav renders them. */
-type TabId = 'keys' | 'models' | 'quota' | 'notify' | 'account' | 'danger'
+/** The settings tabs, grouped as the design's sub-nav renders them. */
+type TabId = 'keys' | 'runtimes' | 'models' | 'quota' | 'notify' | 'account' | 'danger'
 
 type TabGroupKey = '密钥' | '模型' | '治理' | '账户'
 
@@ -63,6 +64,7 @@ interface TabDef {
  */
 const TABS: readonly TabDef[] = [
   { id: 'keys', label: 'LLM Provider 管理', a11y: 'LLM Provider', group: '密钥' },
+  { id: 'runtimes', label: 'CLI 运行时', a11y: 'CLI 运行时', group: '密钥' },
   { id: 'models', label: '默认模型', group: '模型' },
   { id: 'quota', label: '预算与配额', a11y: '预算配额', group: '治理' },
   { id: 'notify', label: '通知', group: '治理' },
@@ -142,6 +144,7 @@ export function SettingsView(): React.ReactElement {
 
         <div>
           {tab === 'keys' && <LlmProvidersTab />}
+          {tab === 'runtimes' && <RuntimesTab />}
           {tab === 'models' && <DefaultModelsTab />}
           {tab === 'quota' && <QuotaTab />}
           {tab === 'notify' && <NotifyTab />}
@@ -479,6 +482,97 @@ function LlmProvidersTab(): React.ReactElement {
       ) : null}
 
       {toast ? <div className={`toast ${toast.kind}`}>{toast.msg}</div> : null}
+    </section>
+  )
+}
+
+// ─── CLI 运行时 tab ──────────────────────────────────────────────────
+//
+// A reference table of all 18 CLI agent types the platform can dispatch to,
+// with their default binary, wire protocol, and a one-line description. The
+// browser cannot probe the host PATH, so there is no live "installed?"
+// detection — the table is a configuration reference. Status defaults to
+// "未配置" (placeholder); operators confirm availability by ensuring the
+// binary is on PATH where the daemon runs. Styled to match the LLM Provider
+// table (`.table-wrap` + `table.data`).
+
+/** Protocol → short Chinese label for the runtimes table. */
+const PROTOCOL_LABEL: Record<string, string> = {
+  'stream-json': 'stream-json',
+  ACP: 'ACP',
+  'plain-text': 'plain-text',
+  none: '—',
+}
+
+/** Display name + protocol for each runtime row, derived from AGENT_KINDS.
+ *  CLI kinds only (prompt/remote have no binary and are omitted). */
+const RUNTIME_ROWS = AGENT_KINDS.filter((m) => m.binary.length > 0)
+
+function RuntimesTab(): React.ReactElement {
+  return (
+    <section className="settings-section active" aria-label={TAB_LABEL.runtimes}>
+      <div className="row-between mb-4">
+        <div>
+          <div className="card-title" style={{ fontSize: 'var(--text-lg)' }}>{TAB_LABEL.runtimes}</div>
+          <div className="muted mt-2" style={{ fontSize: 13 }}>
+            平台支持的全部 CLI agent 运行时。在 daemon 主机上确保对应二进制已安装并在 <code className="mono">PATH</code> 中可用。
+          </div>
+        </div>
+      </div>
+
+      <div className="table-wrap">
+        <table className="data" style={{ width: '100%' }}>
+          <thead>
+            <tr>
+              <th style={{ width: '18%' }}>名称</th>
+              <th style={{ width: '16%' }}>二进制</th>
+              <th style={{ width: '12%' }}>协议</th>
+              <th style={{ width: '10%' }}>分组</th>
+              <th style={{ width: '12%' }}>状态</th>
+              <th>说明</th>
+            </tr>
+          </thead>
+          <tbody>
+            {RUNTIME_ROWS.map((r) => (
+              <tr key={r.kind}>
+                <td>
+                  <div className="tk-name">
+                    <div className="nm">{r.label}</div>
+                    <div className="meta">
+                      <span className="mono" style={{ fontSize: 11 }}>{r.kind}</span>
+                    </div>
+                  </div>
+                </td>
+                <td>
+                  <span className="mono" style={{ fontSize: 12 }}>{r.binary}</span>
+                </td>
+                <td>
+                  <span className="tk-group">{PROTOCOL_LABEL[r.protocol] ?? r.protocol}</span>
+                </td>
+                <td>
+                  <span className="chip chip-outline" style={{ fontSize: 11 }}>{r.group}</span>
+                </td>
+                <td>
+                  {/* Browser cannot probe PATH — status is a static placeholder.
+                      Operators verify via the daemon host shell. */}
+                  <span className="status idle">
+                    <span className="dot" />
+                    未配置
+                  </span>
+                </td>
+                <td>
+                  <span className="muted" style={{ fontSize: 12 }}>{r.hint}</span>
+                </td>
+              </tr>
+            ))}
+          </tbody>
+        </table>
+      </div>
+
+      <p className="muted mt-3" style={{ fontSize: 12, lineHeight: 1.6 }}>
+        状态列为占位值——浏览器无法探测主机 <code className="mono">PATH</code>。请到运行 daemon 的机器上执行
+        <code className="mono"> which &lt;binary&gt;</code> 确认对应 CLI 已安装。新建 Agent 时选择对应类型可自动填入默认二进制路径。
+      </p>
     </section>
   )
 }

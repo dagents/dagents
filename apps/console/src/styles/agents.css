@@ -433,6 +433,21 @@
   border-color: var(--fg);
 }
 
+/* grouped kind picker (主流 / 国产 / ACP / 特殊 / 其他) — a vertical stack of
+ *   groups, each with a small meta label above its chip row. */
+.kind-options-grouped {
+  display: flex;
+  flex-direction: column;
+  gap: var(--space-3);
+}
+.kind-group-label {
+  font-size: 11px;
+  color: var(--meta);
+  font-weight: 600;
+  letter-spacing: 0.02em;
+  margin-bottom: var(--space-1);
+}
+
 .modal-empty {
   padding: var(--space-6);
   text-align: center;

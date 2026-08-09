@@ -14,26 +14,33 @@
  *
  * multica's full AgentCreationStudio (mode chooser → templates → AI builder)
  * is intentionally out of scope for the initial version — this is the simpler
- * CreateAgentDialog pattern (single modal, single form) which fits mil-agents'
- * smaller agent surface (4 kinds, no skills/MCP/integrations yet).
+ * CreateAgentDialog pattern (single modal, single form). The kind picker now
+ * spans all 18 CLI agent types (grouped 主流 / 国产 / ACP / 特殊 / 其他).
  */
 
-import { useEffect, useState } from 'react'
+import { useEffect, useMemo, useRef, useState } from 'react'
 import { Icon } from '@/components/icon'
 import { useSession } from '@/lib/auth-client'
 import {
   type AgentKind,
+  type AgentKindGroup,
   type DaemonOption,
+  AGENT_KINDS,
   createAgent,
   fetchDaemons,
+  kindBinary,
 } from '@/lib/agents-catalog'
 
-const KIND_OPTIONS: { value: AgentKind; label: string; hint: string }[] = [
-  { value: 'prompt', label: '提示词', hint: '纯提示词 agent，无 CLI 调用' },
-  { value: 'claude', label: 'Claude Code', hint: 'Claude Code CLI agent' },
-  { value: 'codex', label: 'Codex', hint: 'Codex CLI agent' },
-  { value: 'remote', label: 'Remote', hint: '远程 HTTP agent' },
-]
+/**
+ * Kind picker options, derived from the shared {@link AGENT_KINDS} metadata so
+ * the dialog, the agents list, and the settings runtimes table all agree on
+ * label / hint / default binary / group. Grouped for visual grouping in the
+ * picker (主流 / 国产 / ACP / 特殊 / 其他).
+ */
+const KIND_OPTIONS = AGENT_KINDS
+
+/** Ordered groups rendered as sub-headings in the kind picker. */
+const KIND_GROUPS: AgentKindGroup[] = ['主流', '国产', 'ACP', '特殊', '其他']
 
 const VISIBILITY_OPTIONS: { value: 'workspace' | 'public'; label: string }[] = [
   { value: 'workspace', label: '工作区' },
@@ -67,6 +74,12 @@ export function CreateAgentDialog({
   const [summary, setSummary] = useState('')
   const [visibility, setVisibility] = useState<'workspace' | 'public'>('workspace')
   const [executablePath, setExecutablePath] = useState('')
+
+  // Track whether executable_path holds a value the user typed themselves vs.
+  // a value we auto-filled from the selected kind's default binary. We only
+  // auto-fill when the field is empty OR still holds our last auto-fill, so a
+  // user-typed path (e.g. `/usr/local/bin/claude`) is never clobbered.
+  const lastAutoFilled = useRef<string>('')
 
   // Fetch daemons when the dialog opens
   useEffect(() => {
@@ -112,8 +125,33 @@ export function CreateAgentDialog({
     setSummary('')
     setVisibility('workspace')
     setExecutablePath('')
+    lastAutoFilled.current = ''
     setError(null)
   }, [open])
+
+  /** Kind-picker options bucketed by group, preserving KIND_GROUPS order.
+   *  Empty groups are skipped so the picker has no orphan headings. */
+  const groupedOptions = useMemo(
+    () =>
+      KIND_GROUPS.map((g) => ({
+        group: g,
+        options: KIND_OPTIONS.filter((o) => o.group === g),
+      })).filter((g) => g.options.length > 0),
+    [],
+  )
+
+  /** Select a kind and, if the executable_path field is empty or still holds
+   *  our previous auto-fill, pre-fill it with the kind's default binary. A
+   *  user-typed path is preserved (never overwritten). */
+  function selectKind(next: AgentKind): void {
+    setKind(next)
+    const binary = kindBinary(next)
+    if (!binary) return // non-CLI kinds (prompt/remote) have no default binary
+    if (executablePath === '' || executablePath === lastAutoFilled.current) {
+      setExecutablePath(binary)
+      lastAutoFilled.current = binary
+    }
+  }
 
   if (!open) return null
 
@@ -223,17 +261,24 @@ export function CreateAgentDialog({
                 <div className="form-section-label">执行</div>
                 <div className="field">
                   <label htmlFor="agent-kind">类型</label>
-                  <div className="kind-options">
-                    {KIND_OPTIONS.map((k) => (
-                      <button
-                        key={k.value}
-                        type="button"
-                        className={`kind-option${kind === k.value ? ' active' : ''}`}
-                        onClick={() => setKind(k.value)}
-                        title={k.hint}
-                      >
-                        {k.label}
-                      </button>
+                  <div className="kind-options-grouped">
+                    {groupedOptions.map((g) => (
+                      <div key={g.group} className="kind-group">
+                        <div className="kind-group-label">{g.group}</div>
+                        <div className="kind-options">
+                          {g.options.map((k) => (
+                            <button
+                              key={k.kind}
+                              type="button"
+                              className={`kind-option${kind === k.kind ? ' active' : ''}`}
+                              onClick={() => selectKind(k.kind)}
+                              title={k.hint}
+                            >
+                              {k.label}
+                            </button>
+                          ))}
+                        </div>
+                      </div>
                     ))}
                   </div>
                 </div>

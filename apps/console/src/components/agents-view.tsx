@@ -25,19 +25,15 @@ import {
   type AgentKind,
   type AgentStatus,
   type CatalogAgent,
+  AGENT_KINDS,
   NO_FILTERS,
   filterAgents,
   fetchAgents,
+  kindLabel,
+  kindGlyph,
 } from '@/lib/agents-catalog'
 
-const KIND_LABEL: Record<AgentKind, string> = {
-  prompt: '提示词',
-  claude: 'Claude Code',
-  codex: 'Codex',
-  remote: 'Remote',
-}
-const KIND_GLYPH: Record<AgentKind, string> = { prompt: 'P', claude: 'C', codex: 'X', remote: 'R' }
-
+// Status display maps are still view-local (no shared source yet).
 const STATUS_LABEL: Record<AgentStatus, string> = {
   running: '运行',
   queued: '排队',
@@ -56,7 +52,14 @@ const STATUS_DOT_CLASS: Record<AgentStatus, string> = {
   done: 'dot-done',
 }
 
-const KIND_FILTERS: AgentKind[] = ['prompt', 'claude', 'codex', 'remote']
+// Filter chips show the 主流 (mainstream) CLI kinds — the 6 most common —
+// so the toolbar stays scannable. Less-common kinds (国产/ACP/特殊) are
+// still selectable via the create dialog and searchable by name/id/kind;
+// an unknown kind normalises to `remote`, which has its own chip.
+const KIND_FILTERS: AgentKind[] = AGENT_KINDS
+  .filter((m) => m.group === '主流')
+  .map((m) => m.kind)
+  .concat(['remote'])
 const STATUS_FILTERS: AgentStatus[] = ['running', 'queued', 'idle', 'failed']
 
 type Scope = 'mine' | 'all' | 'archived'
@@ -225,7 +228,7 @@ export function AgentsView(): React.ReactElement {
             aria-pressed={filters.kind === k}
             onClick={() => toggleFilter('kind', k)}
           >
-            {KIND_LABEL[k]}
+            {kindLabel(k)}
           </button>
         ))}
         {STATUS_FILTERS.map((s) => (
@@ -303,12 +306,12 @@ export function AgentsView(): React.ReactElement {
               }}
             >
               <div className="agent-card-head">
-                <div className={glyphClass(a.kind)}>{KIND_GLYPH[a.kind]}</div>
+                <div className={glyphClass(a.kind)}>{kindGlyph(a.kind)}</div>
                 <div className="agent-info">
                   <div className="nm">{a.name}</div>
                   <div className="sub">
                     <span className="mono">{a.id.slice(0, 8)}</span>
-                    <span>{KIND_LABEL[a.kind]}</span>
+                    <span>{kindLabel(a.kind)}</span>
                     {a.run ? <span className="mono">{a.run}</span> : null}
                   </div>
                 </div>

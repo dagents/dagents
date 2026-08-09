@@ -405,7 +405,8 @@ describe('derivePageModel (live payload → render model)', () => {
   it('derives availability from daemonStatus and runtime from kind+daemon', () => {
     const m = derivePageModel(makeDetail(), LOGS, NOW_MS)
     expect(m.availability).toBe('online')
-    expect(m.runtime).toBe('claude-code · daemon-09')
+    // runtime prefix is derived from the kind's default binary (claude → 'claude')
+    expect(m.runtime).toBe('claude · daemon-09')
     expect(m.visibility).toBe('workspace')
     // current task surfaces the run id + elapsed formatted
     expect(m.currentRun).toBe('R-8821')

@@ -16,15 +16,107 @@
  *     React — so they are unit-testable in vitest's node environment with no
  *     jsdom, matching sse.test.ts.
  *
- * `agents.kind` is free TEXT. The design's 4 kinds (prompt / claude /
- * codex / remote) are the catalogue's filter set; an unknown kind maps to
- * `remote` so the fleet still renders. `region` is best-effort: there is no
- * region column, so it is derived from a daemon-capability `region`/`tags`
- * hint if present, else `—`.
+ * `agents.kind` is free TEXT. The catalogue knows the 18 CLI agent kinds
+ * (claude / codex / copilot / …) plus `prompt` (pure prompt) and `remote`
+ * (generic HTTP) — see {@link AgentKind}. An unknown kind maps to `remote`
+ * so the fleet still renders (`normalizeKind`). `region` is best-effort:
+ * there is no region column, so it is derived from a daemon-capability
+ * `region`/`tags` hint if present, else `—`.
  */
 
-/** The design's 4 agent kinds (agents.html filter chips). */
-export type AgentKind = 'prompt' | 'claude' | 'codex' | 'remote'
+/** The agent kinds the catalogue knows about. `agents.kind` is free TEXT in
+ *  the DB; this union is the set the UI renders + filters on. It covers the
+ *  18 CLI agent types plus the two non-CLI kinds (`prompt` = pure prompt,
+ *  `remote` = generic remote HTTP agent). Any DB row whose `kind` is not in
+ *  this set is normalised to `remote` by {@link normalizeKind} so the fleet
+ *  still renders. */
+export type AgentKind =
+  | 'prompt' | 'remote'
+  | 'claude' | 'codex' | 'copilot' | 'opencode' | 'qwen'
+  | 'codebuddy' | 'cursor' | 'deveco' | 'antigravity' | 'openclaw' | 'pi'
+  | 'hermes' | 'kimi' | 'kiro' | 'grok' | 'qoder' | 'traecli'
+
+/** Visual grouping for the kind picker + the settings runtimes table. */
+export type AgentKindGroup = '主流' | '国产' | 'ACP' | '特殊' | '其他'
+
+/** Wire protocol the CLI speaks — surfaced in the settings runtimes table. */
+export type AgentProtocol = 'stream-json' | 'ACP' | 'plain-text' | 'none'
+
+/** Static display metadata for each known {@link AgentKind}. Single source of
+ *  truth shared by the agents list (label/glyph), the create-agent dialog
+ *  (label/hint/binary/group), and the settings CLI runtimes table. */
+export interface AgentKindMeta {
+  kind: AgentKind
+  /** Short display name (fits the filter chip + table cell). */
+  label: string
+  /** One-line description (create dialog hint + settings table description). */
+  hint: string
+  /** Default CLI binary name; used to auto-fill executable_path on create
+   *  and shown in the settings runtimes table. Empty for `prompt`. */
+  binary: string
+  /** Visual grouping (主流 / 国产 / ACP / 特殊 / 其他). */
+  group: AgentKindGroup
+  /** Wire protocol the CLI speaks. */
+  protocol: AgentProtocol
+  /** 1–2 letter glyph for the agent-card avatar. */
+  glyph: string
+}
+
+/** Ordered list of all known agent kinds with display metadata. The order is
+ *  the canonical display order (主流 first, then 国产, ACP, 特殊, 其他). */
+export const AGENT_KINDS: readonly AgentKindMeta[] = [
+  // 主流 CLI
+  { kind: 'claude', label: 'Claude', hint: 'Anthropic Claude CLI', binary: 'claude', group: '主流', protocol: 'stream-json', glyph: 'CC' },
+  { kind: 'codex', label: 'Codex', hint: 'OpenAI Codex CLI', binary: 'codex', group: '主流', protocol: 'stream-json', glyph: 'CX' },
+  { kind: 'copilot', label: 'Copilot', hint: 'GitHub Copilot CLI', binary: 'copilot', group: '主流', protocol: 'stream-json', glyph: 'CP' },
+  { kind: 'qwen', label: 'Qwen', hint: '通义千问编码助手', binary: 'qwen', group: '主流', protocol: 'stream-json', glyph: 'QW' },
+  { kind: 'cursor', label: 'Cursor', hint: 'Cursor IDE CLI', binary: 'cursor-agent', group: '主流', protocol: 'stream-json', glyph: 'CU' },
+  { kind: 'opencode', label: 'OpenCode', hint: '开源编码 agent', binary: 'opencode', group: '主流', protocol: 'stream-json', glyph: 'OC' },
+  // 国产 / 新兴
+  { kind: 'codebuddy', label: 'CodeBuddy', hint: '腾讯 CodeBuddy（Claude fork）', binary: 'codebuddy', group: '国产', protocol: 'stream-json', glyph: 'CB' },
+  { kind: 'deveco', label: 'DevEco', hint: '华为鸿蒙编码助手', binary: 'deveco', group: '国产', protocol: 'stream-json', glyph: 'DE' },
+  { kind: 'kimi', label: 'Kimi', hint: 'Moonshot Kimi CLI', binary: 'kimi', group: '国产', protocol: 'stream-json', glyph: 'KI' },
+  { kind: 'kiro', label: 'Kiro', hint: 'AWS Kiro CLI', binary: 'kiro-cli', group: '国产', protocol: 'stream-json', glyph: 'KR' },
+  { kind: 'qoder', label: 'Qoder', hint: 'Qoder CLI（ACP）', binary: 'qodercli', group: '国产', protocol: 'ACP', glyph: 'QD' },
+  { kind: 'traecli', label: 'TRAE', hint: '字节 TRAE CLI', binary: 'traecli', group: '国产', protocol: 'stream-json', glyph: 'TR' },
+  // ACP 协议
+  { kind: 'hermes', label: 'Hermes', hint: 'Hermes Agent（ACP）', binary: 'hermes', group: 'ACP', protocol: 'ACP', glyph: 'HE' },
+  { kind: 'grok', label: 'Grok', hint: 'xAI Grok CLI', binary: 'grok', group: 'ACP', protocol: 'stream-json', glyph: 'GK' },
+  // 特殊
+  { kind: 'antigravity', label: 'Antigravity', hint: 'Google Ant CLI', binary: 'agy', group: '特殊', protocol: 'stream-json', glyph: 'AG' },
+  { kind: 'openclaw', label: 'OpenClaw', hint: '开源 agent 引擎', binary: 'openclaw', group: '特殊', protocol: 'plain-text', glyph: 'OW' },
+  { kind: 'pi', label: 'Pi', hint: 'Pi CLI（JSON mode）', binary: 'pi', group: '特殊', protocol: 'plain-text', glyph: 'PI' },
+  // 纯提示词 / 远程
+  { kind: 'prompt', label: '提示词', hint: '纯提示词 agent，无 CLI', binary: '', group: '其他', protocol: 'none', glyph: 'P' },
+  { kind: 'remote', label: 'Remote', hint: '远程 HTTP agent', binary: '', group: '其他', protocol: 'none', glyph: 'R' },
+] as const
+
+/** Lookup maps derived from {@link AGENT_KINDS} — O(1) per-kind access for
+ *  the list view + detail view, which index by `CatalogAgent.kind`. Falls
+ *  back to the `remote` entry (so an unknown kind still has a label/glyph)
+ *  even though `normalizeKind` already maps unknowns to `remote`. */
+const AGENT_KIND_MAP: Record<AgentKind, AgentKindMeta> = AGENT_KINDS.reduce(
+  (acc, m) => {
+    acc[m.kind] = m
+    return acc
+  },
+  {} as Record<AgentKind, AgentKindMeta>,
+)
+
+/** Short display label for a kind (falls back to `Remote`). */
+export function kindLabel(kind: AgentKind): string {
+  return AGENT_KIND_MAP[kind]?.label ?? 'Remote'
+}
+
+/** 1–2 letter glyph for a kind's avatar (falls back to `R`). */
+export function kindGlyph(kind: AgentKind): string {
+  return AGENT_KIND_MAP[kind]?.glyph ?? 'R'
+}
+
+/** Default CLI binary for a kind, or `''` for non-CLI kinds. */
+export function kindBinary(kind: AgentKind): string {
+  return AGENT_KIND_MAP[kind]?.binary ?? ''
+}
 
 /** Lifecycle status surfaced in the list/kanban. `paused` has no dispatch
  *  source today (no pause state in `dispatch_tasks`); it is kept in the union
@@ -185,8 +277,15 @@ interface AgentDetailRow {
   runs: { id: string; identifier: string; status: string; cost: string }[]
 }
 
-/** Known kinds from the design; anything else → `remote`. */
-const KNOWN_KINDS: ReadonlySet<string> = new Set(['prompt', 'claude', 'codex', 'remote'])
+/** Known kinds from {@link AgentKind}; anything else → `remote`.
+ *  `normalizeKind` lowercases before membership-testing so DB values like
+ *  `Claude` or `CODEX` still resolve. Kept in sync with the union above. */
+const KNOWN_KINDS: ReadonlySet<string> = new Set<AgentKind>([
+  'prompt', 'remote',
+  'claude', 'codex', 'copilot', 'opencode', 'qwen',
+  'codebuddy', 'cursor', 'deveco', 'antigravity', 'openclaw', 'pi',
+  'hermes', 'kimi', 'kiro', 'grok', 'qoder', 'traecli',
+])
 
 export function normalizeKind(kind: string): AgentKind {
   const k = kind.toLowerCase()

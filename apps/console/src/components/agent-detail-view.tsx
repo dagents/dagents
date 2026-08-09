@@ -57,20 +57,8 @@ import {
 } from '@/lib/agent-detail'
 import { AgentActivitySparkline } from '@/components/agent-activity-sparkline'
 import { useWsFrame } from '@/lib/ws-client'
+import { kindLabel, kindGlyph } from '@/lib/agents-catalog'
 import '@/styles/agent-detail.css'
-
-const KIND_LABEL: Record<AgentDetailPageModel['kind'], string> = {
-  prompt: '提示词',
-  claude: 'Claude Code',
-  codex: 'Codex',
-  remote: 'Remote',
-}
-const KIND_GLYPH: Record<AgentDetailPageModel['kind'], string> = {
-  prompt: 'P',
-  claude: 'C',
-  codex: 'X',
-  remote: 'R',
-}
 
 type TabKey = 'activity' | 'instructions' | 'skills' | 'logs'
 
@@ -322,7 +310,7 @@ function Inspector({ model }: InspectorProps): React.ReactElement {
     <aside className="inspector" id="inspector" data-od-id="inspector">
       <div className="ins-head">
         <div className={`ins-avatar kind-${model.kind}`} aria-hidden="true">
-          {KIND_GLYPH[model.kind]}
+          {kindGlyph(model.kind)}
         </div>
         <div style={{ minWidth: 0 }}>
           <div className="ins-name">{model.name}</div>
@@ -338,7 +326,7 @@ function Inspector({ model }: InspectorProps): React.ReactElement {
       <div>
         <div className="ins-section-label">属性</div>
         <PropRow label="Agent ID" mono value={model.id} />
-        <PropRow label="类型" value={KIND_LABEL[model.kind]} pick />
+        <PropRow label="类型" value={kindLabel(model.kind)} pick />
         <PropRow label="模型" value={model.model} pick />
         <PropRow label="运行时" mono value={model.runtime} />
         <PropRow label="并发" value={model.concurrency} />

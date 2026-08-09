@@ -56,12 +56,24 @@ describe('normalizeKind', () => {
     expect(normalizeKind('claude')).toBe('claude')
     expect(normalizeKind('codex')).toBe('codex')
     expect(normalizeKind('remote')).toBe('remote')
+    // New 18-kind set: a few of the added kinds are now known (not remapped).
+    expect(normalizeKind('copilot')).toBe('copilot')
+    expect(normalizeKind('qwen')).toBe('qwen')
+    expect(normalizeKind('hermes')).toBe('hermes')
+    expect(normalizeKind('kiro')).toBe('kiro')
+    expect(normalizeKind('traecli')).toBe('traecli')
   })
 
-  it('lowercases and maps unknown kinds to remote', () => {
+  it('is case-insensitive', () => {
+    expect(normalizeKind('Claude')).toBe('claude')
+    expect(normalizeKind('CODEX')).toBe('codex')
+    expect(normalizeKind('Copilot')).toBe('copilot')
+  })
+
+  it('maps unknown kinds to remote', () => {
     expect(normalizeKind('Gemini')).toBe('remote')
-    expect(normalizeKind('copilot')).toBe('remote')
     expect(normalizeKind('something-new')).toBe('remote')
+    expect(normalizeKind('')).toBe('remote')
   })
 })
 

@@ -30,7 +30,7 @@
  * heartbeat).
  */
 
-import type { AgentDetail, AgentKind, AgentLogLine, AgentStatus } from './agents-catalog'
+import { AGENT_KINDS, type AgentDetail, type AgentKind, type AgentLogLine, type AgentStatus } from './agents-catalog'
 
 /** One day-bar in the 30-day activity sparkline (design `{total, ok, fail}`). */
 export interface AgentActivityBucket {
@@ -89,12 +89,21 @@ const MS_PER_SEC = 1000
 const MS_PER_MIN = 60 * MS_PER_SEC
 export const ACTIVITY_BUCKET_COUNT = 30
 
-const KIND_RUNTIME_PREFIX: Record<AgentKind, string> = {
-  prompt: 'workflow-native',
-  claude: 'claude-code',
-  codex: 'codex',
-  remote: 'remote',
-}
+/** Runtime label prefix per kind, shown in the detail inspector's 运行时 row.
+ *  Derived from the shared {@link AGENT_KINDS} metadata (binary → runtime):
+ *  CLI kinds use their binary (e.g. `claude`, `cursor-agent`), `prompt` is
+ *  workflow-native, `remote` is remote. Built once at module load so the
+ *  detail derivation stays a pure lookup. */
+const KIND_RUNTIME_PREFIX: Record<AgentKind, string> = AGENT_KINDS.reduce(
+  (acc, m) => {
+    acc[m.kind] =
+      m.kind === 'prompt' ? 'workflow-native'
+      : m.kind === 'remote' ? 'remote'
+      : m.binary || m.kind
+    return acc
+  },
+  {} as Record<AgentKind, string>,
+)
 
 const VISIBILITY_LABEL: Record<string, 'workspace' | 'public'> = {
   public: 'public',
