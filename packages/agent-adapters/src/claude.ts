@@ -213,7 +213,7 @@ interface ClaudeModelUsage {
   cacheCreationInputTokens?: number
 }
 
-interface ClaudeStreamMessage {
+export interface ClaudeStreamMessage {
   type: string
   subtype?: string
   session_id?: string

@@ -5,16 +5,14 @@
  * return the corresponding `AgentBackend` implementation. Unknown types
  * throw (fail-loudly, not silently) so the caller gets an actionable error.
  *
- * Currently supported:
- *   - claude    → claudeBackend  (claude.ts, stream-json)
- *   - codex     → codexBackend   (codex.ts, NDJSON --json mode)
- *   - qwen      → qwenBackend    (qwen.ts, stream-json)
- *   - copilot   → copilotBackend (copilot.ts, JSONL dotted events)
- *   - opencode  → opencodeBackend (opencode.ts, JSON)
+ * All 18 agent types from multica are supported:
  *
- * Unsupported (ACP / special protocol — not yet ported):
- *   hermes, gemini/pi, cursor, kimi, kiro, antigravity, codebuddy, qoder,
- *   openclaw
+ *   Stream-JSON / NDJSON (spawnStreamAgent):
+ *     claude, codex, qwen, copilot, opencode, codebuddy, cursor, deveco,
+ *     antigravity, openclaw, pi
+ *
+ *   ACP (Agent Client Protocol, JSON-RPC over stdin/stdout):
+ *     hermes, kimi, kiro, grok, qoder, traecli
  */
 import type { AgentType, BackendConfig, BackendFactory } from '@dagents/contracts'
 import { claudeBackend } from './claude.js'
@@ -22,6 +20,18 @@ import { codexBackend } from './codex.js'
 import { qwenBackend } from './qwen.js'
 import { copilotBackend } from './copilot.js'
 import { opencodeBackend } from './opencode.js'
+import { codebuddyBackend } from './codebuddy.js'
+import { cursorBackend } from './cursor.js'
+import { devecoBackend } from './deveco.js'
+import { antigravityBackend } from './antigravity.js'
+import { openclawBackend } from './openclaw.js'
+import { piBackend } from './pi.js'
+import { hermesBackend } from './hermes.js'
+import { kimiBackend } from './kimi.js'
+import { kiroBackend } from './kiro.js'
+import { grokBackend } from './grok.js'
+import { qoderBackend } from './qoder.js'
+import { traecliBackend } from './traecli.js'
 
 export const createBackend: BackendFactory = (
   agentType: AgentType,
@@ -38,11 +48,35 @@ export const createBackend: BackendFactory = (
       return copilotBackend(cfg)
     case 'opencode':
       return opencodeBackend(cfg)
+    case 'codebuddy':
+      return codebuddyBackend(cfg)
+    case 'cursor':
+      return cursorBackend(cfg)
+    case 'deveco':
+      return devecoBackend(cfg)
+    case 'antigravity':
+      return antigravityBackend(cfg)
+    case 'openclaw':
+      return openclawBackend(cfg)
+    case 'pi':
+      return piBackend(cfg)
+    case 'hermes':
+      return hermesBackend(cfg)
+    case 'kimi':
+      return kimiBackend(cfg)
+    case 'kiro':
+      return kiroBackend(cfg)
+    case 'grok':
+      return grokBackend(cfg)
+    case 'qoder':
+      return qoderBackend(cfg)
+    case 'traecli':
+      return traecliBackend(cfg)
     default:
       throw new Error(
         `unsupported agent type '${agentType}': no adapter implemented. ` +
-          'Supported: claude, codex, qwen, copilot, opencode. ' +
-          'ACP-based agents (hermes, kimi, etc.) are not yet ported.',
+          'All 18 multica agents are supported: claude, codex, qwen, copilot, opencode, ' +
+          'codebuddy, cursor, deveco, antigravity, openclaw, pi, hermes, kimi, kiro, grok, qoder, traecli.',
       )
   }
 }

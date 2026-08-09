@@ -154,8 +154,12 @@ export async function executeInline(
     agentName = agent.name
     agentKind = agent.kind
     if (agent.executable_path) execPath = agent.executable_path
-    // 使用 createBackend factory 支持 claude/codex/qwen/copilot/opencode
-    const supportedKinds = ['claude', 'codex', 'qwen', 'copilot', 'opencode']
+    // 使用 createBackend factory 支持所有已适配的 agent CLI
+    const supportedKinds = [
+      'claude', 'codex', 'qwen', 'copilot', 'opencode',
+      'codebuddy', 'cursor', 'deveco', 'antigravity', 'openclaw', 'pi',
+      'hermes', 'kimi', 'kiro', 'grok', 'qoder', 'traecli',
+    ]
     if (!supportedKinds.includes(agent.kind)) {
       await reportError(chatId, runId, `inline executor only supports [${supportedKinds.join(', ')}], got '${agent.kind}'`)
       return
