@@ -19,7 +19,10 @@
 'use client'
 
 import { Fragment, useCallback, useEffect, useMemo, useState } from 'react'
+import { createPortal } from 'react-dom'
 import { PageShell } from '@/components/page-shell'
+import { NotificationSettings } from '@/components/notification-settings'
+import { AuditLog } from '@/components/audit-log'
 import { AGENT_KINDS } from '@/lib/agents-catalog'
 import {
   createLlmProvider,
@@ -36,7 +39,7 @@ import {
 } from '@/lib/llm-providers'
 
 /** The settings tabs, grouped as the design's sub-nav renders them. */
-type TabId = 'keys' | 'runtimes' | 'models' | 'quota' | 'notify' | 'account' | 'danger'
+type TabId = 'keys' | 'runtimes' | 'models' | 'quota' | 'notify' | 'audit' | 'account' | 'danger'
 
 type TabGroupKey = '密钥' | '模型' | '治理' | '账户'
 
@@ -68,6 +71,7 @@ const TABS: readonly TabDef[] = [
   { id: 'models', label: '默认模型', group: '模型' },
   { id: 'quota', label: '预算与配额', a11y: '预算配额', group: '治理' },
   { id: 'notify', label: '通知', group: '治理' },
+  { id: 'audit', label: '审计日志', a11y: '审计日志', group: '治理' },
   { id: 'account', label: '账户与团队', a11y: '账户团队', group: '账户' },
   { id: 'danger', label: '危险区', group: '账户' },
 ] as const
@@ -148,6 +152,7 @@ export function SettingsView(): React.ReactElement {
           {tab === 'models' && <DefaultModelsTab />}
           {tab === 'quota' && <QuotaTab />}
           {tab === 'notify' && <NotifyTab />}
+          {tab === 'audit' && <AuditLog />}
           {tab === 'account' && <AccountTab />}
           {tab === 'danger' && <DangerTab />}
         </div>
@@ -377,7 +382,7 @@ function LlmProvidersTab(): React.ReactElement {
             ) : filtered.length === 0 ? (
               <tr>
                 <td colSpan={6} className="tc muted" style={{ padding: 'var(--space-12)' }}>
-                  {query || statusFilter ? '没有匹配的 Provider。' : '还没有 Provider。点击「新建 Provider」创建第一个。'}
+                  {query || statusFilter ? '没有匹配的 Provider。' : '还没有 Provider。Flow 工作流节点（LLM / Agent / PlatformAgent）需要在此配置 Provider 才能调用大模型。对话功能不受影响——CLI 自带 LLM 配置。点击「+ 新建 Provider」开始配置。'}
                 </td>
               </tr>
             ) : (
@@ -489,12 +494,9 @@ function LlmProvidersTab(): React.ReactElement {
 // ─── CLI 运行时 tab ──────────────────────────────────────────────────
 //
 // A reference table of all 18 CLI agent types the platform can dispatch to,
-// with their default binary, wire protocol, and a one-line description. The
-// browser cannot probe the host PATH, so there is no live "installed?"
-// detection — the table is a configuration reference. Status defaults to
-// "未配置" (placeholder); operators confirm availability by ensuring the
-// binary is on PATH where the daemon runs. Styled to match the LLM Provider
-// table (`.table-wrap` + `table.data`).
+// with their default binary, wire protocol, and a one-line description.
+// The gateway's GET /api/v1/cli-runtimes scans PATH in real-time and reports
+// which binaries are installed, so the status column reflects reality.
 
 /** Protocol → short Chinese label for the runtimes table. */
 const PROTOCOL_LABEL: Record<string, string> = {
@@ -508,15 +510,64 @@ const PROTOCOL_LABEL: Record<string, string> = {
  *  CLI kinds only (prompt/remote have no binary and are omitted). */
 const RUNTIME_ROWS = AGENT_KINDS.filter((m) => m.binary.length > 0)
 
+interface RuntimeDetection {
+  kind: string
+  binary: string
+  available: boolean
+  path: string | null
+}
+
 function RuntimesTab(): React.ReactElement {
+  const [detections, setDetections] = useState<Record<string, RuntimeDetection>>({})
+  const [loading, setLoading] = useState(true)
+
+  useEffect(() => {
+    let cancelled = false
+    void (async () => {
+      try {
+        const resp = await fetch('/api/cli-runtimes')
+        const json = await resp.json()
+        if (!cancelled && json.success) {
+          const map: Record<string, RuntimeDetection> = {}
+          for (const r of json.data.runtimes as RuntimeDetection[]) {
+            map[r.kind] = r
+          }
+          setDetections(map)
+        }
+      } catch {
+        // silent — table still shows, just with unknown status
+      } finally {
+        if (!cancelled) setLoading(false)
+      }
+    })()
+    return () => { cancelled = true }
+  }, [])
+
+  const installedCount = Object.values(detections).filter((d) => d.available).length
+
   return (
     <section className="settings-section active" aria-label={TAB_LABEL.runtimes}>
       <div className="row-between mb-4">
         <div>
           <div className="card-title" style={{ fontSize: 'var(--text-lg)' }}>{TAB_LABEL.runtimes}</div>
           <div className="muted mt-2" style={{ fontSize: 13 }}>
-            平台支持的全部 CLI agent 运行时。在 daemon 主机上确保对应二进制已安装并在 <code className="mono">PATH</code> 中可用。
+            平台支持的全部 CLI agent 运行时。Gateway 自动检测本机 <code className="mono">PATH</code>，已安装的可直接在对话中使用。
           </div>
+        </div>
+        <div className="row-between" style={{ gap: 'var(--space-3)' }}>
+          {!loading && (
+            <span className={`status ${installedCount > 0 ? 'running' : 'idle'}`}>
+              <span className="dot" />
+              {installedCount} 个已安装
+            </span>
+          )}
+          <button
+            type="button"
+            className="btn btn-secondary btn-sm"
+            onClick={() => { setLoading(true); window.location.reload() }}
+          >
+            ↻ 重新检测
+          </button>
         </div>
       </div>
 
@@ -533,45 +584,63 @@ function RuntimesTab(): React.ReactElement {
             </tr>
           </thead>
           <tbody>
-            {RUNTIME_ROWS.map((r) => (
-              <tr key={r.kind}>
-                <td>
-                  <div className="tk-name">
-                    <div className="nm">{r.label}</div>
-                    <div className="meta">
-                      <span className="mono" style={{ fontSize: 11 }}>{r.kind}</span>
+            {RUNTIME_ROWS.map((r) => {
+              const det = detections[r.kind]
+              const available = det?.available ?? false
+              return (
+                <tr key={r.kind}>
+                  <td>
+                    <div className="tk-name">
+                      <div className="nm">{r.label}</div>
+                      <div className="meta">
+                        <span className="mono" style={{ fontSize: 11 }}>{r.kind}</span>
+                      </div>
                     </div>
-                  </div>
-                </td>
-                <td>
-                  <span className="mono" style={{ fontSize: 12 }}>{r.binary}</span>
-                </td>
-                <td>
-                  <span className="tk-group">{PROTOCOL_LABEL[r.protocol] ?? r.protocol}</span>
-                </td>
-                <td>
-                  <span className="chip chip-outline" style={{ fontSize: 11 }}>{r.group}</span>
-                </td>
-                <td>
-                  {/* Browser cannot probe PATH — status is a static placeholder.
-                      Operators verify via the daemon host shell. */}
-                  <span className="status idle">
-                    <span className="dot" />
-                    未配置
-                  </span>
-                </td>
-                <td>
-                  <span className="muted" style={{ fontSize: 12 }}>{r.hint}</span>
-                </td>
-              </tr>
-            ))}
+                  </td>
+                  <td>
+                    <span className="mono" style={{ fontSize: 12 }}>{r.binary}</span>
+                    {det?.path && (
+                      <div className="meta mono" style={{ fontSize: 10, color: 'var(--muted)', marginTop: 2 }}>
+                        {det.path}
+                      </div>
+                    )}
+                  </td>
+                  <td>
+                    <span className="tk-group">{PROTOCOL_LABEL[r.protocol] ?? r.protocol}</span>
+                  </td>
+                  <td>
+                    <span className="chip chip-outline" style={{ fontSize: 11 }}>{r.group}</span>
+                  </td>
+                  <td>
+                    {loading ? (
+                      <span className="status idle">
+                        <span className="dot" />
+                        检测中…
+                      </span>
+                    ) : available ? (
+                      <span className="status running">
+                        <span className="dot" />
+                        已安装
+                      </span>
+                    ) : (
+                      <span className="status idle">
+                        <span className="dot" />
+                        未安装
+                      </span>
+                    )}
+                  </td>
+                  <td>
+                    <span className="muted" style={{ fontSize: 12 }}>{r.hint}</span>
+                  </td>
+                </tr>
+              )
+            })}
           </tbody>
         </table>
       </div>
 
       <p className="muted mt-3" style={{ fontSize: 12, lineHeight: 1.6 }}>
-        状态列为占位值——浏览器无法探测主机 <code className="mono">PATH</code>。请到运行 daemon 的机器上执行
-        <code className="mono"> which &lt;binary&gt;</code> 确认对应 CLI 已安装。新建 Agent 时选择对应类型可自动填入默认二进制路径。
+        状态由 Gateway 实时检测（<code className="mono">which &lt;binary&gt;</code>）。已安装的 CLI 可直接在对话中选择对应 Agent 使用——无需手动启动 daemon。未安装的请参考各 CLI 官方文档安装。
       </p>
     </section>
   )
@@ -586,6 +655,7 @@ function LlmProviderModal(props: {
   onSave: () => void
 }): React.ReactElement {
   const { form, isEdit, busy, onChange, onCancel, onSave } = props
+  const [touched, setTouched] = useState(false)
   const nameInvalid = form.name.trim().length === 0
   const baseUrlInvalid = form.baseUrl.trim().length === 0
   const defaultModelInvalid = form.defaultModel.trim().length === 0
@@ -595,7 +665,7 @@ function LlmProviderModal(props: {
     onChange({ ...form, [key]: value })
   }
 
-  return (
+  return createPortal(
     <div className="modal-backdrop open" onClick={(e) => e.target === e.currentTarget && onCancel()}>
       <div className="modal" role="dialog" aria-modal="true" aria-labelledby="lp-title">
         <div className="modal-head">
@@ -608,11 +678,12 @@ function LlmProviderModal(props: {
           <form
             onSubmit={(e) => {
               e.preventDefault()
+              setTouched(true)
               if (!nameInvalid && !baseUrlInvalid && !defaultModelInvalid && !apiKeyRequired) onSave()
             }}
           >
             <div className="modal-grid">
-              <div className={`field full ${nameInvalid ? 'invalid' : ''}`}>
+              <div className={`field full ${touched && nameInvalid ? 'invalid' : ''}`}>
                 <label htmlFor="f-name">名称 *</label>
                 <input
                   id="f-name"
@@ -622,7 +693,8 @@ function LlmProviderModal(props: {
                   placeholder="如：OpenAI 官方"
                   value={form.name}
                   onChange={(e) => set('name', e.target.value)}
-                  aria-invalid={nameInvalid}
+                  onBlur={() => setTouched(true)}
+                  aria-invalid={touched && nameInvalid}
                 />
                 <span className="field-error">名称不能为空。</span>
               </div>
@@ -639,7 +711,7 @@ function LlmProviderModal(props: {
                   ))}
                 </select>
               </div>
-              <div className={`field ${baseUrlInvalid ? 'invalid' : ''}`}>
+              <div className={`field ${touched && baseUrlInvalid ? 'invalid' : ''}`}>
                 <label htmlFor="f-base-url">Base URL *</label>
                 <input
                   id="f-base-url"
@@ -648,11 +720,12 @@ function LlmProviderModal(props: {
                   placeholder="https://api.openai.com/v1"
                   value={form.baseUrl}
                   onChange={(e) => set('baseUrl', e.target.value)}
-                  aria-invalid={baseUrlInvalid}
+                  onBlur={() => setTouched(true)}
+                  aria-invalid={touched && baseUrlInvalid}
                 />
                 <span className="field-error">Base URL 不能为空。</span>
               </div>
-              <div className={`field full ${apiKeyRequired ? 'invalid' : ''}`}>
+              <div className={`field full ${touched && apiKeyRequired ? 'invalid' : ''}`}>
                 <label htmlFor="f-api-key">
                   API Key {isEdit ? <span className="hint">（留空表示不修改）</span> : ' *'}
                 </label>
@@ -663,11 +736,12 @@ function LlmProviderModal(props: {
                   placeholder={isEdit ? '••••••••（留空不修改）' : 'sk-...'}
                   value={form.apiKey ?? ''}
                   onChange={(e) => set('apiKey', e.target.value)}
-                  aria-invalid={apiKeyRequired}
+                  onBlur={() => setTouched(true)}
+                  aria-invalid={touched && apiKeyRequired}
                 />
-                {apiKeyRequired && <span className="field-error">API Key 不能为空。</span>}
+                {touched && apiKeyRequired && <span className="field-error">API Key 不能为空。</span>}
               </div>
-              <div className={`field ${defaultModelInvalid ? 'invalid' : ''}`}>
+              <div className={`field ${touched && defaultModelInvalid ? 'invalid' : ''}`}>
                 <label htmlFor="f-default-model">默认模型 *</label>
                 <input
                   id="f-default-model"
@@ -676,7 +750,8 @@ function LlmProviderModal(props: {
                   placeholder="gpt-4o-mini"
                   value={form.defaultModel}
                   onChange={(e) => set('defaultModel', e.target.value)}
-                  aria-invalid={defaultModelInvalid}
+                  onBlur={() => setTouched(true)}
+                  aria-invalid={touched && defaultModelInvalid}
                 />
                 <span className="field-error">默认模型不能为空。</span>
               </div>
@@ -739,7 +814,8 @@ function LlmProviderModal(props: {
           </button>
         </div>
       </div>
-    </div>
+    </div>,
+    document.body,
   )
 }
 
@@ -750,7 +826,7 @@ function DeleteModal(props: {
   onConfirm: () => void
 }): React.ReactElement {
   const { provider, busy, onCancel, onConfirm } = props
-  return (
+  return createPortal(
     <div className="modal-backdrop open" onClick={(e) => e.target === e.currentTarget && onCancel()}>
       <div className="modal" style={{ width: 420 }} role="alertdialog" aria-modal="true" aria-labelledby="del-title">
         <div className="modal-head">
@@ -773,7 +849,8 @@ function DeleteModal(props: {
           </button>
         </div>
       </div>
-    </div>
+    </div>,
+    document.body,
   )
 }
 
@@ -917,7 +994,15 @@ function NotifyTab(): React.ReactElement {
   return (
     <section className="settings-section active" aria-label={TAB_LABEL.notify}>
       <div className="card-title mb-4" style={{ fontSize: 'var(--text-lg)' }}>{TAB_LABEL.notify}</div>
-      <div className="card">
+
+      {/* Live task-completion notifications — desktop + sound. Fully wired
+          (localStorage persistence + Web Audio + Notifications API). */}
+      <NotificationSettings />
+
+      <div className="card mt-4">
+        <div className="card-head">
+          <div className="card-title">通知事件</div>
+        </div>
         {NOTIFY_EVENTS.map((r) => (
           <div className="toggle-row" key={r.t}>
             <div className="info">
@@ -948,7 +1033,7 @@ function NotifyTab(): React.ReactElement {
           </div>
         ))}
         <p className="muted mt-3" style={{ fontSize: 12 }}>
-          通知系统超出 MVP 范围（coverage analysis §2.3：通知系统推迟）。`notifications` 表（spec P1.2.T10）尚未落地；本 tab 在该里程碑后接入。
+          平台级通知事件与多渠道（邮件 / Webhook）由网关统一调度，`notifications` 表落地后接入；上方的桌面通知与提示音已即时生效。
         </p>
       </div>
     </section>
