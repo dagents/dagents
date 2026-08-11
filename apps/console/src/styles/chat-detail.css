@@ -1,3 +1,13 @@
+/* Chat messages slide-in animation */
+.chat-msg {
+  animation: msg-slide-in var(--motion-base) var(--ease-out-quint) both;
+}
+@keyframes msg-slide-in {
+  from { opacity: 0; transform: translateY(8px); }
+  to { opacity: 1; transform: translateY(0); }
+}
+@media (prefers-reduced-motion: reduce) { .chat-message { animation: none; } }
+
 .chat-detail-body {
   flex: 1;
   display: flex;
@@ -191,7 +201,7 @@
 .chat-msg-user {
   align-self: flex-end;
   background: var(--accent);
-  color: #fff;
+  color: var(--accent-on);
 }
 
 /* multica-style: assistant messages have NO bubble shell —
@@ -228,7 +238,7 @@
 }
 
 .chat-msg-user .chat-msg-meta {
-  color: rgba(255, 255, 255, 0.8);
+  color: color-mix(in oklab, var(--accent-on) 80%, transparent);
 }
 
 /* WS disconnect banner — sticky, hard to miss */
@@ -286,7 +296,7 @@
   cursor: pointer;
   transition: background var(--motion-fast);
 }
-.chat-msg-retry:hover { background: var(--danger); color: #fff; }
+.chat-msg-retry:hover { background: var(--danger); color: var(--accent-on); }
 
 /* Floating scroll-to-bottom button */
 .chat-detail-scroll-btn {
@@ -309,7 +319,7 @@
 }
 .chat-detail-scroll-btn:hover {
   background: var(--accent);
-  color: #fff;
+  color: var(--accent-on);
   border-color: var(--accent);
 }
 
@@ -317,4 +327,175 @@
 .chat-detail-conversation {
   position: relative;
 }
+
+/* ─── Error card ───────────────────────────────────────────────────────
+   Distinct from a normal assistant message: a bordered danger-tinted
+   container with a header row (icon + "执行失败" + timestamp), the error
+   message, and an actions row (重试 + 复制错误信息). Styled to read as a
+   terminal-but-recoverable state, not just red text. */
+.chat-error-card {
+  max-width: 100%;
+  width: 100%;
+  padding: var(--space-3) var(--space-4);
+  border: 1px solid var(--danger);
+  border-left-width: 3px;
+  border-radius: var(--radius-md);
+  background: var(--danger-soft);
+  display: flex;
+  flex-direction: column;
+  gap: var(--space-2);
+  animation: msg-slide-in var(--motion-base) var(--ease-out-quint) both;
+}
+
+.chat-error-card-header {
+  display: flex;
+  align-items: center;
+  gap: var(--space-2);
+  color: var(--danger);
+}
+
+.chat-error-card-title {
+  font-size: var(--text-sm);
+  font-weight: 600;
+}
+
+/* Timestamp pushed to the far right, dimmed — diagnostic, not primary. */
+.chat-error-card-time {
+  margin-left: auto;
+  font-size: var(--text-xs);
+  color: var(--meta);
+  font-weight: 400;
+}
+
+.chat-error-card-message {
+  font-size: var(--text-sm);
+  line-height: 1.5;
+  color: var(--fg);
+  word-break: break-word;
+  /* keep monospace-ish wrap for paths / stack traces in the error text */
+  white-space: pre-wrap;
+}
+
+/* Actions row — retry button (primary) + copy-error link (secondary). */
+.chat-error-actions {
+  display: flex;
+  align-items: center;
+  gap: var(--space-3);
+  flex-wrap: wrap;
+  margin-top: var(--space-1);
+}
+
+/* Primary retry button — solid danger fill, inverts on hover. */
+.chat-error-retry {
+  display: inline-flex;
+  align-items: center;
+  gap: var(--space-1);
+  padding: var(--space-1) var(--space-3);
+  border: 1px solid var(--danger);
+  background: var(--danger);
+  color: var(--accent-on);
+  font-size: var(--text-xs);
+  font-weight: 600;
+  border-radius: var(--radius-pill);
+  cursor: pointer;
+  transition: background var(--motion-fast), opacity var(--motion-fast);
+}
+.chat-error-retry:hover:not(:disabled) {
+  background: color-mix(in oklab, var(--danger), black 10%);
+}
+.chat-error-retry:focus-visible {
+  outline: none;
+  box-shadow: var(--focus-ring);
+}
+.chat-error-retry:disabled {
+  opacity: 0.5;
+  cursor: not-allowed;
+}
+
+/* Secondary text link / button — used for both "复制错误信息" and the
+   "检查 Agent 配置" fallback after retries are exhausted. Low-emphasis,
+   *only* turns into a pill on the primary variant. */
+.chat-error-link {
+  display: inline-flex;
+  align-items: center;
+  gap: var(--space-1);
+  padding: var(--space-1) var(--space-2);
+  border: none;
+  background: transparent;
+  color: var(--meta);
+  font-size: var(--text-xs);
+  font-weight: 500;
+  border-radius: var(--radius-sm);
+  cursor: pointer;
+  text-decoration: none;
+  transition: color var(--motion-fast), background var(--motion-fast);
+}
+.chat-error-link:hover {
+  color: var(--fg);
+  background: var(--surface);
+}
+.chat-error-link:focus-visible {
+  outline: none;
+  box-shadow: var(--focus-ring);
+}
+/* Primary variant of the link (used for "检查 Agent 配置" after exhaustion)
+   — slightly more prominent than the plain secondary link. */
+.chat-error-link-primary {
+  color: var(--danger);
+  font-weight: 600;
+}
+.chat-error-link-primary:hover {
+  background: var(--danger-soft);
+  color: var(--danger);
+}
+
+/* "重新连接中…" optimistic banner — mirrors the WS-warning bar's layout
+   but uses the accent (info) color so it reads as "in progress", not
+   "broken". Sticky below the WS-warning so it stacks predictably. */
+.chat-detail-reconnecting {
+  display: flex;
+  align-items: center;
+  gap: var(--space-2);
+  padding: var(--space-2) var(--space-4);
+  background: var(--info-soft);
+  color: var(--info);
+  font-size: var(--text-xs);
+  font-weight: 500;
+  border-bottom: 1px solid var(--border-soft);
+  flex-shrink: 0;
+}
+.chat-detail-reconnecting svg,
+.chat-detail-reconnecting span {
+  animation: spin 1.2s linear infinite;
+}
+/* Only spin the icon, not the text — keep the message legible. */
+.chat-detail-reconnecting span {
+  animation: none;
+}
+@keyframes spin {
+  to { transform: rotate(360deg); }
+}
+@media (prefers-reduced-motion: reduce) {
+  .chat-detail-reconnecting svg { animation: none; }
+}
+
+/* Mobile responsive — error card + actions shrink gracefully on narrow
+   viewports. The actions row stacks vertically when it can't fit on one
+   line, and the card padding tightens. */
+@media (max-width: 640px) {
+  .chat-error-card {
+    padding: var(--space-2) var(--space-3);
+  }
+  .chat-error-actions {
+    flex-direction: column;
+    align-items: stretch;
+    gap: var(--space-2);
+  }
+  .chat-error-retry,
+  .chat-error-link,
+  .chat-error-link-primary {
+    justify-content: center;
+  }
+}
+
 

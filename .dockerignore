@@ -1,0 +1,38 @@
+# Build artifacts
+node_modules/
+dist/
+.next/
+out/
+build/
+
+# Caches
+.turbo/
+.cache/
+coverage/
+
+# VCS + metadata
+.git/
+.gitignore
+.github/
+
+# Docs + scratch
+*.md
+docs/
+*.log
+.dev.pid
+.codegraph/
+.superpowers/
+
+# Local env (never bake secrets into the image)
+.env
+.env.*
+!.env.example
+
+# Editor / OS noise
+.DS_Store
+.vscode/
+.idea/
+*.swp
+
+# CI / e2e fixtures that shouldn't bloat the build context
+packages/e2e/

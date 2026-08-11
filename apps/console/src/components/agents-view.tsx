@@ -19,6 +19,8 @@ import { useRouter } from 'next/navigation'
 import { PageShell } from '@/components/page-shell'
 import { Icon } from '@/components/icon'
 import { CreateAgentDialog } from '@/components/create-agent-dialog'
+import { AgentTemplateGallery } from '@/components/agent-template-gallery'
+import { SkeletonList } from '@/components/skeleton'
 import '@/styles/agents.css'
 import {
   type AgentFilters,
@@ -97,6 +99,7 @@ export function AgentsView(): React.ReactElement {
     dir: 'asc',
   })
   const [createOpen, setCreateOpen] = useState(false)
+  const [templateOpen, setTemplateOpen] = useState(false)
 
   const load = useCallback(async () => {
     setLoading(true)
@@ -200,6 +203,14 @@ export function AgentsView(): React.ReactElement {
         </button>
         <button
           type="button"
+          className="btn btn-secondary btn-sm"
+          onClick={() => setTemplateOpen(true)}
+        >
+          <Icon name="zap" style={{ width: 14, height: 14 }} />
+          从模板创建
+        </button>
+        <button
+          type="button"
           className="btn btn-primary btn-sm"
           onClick={() => setCreateOpen(true)}
         >
@@ -257,9 +268,7 @@ export function AgentsView(): React.ReactElement {
       {/* card list — mirrors flow-card visual language */}
       <div className="agent-cards">
         {loading && agents.length === 0 ? (
-          <div className="muted" style={{ padding: 'var(--space-4)', fontSize: 12 }}>
-            加载 agent 列表…
-          </div>
+          <SkeletonList rows={5} />
         ) : visibleSorted.length === 0 && !error ? (
           <div className="empty-state">
             <div className="empty-state-icon" aria-hidden="true">🤖</div>
@@ -359,6 +368,12 @@ export function AgentsView(): React.ReactElement {
         open={createOpen}
         onClose={() => setCreateOpen(false)}
         onCreated={handleCreated}
+      />
+
+      {/* template gallery */}
+      <AgentTemplateGallery
+        open={templateOpen}
+        onClose={() => setTemplateOpen(false)}
       />
     </PageShell>
   )

@@ -11,7 +11,9 @@
  */
 
 import { useEffect, useRef, useState } from 'react'
+import { createPortal } from 'react-dom'
 import { Icon } from '@/components/icon'
+import { SkeletonList } from '@/components/skeleton'
 import {
   fetchDaemons,
   fetchDispatchTasks,
@@ -70,10 +72,20 @@ export function DaemonsView(): React.ReactElement {
   const [loading, setLoading] = useState(true)
   const [error, setError] = useState<string | null>(null)
   const [selectedDaemon, setSelectedDaemon] = useState<DaemonInfo | null>(null)
+  const [showRegister, setShowRegister] = useState(false)
 
   const backoffRef = useRef<number>(POLL_BASE_MS)
   const isVisibleRef = useRef<boolean>(true)
   const isInitialRef = useRef<boolean>(true)
+
+  const reload = async (): Promise<void> => {
+    const [d, s] = await Promise.all([
+      fetchDaemons(),
+      fetchFleetStats().catch(() => null),
+    ])
+    setDaemons(d)
+    if (s) setStats(s)
+  }
 
   useEffect(() => {
     let cancelled = false
@@ -198,14 +210,29 @@ export function DaemonsView(): React.ReactElement {
             活跃任务
           </span>
         ) : null}
+        <button
+          type="button"
+          className="btn btn-primary btn-sm"
+          onClick={() => setShowRegister(true)}
+        >
+          <Icon name="plus" style={{ width: 14, height: 14 }} />
+          注册 Daemon
+        </button>
       </div>
+
+      {showRegister ? (
+        <RegisterDaemonDialog
+          onClose={() => setShowRegister(false)}
+          onRegistered={() => {
+            setShowRegister(false)
+            void reload()
+          }}
+        />
+      ) : null}
 
       <div className="daemons-list">
         {loading && daemons.length === 0 ? (
-          <div className="daemons-empty">
-            <Icon name="loader" style={{ width: 28, height: 28, color: 'var(--meta)' }} />
-            <span>加载中…</span>
-          </div>
+          <SkeletonList rows={4} />
         ) : daemons.length === 0 ? (
           <div className="daemons-empty">
             <Icon name="info" style={{ width: 28, height: 28, color: 'var(--meta)' }} />
@@ -555,6 +582,194 @@ function DaemonTasksView({
         </div>
       </div>
     </div>
+  )
+}
+
+// ─── register daemon dialog ─────────────────────────────────────────
+
+/**
+ * Register a new daemon worker via POST /api/daemons → dispatch register.
+ *
+ * Daemon 注册需要：
+ *   - 标签（daemon 名称）
+ *   - 能力列表（agentType，如 claude/codex/…）
+ *   - 可选 endpoint
+ *
+ * 注册成功后返回 daemonId + token，我们展示给用户（daemon 进程需要 token
+ * 来发送心跳和领取任务）。用户复制后可以在终端启动 daemon 时使用。
+ */
+const AGENT_TYPE_OPTIONS = [
+  'claude', 'codex', 'copilot', 'qwen', 'opencode',
+  'codebuddy', 'cursor', 'deveco', 'antigravity', 'openclaw',
+  'pi', 'hermes', 'kimi', 'kiro', 'grok', 'qoder', 'traecli',
+]
+
+function RegisterDaemonDialog({
+  onClose,
+  onRegistered,
+}: {
+  onClose: () => void
+  onRegistered: () => void
+}): React.ReactElement {
+  const [label, setLabel] = useState('')
+  const [endpoint, setEndpoint] = useState('')
+  const [selectedTypes, setSelectedTypes] = useState<string[]>([])
+  const [submitting, setSubmitting] = useState(false)
+  const [error, setError] = useState<string | null>(null)
+  const [result, setResult] = useState<{ daemonId: string; token: string } | null>(null)
+
+  function toggleType(t: string): void {
+    setSelectedTypes((prev) =>
+      prev.includes(t) ? prev.filter((x) => x !== t) : [...prev, t],
+    )
+  }
+
+  async function handleSubmit(): Promise<void> {
+    setError(null)
+    if (!label.trim()) {
+      setError('请填写 daemon 标签')
+      return
+    }
+    if (selectedTypes.length === 0) {
+      setError('请至少选择一种 agent 类型')
+      return
+    }
+    setSubmitting(true)
+    try {
+      const resp = await fetch('/api/daemons', {
+        method: 'POST',
+        headers: { 'content-type': 'application/json' },
+        body: JSON.stringify({
+          daemonLabel: label.trim(),
+          endpoint: endpoint.trim() || undefined,
+          capabilities: selectedTypes.map((agentType) => ({ agentType })),
+        }),
+      })
+      const json = await resp.json()
+      if (!resp.ok || !json.success) {
+        throw new Error(json.error ?? json.detail ?? `HTTP ${resp.status}`)
+      }
+      setResult(json.data as { daemonId: string; token: string })
+    } catch (err) {
+      setError(err instanceof Error ? err.message : String(err))
+    } finally {
+      setSubmitting(false)
+    }
+  }
+
+  // Success view — show daemonId + token
+  if (result) {
+    const startCmd = `pnpm --filter @dagents/daemon dev -- http://localhost:8080 ${result.daemonId} ${result.token}`
+    return createPortal(
+      <div className="daemon-dialog-overlay" onClick={onClose}>
+        <div className="daemon-dialog" onClick={(e) => e.stopPropagation()}>
+          <div className="daemon-dialog-header">
+            <Icon name="check" style={{ width: 20, height: 20, color: 'var(--accent)' }} />
+            <span className="daemon-dialog-title">Daemon 注册成功</span>
+          </div>
+          <div className="daemon-dialog-body">
+            <p className="daemon-dialog-desc">
+              复制以下命令到终端启动 daemon 进程：
+            </p>
+            <div className="daemon-dialog-cmd-row">
+              <code className="daemon-dialog-cmd">{startCmd}</code>
+              <button
+                type="button"
+                className="btn btn-ghost btn-sm"
+                onClick={() => navigator.clipboard?.writeText(startCmd).catch(() => {})}
+              >
+                <Icon name="copy" style={{ width: 14, height: 14 }} />
+                复制
+              </button>
+            </div>
+            <div className="daemon-dialog-info">
+              <div className="meta-row">
+                <span className="meta-label">Daemon ID</span>
+                <span className="mono">{result.daemonId.slice(0, 8)}</span>
+              </div>
+              <div className="meta-row">
+                <span className="meta-label">Token</span>
+                <span className="mono">{result.token.slice(0, 8)}••••</span>
+              </div>
+            </div>
+          </div>
+          <div className="daemon-dialog-footer">
+            <button type="button" className="btn btn-primary btn-sm" onClick={onRegistered}>
+              完成
+            </button>
+          </div>
+        </div>
+      </div>,
+      document.body,
+    )
+  }
+
+  // Form view
+  return createPortal(
+    <div className="daemon-dialog-overlay" onClick={onClose}>
+      <div className="daemon-dialog" onClick={(e) => e.stopPropagation()}>
+        <div className="daemon-dialog-header">
+          <Icon name="terminal" style={{ width: 20, height: 20, color: 'var(--accent)' }} />
+          <span className="daemon-dialog-title">注册 Daemon</span>
+          <button type="button" className="btn btn-ghost btn-sm daemon-dialog-close" onClick={onClose}>
+            <Icon name="close" style={{ width: 16, height: 16 }} />
+          </button>
+        </div>
+        <div className="daemon-dialog-body">
+          <div className="daemon-dialog-field">
+            <label className="daemon-dialog-label">名称</label>
+            <input
+              type="text"
+              className="daemon-dialog-input"
+              placeholder="如：dev-laptop"
+              value={label}
+              onChange={(e) => setLabel(e.target.value)}
+              autoFocus
+            />
+          </div>
+          <div className="daemon-dialog-field">
+            <label className="daemon-dialog-label">Agent 类型</label>
+            <div className="daemon-dialog-chips">
+              {AGENT_TYPE_OPTIONS.map((t) => (
+                <button
+                  key={t}
+                  type="button"
+                  className={`daemon-dialog-chip${selectedTypes.includes(t) ? ' selected' : ''}`}
+                  onClick={() => toggleType(t)}
+                >
+                  {t}
+                </button>
+              ))}
+            </div>
+          </div>
+          <div className="daemon-dialog-field">
+            <label className="daemon-dialog-label">Endpoint（可选）</label>
+            <input
+              type="text"
+              className="daemon-dialog-input"
+              placeholder="如：http://192.168.1.100:9090"
+              value={endpoint}
+              onChange={(e) => setEndpoint(e.target.value)}
+            />
+          </div>
+          {error ? <div className="daemon-dialog-error">⚠️ {error}</div> : null}
+        </div>
+        <div className="daemon-dialog-footer">
+          <button type="button" className="btn btn-ghost btn-sm" onClick={onClose} disabled={submitting}>
+            取消
+          </button>
+          <button
+            type="button"
+            className="btn btn-primary btn-sm"
+            onClick={() => void handleSubmit()}
+            disabled={submitting}
+          >
+            {submitting ? '注册中…' : '注册'}
+          </button>
+        </div>
+      </div>
+    </div>,
+    document.body,
   )
 }
 

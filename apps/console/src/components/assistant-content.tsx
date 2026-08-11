@@ -26,6 +26,12 @@
  */
 import { Fragment, useEffect, useRef, useState } from 'react'
 import { Icon } from '@/components/icon'
+import { ToolCallCard } from '@/components/tool-call-card'
+import {
+  classifyTool,
+  extractSummary,
+} from '@/lib/tool-call-parser'
+import '@/styles/tool-call.css'
 
 export interface Segment {
   kind: 'text' | 'thinking' | 'status' | 'tool-use' | 'tool-result' | 'error' | 'log'
@@ -342,15 +348,172 @@ function formatDuration(ms: number): string {
   return `${(ms / 1000).toFixed(1)}s`
 }
 
-/** Plain text block — the assistant's main reply (preface / final). */
+/** Plain text block — the assistant's main reply (preface / final).
+ *  Now renders basic markdown (code blocks, inline code, bold, italic,
+ *  links, lists, blockquotes, headings) via a lightweight formatter. */
 function TextBlock({ content, streaming }: { content: string; streaming?: boolean }): React.ReactNode {
   if (!content) return null
   return (
-    <div className="assistant-text">
-      {content}
-      {streaming ? <span className="assistant-cursor">▋</span> : null}
+    <div className="prose assistant-text">
+      {renderMarkdown(content)}
+      {streaming ? <span className="streaming-cursor" aria-hidden="true" /> : null}
     </div>
   )
+}
+
+/**
+ * Lightweight inline markdown renderer — converts common patterns to
+ * React elements without pulling in a full markdown library.
+ * Supports: code blocks (```), inline code (`), bold (**), italic (*),
+ * links [text](url), bullet/numbered lists, headings (#..####),
+ * blockquotes (>), and horizontal rules (---).
+ */
+function renderMarkdown(text: string): React.ReactNode {
+  const blocks: React.ReactNode[] = []
+  const lines = text.split('\n')
+  let i = 0
+  let key = 0
+
+  while (i < lines.length) {
+    const line = lines[i]
+
+    // Code block
+    if (line.startsWith('```')) {
+      const lang = line.slice(3).trim()
+      const codeLines: string[] = []
+      i++
+      while (i < lines.length && !lines[i].startsWith('```')) {
+        codeLines.push(lines[i])
+        i++
+      }
+      i++ // skip closing ```
+      blocks.push(
+        <pre key={key++} data-lang={lang || undefined}>
+          <code>{codeLines.join('\n')}</code>
+        </pre>,
+      )
+      continue
+    }
+
+    // Heading
+    const headingMatch = line.match(/^(#{1,4})\s+(.+)$/)
+    if (headingMatch) {
+      const level = headingMatch[1].length
+      const headingText = headingMatch[2]
+      const Tag = (`h${Math.min(level + 1, 4)}`) as keyof React.JSX.IntrinsicElements
+      blocks.push(<Tag key={key++}>{renderInline(headingText)}</Tag>)
+      i++
+      continue
+    }
+
+    // Blockquote
+    if (line.startsWith('>')) {
+      const quoteLines: string[] = []
+      while (i < lines.length && lines[i].startsWith('>')) {
+        quoteLines.push(lines[i].slice(1).trim())
+        i++
+      }
+      blocks.push(<blockquote key={key++}>{renderInline(quoteLines.join(' '))}</blockquote>)
+      continue
+    }
+
+    // Horizontal rule
+    if (/^---+\s*$/.test(line)) {
+      blocks.push(<hr key={key++} />)
+      i++
+      continue
+    }
+
+    // Bullet list
+    if (/^[-*+]\s+/.test(line)) {
+      const items: string[] = []
+      while (i < lines.length && /^[-*+]\s+/.test(lines[i])) {
+        items.push(lines[i].replace(/^[-*+]\s+/, ''))
+        i++
+      }
+      blocks.push(
+        <ul key={key++}>
+          {items.map((item, j) => <li key={j}>{renderInline(item)}</li>)}
+        </ul>,
+      )
+      continue
+    }
+
+    // Numbered list
+    if (/^\d+\.\s+/.test(line)) {
+      const items: string[] = []
+      while (i < lines.length && /^\d+\.\s+/.test(lines[i])) {
+        items.push(lines[i].replace(/^\d+\.\s+/, ''))
+        i++
+      }
+      blocks.push(
+        <ol key={key++}>
+          {items.map((item, j) => <li key={j}>{renderInline(item)}</li>)}
+        </ol>,
+      )
+      continue
+    }
+
+    // Empty line — skip
+    if (line.trim() === '') { i++; continue }
+
+    // Paragraph (accumulate consecutive non-empty, non-special lines)
+    const paraLines: string[] = []
+    while (i < lines.length &&
+      lines[i].trim() !== '' &&
+      !lines[i].startsWith('```') &&
+      !lines[i].startsWith('#') &&
+      !lines[i].startsWith('>') &&
+      !/^[-*+]\s+/.test(lines[i]) &&
+      !/^\d+\.\s+/.test(lines[i]) &&
+      !/^---+\s*$/.test(lines[i])
+    ) {
+      paraLines.push(lines[i])
+      i++
+    }
+    if (paraLines.length > 0) {
+      blocks.push(<p key={key++}>{renderInline(paraLines.join(' '))}</p>)
+    }
+  }
+
+  return blocks
+}
+
+/** Render inline markdown: `code`, **bold**, *italic*, [links](url). */
+function renderInline(text: string): React.ReactNode {
+  const parts: React.ReactNode[] = []
+  let remaining = text
+  let key = 0
+
+  // Pattern matches: `code` | **bold** | *italic* | [text](url)
+  const re = /(`[^`]+`)|\*\*(.+?)\*\*|\*(.+?)\*|\[([^\]]+)\]\(([^)]+)\)/
+
+  while (remaining.length > 0) {
+    const match = re.exec(remaining)
+    if (!match) {
+      parts.push(remaining)
+      break
+    }
+    if (match.index > 0) {
+      parts.push(remaining.slice(0, match.index))
+    }
+    if (match[1]) {
+      // inline code
+      parts.push(<code key={key++}>{match[1].slice(1, -1)}</code>)
+    } else if (match[2]) {
+      parts.push(<strong key={key++}>{match[2]}</strong>)
+    } else if (match[3]) {
+      parts.push(<em key={key++}>{match[3]}</em>)
+    } else if (match[4] && match[5]) {
+      // Sanitize href: only allow http(s) URLs, block javascript:/data: schemes
+      const rawHref = match[5]
+      const safeHref = /^(https?:\/\/|mailto:)/i.test(rawHref) ? rawHref : '#'
+      parts.push(<a key={key++} href={safeHref} target="_blank" rel="noopener noreferrer">{match[4]}</a>)
+    }
+    remaining = remaining.slice(match.index + match[0].length)
+  }
+
+  return parts.length === 1 ? parts[0] : <>{parts.map((p, i) => <Fragment key={i}>{p}</Fragment>)}</>
 }
 
 /**
@@ -453,7 +616,10 @@ function ProcessRow({
   }
 }
 
-/** Collapsible thinking row — grey italic preview, fold to expand. */
+/** Collapsible thinking section — grey italic preview, fold to expand.
+ *  Uses the new `.thinking-section` styles from tool-call.css: a labeled
+ *  "思考" header with a brain icon, italic muted preview, and an indented
+ *  italic body block. Streams show the cursor while the tag is open. */
 function ThinkingRow({
   content,
   streaming,
@@ -466,23 +632,27 @@ function ThinkingRow({
   const preview = content.length > 150 ? content.slice(0, 150) + '…' : content
 
   return (
-    <div className="assistant-row">
+    <div className="thinking-section">
       <button
         type="button"
-        className="assistant-row-trigger assistant-row-thinking"
+        className="thinking-trigger"
         onClick={() => setOpen((v) => !v)}
         aria-expanded={open}
       >
-        <Icon name="brain" style={{ width: 12, height: 12 }} />
-        <span className="assistant-row-preview">{preview}</span>
+        <Icon name={open ? 'chevronDown' : 'chevronRight'} className="thinking-trigger-icon" style={{ width: 12, height: 12 }} />
+        <Icon name="brain" className="thinking-trigger-icon" style={{ width: 12, height: 12 }} />
+        <span className="thinking-trigger-label">思考</span>
+        <span className="thinking-preview">{preview}</span>
+        {streaming ? <span className="assistant-cursor">▋</span> : null}
       </button>
-      {open ? <pre className="assistant-row-body">{content}</pre> : null}
-      {streaming ? <span className="assistant-cursor">▋</span> : null}
+      {open ? <div className="thinking-body">{content}</div> : null}
     </div>
   )
 }
 
-/** Collapsible tool-use row — tool name (bold) + input summary (muted). */
+/** Collapsible tool-use row — delegates to the structured ToolCallCard
+ *  (typed icon/color header + summary + JSON body + copy button + file
+ *  diff view for write/edit tools). Replaces the old flat mono preview. */
 function ToolUseRow({
   tool,
   input,
@@ -490,54 +660,46 @@ function ToolUseRow({
   tool: string
   input?: unknown
 }): React.ReactElement {
-  const [open, setOpen] = useState(false)
-  const summary = getToolSummary(input)
-  const hasInput = input != null && Object.keys(input as Record<string, unknown>).length > 0
-
+  // Normalize the input to a plain object for the card; non-object /
+  // null inputs become undefined so the card renders without a body.
+  const toolInput: Record<string, unknown> | undefined =
+    input && typeof input === 'object' && !Array.isArray(input)
+      ? (input as Record<string, unknown>)
+      : undefined
   return (
-    <div className="assistant-row">
-      <button
-        type="button"
-        className="assistant-row-trigger"
-        onClick={() => setOpen((v) => !v)}
-        aria-expanded={open}
-      >
-        <Icon
-          name={hasInput ? (open ? 'chevronDown' : 'chevronRight') : 'chevronRight'}
-          style={{ width: 12, height: 12, visibility: hasInput ? 'visible' : 'hidden' }}
-        />
-        <span className="assistant-row-toolname">{tool}</span>
-        {summary ? <span className="assistant-row-summary">{summary}</span> : null}
-      </button>
-      {open && hasInput ? (
-        <pre className="assistant-row-body">{JSON.stringify(input, null, 2)}</pre>
-      ) : null}
-    </div>
+    <ToolCallCard
+      toolName={tool}
+      toolInput={toolInput}
+      category={classifyTool(tool)}
+      summary={extractSummary(toolInput)}
+    />
   )
 }
 
-/** Collapsible tool-result row — muted preview, fold to expand. */
+/** Collapsible tool-result row — muted mono preview, fold to expand.
+ *  Uses the new `.tool-result-compact` styles from tool-call.css. */
 function ToolResultRow({ content }: { content: string }): React.ReactNode {
   const [open, setOpen] = useState(false)
   if (!content) return null
   const preview = content.length > 120 ? content.slice(0, 120) + '…' : content
 
   return (
-    <div className="assistant-row">
+    <div className="tool-result-compact">
       <button
         type="button"
-        className="assistant-row-trigger assistant-row-result"
+        className="tool-result-trigger"
         onClick={() => setOpen((v) => !v)}
         aria-expanded={open}
       >
         <Icon
           name={open ? 'chevronDown' : 'chevronRight'}
+          className="tool-result-glyph"
           style={{ width: 12, height: 12 }}
         />
-        <span className="assistant-row-preview">{preview}</span>
+        <span className="tool-result-preview">{preview}</span>
       </button>
       {open ? (
-        <pre className="assistant-row-body">
+        <pre className="tool-result-body">
           {content.length > 4000 ? content.slice(0, 4000) + '\n... (truncated)' : content}
         </pre>
       ) : null}
@@ -545,37 +707,3 @@ function ToolResultRow({ content }: { content: string }): React.ReactNode {
   )
 }
 
-/** Shorten long file paths to ".../last-two-segments" (multica-style). */
-function shortenPath(p: string): string {
-  const parts = p.split('/')
-  if (parts.length <= 3) return p
-  return '.../' + parts.slice(-2).join('/')
-}
-
-/**
- * Extract a one-line summary from a tool-use input, mirroring multica's
- * `getToolSummary`. Returns '' when nothing useful is found.
- */
-function getToolSummary(input: unknown): string {
-  if (!input || typeof input !== 'object') return ''
-  const inp = input as Record<string, unknown>
-  if (typeof inp.query === 'string' && inp.query) return inp.query
-  if (typeof inp.file_path === 'string' && inp.file_path) return shortenPath(inp.file_path)
-  if (typeof inp.path === 'string' && inp.path) return shortenPath(inp.path)
-  if (typeof inp.pattern === 'string' && inp.pattern) return inp.pattern
-  if (typeof inp.description === 'string' && inp.description) return String(inp.description)
-  if (typeof inp.command === 'string' && inp.command) {
-    const cmd = String(inp.command)
-    return cmd.length > 100 ? cmd.slice(0, 100) + '…' : cmd
-  }
-  if (typeof inp.prompt === 'string' && inp.prompt) {
-    const p = String(inp.prompt)
-    return p.length > 100 ? p.slice(0, 100) + '…' : p
-  }
-  if (typeof inp.skill === 'string' && inp.skill) return String(inp.skill)
-  // Fallback: first short string value.
-  for (const v of Object.values(inp)) {
-    if (typeof v === 'string' && v.length > 0 && v.length < 120) return v
-  }
-  return ''
-}

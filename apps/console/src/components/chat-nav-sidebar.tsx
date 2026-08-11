@@ -12,7 +12,7 @@
  * Replaces the old ChatSidebar (flat list + dropdown).
  */
 
-import { useEffect, useState, useCallback } from 'react'
+import { useEffect, useState, useCallback, useRef, useMemo } from 'react'
 import { usePathname, useRouter } from 'next/navigation'
 import Link from 'next/link'
 import { Icon } from '@/components/icon'
@@ -20,6 +20,8 @@ import { NAV } from '@/components/nav'
 import { useSession } from '@/lib/auth-client'
 import { fetchDirectories, pickDirectory, createDirectory, type Directory } from '@/lib/directories'
 import { fetchChats, createChat, type Chat } from '@/lib/chats'
+import { ThemeToggle } from '@/components/theme-toggle'
+import { ChatSearchDropdown, type ChatSearchDropdownHandle } from '@/components/chat-search-dropdown'
 import '@/styles/chat-nav-sidebar.css'
 
 interface ChatNavSidebarProps {
@@ -72,6 +74,9 @@ export function ChatNavSidebar({ collapsed }: ChatNavSidebarProps): React.ReactE
   const [activeChatId, setActiveChatId] = useState<string | null>(null)
   const [loading, setLoading] = useState(true)
   const [search, setSearch] = useState('')
+  const [searchOpen, setSearchOpen] = useState(false)
+  const searchDropdownRef = useRef<ChatSearchDropdownHandle>(null)
+  const searchInputRef = useRef<HTMLInputElement>(null)
 
   // Extract active chat id from pathname /chats/:id
   useEffect(() => {
@@ -132,6 +137,15 @@ export function ChatNavSidebar({ collapsed }: ChatNavSidebarProps): React.ReactE
       return next
     })
   }, [])
+
+  // Flat list of all chats across directories, newest first — used by the
+  // search dropdown's "recent" mode (empty query). Capped at 20 so the
+  // dropdown stays scrollable.
+  const recentChats: Chat[] = useMemo(() => {
+    const all = Object.values(chatsByDir).flat()
+    all.sort((a, b) => (a.updatedAt < b.updatedAt ? 1 : a.updatedAt > b.updatedAt ? -1 : 0))
+    return all.slice(0, 20)
+  }, [chatsByDir])
 
   // Reload directories after an inline action (add dir / new chat) so the
   // sidebar reflects the new state without a full page refresh.
@@ -211,9 +225,16 @@ export function ChatNavSidebar({ collapsed }: ChatNavSidebarProps): React.ReactE
       <div className={`chat-nav-brand${collapsed ? ' collapsed' : ''}`}>
         <Link href="/" style={{ display: 'flex', alignItems: 'center', textDecoration: 'none' }}>
           <div className="chat-nav-brand-mark">
-            <Icon name="bot" className="nav-icon" style={{ width: 16, height: 16 }} />
+            <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth={2} strokeLinecap="round" strokeLinejoin="round" style={{ width: 16, height: 16 }}>
+              <circle cx="6" cy="6" r="2.5" fill="currentColor" stroke="none" />
+              <circle cx="18" cy="6" r="2.5" />
+              <circle cx="12" cy="18" r="2.5" fill="currentColor" stroke="none" />
+              <path d="M7.5 7.5 L10.5 16" />
+              <path d="M16.5 7.5 L13.5 16" />
+              <path d="M8.5 6 L15.5 6" />
+            </svg>
           </div>
-          <span className="chat-nav-brand-name">DAgent 控制台</span>
+          <span className="chat-nav-brand-name">Dagents</span>
         </Link>
       </div>
 
@@ -224,14 +245,39 @@ export function ChatNavSidebar({ collapsed }: ChatNavSidebarProps): React.ReactE
           <span>新建对话</span>
         </button>
         {!collapsed && (
-          <div className="chat-nav-search">
-            <Icon name="search" style={{ width: 12, height: 12, color: 'var(--meta)' }} />
-            <input
-              type="text"
-              value={search}
-              onChange={(e) => setSearch(e.target.value)}
-              placeholder="搜索对话…"
-              className="chat-nav-search-input"
+          <div className="chat-nav-search-wrap">
+            <div className="chat-nav-search">
+              <Icon name="search" style={{ width: 12, height: 12, color: 'var(--meta)' }} />
+              <input
+                ref={searchInputRef}
+                type="text"
+                value={search}
+                onChange={(e) => {
+                  setSearch(e.target.value)
+                  setSearchOpen(true)
+                }}
+                onFocus={() => setSearchOpen(true)}
+                onBlur={() => {
+                  // Delay close so click events on dropdown items fire first.
+                  window.setTimeout(() => setSearchOpen(false), 150)
+                }}
+                onKeyDown={(e) => {
+                  searchDropdownRef.current?.handleKeyDown(e)
+                }}
+                placeholder="搜索对话…"
+                className="chat-nav-search-input"
+              />
+            </div>
+            <ChatSearchDropdown
+              ref={searchDropdownRef}
+              query={search}
+              open={searchOpen}
+              onClose={() => {
+                setSearchOpen(false)
+                searchInputRef.current?.blur()
+              }}
+              recentChats={recentChats}
+              activeChatId={activeChatId}
             />
           </div>
         )}
@@ -255,8 +301,10 @@ export function ChatNavSidebar({ collapsed }: ChatNavSidebarProps): React.ReactE
 
       {/* Chat history grouped by directory.
           "添加项目目录" is pinned to the top so it's always reachable —
-          previously it sat at the bottom of a long list and was hard to find. */}
-      <div className="chat-nav-history">
+          previously it sat at the bottom of a long list and was hard to find.
+          When the search dropdown is open with a query, the normal list is
+          hidden so the dropdown's results are the single focus. */}
+      <div className={`chat-nav-history${searchOpen && search.trim() ? ' is-searching' : ''}`}>
         <button
           type="button"
           className="chat-nav-add-dir"
@@ -356,6 +404,7 @@ export function ChatNavSidebar({ collapsed }: ChatNavSidebarProps): React.ReactE
             <span className="chat-nav-user-plan">{user ? '专业版' : '点击登录'}</span>
           </div>
         </Link>
+        <ThemeToggle />
         <Link
           href="/settings"
           className="chat-nav-settings-btn"

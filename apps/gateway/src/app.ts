@@ -4,8 +4,10 @@ import { auditRoutes } from './routes/audit.js'
 import { directoryRoutes } from './routes/directories.js'
 import { chatRoutes } from './routes/chats.js'
 import { agentsRoutes } from './routes/agents.js'
+import { agentTemplateRoutes } from './routes/agent-templates.js'
 import { llmProviderRoutes } from './routes/llm-providers.js'
 import { workflowsRoutes } from './routes/workflows.js'
+import { cliRuntimeRoutes } from './routes/cli-runtimes.js'
 import { authRoutes, currentUser } from './routes/auth.js'
 import { internalRunsRoutes } from './routes/internal-runs.js'
 import { dispatchRoutes } from './routes/dispatch/index.js'
@@ -147,6 +149,15 @@ app.route('/api/v1/chats', chatRoutes)
 app.route('/api/v1/agents', agentsRoutes)
 
 /**
+ * Agent Template Library (one-click agent creation): static catalogue of
+ * pre-configured agent templates + an `instantiate` endpoint that writes a
+ * real `agents` row from a template. Same SSO posture as the agents routes
+ * above. Mounted alongside `/api/v1/agents` so the console's template gallery
+ * proxy can sit next to the agents proxy.
+ */
+app.route('/api/v1/agent-templates', agentTemplateRoutes)
+
+/**
  * LLM Provider CRUD API: llm provider list + detail + create + update + delete + test.
  * Gated by the SSO session middleware (M5b.4) under `REQUIRE_LOGIN=1`,
  * same posture as the other gateway-owned routes.
@@ -159,6 +170,14 @@ app.route('/api/v1/llm-providers', llmProviderRoutes)
  * same posture as the other gateway-owned routes.
  */
 app.route('/api/v1/workflows', workflowsRoutes)
+
+/**
+ * CLI Runtime detection (open-design parity): scans the gateway host's PATH
+ * for installed CLI agent binaries and returns real-time install status.
+ * The console's settings → CLI 运行时 tab calls this instead of showing
+ * a hardcoded "未配置" for every row.
+ */
+app.route('/api/v1/cli-runtimes', cliRuntimeRoutes)
 
 /**
  * Dispatch protocol routes (spec §1.5), merged into gateway (Plan A, 2026-08-01).

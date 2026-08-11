@@ -52,7 +52,7 @@
   display: flex;
   align-items: center;
   padding: 0 var(--space-4);
-  background: linear-gradient(to bottom, rgba(255,255,255,0.92), rgba(255,255,255,0.5), transparent);
+  background: linear-gradient(to bottom, color-mix(in oklab, var(--bg) 92%, transparent), color-mix(in oklab, var(--bg) 50%, transparent), transparent);
   -webkit-backdrop-filter: saturate(140%) blur(6px);
   backdrop-filter: saturate(140%) blur(6px);
   border-bottom: 1px solid transparent;
@@ -164,6 +164,48 @@
   letter-spacing: 0.02em;
 }
 
+/* Full-screen sidebar drawer on mobile */
+@media (max-width: 768px) {
+  .chat-layout-sidebar {
+    position: fixed;
+    z-index: 100;
+    top: 0;
+    left: 0;
+    bottom: 0;
+    width: 85vw;
+    max-width: 320px;
+    transform: translateX(-100%);
+    box-shadow: var(--elev-overlay);
+  }
+  .chat-layout-sidebar:not(.collapsed) {
+    transform: translateX(-100%);
+  }
+  .chat-layout.sidebar-open .chat-layout-sidebar {
+    transform: translateX(0);
+  }
+  /* Backdrop when sidebar is open on mobile */
+  .chat-layout.sidebar-open::before {
+    content: "";
+    position: fixed;
+    inset: 0;
+    background: rgba(0, 0, 0, 0.4);
+    z-index: 99;
+    -webkit-backdrop-filter: blur(2px);
+    backdrop-filter: blur(2px);
+  }
+  /* Composer sticks to bottom on mobile */
+  .chat-composer-wrap {
+    padding: var(--space-2) var(--space-3) var(--space-3);
+  }
+  .chat-composer-card {
+    max-width: 100%;
+  }
+  /* Suggestion cards become single column */
+  .suggestion-grid {
+    grid-template-columns: 1fr !important;
+  }
+}
+
 @media (max-width: 640px) {
   .chat-layout-search-text { display: none; }
 }
@@ -183,7 +225,7 @@
   justify-content: center;
   font-size: var(--text-xs);
   font-weight: 600;
-  color: #fff;
+  color: var(--accent-on);
   background: linear-gradient(135deg, var(--fg), var(--accent));
   border: none;
   cursor: pointer;
@@ -224,7 +266,7 @@
   justify-content: center;
   font-size: var(--text-sm);
   font-weight: 600;
-  color: #fff;
+  color: var(--accent-on);
   background: linear-gradient(135deg, var(--fg), var(--accent));
   flex-shrink: 0;
 }

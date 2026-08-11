@@ -1,0 +1,73 @@
+/* execution-status navbar indicator */
+
+.exec-status {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  padding: 4px 10px;
+  border-radius: var(--radius-pill);
+  background: var(--surface-warm);
+  border: 1px solid var(--border-soft);
+  font-size: var(--text-xs);
+  font-weight: 500;
+  color: var(--muted);
+  text-decoration: none;
+  transition: background var(--motion-fast), border-color var(--motion-fast);
+  flex-shrink: 0;
+}
+.exec-status:hover {
+  background: var(--surface);
+  border-color: var(--border);
+}
+
+.exec-status-dot {
+  width: 7px;
+  height: 7px;
+  border-radius: 50%;
+  background: var(--meta);
+  flex-shrink: 0;
+}
+
+.exec-status.idle .exec-status-dot {
+  background: var(--meta);
+}
+
+.exec-status.running .exec-status-dot {
+  background: var(--accent);
+  box-shadow: 0 0 0 0 color-mix(in oklab, var(--accent) 40%, transparent);
+  animation: exec-pulse 2s var(--ease-in-out-quad) infinite;
+}
+.exec-status.running {
+  color: var(--fg);
+}
+.exec-status.running .exec-status-label {
+  color: var(--accent);
+}
+
+.exec-status.queued .exec-status-dot {
+  background: var(--warn);
+}
+.exec-status.queued {
+  color: var(--fg);
+}
+
+.exec-status.failed .exec-status-dot {
+  background: var(--danger);
+}
+.exec-status.failed {
+  color: var(--danger);
+  background: var(--danger-soft);
+  border-color: color-mix(in oklab, var(--danger) 20%, transparent);
+}
+
+.exec-status-label {
+  font-family: var(--font-mono);
+  font-size: 11px;
+}
+
+@keyframes exec-pulse {
+  0%, 100% { box-shadow: 0 0 0 0 color-mix(in oklab, var(--accent) 40%, transparent); }
+  50% { box-shadow: 0 0 0 4px color-mix(in oklab, var(--accent) 0%, transparent); }
+}
+
+@media (prefers-reduced-motion: reduce) { .exec-status-dot { animation: none !important; } }

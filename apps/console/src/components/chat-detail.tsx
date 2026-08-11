@@ -17,11 +17,14 @@
  * shares the same WS hub, so a chat open in both surfaces stays in sync.
  */
 
-import { useCallback, useEffect, useRef, useState } from 'react'
+import { useCallback, useEffect, useMemo, useRef, useState } from 'react'
 import Link from 'next/link'
 import { Icon } from '@/components/icon'
 import { ChatComposer } from '@/components/chat-composer'
 import { AssistantContent, extractMeta } from '@/components/assistant-content'
+import { ChatDetailSkeleton } from '@/components/skeleton'
+import { useToast } from '@/components/toast'
+import { useFirstReplyCelebration } from '@/components/use-first-reply-celebration'
 import {
   type Chat,
   type ChatMessage,
@@ -29,9 +32,11 @@ import {
   fetchMessages,
   createMessage,
   updateChat,
+  resetChat,
 } from '@/lib/chats'
 import { fetchDirectory, type Directory } from '@/lib/directories'
 import { useWsChat } from '@/lib/use-ws-chat'
+import { useTaskNotification } from '@/lib/use-task-notification'
 import type { ChatWsFrame } from '@dagents/contracts'
 import '@/styles/chat-detail.css'
 import '@/styles/assistant-content.css'
@@ -70,6 +75,28 @@ export function ChatDetail({ chatId }: ChatDetailProps): React.ReactElement {
   // stopped run stops patching the trailing bubble. chat:error still lands
   // so the user sees the terminal state.
   const stoppedRef = useRef(false)
+  // Retry counter — tracks consecutive failed retries for the same prompt.
+  // After MAX_UI_RETRIES consecutive failures, we stop auto-offering retry
+  // and instead point the user to the agent config page. Reset to 0 on a
+  // successful chat:done or a fresh (non-retry) send.
+  const retryCountRef = useRef(0)
+  const MAX_UI_RETRIES = 3
+  // Set when the user has exhausted retries — the error card switches from
+  // "重试" to a "检查 Agent 配置" link. Cleared on the next clean send.
+  const [retryExhausted, setRetryExhausted] = useState(false)
+  // Brief optimistic "重新连接中…" banner shown while a retry is in flight
+  // (between clearing the error bubble and the first chunk arriving).
+  const [reconnecting, setReconnecting] = useState(false)
+
+  // First-reply celebration — fire a toast the first time an assistant
+  // message appears in this chat. The hook self-guards with localStorage so
+  // it only ever fires once per browser.
+  const toast = useToast()
+  const assistantMessageCount = useMemo(
+    () => messages.filter((m) => m.role === 'assistant').length,
+    [messages],
+  )
+  useFirstReplyCelebration(assistantMessageCount, toast.success)
 
   // We identify the streaming assistant bubble by its `stream-` id prefix
   // (persisted messages have UUID ids). This lets the setMessages updater
@@ -87,6 +114,9 @@ export function ChatDetail({ chatId }: ChatDetailProps): React.ReactElement {
     setShowScrollBtn(false)
     lastSentTextRef.current = null
     stoppedRef.current = false
+    retryCountRef.current = 0
+    setRetryExhausted(false)
+    setReconnecting(false)
 
     // No AbortController here — React 18 StrictMode double-mounts effects in
     // dev (mount → cleanup abort → remount), and the first mount's abort
@@ -224,13 +254,27 @@ export function ChatDetail({ chatId }: ChatDetailProps): React.ReactElement {
         ]
       })
       setSending(false)
+      setReconnecting(false)
+      // Success — clear the retry counter so the next prompt starts fresh.
+      retryCountRef.current = 0
+      setRetryExhausted(false)
       setChat((prev) => (prev ? { ...prev, status: 'done' } : prev))
     } else if (frame.type === 'chat:error') {
+      setReconnecting(false)
+      const errorMessage = frame.error ?? frame.content
       setMessages((prev) => {
         const existing = prev.find((m) => m.id.startsWith('stream-'))
         if (existing) {
           return prev.map((m) =>
-            m.id === existing.id ? { ...m, content: frame.content || m.content } : m,
+            m.id === existing.id
+              ? {
+                  ...m,
+                  content: frame.content || m.content,
+                  // Tag the bubble as an error card with a timestamp so the
+                  // renderer can show a structured card instead of red text.
+                  metadata: { ...m.metadata, isError: true, errorAt: new Date().toISOString(), errorMessage },
+                }
+              : m,
           )
         }
         return [
@@ -241,18 +285,29 @@ export function ChatDetail({ chatId }: ChatDetailProps): React.ReactElement {
             role: 'assistant',
             content: frame.content,
             runId: frame.runId ?? null,
-            metadata: {},
+            metadata: { isError: true, errorAt: new Date().toISOString(), errorMessage },
             createdAt: new Date().toISOString(),
           },
         ]
       })
-      setError(frame.error ?? frame.content)
+      setError(errorMessage)
       setSending(false)
       setChat((prev) => (prev ? { ...prev, status: 'failed' } : prev))
     }
   }, [chatId])
 
-  const { connected } = useWsChat(chatId, handleWsFrame)
+  // Task-completion notifications: wraps the WS frame handler so terminal
+  // events (chat:done / chat:error) fire desktop + sound notifications when
+  // the user has tabbed away or is looking at a different chat. The wrapper
+  // runs the notifications first, then forwards the frame to handleWsFrame
+  // unchanged so the existing in-app behaviour (streaming bubble, usage
+  // footer, error card, retry button) is untouched.
+  const { wrapHandler: wrapWithNotifications } = useTaskNotification({
+    chatId,
+    chatTitle: chat?.title,
+  })
+
+  const { connected } = useWsChat(chatId, wrapWithNotifications(handleWsFrame))
 
   const handleSend = useCallback(async (text: string) => {
     if (sending) return
@@ -262,6 +317,14 @@ export function ChatDetail({ chatId }: ChatDetailProps): React.ReactElement {
     // clear the stopped flag so WS frames flow into the new bubble.
     lastSentTextRef.current = text
     stoppedRef.current = false
+    // A fresh (non-retry) send resets the consecutive-retry counter and
+    // drops any stale error card so the new run starts from a clean slate.
+    retryCountRef.current = 0
+    setRetryExhausted(false)
+    setReconnecting(false)
+    setMessages((prev) =>
+      prev.filter((m) => !m.id.startsWith('err-') && !m.id.startsWith('stream-')),
+    )
 
     // Optimistic user message
     const optimisticId = `opt-${Date.now()}`
@@ -357,15 +420,60 @@ export function ChatDetail({ chatId }: ChatDetailProps): React.ReactElement {
     )
   }, [])
 
-  // Retry the last user message after an error — re-runs handleSend with
-  // the stored text and removes the failed assistant bubble.
-  const handleRetry = useCallback(() => {
+  // Retry the last user message after an error — clears ALL error/failure
+  // state (chat status, error bubbles, optimistic stream bubbles), resets
+  // the chat to 'idle' on the backend, shows a brief "重新连接中…" banner,
+  // then re-sends. After MAX_UI_RETRIES consecutive failures the error card
+  // stops offering retry and instead links to /agents so the user can
+  // inspect the (likely mis-)configured agent.
+  const handleRetry = useCallback(async () => {
     const text = lastSentTextRef.current
     if (!text) return
-    // Drop the failed/error assistant bubble so the retry starts clean.
-    setMessages((prev) => prev.filter((m) => !m.id.startsWith('err-') && !m.id.startsWith('stream-')))
+
+    // Bump the retry counter and check whether we've exhausted retries.
+    retryCountRef.current += 1
+    const attempt = retryCountRef.current
+    if (attempt > MAX_UI_RETRIES) {
+      setRetryExhausted(true)
+      toast.error(`多次失败，请检查 Agent 配置（已重试 ${MAX_UI_RETRIES} 次）`)
+      return
+    }
+
+    // Drop ALL error / failed / in-flight assistant bubbles so the retry
+    // starts from a clean slate — not just the err- bubble.
+    setMessages((prev) =>
+      prev.filter(
+        (m) =>
+          !m.id.startsWith('err-') &&
+          !m.id.startsWith('stream-') &&
+          !(m.metadata?.isError === true),
+      ),
+    )
+    setError(null)
+    setSending(true)
+    setReconnecting(true)
+
+    // Reset the chat's backend status to 'idle' before retrying so the
+    // gateway's routeMessage doesn't see a stale 'failed' / 'running'
+    // status (a 'running' chat would be skipped). Best-effort: if the
+    // reset call fails we still attempt the retry below.
+    try {
+      const reset = await resetChat(chatId)
+      setChat(reset)
+    } catch (err) {
+      console.warn('reset chat before retry failed', err)
+    }
+
+    // Clear the optimistic "重新连接中…" banner on a short timer — if the
+    // first WS chunk doesn't land quickly, we still want to release the
+    // banner so the UI doesn't look stuck. The first chunk / error / done
+    // frame also clears it.
+    setTimeout(() => setReconnecting(false), 2000)
+
+    // Re-send the stored text via the normal send path. handleSend clears
+    // the remaining state and re-spawns the run.
     void handleSend(text)
-  }, [handleSend])
+  }, [chatId, handleSend, toast])
 
   // Copy an assistant message's raw content to the clipboard. Shows a
   // transient check mark for 1.5s so the user knows it landed.
@@ -429,6 +537,17 @@ export function ChatDetail({ chatId }: ChatDetailProps): React.ReactElement {
         </div>
       ) : null}
 
+      {/* Optimistic "重新连接中…" banner — shown briefly between clearing an
+          error and the first chunk of a retry landing. Reassures the user the
+          retry actually fired (vs. a dead button). Auto-clears on first frame
+          or after a 2s safety timeout in handleRetry. */}
+      {reconnecting ? (
+        <div className="chat-detail-reconnecting" role="status">
+          <Icon name="refresh" style={{ width: 14, height: 14 }} />
+          <span>重新连接中…</span>
+        </div>
+      ) : null}
+
       {/* Main: messages + composer (no side panel — flow & agent selectors
           live in the composer's bottom bar) */}
       <div className="chat-detail-conversation">
@@ -438,7 +557,7 @@ export function ChatDetail({ chatId }: ChatDetailProps): React.ReactElement {
             onScroll={handleScroll}
           >
             {loading ? (
-              <div className="chat-detail-empty">加载对话…</div>
+              <ChatDetailSkeleton />
             ) : error && messages.length === 0 ? (
               <div className="chat-detail-empty" style={{ color: 'var(--danger)' }}>
                 加载失败：{error}
@@ -479,53 +598,99 @@ export function ChatDetail({ chatId }: ChatDetailProps): React.ReactElement {
             ) : (
               messages.map((m) => {
                 const isStreaming = m.id.startsWith('stream-')
-                const isErrorBubble = m.id.startsWith('err-')
+                // An error card is either an err- bubble (terminal error) or a
+                // stream- bubble that got tagged with isError metadata when
+                // chat:error sealed a partially-streamed run.
+                const isErrorCard =
+                  m.id.startsWith('err-') || m.metadata?.isError === true
+                const errorMeta = isErrorCard
+                  ? {
+                      message: (m.metadata?.errorMessage as string | undefined) ??
+                        m.content ??
+                        '未知错误',
+                      at: (m.metadata?.errorAt as string | undefined) ?? m.createdAt,
+                    }
+                  : null
                 return (
                   <div
                     key={m.id}
                     className={`chat-msg chat-msg-${m.role}${m.role === 'assistant' ? ' chat-msg-flat' : ''}`}
                   >
-                    {m.role === 'system' && (
-                      <div className="chat-msg-system-icon">
-                        <Icon name="zap" style={{ width: 12, height: 12 }} />
-                      </div>
-                    )}
-                    {m.role === 'assistant' ? (
-                      <AssistantContent
-                        content={m.content}
-                        streaming={isStreaming}
-                        meta={extractMeta(m.metadata)}
-                      />
-                    ) : (
-                      <div className="chat-msg-content">{m.content}</div>
-                    )}
-                    {m.role !== 'system' && (
-                      <div className="chat-msg-footer">
-                        <span className="chat-msg-meta">{formatTime(m.createdAt)}</span>
-                        {m.role === 'assistant' && !isStreaming ? (
+                    {isErrorCard && errorMeta ? (
+                      // Structured error card — distinct from a normal
+                      // assistant message. Shows the error message, a
+                      // timestamp, a primary retry button (or a "check agent
+                      // config" link after retries are exhausted), and a
+                      // secondary "复制错误信息" action.
+                      <div className="chat-error-card" role="alert">
+                        <div className="chat-error-card-header">
+                          <Icon name="alertTriangle" style={{ width: 16, height: 16 }} />
+                          <span className="chat-error-card-title">执行失败</span>
+                          <span className="chat-error-card-time">{formatTime(errorMeta.at)}</span>
+                        </div>
+                        <div className="chat-error-card-message">{errorMeta.message}</div>
+                        <div className="chat-error-actions">
+                          {retryExhausted ? (
+                            <Link href="/agents" className="chat-error-link chat-error-link-primary">
+                              <Icon name="agents" style={{ width: 12, height: 12 }} />
+                              <span>检查 Agent 配置</span>
+                            </Link>
+                          ) : lastSentTextRef.current ? (
+                            <button
+                              type="button"
+                              className="chat-error-retry"
+                              onClick={() => void handleRetry()}
+                              disabled={sending}
+                            >
+                              <Icon name="refresh" style={{ width: 12, height: 12 }} />
+                              <span>重试</span>
+                            </button>
+                          ) : null}
                           <button
                             type="button"
-                            className="chat-msg-copy"
-                            onClick={() => void handleCopy(m.id, m.content)}
-                            title="复制"
-                            aria-label="复制回复内容"
+                            className="chat-error-link"
+                            onClick={() => void handleCopy(`err-copy-${m.id}`, errorMeta.message)}
                           >
-                            <Icon name={copiedId === m.id ? 'check' : 'copy'} style={{ width: 12, height: 12 }} />
-                            <span>{copiedId === m.id ? '已复制' : '复制'}</span>
+                            <Icon name={copiedId === `err-copy-${m.id}` ? 'check' : 'copy'} style={{ width: 12, height: 12 }} />
+                            <span>{copiedId === `err-copy-${m.id}` ? '已复制' : '复制错误信息'}</span>
                           </button>
-                        ) : null}
+                        </div>
                       </div>
+                    ) : (
+                      <>
+                        {m.role === 'system' && (
+                          <div className="chat-msg-system-icon">
+                            <Icon name="zap" style={{ width: 12, height: 12 }} />
+                          </div>
+                        )}
+                        {m.role === 'assistant' ? (
+                          <AssistantContent
+                            content={m.content}
+                            streaming={isStreaming}
+                            meta={extractMeta(m.metadata)}
+                          />
+                        ) : (
+                          <div className="chat-msg-content">{m.content}</div>
+                        )}
+                        {m.role !== 'system' && (
+                          <div className="chat-msg-footer">
+                            <span className="chat-msg-meta">{formatTime(m.createdAt)}</span>
+                            {m.role === 'assistant' && !isStreaming ? (
+                              <button
+                                type="button"
+                                className="chat-msg-copy"
+                                onClick={() => void handleCopy(m.id, m.content)}
+                                title="复制"
+                                aria-label="复制回复内容"
+                              >
+                                <Icon name={copiedId === m.id ? 'check' : 'copy'} style={{ width: 12, height: 12 }} />
+                                <span>{copiedId === m.id ? '已复制' : '复制'}</span>
+                              </button>
+                            ) : null}
+                          </div>
+                        )}
+                      </>
                     )}
-                    {isErrorBubble && lastSentTextRef.current ? (
-                      <button
-                        type="button"
-                        className="chat-msg-retry"
-                        onClick={handleRetry}
-                      >
-                        <Icon name="refresh" style={{ width: 12, height: 12 }} />
-                        <span>重试</span>
-                      </button>
-                    ) : null}
                   </div>
                 )
               })

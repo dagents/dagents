@@ -1,0 +1,421 @@
+/* audit-log.css — 审计日志查看器（settings "审计日志" tab）.
+ *
+ * 复用全局原语（shell.css）：.table-wrap + table.data + .tokens-toolbar +
+ * .filter-chip + .select / .input + .skeleton / .skeleton-text + .grow +
+ * .btn / .btn-secondary / .btn-sm + .mono + .muted + .row-between + .card-title.
+ * 本文件只覆盖审计特有的部分：
+ *   - 筛选条字段封装（label + 控件）
+ *   - 动作徽章配色（create/update/delete/default）
+ *   - 操作者图标 + id 堆叠
+ *   - detail JSON 折叠展开
+ *   - 加载更多 / 空态 / 错误态
+ *   - 移动端：表格 → 卡片堆叠
+ *
+ * 约束：所有颜色 / 间距 / 字号 / 圆角 / 阴影走 CSS token，无硬编码 hex。
+ */
+
+/* ─── 筛选条 ─────────────────────────────────────────────────── */
+
+.audit-filters {
+  align-items: flex-end;
+}
+
+/* 字段封装：label 在控件上方，给筛选控件一个统一的垂直节奏 */
+.audit-filter-field {
+  display: flex;
+  flex-direction: column;
+  gap: 4px;
+}
+.audit-filter-field .select,
+.audit-filter-field .input {
+  height: 34px;
+  min-width: 160px;
+  font-size: var(--text-sm);
+}
+.audit-filter-field .input {
+  width: 200px;
+}
+
+.audit-filter-label {
+  font-size: var(--text-xs);
+  color: var(--meta);
+  letter-spacing: var(--tracking-label);
+  text-transform: uppercase;
+  user-select: none;
+}
+
+/* actor 筛选 chip 组 —— 复用全局 .filter-chip，外面套一层 label 行 */
+.audit-filter-chips {
+  display: flex;
+  align-items: center;
+  gap: var(--space-2);
+  flex-wrap: wrap;
+}
+
+.audit-refresh-icon {
+  width: 14px;
+  height: 14px;
+  display: inline-flex;
+  vertical-align: middle;
+  margin-right: 4px;
+  margin-top: -2px;
+}
+
+/* ─── 列表容器 ───────────────────────────────────────────────── */
+
+.audit-body {
+  display: flex;
+  flex-direction: column;
+  gap: var(--space-3);
+}
+
+.audit-table-wrap {
+  /* 让长表格可独立滚动，不撑破 settings 主区 */
+  overflow-x: auto;
+}
+
+/* 表格列宽节奏 —— 紧凑些（审计记录密度高） */
+.audit-table {
+  font-size: var(--text-sm);
+}
+.audit-table thead th {
+  font-size: 11px;
+}
+
+/* ─── 操作者单元格 ───────────────────────────────────────────── */
+
+.audit-actor {
+  display: flex;
+  align-items: center;
+  gap: var(--space-2);
+  min-width: 0;
+}
+.audit-actor-icon {
+  width: 18px;
+  height: 18px;
+  flex-shrink: 0;
+  color: var(--muted);
+  display: inline-flex;
+}
+.audit-actor-meta {
+  display: flex;
+  flex-direction: column;
+  gap: 1px;
+  min-width: 0;
+}
+.audit-actor-type {
+  font-size: var(--text-sm);
+  color: var(--fg-2);
+  font-weight: 500;
+}
+.audit-actor-id {
+  font-size: var(--text-xs);
+  color: var(--meta);
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+/* ─── 动作徽章 ───────────────────────────────────────────────── */
+
+.audit-cell-action {
+  /* 动作单元格：徽章 + 动作全名堆叠 */
+}
+.audit-badge {
+  display: inline-flex;
+  align-items: center;
+  font-size: 10px;
+  font-weight: 500;
+  padding: 1px 8px;
+  border-radius: var(--radius-pill);
+  letter-spacing: var(--tracking-label);
+  margin-bottom: 2px;
+}
+.audit-action-name {
+  display: block;
+  font-size: var(--text-xs);
+  color: var(--muted);
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+  max-width: 160px;
+}
+
+/* 配色 by tone —— 全部用 token，soft 背景 + 实色前景 */
+.audit-badge-create {
+  background: var(--success-soft);
+  color: var(--success);
+}
+.audit-badge-update {
+  background: var(--info-soft);
+  color: var(--info);
+}
+.audit-badge-delete {
+  background: var(--danger-soft);
+  color: var(--danger);
+}
+.audit-badge-default {
+  background: var(--surface);
+  color: var(--muted);
+}
+
+/* ─── 目标单元格 ─────────────────────────────────────────────── */
+
+.audit-cell-target {
+  /* target_type + 截断 id 堆叠 */
+}
+.audit-target-type {
+  display: block;
+  font-size: var(--text-sm);
+  color: var(--fg-2);
+}
+.audit-target-id {
+  display: block;
+  font-size: var(--text-xs);
+  color: var(--meta);
+}
+
+/* ─── 时间 / IP ──────────────────────────────────────────────── */
+
+.audit-cell-time time {
+  font-size: var(--text-xs);
+  color: var(--muted);
+  white-space: nowrap;
+}
+.audit-cell-ip .audit-ip {
+  font-size: var(--text-xs);
+  color: var(--meta);
+}
+
+/* ─── detail JSON 折叠 ──────────────────────────────────────── */
+
+.audit-cell-detail {
+  /* 展开后 JSON 会撑高行 —— 限制最大宽度避免横向溢出 */
+  max-width: 320px;
+}
+.audit-detail-toggle {
+  display: inline-flex;
+  align-items: center;
+  gap: 4px;
+  background: transparent;
+  border: 1px solid var(--border-soft);
+  border-radius: var(--radius-pill);
+  padding: 2px 10px;
+  font-size: var(--text-xs);
+  color: var(--muted);
+  cursor: pointer;
+  transition: border-color var(--motion-fast), color var(--motion-fast), background var(--motion-fast);
+}
+.audit-detail-toggle:hover {
+  border-color: var(--border);
+  color: var(--fg-2);
+  background: var(--surface-warm);
+}
+.audit-detail-toggle[aria-expanded="true"] {
+  color: var(--accent);
+  border-color: var(--accent-soft);
+  background: var(--accent-soft);
+}
+.audit-detail-chevron {
+  width: 12px;
+  height: 12px;
+  display: inline-flex;
+}
+.audit-detail-none {
+  font-size: var(--text-xs);
+}
+.audit-detail-json {
+  margin: var(--space-2) 0 0;
+  padding: var(--space-3);
+  background: var(--surface-warm);
+  border: 1px solid var(--border-soft);
+  border-radius: var(--radius-sm);
+  font-size: var(--text-xs);
+  line-height: 1.6;
+  color: var(--fg-2);
+  white-space: pre-wrap;
+  word-break: break-word;
+  max-height: 280px;
+  overflow-y: auto;
+}
+
+/* 展开行的高亮（轻量提示这是被展开的行） */
+.audit-row-expanded {
+  background: var(--surface-warm);
+}
+
+/* ─── 加载更多 / 翻页 ────────────────────────────────────────── */
+
+.audit-load-more {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  gap: var(--space-2);
+  padding: var(--space-3) 0;
+}
+.audit-load-more-error {
+  font-size: var(--text-xs);
+  color: var(--danger);
+  display: flex;
+  align-items: center;
+}
+.audit-end-hint {
+  text-align: center;
+  font-size: var(--text-xs);
+  padding: var(--space-3) 0;
+}
+
+/* ─── 空态 / 错误态 ─────────────────────────────────────────── */
+
+.audit-empty {
+  padding: var(--space-12) var(--space-4);
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  justify-content: center;
+  gap: var(--space-2);
+  text-align: center;
+  border: 1px dashed var(--border-soft);
+  border-radius: var(--radius-md);
+  background: var(--surface-warm);
+}
+.audit-empty-icon {
+  width: 28px;
+  height: 28px;
+  color: var(--meta);
+  display: inline-flex;
+}
+.audit-empty-icon-danger {
+  color: var(--danger);
+}
+.audit-empty-title {
+  font-size: var(--text-sm);
+  font-weight: 500;
+  color: var(--fg-2);
+}
+.audit-empty-desc {
+  font-size: var(--text-xs);
+  color: var(--meta);
+  line-height: 1.6;
+  max-width: 360px;
+}
+
+/* ─── 加载骨架 ───────────────────────────────────────────────── */
+
+.audit-skeleton-row td {
+  /* 让骨架行也带 hover 时的过渡感，但不触发 hover 背景 */
+  vertical-align: middle;
+}
+
+/* ─── 响应式：移动端表格 → 卡片堆叠 ────────────────────────────
+ * ≤ 768px：表格变成卡片列表。每行 <tr> 变成块级卡片，<td> 变成
+ * key:value 的行，用 data-label（CSS attr）显示列名。这是把表格
+ * 降级为卡片的标准技巧，无需改 DOM。
+ */
+@media (max-width: 768px) {
+  /* 隐藏表头 —— 卡片自带 label */
+  .audit-table thead {
+    display: none;
+  }
+  .audit-table,
+  .audit-table tbody,
+  .audit-table tr,
+  .audit-table td {
+    display: block;
+    width: 100%;
+  }
+  .audit-table-wrap {
+    border: 0;
+    border-radius: 0;
+    background: transparent;
+    overflow: visible;
+  }
+
+  /* 每行 → 卡片 */
+  .audit-table tbody tr.audit-row {
+    border: 1px solid var(--border-soft);
+    border-radius: var(--radius-md);
+    background: var(--bg);
+    padding: var(--space-3);
+    margin-bottom: var(--space-2);
+  }
+  /* 移除全局 table.data 的 hover 背景在卡片模式下的突兀 */
+  .audit-table tbody tr.audit-row:hover {
+    background: var(--bg);
+  }
+  .audit-row-expanded {
+    background: var(--surface-warm);
+  }
+
+  /* 每个 td → 一行，左侧 label（attr）+ 右侧值 */
+  .audit-table tbody td {
+    border-bottom: 0;
+    padding: var(--space-1) 0;
+    display: flex;
+    align-items: flex-start;
+    gap: var(--space-2);
+    max-width: none;
+  }
+  /* 用 data-label 显示列名 —— 但我们的 td 没有 data-label 属性，
+     所以改用 CSS 直接给每个已知 cell 加前缀伪元素。 */
+  .audit-cell-time::before { content: "时间"; }
+  .audit-cell-actor::before { content: "操作者"; }
+  .audit-cell-action::before { content: "动作"; }
+  .audit-cell-target::before { content: "目标"; }
+  .audit-cell-detail::before { content: "详情"; }
+  .audit-cell-ip::before { content: "IP"; }
+
+  .audit-table tbody td::before {
+    flex-shrink: 0;
+    width: 64px;
+    font-size: var(--text-xs);
+    color: var(--meta);
+    letter-spacing: var(--tracking-label);
+    padding-top: 2px;
+  }
+  /* detail 单元格在卡片模式下：值块占满剩余宽度，JSON 撑开 */
+  .audit-cell-detail {
+    flex-direction: column;
+    align-items: stretch;
+  }
+  .audit-cell-detail::before {
+    margin-bottom: var(--space-1);
+  }
+  .audit-detail-json {
+    max-width: none;
+  }
+
+  /* 移动端动作全名不截断（卡片有空间） */
+  .audit-action-name {
+    max-width: none;
+  }
+
+  /* 移动端筛选条堆叠 */
+  .audit-filters {
+    flex-direction: column;
+    align-items: stretch;
+    gap: var(--space-3);
+  }
+  .audit-filter-field .input,
+  .audit-filter-field .select {
+    width: 100%;
+    min-width: 0;
+  }
+  .audit-filter-chips {
+    flex-wrap: wrap;
+  }
+  .audit-filters .tk-count {
+    font-size: var(--text-xs);
+  }
+}
+
+/* ─── 极窄屏（≤ 420px）：进一步收紧 ─────────────────────────── */
+@media (max-width: 420px) {
+  .audit-table tbody td::before {
+    width: 52px;
+    font-size: 10px;
+  }
+  .audit-empty {
+    padding: var(--space-8) var(--space-3);
+  }
+}

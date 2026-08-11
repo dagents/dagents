@@ -423,3 +423,41 @@ describe('POST /api/v1/chats/:id/messages — create message', () => {
     expect(chatBody.data.chat.lastMessage).toBe('Second message')
   })
 })
+
+describe('POST /api/v1/chats/:id/reset — reset failed chat', () => {
+  it('flips a failed chat back to idle', async () => {
+    const dirId = await seedDirectory()
+    const id = await seedChat(dirId, { title: 'Failed Chat', status: 'failed' })
+
+    const res = await app.request(`/api/v1/chats/${id}/reset`, { method: 'POST' })
+    expect(res.status).toBe(200)
+    const body = (await res.json()) as {
+      success: boolean
+      data: { chat: { id: string; status: string } }
+    }
+    expect(body.success).toBe(true)
+    expect(body.data.chat.id).toBe(id)
+    expect(body.data.chat.status).toBe('idle')
+  })
+
+  it('is idempotent — resetting an idle chat stays idle', async () => {
+    const dirId = await seedDirectory()
+    const id = await seedChat(dirId, { title: 'Idle Chat', status: 'idle' })
+
+    const res = await app.request(`/api/v1/chats/${id}/reset`, { method: 'POST' })
+    expect(res.status).toBe(200)
+    const body = (await res.json()) as { data: { chat: { status: string } } }
+    expect(body.data.chat.status).toBe('idle')
+  })
+
+  it('returns 404 for missing chat', async () => {
+    const missing = randomUUID()
+    const res = await app.request(`/api/v1/chats/${missing}/reset`, { method: 'POST' })
+    expect(res.status).toBe(404)
+  })
+
+  it('returns 400 for malformed id', async () => {
+    const res = await app.request('/api/v1/chats/not-a-uuid/reset', { method: 'POST' })
+    expect(res.status).toBe(400)
+  })
+})

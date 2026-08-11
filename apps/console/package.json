@@ -15,6 +15,7 @@
     "@dagents/agentflow": "workspace:*",
     "@dagents/contracts": "workspace:*",
     "@dagents/shared": "workspace:*",
+    "@dagents/workflow": "workspace:*",
     "@emotion/react": "^11.10.0",
     "@emotion/styled": "^11.10.0",
     "@mui/icons-material": "^5.0.0",
@@ -27,7 +28,6 @@
     "zod": "^4.4.3"
   },
   "devDependencies": {
-    "@dagents/db": "workspace:*",
     "@playwright/test": "^1.49.0",
     "@testing-library/jest-dom": "^6.6.3",
     "@testing-library/react": "^16.1.0",

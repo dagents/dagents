@@ -31,6 +31,12 @@ const listQuerySchema = z.object({
   limit: z.coerce.number().int().min(1).max(200).default(50),
 })
 
+const searchQuerySchema = z.object({
+  q: z.string().min(1).max(200),
+  directory_id: z.string().uuid().optional(),
+  limit: z.coerce.number().int().min(1).max(50).default(20),
+})
+
 const createBodySchema = z.object({
   directoryId: z.string().uuid(),
   title: z.string().min(1).max(200),
@@ -146,6 +152,142 @@ chatRoutes.get('/', async (c) => {
 
   return ok(c, {
     items: rows.map((r) => normalizeChat(r)),
+  })
+})
+
+/**
+ * GET /api/v1/chats/search?q=keyword&directory_id=xxx&limit=20
+ *
+ * Full-text chat history search across chats.title and chat_messages.content.
+ * Returns results grouped by chat — each result has a truncated snippet with
+ * the matched substring wrapped in <mark>…</mark> for client-side highlight.
+ *
+ * q must be non-empty (min 1 char) — empty/whitespace queries are rejected
+ * with 400. limit is capped at 50. If directory_id is provided, results are
+ * scoped to chats in that directory; otherwise all directories are searched.
+ *
+ * Match precedence: title matches are returned first (they are usually the
+ * strongest signal), then content matches. A chat that matches on content
+ * produces one row per matching message so the user can jump to the specific
+ * message context.
+ *
+ * The <mark> wrapping is done in JS, not SQL, to keep the query legible. SQL
+ * returns the raw title (for title matches) or a ~200-char window centered on
+ * the first hit (for content matches); the JS post-process re-locates the
+ * (case-insensitive) hit and wraps it.
+ */
+chatRoutes.get('/search', async (c) => {
+  const parsed = searchQuerySchema.safeParse(c.req.query())
+  if (!parsed.success) {
+    return fail(c, 400, 'invalid query', { detail: parsed.error.message })
+  }
+  const q = parsed.data
+
+  // Escape SQL LIKE wildcards in the user query so a literal '%', '_', or '\'
+  // in the query is treated as a literal char, not a wildcard. We then use
+  // ILIKE … ESCAPE '\' so the escaped sequence is interpreted correctly.
+  const escaped = q.q.replace(/\\/g, '\\\\').replace(/%/g, '\\%').replace(/_/g, '\\_')
+  const likePattern = `%${escaped}%`
+
+  const params: unknown[] = [likePattern, q.q]
+  let dirFilter = ''
+  if (q.directory_id) {
+    params.push(q.directory_id)
+    dirFilter = `AND ch.directory_id = $${params.length}::uuid`
+  }
+  params.push(q.limit)
+  const limitParam = `$${params.length}`
+
+  interface SearchRow {
+    chat_id: string
+    chat_title: string
+    directory_id: string
+    directory_name: string
+    snippet_raw: string
+    match_type: 'title' | 'content'
+    created_at: Date
+  }
+
+  let rows: SearchRow[]
+  try {
+    const { records } = await runQuery<SearchRow>(
+      `
+      -- Title matches: snippet_raw is the raw title (capped at 200 chars).
+      SELECT ch.id            AS chat_id,
+             ch.title         AS chat_title,
+             ch.directory_id  AS directory_id,
+             d.name           AS directory_name,
+             left(ch.title, 200) AS snippet_raw,
+             'title'::text    AS match_type,
+             ch.created_at    AS created_at
+        FROM chats ch
+        JOIN directories d ON d.id = ch.directory_id
+       WHERE ch.title ILIKE $1 ESCAPE '\\'
+         ${dirFilter}
+       UNION ALL
+      -- Content matches: snippet_raw is a ~200-char window centered on the
+      -- first hit (60 chars of context before, then the hit, then the tail).
+        SELECT ch.id            AS chat_id,
+               ch.title         AS chat_title,
+               ch.directory_id  AS directory_id,
+               d.name           AS directory_name,
+               substring(cm.content
+                        FROM GREATEST(1, POSITION(LOWER($2) IN LOWER(cm.content)) - 60)
+                        FOR 200) AS snippet_raw,
+               'content'::text  AS match_type,
+               cm.created_at    AS created_at
+          FROM chat_messages cm
+          JOIN chats ch ON ch.id = cm.chat_id
+          JOIN directories d ON d.id = ch.directory_id
+         WHERE cm.content ILIKE $1 ESCAPE '\\'
+           ${dirFilter}
+      ORDER BY
+        CASE match_type WHEN 'title' THEN 0 ELSE 1 END,
+        created_at DESC
+      LIMIT ${limitParam}`,
+      params,
+    )
+    rows = records
+  } catch (err) {
+    log.error('chat search query failed', { q: q.q, error: String(err) })
+    return fail(c, 502, 'chat search failed')
+  }
+
+  // Wrap the (first, case-insensitive) match in <mark>…</mark>. Truncate long
+  // snippets with an ellipsis. HTML special chars are escaped so user-controlled
+  // content can't inject markup; the <mark> tags we add ourselves are the only
+  // HTML in the output.
+  const needle = q.q.toLowerCase()
+  const escapeHtml = (s: string): string =>
+    s.replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(/>/g, '&gt;')
+  const wrapHit = (raw: string, isContent: boolean): string => {
+    const lower = raw.toLowerCase()
+    const idx = lower.indexOf(needle)
+    // Leading ellipsis when the content window starts mid-string (the SQL
+    // window begins up to 60 chars before the hit, so the snippet usually
+    // doesn't start at offset 0 of the original message).
+    const leadingEllipsis = isContent && raw.length > 0 && idx > 0 ? '…' : ''
+    if (idx < 0) {
+      const safe = escapeHtml(raw)
+      return raw.length > 200 ? safe.slice(0, 200) + '…' : safe
+    }
+    const before = escapeHtml(raw.slice(0, idx))
+    const hit = escapeHtml(raw.slice(idx, idx + needle.length))
+    const afterRaw = raw.slice(idx + needle.length)
+    const after = escapeHtml(afterRaw.length > 200 - idx ? afterRaw.slice(0, 200 - idx) + '…' : afterRaw)
+    return `${leadingEllipsis}${before}<mark>${hit}</mark>${after}`
+  }
+
+  return ok(c, {
+    items: rows.map((r) => ({
+      chatId: r.chat_id,
+      chatTitle: r.chat_title,
+      snippet: wrapHit(r.snippet_raw, r.match_type === 'content'),
+      matchType: r.match_type,
+      directoryId: r.directory_id,
+      directoryName: r.directory_name,
+      createdAt: r.created_at instanceof Date ? r.created_at.toISOString() : new Date(r.created_at).toISOString(),
+    })),
   })
 })
 
@@ -450,6 +592,43 @@ chatRoutes.post('/:id/messages', async (c) => {
     error: route.error,
     systemMessageId: route.systemMessageId ?? null,
   })
+})
+
+/**
+ * POST /api/v1/chats/:id/reset — clear a failed chat back to 'idle'.
+ *
+ * Used by the console's error-recovery flow before retrying an agent run.
+ * Only flips `failed` → `idle`; a non-failed chat is reset to `idle` too
+ * (idempotent) so the caller doesn't have to branch on current status.
+ * Returns the updated chat so the console can sync its breadcrumb.
+ */
+chatRoutes.post('/:id/reset', async (c) => {
+  const id = c.req.param('id')
+  if (!UUID_RE.test(id)) {
+    return fail(c, 400, 'invalid chat id', { id })
+  }
+
+  let row: ChatRow | null
+  try {
+    const { records } = await runQuery<ChatRow>(
+      `UPDATE chats
+          SET status = 'idle', updated_at = NOW()
+        WHERE id = $1::uuid
+       RETURNING id, directory_id, title, status, agent_id, flow_id,
+                 last_message, message_count, last_run_id,
+                 created_at, updated_at`,
+      [id],
+    )
+    row = records[0] ?? null
+  } catch (err) {
+    log.error('chat reset failed', { id, error: String(err) })
+    return fail(c, 502, 'chat reset failed')
+  }
+  if (!row) {
+    return fail(c, 404, 'chat not found', { id })
+  }
+
+  return ok(c, { chat: normalizeChat(row) })
 })
 
 /**

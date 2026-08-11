@@ -6,7 +6,7 @@
   position: fixed;
   inset: 0;
   z-index: 200;
-  background: rgba(13, 13, 13, 0.28);
+  background: color-mix(in oklab, var(--fg) 28%, transparent);
   backdrop-filter: blur(2px);
   display: flex;
   justify-content: center;

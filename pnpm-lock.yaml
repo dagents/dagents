@@ -38,6 +38,9 @@ importers:
       '@dagents/shared':
         specifier: workspace:*
         version: link:../../packages/shared
+      '@dagents/workflow':
+        specifier: workspace:*
+        version: link:../../packages/workflow
       '@emotion/react':
         specifier: ^11.10.0
         version: 11.14.0(@types/react@19.2.17)(react@19.2.7)
@@ -69,9 +72,6 @@ importers:
         specifier: ^4.4.3
         version: 4.4.3
     devDependencies:
-      '@dagents/db':
-        specifier: workspace:*
-        version: link:../../packages/db
       '@playwright/test':
         specifier: ^1.49.0
         version: 1.61.1

@@ -1,0 +1,99 @@
+/* toast.css — global notification toasts */
+
+.toast-container {
+  position: fixed;
+  bottom: var(--space-6);
+  right: var(--space-6);
+  z-index: 9000;
+  display: flex;
+  flex-direction: column-reverse;
+  gap: var(--space-2);
+  pointer-events: none;
+  max-width: 380px;
+}
+
+.toast-item {
+  display: flex;
+  align-items: center;
+  gap: var(--space-2);
+  padding: var(--space-3) var(--space-4);
+  border-radius: var(--radius-sm);
+  background: var(--bg);
+  border: 1px solid var(--border);
+  box-shadow: var(--elev-dropdown);
+  font-size: var(--text-sm);
+  color: var(--fg);
+  pointer-events: auto;
+  position: relative;
+  overflow: hidden;
+}
+
+/* Left accent bar */
+.toast-item::before {
+  content: "";
+  position: absolute;
+  left: 0;
+  top: 0;
+  bottom: 0;
+  width: 3px;
+}
+.toast-success::before { background: var(--success); }
+.toast-error::before { background: var(--danger); }
+.toast-warning::before { background: var(--warn); }
+.toast-info::before { background: var(--info); }
+
+.toast-icon {
+  width: 24px;
+  height: 24px;
+  display: grid;
+  place-items: center;
+  border-radius: 50%;
+  flex-shrink: 0;
+}
+.toast-success .toast-icon { background: var(--success-soft); color: var(--success); }
+.toast-error .toast-icon { background: var(--danger-soft); color: var(--danger); }
+.toast-warning .toast-icon { background: var(--warn-soft); color: var(--warn); }
+.toast-info .toast-icon { background: var(--info-soft); color: var(--info); }
+
+.toast-message {
+  flex: 1;
+  line-height: 1.4;
+  min-width: 0;
+}
+
+.toast-dismiss {
+  width: 20px;
+  height: 20px;
+  display: grid;
+  place-items: center;
+  border: 0;
+  background: transparent;
+  color: var(--meta);
+  cursor: pointer;
+  border-radius: 4px;
+  font-size: 14px;
+  line-height: 1;
+  flex-shrink: 0;
+  transition: background var(--motion-fast), color var(--motion-fast);
+}
+.toast-dismiss:hover { background: var(--surface); color: var(--fg); }
+
+/* Enter animation */
+.toast-enter {
+  animation: toast-slide-in var(--motion-base) var(--ease-out-quint) both;
+}
+@keyframes toast-slide-in {
+  from { opacity: 0; transform: translateX(60px); }
+  to { opacity: 1; transform: translateX(0); }
+}
+@media (prefers-reduced-motion: reduce) { .toast-enter { animation: none; } }
+
+/* Mobile: full-width toasts */
+@media (max-width: 480px) {
+  .toast-container {
+    left: var(--space-3);
+    right: var(--space-3);
+    bottom: var(--space-3);
+    max-width: none;
+  }
+}

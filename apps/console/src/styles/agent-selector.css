@@ -22,7 +22,7 @@
   bottom: calc(100% + 4px);
   left: 0;
   min-width: 240px;
-  max-height: 320px;
+  max-height: 380px;
   overflow-y: auto;
   background: var(--bg);
   border: 1px solid var(--border);
@@ -51,6 +51,13 @@
 .agent-selector-option.selected { background: var(--accent-soft); color: var(--accent-hover); }
 .agent-selector-option-hint { margin-left: auto; font-size: var(--text-xs); color: var(--meta); }
 
+/* Unavailable (not installed) CLI — greyed out, not clickable */
+.agent-selector-option.unavailable {
+  opacity: 0.4;
+  cursor: default;
+}
+.agent-selector-option.unavailable:hover { background: transparent; }
+
 /* Empty-state create link — shown when the catalogue comes back empty.
    Not a selectable option (no role=option); a navigation link to /agents. */
 .agent-selector-create-link {
@@ -66,3 +73,42 @@
   border-radius: 0 0 var(--radius-sm) var(--radius-sm);
 }
 .agent-selector-create-link:hover { background: var(--surface-warm); }
+
+/* Section label for installed / uninstalled CLI groups */
+.agent-selector-section-label {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  padding: 8px 10px 4px;
+  color: var(--meta);
+  font-size: 11px;
+  font-weight: 500;
+  text-transform: uppercase;
+  letter-spacing: 0.04em;
+}
+.agent-selector-glyph {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  width: 22px;
+  height: 22px;
+  border-radius: var(--radius-sm);
+  background: var(--accent-soft);
+  color: var(--accent);
+  font-size: 10px;
+  font-weight: 700;
+  font-family: var(--font-mono);
+  flex-shrink: 0;
+}
+.agent-selector-glyph.dim {
+  background: var(--surface);
+  color: var(--meta);
+}
+.agent-selector-error {
+  padding: 6px 10px;
+  font-size: var(--text-xs);
+  color: var(--danger);
+  background: var(--danger-soft);
+  border-radius: var(--radius-sm);
+  margin: 4px 0;
+}

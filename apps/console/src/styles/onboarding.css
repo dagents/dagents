@@ -1,0 +1,92 @@
+/* onboarding.css — compact inline setup checklist */
+
+.onboarding-inline {
+  width: 100%;
+  max-width: 640px;
+  margin-bottom: var(--space-3);
+}
+
+.onboarding-inline-bar {
+  display: flex;
+  align-items: center;
+  gap: var(--space-2);
+  padding: 6px 12px;
+  background: var(--surface);
+  border: 1px solid var(--border-soft);
+  border-radius: var(--radius-pill);
+  font-size: var(--text-xs);
+}
+
+.onboarding-inline-title {
+  font-weight: 600;
+  color: var(--fg);
+  white-space: nowrap;
+  flex-shrink: 0;
+}
+
+.onboarding-inline-steps {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  flex: 1;
+  min-width: 0;
+  overflow: hidden;
+}
+
+.onboarding-inline-chip {
+  display: inline-flex;
+  align-items: center;
+  gap: 4px;
+  padding: 2px 8px;
+  border-radius: var(--radius-pill);
+  background: transparent;
+  color: var(--meta);
+  white-space: nowrap;
+  flex-shrink: 0;
+}
+.onboarding-inline-chip.done {
+  color: var(--success);
+}
+
+.onboarding-inline-dot {
+  width: 6px;
+  height: 6px;
+  border-radius: 50%;
+  background: var(--meta);
+  flex-shrink: 0;
+}
+
+.onboarding-inline-label {
+  color: inherit;
+}
+.onboarding-inline-label.link {
+  color: var(--accent);
+  text-decoration: none;
+  cursor: pointer;
+}
+.onboarding-inline-label.link:hover {
+  text-decoration: underline;
+}
+
+.onboarding-inline-count {
+  font-family: var(--font-mono);
+  color: var(--muted);
+  flex-shrink: 0;
+}
+
+.onboarding-inline-dismiss {
+  width: 18px;
+  height: 18px;
+  display: grid;
+  place-items: center;
+  border: 0;
+  background: transparent;
+  color: var(--meta);
+  cursor: pointer;
+  border-radius: 4px;
+  font-size: 14px;
+  line-height: 1;
+  flex-shrink: 0;
+  transition: background var(--motion-fast), color var(--motion-fast);
+}
+.onboarding-inline-dismiss:hover { background: var(--bg); color: var(--fg); }

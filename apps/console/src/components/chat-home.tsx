@@ -15,6 +15,9 @@ import { useRouter } from 'next/navigation'
 import Link from 'next/link'
 import { Icon } from '@/components/icon'
 import { SuggestionCards } from '@/components/suggestion-cards'
+import { OnboardingChecklist } from '@/components/onboarding-checklist'
+import { OnboardingCompleteBanner } from '@/components/onboarding-complete-banner'
+import { useOnboarding } from '@/components/use-onboarding'
 import { ChatComposer } from '@/components/chat-composer'
 import { DirectorySelector } from '@/components/directory-selector'
 import { useDirectories } from './use-directories'
@@ -25,6 +28,7 @@ import '@/styles/chat-home.css'
 export function ChatHome(): React.ReactElement {
   const router = useRouter()
   const { directories, loading, error, reload } = useDirectories()
+  const { complete: onboardingComplete } = useOnboarding()
   const [selectedDirId, setSelectedDirId] = useState<string | null>(null)
   const [selectedAgentId, setSelectedAgentId] = useState<string | null>(null)
   const [sending, setSending] = useState(false)
@@ -105,6 +109,20 @@ export function ChatHome(): React.ReactElement {
           <Link className="chat-home-empty-secondary" href="/directories">
             或前往目录管理页 →
           </Link>
+          <div className="chat-home-empty-steps">
+            <div className="chat-home-empty-step">
+              <div className="chat-home-empty-step-num">1</div>
+              <span className="chat-home-empty-step-text">添加项目目录</span>
+            </div>
+            <div className="chat-home-empty-step">
+              <div className="chat-home-empty-step-num">2</div>
+              <span className="chat-home-empty-step-text">创建 Agent</span>
+            </div>
+            <div className="chat-home-empty-step">
+              <div className="chat-home-empty-step-num">3</div>
+              <span className="chat-home-empty-step-text">开始对话</span>
+            </div>
+          </div>
         </div>
       ) : (
         <div className="chat-home-placeholder">
@@ -112,10 +130,12 @@ export function ChatHome(): React.ReactElement {
             <div className="chat-home-bot-avatar">
               <Icon name="bot" style={{ width: 20, height: 20, color: 'var(--accent)' }} />
             </div>
-            <h1 className="chat-home-welcome-title">DAgent 控制台</h1>
+            <h1 className="chat-home-welcome-title">开始对话</h1>
             <p className="chat-home-welcome-desc">
-              多 Agent 编排平台，支持推理、工具调用与并行执行。
+              选择项目目录，输入指令，Agent 会理解你的意图并执行。
             </p>
+            <OnboardingChecklist />
+            <OnboardingCompleteBanner complete={onboardingComplete} />
             <SuggestionCards onPick={(text) => void handleSend(text)} />
           </div>
         </div>

@@ -181,42 +181,104 @@ export async function executeInline(
 
   // spawn agent via factory (supports claude/codex/qwen/copilot/opencode)
   const backend = createBackend(agentKind as any, { executablePath: execPath, logger: log })
-  let session: ReturnType<typeof backend.execute> | null = null
-  try {
-    session = backend.execute(prompt, { cwd: opts.cwd, model: opts.model })
-  } catch (err) {
-    await reportError(chatId, runId, `claude spawn failed: ${String(err)}`)
-    return
-  }
 
-  // 异步消费 AgentEvent 流，推送到 wsHub
-  (async () => {
+  // Auto-retry: when the agent process exits with a non-zero code (or the
+  // stream / spawn throws), re-spawn up to 2 more times with backoff before
+  // giving up and reporting chat:error. Each retry is a fresh spawn (not a
+  // resume) — transient crashes (OOM, CLI panic, network blip to the model)
+  // often clear on a second attempt. Tokens from each attempt stream to the
+  // client live; output is reset per attempt so a failed run's partial
+  // content doesn't pollute the persisted message.
+  const MAX_ATTEMPTS = 3 // 1 initial + 2 retries
+  const BACKOFF_MS = [2000, 5000] // wait before attempt 2 / attempt 3
+  const sleep = (ms: number) => new Promise<void>((r) => setTimeout(r, ms))
+
+  // 异步消费 AgentEvent 流，推送到 wsHub（带自动重试 + backoff）
+  ;(async () => {
     let output = ''
     let result: AgentResult | null = null
-    try {
-      for await (const evt of session!.events) {
-        const text = eventToText(evt)
-        if (text) {
-          output += text
-          const payload: ChatEvent = {
-            type: 'chat:message',
-            chatId,
-            runId,
-            role: 'assistant',
-            content: text,
-            streaming: true,
+    let lastError = 'unknown error'
+    let succeeded = false
+    let finalAttempt = 0
+
+    for (let attempt = 1; attempt <= MAX_ATTEMPTS; attempt++) {
+      log.info('inline execute attempt', { chatId, runId, attempt, maxAttempts: MAX_ATTEMPTS })
+
+      // Re-spawn the process for each attempt (not a resume).
+      let session: ReturnType<typeof backend.execute> | null = null
+      try {
+        session = backend.execute(prompt, { cwd: opts.cwd, model: opts.model })
+      } catch (err) {
+        lastError = `spawn failed: ${String(err)}`
+        log.warn('inline execute spawn threw', { chatId, runId, attempt, error: lastError })
+      }
+
+      if (session) {
+        // Reset output so partial tokens from a failed attempt don't pollute
+        // the next attempt's persisted message.
+        output = ''
+        try {
+          for await (const evt of session.events) {
+            const text = eventToText(evt)
+            if (text) {
+              output += text
+              const payload: ChatEvent = {
+                type: 'chat:message',
+                chatId,
+                runId,
+                role: 'assistant',
+                content: text,
+                streaming: true,
+              }
+              wsHub.broadcastChat(chatId, payload)
+            }
           }
-          wsHub.broadcastChat(chatId, payload)
+          result = await session.result
+
+          // Success: process exited cleanly — break out of the retry loop.
+          if (result.status !== 'failed') {
+            succeeded = true
+            finalAttempt = attempt
+            break
+          }
+
+          // Non-zero exit: treat as a retryable failure.
+          lastError = `agent process exited with status '${result.status}'`
+          log.warn('inline execute non-zero exit', { chatId, runId, attempt, status: result.status })
+        } catch (err) {
+          lastError = `stream error: ${String(err)}`
+          log.warn('inline execute stream threw', { chatId, runId, attempt, error: lastError })
         }
       }
-      result = await session!.result
-    } catch (err) {
-      log.error('inline execute stream error', { chatId, runId, error: String(err) })
-      await reportError(chatId, runId, `stream error: ${String(err)}`)
+
+      // Backoff before the next attempt (if any retries remain). We surface
+      // the retry to the client via a [status] tag so the pause isn't an
+      // unexplained silence — AssistantContent renders [status] as a dim
+      // diagnostic line.
+      if (attempt < MAX_ATTEMPTS) {
+        const backoff = BACKOFF_MS[attempt - 1] ?? 5000
+        log.info('inline execute backing off before retry', {
+          chatId, runId, attempt, nextAttempt: attempt + 1, backoffMs: backoff, lastError,
+        })
+        wsHub.broadcastChat(chatId, {
+          type: 'chat:message',
+          chatId,
+          runId,
+          role: 'assistant',
+          content: `\n[status]（第 ${attempt} 次执行失败，${backoff / 1000} 秒后自动重试…）[/status]\n`,
+          streaming: true,
+        })
+        await sleep(backoff)
+      }
+    }
+
+    // All retries exhausted — report the terminal error to the client + persist.
+    if (!succeeded) {
+      await reportError(chatId, runId, `${lastError}（已自动重试 ${MAX_ATTEMPTS} 次仍失败）`)
       return
     }
 
-    // 完成：持久化 assistant 消息（含 usage/cost/duration）+ 推送 chat:done
+    // 完成：persist assistant message (with usage/cost/duration) + push chat:done
     const usage = aggregateUsage(result?.usage)
     const durationMs = result?.durationMs
     const cost = computeCost(usage, opts.model)
@@ -233,7 +295,9 @@ export async function executeInline(
     } catch (err) {
       log.error('inline execute persist failed', { chatId, runId, error: String(err) })
     }
-    log.info('inline execute done', { chatId, runId, status: result?.status, outputLen: output.length, usage, durationMs, cost })
+    log.info('inline execute done', {
+      chatId, runId, attempts: finalAttempt, status: result?.status, outputLen: output.length, usage, durationMs, cost,
+    })
   })().catch((err) => {
     log.error('inline execute async loop crashed', { chatId, runId, error: String(err) })
   })

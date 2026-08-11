@@ -10,6 +10,10 @@ const nextConfig = {
   // build step.
   transpilePackages: ['@dagents/shared', '@dagents/contracts', '@dagents/agentflow'],
   reactStrictMode: true,
+  // Standalone build: bundles a self-contained server.js + only the node_modules
+  // it traces, under .next/standalone. Required for the Docker image, which
+  // copies that server (not the full node_modules) into the runtime stage.
+  output: 'standalone',
   // The repo is a pnpm workspace with its own lockfile; the host home dir
   // also has a pnpm-lock.yaml, which makes Next infer the wrong workspace
   // root (and trace the whole home dir). Pin tracing to the monorepo root so

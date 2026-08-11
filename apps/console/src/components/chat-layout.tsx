@@ -15,8 +15,10 @@ import { useState, useCallback, useEffect, useMemo, useRef } from 'react'
 import { usePathname } from 'next/navigation'
 import { ChatNavSidebar } from '@/components/chat-nav-sidebar'
 import { CommandPalette } from '@/components/command-palette'
+import { KeyboardShortcuts } from '@/components/keyboard-shortcuts'
 import { FloatingChat } from '@/components/floating-chat'
 import { Icon } from '@/components/icon'
+import { ExecutionStatusIndicator } from '@/components/execution-status'
 import { crumbsFor } from '@/components/nav'
 import '@/styles/chat-layout.css'
 
@@ -106,6 +108,7 @@ export function ChatLayout({ children }: { children: React.ReactNode }) {
             {title ? <h1 className="chat-layout-navbar-title">{title}</h1> : null}
           </div>
           <div className="chat-layout-navbar-right">
+            <ExecutionStatusIndicator />
             <button
               type="button"
               className="chat-layout-search"
@@ -127,6 +130,7 @@ export function ChatLayout({ children }: { children: React.ReactNode }) {
           /chats/[id] (the full-page chat owns the conversation there). */}
       <FloatingChat />
       <CommandPalette open={paletteOpen} onClose={() => setPaletteOpen(false)} />
+      <KeyboardShortcuts />
     </div>
   )
 }

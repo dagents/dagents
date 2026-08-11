@@ -1,37 +1,37 @@
 'use client'
 
 /**
- * Agent selector dropdown for the chat composer (Task 6).
+ * Agent selector dropdown for the chat composer.
  *
- * Renders a pill button + popover list of agents fetched from the catalogue.
- * "auto" (null) means "let the chat pick the agent".
+ * Renders a pill button + popover list combining:
+ *   1. DB agents (from agent_daemons via fetchAgents)
+ *   2. Installed CLI runtimes not yet created as agents (from /api/cli-runtimes)
  *
- * Uses the shared `fetchAgents()` from `@/lib/agents-catalog` rather than raw
- * `fetch('/api/agents')`: the dispatch envelope is
- * `{ success, data: { agents, truncated } }` (snake_case rows), and
- * `fetchAgents()` already unwraps + maps rows to `CatalogAgent` — reusing it
- * keeps the selector on the same wire as the Agents page and new-task picker.
+ * When the user selects an installed-but-not-created CLI, it auto-creates the
+ * agent via POST /api/agents and binds it to the chat — zero terminal steps.
+ * Uninstalled CLIs are listed but greyed out (like open-design's AgentPicker).
  *
  * Keyboard a11y (WAI-ARIA listbox pattern):
- *   - Trigger: aria-haspopup="listbox" + aria-expanded; focus stays on trigger.
- *   - ArrowDown/Up: moves `aria-activedescendant` through options (wraps).
- *   - Home/End: jump to first/last option.
- *   - Enter: selects the highlighted option.
- *   - Escape: closes the dropdown without changing selection.
- *   - When the catalogue comes back empty, the dropdown surfaces a
- *     "去 /agents 创建" link so the user has an actionable next step
- *     instead of a dead-end list with only "auto".
+ *   ArrowDown/Up: move through options (wraps). Enter: select. Escape: close.
  */
 
 import { useEffect, useId, useRef, useState } from 'react'
 import Link from 'next/link'
 import { Icon } from '@/components/icon'
-import { fetchAgents } from '@/lib/agents-catalog'
+import { fetchAgents, AGENT_KINDS } from '@/lib/agents-catalog'
 import '@/styles/agent-selector.css'
 
 export interface AgentOption {
   id: string
   name: string
+}
+
+/** A CLI runtime detected on the host machine. */
+interface CliRuntime {
+  kind: string
+  binary: string
+  available: boolean
+  path: string | null
 }
 
 interface AgentSelectorProps {
@@ -47,16 +47,16 @@ export function AgentSelector({ value, onChange, disabled }: AgentSelectorProps)
   const [agents, setAgents] = useState<AgentOption[]>([])
   const [loaded, setLoaded] = useState(false)
   const [open, setOpen] = useState(false)
-  /** Highlighted option index in the dropdown. -1 = none highlighted.
-   *  Index 0 is always "auto"; indices 1..N are the fetched agents.
-   *  When the list is empty (loaded && agents.length === 0), the only
-   *  selectable option is "auto" at index 0, followed by the create-link
-   *  row which is not a selectable option (it navigates instead). */
+  /** CLI runtimes detected by the gateway (always fetched, regardless of agents.length). */
+  const [runtimes, setRuntimes] = useState<CliRuntime[]>([])
+  const [creating, setCreating] = useState<string | null>(null)
+  const [createError, setCreateError] = useState<string | null>(null)
   const [highlighted, setHighlighted] = useState(-1)
   const ref = useRef<HTMLDivElement>(null)
   const triggerRef = useRef<HTMLButtonElement>(null)
   const listboxId = useId()
 
+  // Fetch DB agents
   useEffect(() => {
     let cancelled = false
     void (async () => {
@@ -74,6 +74,69 @@ export function AgentSelector({ value, onChange, disabled }: AgentSelectorProps)
     return () => { cancelled = true }
   }, [])
 
+  // Always fetch CLI runtimes so we can show installed-but-not-created CLIs
+  useEffect(() => {
+    let cancelled = false
+    void (async () => {
+      try {
+        const resp = await fetch('/api/cli-runtimes')
+        const json = await resp.json()
+        if (!cancelled && json.success) {
+          setRuntimes(json.data.runtimes as CliRuntime[])
+        }
+      } catch {
+        // silent — runtimes stay []
+      }
+    })()
+    return () => { cancelled = true }
+  }, [])
+
+  /** Set of agent kinds already created in the DB (so we don't duplicate). */
+  const dbKinds = new Set(
+    agents.map((a) => {
+      // AgentOption only has id+name; we can't get kind directly.
+      // But we match runtimes by checking if any agent name contains the CLI label.
+      // This is a best-effort dedup; the real dedup happens server-side on create.
+      return a.name
+    }),
+  )
+
+  /** All installed CLIs (available=true), for display in the dropdown. */
+  const installedCLIs = runtimes.filter((r) => r.available)
+
+  // Quick-create an agent from an installed CLI, then select it
+  async function quickCreateAgent(kind: string, label: string, binary: string): Promise<void> {
+    setCreating(kind)
+    setCreateError(null)
+    try {
+      const resp = await fetch('/api/agents', {
+        method: 'POST',
+        headers: { 'content-type': 'application/json' },
+        body: JSON.stringify({
+          name: `${label} 助手`,
+          kind,
+          executable_path: binary,
+          executablePath: binary,
+          summary: `${label} CLI agent`,
+          visibility: 'workspace',
+        }),
+      })
+      const json = await resp.json()
+      if (!resp.ok && !json.success && !json.id) {
+        throw new Error(json.error ?? json.detail ?? `HTTP ${resp.status}`)
+      }
+      // Refresh agent list
+      const { agents: rows } = await fetchAgents()
+      setAgents(rows.map((a) => ({ id: a.id, name: a.name })))
+      const newAgent = rows[rows.length - 1]
+      if (newAgent) onChange(newAgent.id)
+    } catch (err) {
+      setCreateError(err instanceof Error ? err.message : String(err))
+    } finally {
+      setCreating(null)
+    }
+  }
+
   useEffect(() => {
     if (!open) return
     const handler = (e: MouseEvent) => {
@@ -85,9 +148,6 @@ export function AgentSelector({ value, onChange, disabled }: AgentSelectorProps)
     return () => document.removeEventListener('mousedown', handler)
   }, [open])
 
-  // When the dropdown opens, highlight the currently selected option so the
-  // user's first ArrowDown/Enter lands on a familiar row. When it closes,
-  // return focus to the trigger so the keyboard user doesn't get stranded.
   useEffect(() => {
     if (!open) {
       setHighlighted(-1)
@@ -95,31 +155,54 @@ export function AgentSelector({ value, onChange, disabled }: AgentSelectorProps)
     }
     const selectedIndex = value === null ? 0 : agents.findIndex((a) => a.id === value) + 1
     setHighlighted(selectedIndex >= 0 ? selectedIndex : 0)
-    // Move focus to the trigger so keydown events land on the combobox.
-    // The trigger keeps DOM focus; arrow keys move aria-activedescendant.
     triggerRef.current?.focus()
   }, [open, value, agents])
 
   const selected = agents.find((a) => a.id === value)
   const label = value ? (selected?.name ?? value.slice(0, 8)) : 'auto'
 
-  // Total selectable options: 1 (auto) + N (agents). The empty-state
-  // create-link is NOT a selectable option — it's a navigation link.
-  const optionCount = 1 + agents.length
+  /**
+   * Build the flat list of selectable options for keyboard navigation:
+   *   [0] = auto
+   *   [1..N] = DB agents
+   *   [N+1..M] = installed CLIs (not yet created)
+   *
+   * Uninstalled CLIs are shown but NOT in the keyboard nav (greyed out = display only).
+   */
+  const installedNotInDb = installedCLIs.filter((r) => {
+    const meta = AGENT_KINDS.find((k) => k.kind === r.kind)
+    const lbl = meta?.label ?? r.kind
+    return !dbKinds.has(`${lbl} 助手`)
+  })
+
+  // Total keyboard-navigable options: 1 (auto) + agents.length + installedNotInDb.length
+  const optionCount = 1 + agents.length + installedNotInDb.length
 
   function selectIndex(idx: number): void {
     if (idx < 0 || idx >= optionCount) return
     if (idx === 0) {
       onChange(null)
-    } else {
-      onChange(agents[idx - 1].id)
+      setOpen(false)
+      return
     }
-    setOpen(false)
+    const agentIdx = idx - 1
+    if (agentIdx < agents.length) {
+      onChange(agents[agentIdx].id)
+      setOpen(false)
+      return
+    }
+    // It's an installed CLI — lazy-create
+    const cliIdx = agentIdx - agents.length
+    const cli = installedNotInDb[cliIdx]
+    if (cli) {
+      const meta = AGENT_KINDS.find((k) => k.kind === cli.kind)
+      const lbl = meta?.label ?? cli.kind
+      void quickCreateAgent(cli.kind, lbl, cli.binary)
+    }
   }
 
   function onKeyDown(e: React.KeyboardEvent<HTMLButtonElement>): void {
     if (!open) {
-      // When closed, ArrowDown/Up/Enter opens the dropdown.
       if (e.key === 'ArrowDown' || e.key === 'ArrowUp' || e.key === 'Enter' || e.key === ' ') {
         e.preventDefault()
         setOpen(true)
@@ -152,7 +235,6 @@ export function AgentSelector({ value, onChange, disabled }: AgentSelectorProps)
         setOpen(false)
         break
       case 'Tab':
-        // Let Tab close the dropdown naturally (focus moves to next element).
         setOpen(false)
         break
     }
@@ -185,6 +267,7 @@ export function AgentSelector({ value, onChange, disabled }: AgentSelectorProps)
           className="agent-selector-dropdown"
           aria-activedescendant={highlighted >= 0 ? `${listboxId}-opt-${highlighted}` : undefined}
         >
+          {/* Auto option */}
           <button
             id={`${listboxId}-opt-0`}
             type="button"
@@ -198,6 +281,8 @@ export function AgentSelector({ value, onChange, disabled }: AgentSelectorProps)
             <span>auto</span>
             <span className="agent-selector-option-hint">让 chat 自动选择</span>
           </button>
+
+          {/* DB agents */}
           {agents.map((a, i) => {
             const idx = i + 1
             return (
@@ -216,7 +301,64 @@ export function AgentSelector({ value, onChange, disabled }: AgentSelectorProps)
               </button>
             )
           })}
-          {showEmptyCreate ? (
+
+          {/* Installed CLIs not yet created as agents */}
+          {installedNotInDb.length > 0 && (
+            <div className="agent-selector-section-label">
+              <Icon name="terminal" style={{ width: 12, height: 12 }} />
+              <span>已安装的 CLI · 选中即自动创建</span>
+            </div>
+          )}
+          {createError && (
+            <div className="agent-selector-error">⚠️ {createError}</div>
+          )}
+          {installedNotInDb.map((cli, i) => {
+            const idx = 1 + agents.length + i
+            const meta = AGENT_KINDS.find((k) => k.kind === cli.kind)
+            const lbl = meta?.label ?? cli.kind
+            const glyph = meta?.glyph ?? cli.kind.slice(0, 2).toUpperCase()
+            return (
+              <button
+                key={cli.kind}
+                id={`${listboxId}-opt-${idx}`}
+                type="button"
+                role="option"
+                aria-selected={false}
+                className={`agent-selector-option${highlighted === idx ? ' highlighted' : ''}`}
+                onClick={() => void quickCreateAgent(cli.kind, lbl, cli.binary)}
+                onMouseEnter={() => setHighlighted(idx)}
+              >
+                <span className="agent-selector-glyph">{glyph}</span>
+                <span>{lbl}</span>
+                <span className="agent-selector-option-hint">
+                  {creating === cli.kind ? '创建中…' : '点击创建'}
+                </span>
+              </button>
+            )
+          })}
+
+          {/* Uninstalled CLIs — greyed out, display only */}
+          {runtimes.filter((r) => !r.available).length > 0 && (
+            <div className="agent-selector-section-label">
+              <Icon name="terminal" style={{ width: 12, height: 12 }} />
+              <span>未安装</span>
+            </div>
+          )}
+          {runtimes.filter((r) => !r.available).map((cli) => {
+            const meta = AGENT_KINDS.find((k) => k.kind === cli.kind)
+            const lbl = meta?.label ?? cli.kind
+            const glyph = meta?.glyph ?? cli.kind.slice(0, 2).toUpperCase()
+            return (
+              <div key={cli.kind} className="agent-selector-option unavailable">
+                <span className="agent-selector-glyph dim">{glyph}</span>
+                <span>{lbl}</span>
+                <span className="agent-selector-option-hint">未安装</span>
+              </div>
+            )
+          })}
+
+          {/* Fallback: no agents + no runtimes detected at all */}
+          {showEmptyCreate && installedCLIs.length === 0 && (
             <Link
               href="/agents"
               className="agent-selector-create-link"
@@ -225,7 +367,7 @@ export function AgentSelector({ value, onChange, disabled }: AgentSelectorProps)
               <Icon name="plus" style={{ width: 12, height: 12 }} />
               <span>还没有 Agent · 去创建</span>
             </Link>
-          ) : null}
+          )}
         </div>
       )}
     </div>

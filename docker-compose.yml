@@ -1,0 +1,112 @@
+# Dagents full-stack deployment.
+#
+#   docker compose up                 # postgres + dagents (+ langfuse opt-in)
+#   docker compose --profile obs up   # …with Langfuse
+#
+# This extends the infra/ stack into a single `docker compose up` that brings
+# the whole platform up. Ports are bound to 127.0.0.1 so nothing is exposed
+# beyond the host — expose via a reverse proxy in real deployments.
+#
+# The `postgres` + `langfuse` service blocks mirror infra/docker-compose.yml
+# (kept in sync rather than `include:`-d so the root file is self-contained on
+# older compose versions that predate `include:` support — v2.20+, June 2023).
+
+name: dagents
+
+services:
+  # ──────────────────────────────────────────────────────────────────────────
+  # Postgres 16 — shared by dagents + langfuse.
+  # ──────────────────────────────────────────────────────────────────────────
+  postgres:
+    image: postgres:16-alpine
+    environment:
+      POSTGRES_DB: ${POSTGRES_DB:-dagents}
+      POSTGRES_USER: ${POSTGRES_USER:-dagents}
+      POSTGRES_PASSWORD: ${POSTGRES_PASSWORD:-dagents_dev}
+    ports:
+      - "127.0.0.1:${POSTGRES_HOST_PORT:-15432}:5432"
+    volumes:
+      - pgdata:/var/lib/postgresql/data
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U ${POSTGRES_USER:-dagents}"]
+      interval: 5s
+      timeout: 5s
+      retries: 10
+    restart: unless-stopped
+
+  # One-shot init that creates the langfuse + dagents databases (idempotent).
+  postgres-init:
+    image: postgres:16-alpine
+    environment:
+      PGUSER: ${POSTGRES_USER:-dagents}
+      PGPASSWORD: ${POSTGRES_PASSWORD:-dagents_dev}
+    entrypoint: ["/bin/sh", "-c"]
+    # `$$` escapes the `$` for compose so the shell sees a real loop variable.
+    command:
+      - "set -e; for db in langfuse dagents; do echo \"creating db $$db\"; createdb -h postgres -U \"$$PGUSER\" \"$$db\" || echo \"db $$db already exists, skip\"; done; echo init-done"
+    depends_on:
+      postgres:
+        condition: service_healthy
+    restart: "no"
+
+  # ──────────────────────────────────────────────────────────────────────────
+  # dagents — gateway (Hono :8080) + console (Next.js :3000) in one image.
+  # The Dockerfile builds the whole monorepo; docker-entrypoint.sh waits for
+  # postgres, runs migrations, then starts both apps.
+  # ──────────────────────────────────────────────────────────────────────────
+  dagents:
+    build:
+      context: .
+      dockerfile: Dockerfile
+    depends_on:
+      postgres:
+        condition: service_healthy
+      postgres-init:
+        condition: service_completed_successfully
+    ports:
+      - "127.0.0.1:3000:3000"   # console
+      - "127.0.0.1:8080:8080"   # gateway
+    # `.env` carries POSTGRES_URL, GATEWAY_API_KEY, SSO_*, etc. The environment
+    # block below rewrites POSTGRES_URL so the container dials the `postgres`
+    # service (not the host:15432 default in .env.example).
+    env_file:
+      - path: .env
+        required: false
+    environment:
+      POSTGRES_URL: postgresql://${POSTGRES_USER:-dagents}:${POSTGRES_PASSWORD:-dagents_dev}@postgres:5432/${POSTGRES_DB:-dagents}
+      # Gateway binds 0.0.0.0 inside the container (also set as an ENV in the
+      # Dockerfile); repeated here so it's visible in `docker compose config`.
+      GATEWAY_HOST: 0.0.0.0
+    restart: unless-stopped
+
+  # ──────────────────────────────────────────────────────────────────────────
+  # Langfuse v2 (optional) — trace/observability UI.
+  # Enabled with: docker compose --profile obs up
+  # ──────────────────────────────────────────────────────────────────────────
+  langfuse:
+    image: langfuse/langfuse:2.95.11
+    profiles: ["obs"]
+    ports:
+      - "127.0.0.1:${LANGFUSE_HOST_PORT:-3001}:3000"
+    environment:
+      DATABASE_URL: postgresql://${POSTGRES_USER:-dagents}:${POSTGRES_PASSWORD:-dagents_dev}@postgres:5432/langfuse?sslmode=disable
+      NEXTAUTH_SECRET: ${LANGFUSE_NEXTAUTH_SECRET:-langfuse_dev_secret_change_me}
+      SALT: ${LANGFUSE_SALT:-langfuse_dev_salt_change_me}
+      NEXTAUTH_URL: http://localhost:${LANGFUSE_HOST_PORT:-3001}
+      TZ: Asia/Shanghai
+    depends_on:
+      postgres:
+        condition: service_healthy
+      postgres-init:
+        condition: service_completed_successfully
+    healthcheck:
+      # Langfuse binds to the container hostname, not 127.0.0.1, so probe $HOSTNAME.
+      test: ["CMD-SHELL", "wget -qO- http://$$HOSTNAME:3000/api/public/health >/dev/null 2>&1 || exit 1"]
+      interval: 5s
+      timeout: 5s
+      retries: 30
+      start_period: 40s
+    restart: unless-stopped
+
+volumes:
+  pgdata:

@@ -90,6 +90,9 @@ const DETAIL_TASK_LIMIT = 50
 /** Cap on log lines returned for the activity tab's log stream. */
 const LOG_LIMIT = 200
 
+/** Default workspace for local-dev / no-SSO mode (inline-executor path). */
+const DEFAULT_WORKSPACE_ID = '00000000-0000-4000-8000-000000000001'
+
 /**
  * snake_case row shape from pg for an `agents` row joined to its owner member.
  *
@@ -270,6 +273,12 @@ function toAgentDto(row: AgentRow): Record<string, unknown> {
   const daemon = row.ad_id ? row.ad_daemon_id ?? row.daemon_id ?? null : row.daemon_id ?? null
 
   // design camelCase fields (M9.1 acceptance set) — unchanged.
+  // For inline-executor agents (agent_daemons row with executable_path but
+  // no daemon_id), override availability to 'online' — the gateway can
+  // spawn the CLI directly, no daemon process needed.
+  const isInlineReady = !!(row.ad_id && row.executable_path && !row.ad_daemon_id)
+  const availability = isInlineReady ? 'online' : row.availability
+
   const dto: Record<string, unknown> = {
     id: row.id,
     name: row.name,
@@ -284,7 +293,7 @@ function toAgentDto(row: AgentRow): Record<string, unknown> {
     owner: row.owner_display ?? row.owner_id,
     activity,
     status: row.status,
-    availability: row.availability,
+    availability,
     summary: row.summary,
     // run-context (joined from dispatch tables; null/0 when no daemon bound).
     region: row.ad_id ? deriveRegion(row.daemon_capabilities) : null,
@@ -307,8 +316,9 @@ function toAgentDto(row: AgentRow): Record<string, unknown> {
   // (snake_case, matching the legacy dispatch shape). Emitted only when the
   // agent has an agent_daemons row so editor-only agents surface nulls rather
   // than fabricated dispatch data.
-  dto.daemon_label = row.daemon_label ?? null
-  dto.daemon_status = row.daemon_status ?? null
+  dto.daemon_label = row.daemon_label ?? (isInlineReady ? 'inline' : null)
+  // Inline-executor agents are always 'online' (gateway spawns directly).
+  dto.daemon_status = row.daemon_status ?? (isInlineReady ? 'online' : null)
   dto.last_heartbeat_at = toIso(row.last_heartbeat_at)
   dto.daemon_capabilities = row.daemon_capabilities ?? null
   dto.task_id = row.task_id ?? null
@@ -696,9 +706,16 @@ function eventToLogLine(row: { kind: string; seq: number; payload: unknown; crea
  */
 const createAgentSchema = z.object({
   name: z.string().min(1).max(128),
-  kind: z.string().min(1).max(64),
-  workspaceId: z.string().uuid(),
-  ownerId: z.string().min(1).max(128),
+  // Keep in sync with AgentType (packages/contracts/src/agent.ts)
+  // plus 'prompt' and 'remote' for legacy/internal use.
+  kind: z.enum([
+    'prompt', 'claude', 'codex', 'copilot', 'opencode', 'openclaw',
+    'hermes', 'gemini', 'pi', 'cursor', 'kimi', 'kiro',
+    'antigravity', 'codebuddy', 'qoder', 'qwen',
+    'deveco', 'grok', 'traecli', 'remote',
+  ]),
+  workspaceId: z.string().uuid().optional().default(DEFAULT_WORKSPACE_ID),
+  ownerId: z.string().min(1).max(128).optional().default('local'),
   daemonId: z.string().uuid().optional().nullable(),
   instructions: z.string().max(8000).optional().default(''),
   skills: z.array(z.string()).optional().default([]),
@@ -781,7 +798,14 @@ agentsRoutes.post('/', async (c) => {
   // runtime read path (agent_daemons join) lights up immediately. Best-effort
   // — a failure here does not undo the editor row; the agent is still usable
   // for flow orchestration (Platform Agent node reads the agents table).
-  if (parsed.daemonId) {
+  //
+  // Two paths create the bridge row:
+  //   1. daemonId supplied → full registration (daemon-managed agent)
+  //   2. executablePath supplied, no daemonId → inline-executor agent
+  //      (gateway spawns the CLI directly, no daemon process needed).
+  //      We create the agent_daemons row WITHOUT a daemon_id so the
+  //      inline-executor can find the agent by id + read executable_path.
+  if (parsed.daemonId || parsed.executablePath) {
     try {
       const capabilityDescriptor = {
         name: parsed.name,
@@ -798,7 +822,7 @@ agentsRoutes.post('/', async (c) => {
           id,
           parsed.name,
           parsed.kind,
-          parsed.daemonId,
+          parsed.daemonId ?? null,
           JSON.stringify(capabilityDescriptor),
           parsed.executablePath ?? null,
           parsed.visibility,
@@ -808,6 +832,23 @@ agentsRoutes.post('/', async (c) => {
     } catch (err) {
       log.warn('agent create: agent_daemons bridge insert failed', { id, error: String(err) })
     }
+  }
+
+  // For inline-executor agents (no daemonId but has executablePath), mark
+  // availability as 'online' since the gateway can spawn the CLI directly —
+  // no daemon process needed.  Without this, the agent shows as 'offline'
+  // even though it is immediately usable via inline execution.
+  const finalAvailability = (!parsed.daemonId && parsed.executablePath)
+    ? 'online'
+    : parsed.availability
+
+  try {
+    await runQuery(
+      `UPDATE agents SET availability = $1 WHERE id = $2`,
+      [finalAvailability, id],
+    )
+  } catch {
+    // best-effort — the default in the INSERT already covers the offline case
   }
 
   log.info('agent created', { id, daemonId: parsed.daemonId ?? null })
