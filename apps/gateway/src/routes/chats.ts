@@ -27,7 +27,8 @@ const fail = (
 const UUID_RE = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i
 
 const listQuerySchema = z.object({
-  directory_id: z.string().uuid(),
+  directory_id: z.string().uuid().optional(),
+  q: z.string().min(1).max(200).optional(),
   limit: z.coerce.number().int().min(1).max(200).default(50),
 })
 
@@ -134,17 +135,46 @@ chatRoutes.get('/', async (c) => {
 
   let rows: ChatRow[]
   try {
-    const { records } = await runQuery<ChatRow>(
-      `SELECT id, directory_id, title, status, agent_id, flow_id,
-              last_message, message_count, last_run_id,
-              created_at, updated_at
-         FROM chats
-         WHERE directory_id = $1::uuid
-         ORDER BY updated_at DESC
-         LIMIT $2`,
-      [q.directory_id, q.limit],
-    )
-    rows = records
+    if (q.directory_id) {
+      // Scope to a specific directory
+      const { records } = await runQuery<ChatRow>(
+        `SELECT id, directory_id, title, status, agent_id, flow_id,
+                last_message, message_count, last_run_id,
+                created_at, updated_at
+           FROM chats
+           WHERE directory_id = $1::uuid
+           ORDER BY updated_at DESC
+           LIMIT $2`,
+        [q.directory_id, q.limit],
+      )
+      rows = records
+    } else {
+      // No directory filter — list all chats (optionally filtered by q)
+      if (q.q) {
+        const { records } = await runQuery<ChatRow>(
+          `SELECT id, directory_id, title, status, agent_id, flow_id,
+                  last_message, message_count, last_run_id,
+                  created_at, updated_at
+             FROM chats
+             WHERE title ILIKE '%' || $1 || '%'
+             ORDER BY updated_at DESC
+             LIMIT $2`,
+          [q.q, q.limit],
+        )
+        rows = records
+      } else {
+        const { records } = await runQuery<ChatRow>(
+          `SELECT id, directory_id, title, status, agent_id, flow_id,
+                  last_message, message_count, last_run_id,
+                  created_at, updated_at
+             FROM chats
+             ORDER BY updated_at DESC
+             LIMIT $1`,
+          [q.limit],
+        )
+        rows = records
+      }
+    }
   } catch (err) {
     log.error('chat list query failed', { error: String(err) })
     return fail(c, 502, 'chat list failed')
