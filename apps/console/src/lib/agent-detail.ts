@@ -152,6 +152,15 @@ export function availabilityToDaemonStatus(av: AgentAvailability): string {
   return 'offline'
 }
 
+const VALID_AVAILABILITIES: ReadonlySet<string> = new Set(['online', 'unstable', 'offline'])
+
+/** Type guard: is the value a valid `AgentAvailability`? Used by
+ *  {@link derivePageModel} to check the gateway DTO's top-level `availability`
+ *  before trusting it over the daemon-derived value. */
+function isValidAvailability(v: unknown): v is AgentAvailability {
+  return typeof v === 'string' && VALID_AVAILABILITIES.has(v)
+}
+
 /**
  * Derive 30 daily activity buckets from the task history, oldest→newest
  * (bucket 0 = 29 days ago, bucket 29 = today). Each task is dropped into the
@@ -248,7 +257,12 @@ export function derivePageModel(
   nowMs: number,
 ): AgentDetailPageModel {
   const { agent } = detail
-  const availability = deriveAvailability(agent.daemonStatus)
+  // Gateway DTO top-level `availability` is authoritative for inline-executor
+  // agents (set to `online` without a daemon). Fall back to deriving from
+  // daemonStatus for legacy/dispatch-shaped rows that lack the field.
+  const availability: AgentAvailability = isValidAvailability(agent.availability)
+    ? agent.availability
+    : deriveAvailability(agent.daemonStatus)
   const visibility: 'workspace' | 'public' = agent.visibility
     ? (VISIBILITY_LABEL[agent.visibility] ?? 'workspace')
     : 'workspace'

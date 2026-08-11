@@ -172,6 +172,10 @@ export interface CatalogAgent {
   skills?: string[]
   inputSchema?: string
   outputSchema?: string
+  /** Gateway DTO top-level availability — takes priority over daemonStatus
+   *  in the detail page's presence pill. Inline-executor agents have this
+   *  set to `online` without a daemon heartbeat. */
+  availability?: string
 }
 
 /** Capability descriptor shape (agent_daemons.capability_descriptor JSONB). */
@@ -261,6 +265,11 @@ interface AgentListRow {
   skills?: string[]
   inputSchema?: string
   outputSchema?: string
+  /** Gateway DTO top-level availability (`online`/`unstable`/`offline`).
+   *  Set by the gateway for inline-executor agents whose presence is known
+   *  without a daemon heartbeat. Takes priority over daemonStatus-derived
+   *  availability in the detail page. */
+  availability?: string
 }
 
 interface AgentDetailRow {
@@ -461,6 +470,7 @@ export function mapRowToCatalogAgent(row: AgentListRow): CatalogAgent {
       : undefined,
     inputSchema: row.inputSchema,
     outputSchema: row.outputSchema,
+    availability: row.availability,
   }
 }
 
