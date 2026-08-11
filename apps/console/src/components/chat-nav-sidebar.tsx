@@ -19,7 +19,7 @@ import { Icon } from '@/components/icon'
 import { NAV } from '@/components/nav'
 import { useSession } from '@/lib/auth-client'
 import { fetchDirectories, pickDirectory, createDirectory, type Directory } from '@/lib/directories'
-import { fetchChats, createChat, type Chat } from '@/lib/chats'
+import { fetchChats, createChat, updateChat, deleteChat, type Chat } from '@/lib/chats'
 import { ThemeToggle } from '@/components/theme-toggle'
 import { ChatSearchDropdown, type ChatSearchDropdownHandle } from '@/components/chat-search-dropdown'
 import '@/styles/chat-nav-sidebar.css'
@@ -174,6 +174,58 @@ export function ChatNavSidebar({ collapsed }: ChatNavSidebarProps): React.ReactE
   const handleNewChat = useCallback(() => {
     router.push('/')
   }, [router])
+
+  // ─── chat rename / delete ──────────────────────────────────────────
+  const [renamingId, setRenamingId] = useState<string | null>(null)
+  const [renameValue, setRenameValue] = useState('')
+  const [deletingId, setDeletingId] = useState<string | null>(null)
+
+  const startRename = useCallback((chat: Chat) => {
+    setRenamingId(chat.id)
+    setRenameValue(chat.title)
+  }, [])
+
+  const confirmRename = useCallback(async (chatId: string) => {
+    const title = renameValue.trim()
+    if (!title) {
+      setRenamingId(null)
+      return
+    }
+    try {
+      await updateChat(chatId, { title })
+      // Update local state
+      setChatsByDir((prev) => {
+        const next: Record<string, Chat[]> = {}
+        for (const [dirId, chats] of Object.entries(prev)) {
+          next[dirId] = chats.map((c) => (c.id === chatId ? { ...c, title } : c))
+        }
+        return next
+      })
+    } catch {
+      // silent — keeps old title
+    }
+    setRenamingId(null)
+  }, [renameValue])
+
+  const confirmDelete = useCallback(async (chatId: string) => {
+    try {
+      await deleteChat(chatId)
+      setChatsByDir((prev) => {
+        const next: Record<string, Chat[]> = {}
+        for (const [dirId, chats] of Object.entries(prev)) {
+          next[dirId] = chats.filter((c) => c.id !== chatId)
+        }
+        return next
+      })
+      // If deleting the active chat, navigate to home
+      if (activeChatId === chatId) {
+        router.push('/')
+      }
+    } catch {
+      // silent — chat stays in list
+    }
+    setDeletingId(null)
+  }, [activeChatId, router])
 
   // Create a fresh chat bound to a specific directory and navigate into it.
   // Used by the ➕ icon on each directory header. The directory auto-expands
@@ -363,19 +415,66 @@ export function ChatNavSidebar({ collapsed }: ChatNavSidebarProps): React.ReactE
                 {expanded && (
                   <div className="chat-nav-dir-items">
                     {chats.map((chat) => (
-                      <Link
+                      <div
                         key={chat.id}
-                        href={`/chats/${chat.id}`}
-                        className="chat-nav-chat-item"
-                        aria-selected={activeChatId === chat.id}
-                        title={sanitizeChatTitle(chat.title, 200)}
+                        className="chat-nav-chat-item-wrapper"
                       >
-                        <span className={`chat-nav-chat-status ${chat.status}`} />
-                        <span className="chat-nav-chat-item-title">{sanitizeChatTitle(chat.title)}</span>
-                        <span className="chat-nav-chat-item-meta">
-                          <span className="chat-nav-chat-item-time">{formatRelativeTime(chat.updatedAt)}</span>
-                        </span>
-                      </Link>
+                        {renamingId === chat.id ? (
+                          // Inline rename input
+                          <input
+                            type="text"
+                            className="chat-nav-chat-rename-input"
+                            value={renameValue}
+                            onChange={(e) => setRenameValue(e.target.value)}
+                            onKeyDown={(e) => {
+                              if (e.key === 'Enter') void confirmRename(chat.id)
+                              if (e.key === 'Escape') setRenamingId(null)
+                            }}
+                            onBlur={() => void confirmRename(chat.id)}
+                            autoFocus
+                          />
+                        ) : deletingId === chat.id ? (
+                          // Delete confirmation
+                          <div className="chat-nav-chat-delete-confirm">
+                            <span>删除此对话？</span>
+                            <button type="button" className="btn btn-danger btn-sm" onClick={() => void confirmDelete(chat.id)}>删除</button>
+                            <button type="button" className="btn btn-ghost btn-sm" onClick={() => setDeletingId(null)}>取消</button>
+                          </div>
+                        ) : (
+                          <>
+                            <Link
+                              href={`/chats/${chat.id}`}
+                              className="chat-nav-chat-item"
+                              aria-selected={activeChatId === chat.id}
+                              title={sanitizeChatTitle(chat.title, 200)}
+                            >
+                              <span className={`chat-nav-chat-status ${chat.status}`} />
+                              <span className="chat-nav-chat-item-title">{sanitizeChatTitle(chat.title)}</span>
+                              <span className="chat-nav-chat-item-meta">
+                                <span className="chat-nav-chat-item-time">{formatRelativeTime(chat.updatedAt)}</span>
+                              </span>
+                            </Link>
+                            <div className="chat-nav-chat-actions">
+                              <button
+                                type="button"
+                                className="chat-nav-chat-action-btn"
+                                title="重命名"
+                                onClick={(e) => { e.preventDefault(); e.stopPropagation(); startRename(chat) }}
+                              >
+                                <Icon name="pencil" style={{ width: 12, height: 12 }} />
+                              </button>
+                              <button
+                                type="button"
+                                className="chat-nav-chat-action-btn chat-nav-chat-action-danger"
+                                title="删除"
+                                onClick={(e) => { e.preventDefault(); e.stopPropagation(); setDeletingId(chat.id) }}
+                              >
+                                <Icon name="close" style={{ width: 12, height: 12 }} />
+                              </button>
+                            </div>
+                          </>
+                        )}
+                      </div>
                     ))}
                   </div>
                 )}

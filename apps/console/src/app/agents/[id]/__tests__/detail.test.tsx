@@ -30,7 +30,7 @@
  * it.) The 404 stub drives the not-found path (`fetchAgentDetail` throws
  * `agent detail failed (404)…` → the view's not-found card).
  */
-import { describe, it, expect, beforeEach, afterEach } from 'vitest'
+import { describe, it, expect, beforeEach, afterEach, vi } from 'vitest'
 import { render, screen, within } from '@testing-library/react'
 import userEvent from '@testing-library/user-event'
 import {
@@ -45,6 +45,11 @@ import {
 } from '@/components/agent-activity-sparkline'
 import { AgentDetailView } from '@/components/agent-detail-view'
 import type { AgentDetail, AgentLogLine } from '@/lib/agents-catalog'
+
+// Mock next/navigation useRouter (used by AgentDetailView for delete redirect)
+vi.mock('next/navigation', () => ({
+  useRouter: () => ({ push: () => {}, replace: () => {}, back: () => {} }),
+}))
 
 // A fixed "now" so the 30-day bucket window is deterministic. 2026-07-14 is
 // the issue's active date; tasks land on today / 1d / 5d / 35d-ago to hit the

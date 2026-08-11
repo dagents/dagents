@@ -41,6 +41,7 @@
 
 import { useEffect, useMemo, useRef, useState } from 'react'
 import Link from 'next/link'
+import { useRouter } from 'next/navigation'
 import {
   type AgentLogLine,
   fetchAgentDetail,
@@ -58,6 +59,7 @@ import {
 import { AgentActivitySparkline } from '@/components/agent-activity-sparkline'
 import { useWsFrame } from '@/lib/ws-client'
 import { kindLabel, kindGlyph } from '@/lib/agents-catalog'
+import { Icon } from '@/components/icon'
 import '@/styles/agent-detail.css'
 
 type TabKey = 'activity' | 'instructions' | 'skills' | 'logs'
@@ -90,6 +92,8 @@ export function AgentDetailView({ id, nowMs }: AgentDetailViewProps): React.Reac
   const [notFound, setNotFound] = useState(false)
   const [error, setError] = useState<string | null>(null)
   const [activeTab, setActiveTab] = useState<TabKey>('activity')
+  const [showDeleteConfirm, setShowDeleteConfirm] = useState(false)
+  const router = useRouter()
 
   useEffect(() => {
     let cancelled = false
@@ -233,7 +237,12 @@ export function AgentDetailView({ id, nowMs }: AgentDetailViewProps): React.Reac
           </div>
         ) : model ? (
           <>
-            <Inspector model={model} />
+            <Inspector
+              model={model}
+              onEdit={() => { /* TODO: edit mode */ }}
+              onArchive={() => { /* TODO: archive via PATCH */ }}
+              onDelete={() => setShowDeleteConfirm(true)}
+            />
             <Overview
               model={model}
               activeTab={activeTab}
@@ -248,6 +257,32 @@ export function AgentDetailView({ id, nowMs }: AgentDetailViewProps): React.Reac
                   })
               }}
             />
+            {showDeleteConfirm && (
+              <div className="agent-delete-overlay" onClick={() => setShowDeleteConfirm(false)}>
+                <div className="agent-delete-dialog" onClick={(e) => e.stopPropagation()}>
+                  <div className="agent-delete-title">删除 Agent</div>
+                  <div className="agent-delete-desc">
+                    确定要删除「{model.name}」吗？此操作不可撤销。
+                  </div>
+                  <div className="agent-delete-actions">
+                    <button type="button" className="btn btn-ghost btn-sm" onClick={() => setShowDeleteConfirm(false)}>取消</button>
+                    <button
+                      type="button"
+                      className="btn btn-danger btn-sm"
+                      onClick={async () => {
+                        try {
+                          const resp = await fetch(`/api/agents/${encodeURIComponent(id)}`, { method: 'DELETE' })
+                          if (resp.ok) router.push('/agents')
+                        } catch { /* silent */ }
+                        setShowDeleteConfirm(false)
+                      }}
+                    >
+                      确认删除
+                    </button>
+                  </div>
+                </div>
+              </div>
+            )}
           </>
         ) : null}
       </div>
@@ -303,9 +338,12 @@ function NotFound({ id }: { id: string }): React.ReactElement {
 
 interface InspectorProps {
   model: AgentDetailPageModel
+  onEdit?: () => void
+  onArchive?: () => void
+  onDelete?: () => void
 }
 
-function Inspector({ model }: InspectorProps): React.ReactElement {
+function Inspector({ model, onEdit, onArchive, onDelete }: InspectorProps): React.ReactElement {
   return (
     <aside className="inspector" id="inspector" data-od-id="inspector">
       <div className="ins-head">
@@ -323,6 +361,29 @@ function Inspector({ model }: InspectorProps): React.ReactElement {
           </div>
         </div>
       </div>
+      {/* Action buttons */}
+      {(onEdit || onArchive || onDelete) && (
+        <div className="ins-actions">
+          {onEdit && (
+            <button type="button" className="btn btn-ghost btn-sm" onClick={onEdit}>
+              <Icon name="pencil" style={{ width: 12, height: 12 }} />
+              <span>编辑</span>
+            </button>
+          )}
+          {onArchive && (
+            <button type="button" className="btn btn-ghost btn-sm" onClick={onArchive}>
+              <Icon name="folder" style={{ width: 12, height: 12 }} />
+              <span>归档</span>
+            </button>
+          )}
+          {onDelete && (
+            <button type="button" className="btn btn-ghost btn-sm ins-action-danger" onClick={onDelete}>
+              <Icon name="close" style={{ width: 12, height: 12 }} />
+              <span>删除</span>
+            </button>
+          )}
+        </div>
+      )}
       <div>
         <div className="ins-section-label">属性</div>
         <PropRow label="Agent ID" mono value={model.id} />

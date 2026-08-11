@@ -23,6 +23,11 @@ import { AgentDetailView } from '@/components/agent-detail-view'
 import { __testing as wsTesting } from '@/lib/ws-client'
 import type { AgentLogLine } from '@/lib/agents-catalog'
 
+// Mock next/navigation useRouter (used by AgentDetailView for delete redirect)
+vi.mock('next/navigation', () => ({
+  useRouter: () => ({ push: () => {}, replace: () => {}, back: () => {} }),
+}))
+
 // Fixed "now" so the 30-day activity window is deterministic (mirrors
 // detail.test.tsx). 2026-07-14 is the issue's active date.
 const NOW_MS = Date.parse('2026-07-14T12:00:00Z')

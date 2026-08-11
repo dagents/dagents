@@ -194,3 +194,52 @@
   .sk { animation: none; }
   .tab, .detail-back { transition: none; }
 }
+
+/* Action buttons in inspector */
+.ins-actions {
+  display: flex;
+  gap: 6px;
+  padding: var(--space-2) 0;
+  border-bottom: 1px solid var(--border);
+  margin-bottom: var(--space-2);
+}
+.ins-action-danger:hover {
+  color: var(--danger);
+}
+
+/* Delete confirmation dialog */
+.agent-delete-overlay {
+  position: fixed;
+  inset: 0;
+  z-index: 9999;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  background: rgba(0, 0, 0, 0.4);
+  backdrop-filter: blur(2px);
+}
+.agent-delete-dialog {
+  background: var(--bg-1);
+  border: 1px solid var(--border);
+  border-radius: 12px;
+  padding: var(--space-5);
+  max-width: 360px;
+  width: 90%;
+  box-shadow: 0 8px 32px rgba(0, 0, 0, 0.2);
+}
+.agent-delete-title {
+  font-size: var(--text-lg);
+  font-weight: 600;
+  color: var(--fg-1);
+  margin-bottom: var(--space-2);
+}
+.agent-delete-desc {
+  font-size: var(--text-sm);
+  color: var(--fg-2);
+  margin-bottom: var(--space-4);
+}
+.agent-delete-actions {
+  display: flex;
+  justify-content: flex-end;
+  gap: 8px;
+}

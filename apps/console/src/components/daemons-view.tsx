@@ -706,7 +706,7 @@ function RegisterDaemonDialog({
 
   // Form view
   return createPortal(
-    <div className="daemon-dialog-overlay" onClick={onClose}>
+    <div className="daemon-dialog-overlay" onClick={onClose} onKeyDown={(e) => { if (e.key === 'Escape') onClose() }}>
       <div className="daemon-dialog" onClick={(e) => e.stopPropagation()}>
         <div className="daemon-dialog-header">
           <Icon name="terminal" style={{ width: 20, height: 20, color: 'var(--accent)' }} />

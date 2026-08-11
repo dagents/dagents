@@ -509,3 +509,64 @@
 .chat-nav-chat-item-time {
   font-variant-numeric: tabular-nums;
 }
+
+/* Chat item wrapper + hover actions */
+.chat-nav-chat-item-wrapper {
+  position: relative;
+  display: flex;
+  align-items: center;
+}
+.chat-nav-chat-actions {
+  display: none;
+  position: absolute;
+  right: 6px;
+  gap: 2px;
+  z-index: 1;
+}
+.chat-nav-chat-item-wrapper:hover .chat-nav-chat-actions {
+  display: flex;
+}
+.chat-nav-chat-action-btn {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  width: 22px;
+  height: 22px;
+  border: none;
+  border-radius: 4px;
+  background: var(--bg-2);
+  color: var(--meta);
+  cursor: pointer;
+  opacity: 0.8;
+  transition: opacity 0.15s, background 0.15s;
+}
+.chat-nav-chat-action-btn:hover {
+  opacity: 1;
+  background: var(--bg-3);
+  color: var(--fg-2);
+}
+.chat-nav-chat-action-danger:hover {
+  color: var(--danger);
+}
+/* Rename input */
+.chat-nav-chat-rename-input {
+  width: 100%;
+  padding: 4px 8px;
+  border: 1px solid var(--accent);
+  border-radius: 6px;
+  background: var(--bg-1);
+  color: var(--fg-1);
+  font-size: var(--text-sm);
+  outline: none;
+}
+/* Delete confirmation */
+.chat-nav-chat-delete-confirm {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  padding: 4px 8px;
+  font-size: var(--text-xs);
+  color: var(--fg-2);
+  background: var(--bg-2);
+  border-radius: 6px;
+}
