@@ -239,8 +239,17 @@ export function AgentDetailView({ id, nowMs }: AgentDetailViewProps): React.Reac
           <>
             <Inspector
               model={model}
-              onEdit={() => { /* TODO: edit mode */ }}
-              onArchive={() => { /* TODO: archive via PATCH */ }}
+              onEdit={() => { router.push(`/agents/${encodeURIComponent(id)}/edit`) }}
+              onArchive={async () => {
+                try {
+                  const resp = await fetch(`/api/agents/${encodeURIComponent(id)}`, {
+                    method: 'PATCH',
+                    headers: { 'Content-Type': 'application/json' },
+                    body: JSON.stringify({ visibility: 'archived' }),
+                  })
+                  if (resp.ok) router.push('/agents')
+                } catch { /* silent */ }
+              }}
               onDelete={() => setShowDeleteConfirm(true)}
             />
             <Overview
