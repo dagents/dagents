@@ -50,3 +50,69 @@ export async function GET(
     headers: { 'content-type': upstream.headers.get('content-type') ?? 'application/json' },
   })
 }
+
+/**
+ * DELETE /api/agents/:id — proxy agent deletion to the gateway.
+ * Forwards to `${gatewayUrl()}/api/v1/agents/:id` (DELETE).
+ */
+export async function DELETE(
+  req: NextRequest,
+  { params }: { params: Promise<{ id: string }> },
+): Promise<NextResponse> {
+  const { id } = await params
+  const upstreamUrl = `${gatewayUrl()}/api/v1/agents/${encodeURIComponent(id)}`
+
+  const headers = forwardSessionHeaders(req, resolveRunId(req.headers.get('x-run-id')))
+
+  let upstream: Response
+  try {
+    upstream = await fetch(upstreamUrl, { method: 'DELETE', headers })
+  } catch (err) {
+    return NextResponse.json(
+      { success: false, error: 'gateway unavailable', detail: String(err) },
+      { status: 502 },
+    )
+  }
+
+  const body = await upstream.text()
+  return new NextResponse(body, {
+    status: upstream.status,
+    headers: { 'content-type': upstream.headers.get('content-type') ?? 'application/json' },
+  })
+}
+
+/**
+ * PATCH /api/agents/:id — proxy agent updates (e.g. archive) to the gateway.
+ * Forwards to `${gatewayUrl()}/api/v1/agents/:id` (PATCH).
+ */
+export async function PATCH(
+  req: NextRequest,
+  { params }: { params: Promise<{ id: string }> },
+): Promise<NextResponse> {
+  const { id } = await params
+  const upstreamUrl = `${gatewayUrl()}/api/v1/agents/${encodeURIComponent(id)}`
+
+  const headers = forwardSessionHeaders(req, resolveRunId(req.headers.get('x-run-id')))
+  // Forward the request body for PATCH
+  const bodyText = await req.text()
+
+  let upstream: Response
+  try {
+    upstream = await fetch(upstreamUrl, {
+      method: 'PATCH',
+      headers: { ...headers, 'content-type': req.headers.get('content-type') ?? 'application/json' },
+      body: bodyText,
+    })
+  } catch (err) {
+    return NextResponse.json(
+      { success: false, error: 'gateway unavailable', detail: String(err) },
+      { status: 502 },
+    )
+  }
+
+  const respBody = await upstream.text()
+  return new NextResponse(respBody, {
+    status: upstream.status,
+    headers: { 'content-type': upstream.headers.get('content-type') ?? 'application/json' },
+  })
+}

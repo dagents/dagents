@@ -610,6 +610,72 @@ agentsRoutes.delete('/:id', async (c) => {
 })
 
 /**
+ * PATCH /api/v1/agents/:id — update an agent's mutable fields.
+ *
+ * Currently supports `visibility` (e.g. 'archived', 'workspace', 'public'),
+ * `name`, `instructions`, `model`, and `summary`. This is a thin update —
+ * only the provided fields are written; omitted fields are left unchanged.
+ *
+ * 400 on a malformed id, 404 when no agent row matches.
+ */
+agentsRoutes.patch('/:id', async (c) => {
+  const id = c.req.param('id')
+  if (!UUID_RE.test(id)) {
+    return fail(c, 400, 'invalid agent id', { id })
+  }
+
+  let body: Record<string, unknown>
+  try {
+    body = await c.req.json()
+  } catch {
+    return fail(c, 400, 'invalid JSON body')
+  }
+
+  // Whitelist updatable columns
+  const allowed = new Map<string, string>([
+    ['visibility', 'visibility'],
+    ['name', 'name'],
+    ['instructions', 'instructions'],
+    ['model', 'model'],
+    ['summary', 'summary'],
+    ['status', 'status'],
+    ['availability', 'availability'],
+  ])
+
+  const sets: string[] = []
+  const params: unknown[] = []
+  for (const [key, col] of allowed) {
+    if (key in body) {
+      params.push(body[key])
+      sets.push(`${col} = $${params.length}`)
+    }
+  }
+
+  if (sets.length === 0) {
+    return fail(c, 400, 'no updatable fields provided')
+  }
+
+  sets.push(`updated_at = NOW()`)
+  params.push(id)
+
+  try {
+    const { records } = await runQuery<{ id: string }>(
+      `UPDATE agents SET ${sets.join(', ')} WHERE id = $${params.length} RETURNING id`,
+      params,
+    )
+    if (!records[0]) {
+      return fail(c, 404, 'agent not found', { id })
+    }
+  } catch (err) {
+    log.error('agent patch failed', { id, error: String(err) })
+    return fail(c, 502, 'agent update failed')
+  }
+
+  log.info('agent updated', { id, fields: Object.keys(body) })
+  return ok(c, { id, updated: true })
+})
+
+/**
  * GET /api/v1/agents/:id/logs — recent log lines for an agent's tasks.
  *
  * Joins `dispatch_task_events` → `dispatch_tasks` on the agent's
