@@ -137,31 +137,54 @@ export async function executeInline(
   const runId = randomUUID()
   log.info('inline execute start', { chatId, agentId, runId, cwd: opts.cwd })
 
-  // 查 agent 信息，确定 executable_path（优先用 agent 自带的，否则用 'claude'）
-  let execPath = 'claude'
+  // 查 agent 信息：优先 agents 表（v0.3 领域模型），fallback agent_daemons 表（旧 dispatch 模型）
+  let execPath = ''
   let agentName = 'agent'
   let agentKind = 'claude'
   try {
-    const { records } = await runQuery<{ name: string; executable_path: string | null; kind: string }>(
-      `SELECT name, executable_path, kind FROM agent_daemons WHERE id = $1::uuid`,
+    // 先查 agents 表（前端创建的 agent 在此表中）
+    const { records: agentRows } = await runQuery<{ name: string; kind: string }>(
+      `SELECT name, kind FROM agents WHERE id = $1::uuid`,
       [agentId],
     )
-    const agent = records[0]
-    if (!agent) {
-      await reportError(chatId, runId, `agent not found: ${agentId}`)
-      return
+    const agentRow = agentRows[0]
+
+    if (agentRow) {
+      agentName = agentRow.name
+      agentKind = agentRow.kind
+    } else {
+      // fallback: agent_daemons 表（旧模型，可能包含额外的 executable_path）
+      const { records: daemonRows } = await runQuery<{ name: string; executable_path: string | null; kind: string }>(
+        `SELECT name, executable_path, kind FROM agent_daemons WHERE id = $1::uuid`,
+        [agentId],
+      )
+      const daemonRow = daemonRows[0]
+      if (!daemonRow) {
+        await reportError(chatId, runId, `agent not found: ${agentId}`)
+        return
+      }
+      agentName = daemonRow.name
+      agentKind = daemonRow.kind
+      if (daemonRow.executable_path) execPath = daemonRow.executable_path
     }
-    agentName = agent.name
-    agentKind = agent.kind
-    if (agent.executable_path) execPath = agent.executable_path
+
+    // 从 agent_daemons 获取 executable_path（可选，覆盖默认值）
+    if (!execPath) {
+      const { records: adRows } = await runQuery<{ executable_path: string | null }>(
+        `SELECT executable_path FROM agent_daemons WHERE id = $1::uuid`,
+        [agentId],
+      )
+      if (adRows[0]?.executable_path) execPath = adRows[0].executable_path
+    }
+
     // 使用 createBackend factory 支持所有已适配的 agent CLI
     const supportedKinds = [
       'claude', 'codex', 'qwen', 'copilot', 'opencode',
       'codebuddy', 'cursor', 'deveco', 'antigravity', 'openclaw', 'pi',
       'hermes', 'kimi', 'kiro', 'grok', 'qoder', 'traecli',
     ]
-    if (!supportedKinds.includes(agent.kind)) {
-      await reportError(chatId, runId, `inline executor only supports [${supportedKinds.join(', ')}], got '${agent.kind}'`)
+    if (!supportedKinds.includes(agentKind)) {
+      await reportError(chatId, runId, `inline executor only supports [${supportedKinds.join(', ')}], got '${agentKind}'`)
       return
     }
   } catch (err) {

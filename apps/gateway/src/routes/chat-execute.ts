@@ -86,17 +86,31 @@ export async function routeMessage(
   let agentId = opts.agentIdOverride ?? chat.agent_id
 
   // "auto" fallback: when neither override nor chat.agent_id is set, pick the
-  // first available agent from agent_daemons. This makes the "auto" option in
-  // the UI selector (value=null, "让 chat 自动选择") actually work — without
-  // this, a chat created with no agent binding would return an error on every
-  // message and never produce an assistant reply.
+  // first available agent. Prefer the agents table (v0.3 domain model), fall
+  // back to agent_daemons (legacy dispatch model).
   if (!flowId && !agentId) {
     try {
       const { records } = await runQuery<{ id: string }>(
-        `SELECT id FROM agent_daemons ORDER BY created_at ASC LIMIT 1`,
+        `SELECT id FROM agents ORDER BY created_at ASC LIMIT 1`,
       )
       const fallback = records[0]
-      if (fallback) {
+      if (!fallback) {
+        // fallback to agent_daemons if agents table is empty
+        const { records: adRecords } = await runQuery<{ id: string }>(
+          `SELECT id FROM agent_daemons ORDER BY created_at ASC LIMIT 1`,
+        )
+        if (adRecords[0]) {
+          agentId = adRecords[0].id
+          try {
+            await runQuery(
+              `UPDATE chats SET agent_id = $1::uuid, updated_at = NOW() WHERE id = $2::uuid`,
+              [agentId, chatId],
+            )
+          } catch (err) {
+            log.warn('routeMessage auto-agent persist failed', { chatId, agentId, error: String(err) })
+          }
+        }
+      } else {
         agentId = fallback.id
         // Persist the resolved agent onto the chat row so subsequent messages
         // skip this lookup (and the chat-detail context panel shows the binding).
@@ -241,15 +255,22 @@ async function routeAgentCommand(
   systemMessageId: string | undefined,
 ): Promise<RouteResult> {
   // Resolve agent by name (cmd.target) → agentId.
-  // NOTE: agent_daemons has no status column as of this writing; lookup is by
-  // name only. If a status concept is needed later, add a column + filter here.
+  // Check both agents (v0.3 domain model) and agent_daemons (legacy).
   let agent: { id: string } | undefined
   try {
     const { records } = await runQuery<{ id: string }>(
-      `SELECT id FROM agent_daemons WHERE name = $1 LIMIT 1`,
+      `SELECT id FROM agents WHERE name = $1 LIMIT 1`,
       [cmd.target],
     )
     agent = records[0]
+    if (!agent) {
+      // fallback to agent_daemons
+      const { records: adRecords } = await runQuery<{ id: string }>(
+        `SELECT id FROM agent_daemons WHERE name = $1 LIMIT 1`,
+        [cmd.target],
+      )
+      agent = adRecords[0]
+    }
   } catch (err) {
     log.error('routeAgentCommand agent lookup failed', {
       chatId,
