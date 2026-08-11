@@ -177,8 +177,9 @@ describe('POST /api/v1/chats/:id/messages — default routing', () => {
 
   it('returns json mode with error when no agent is available (agent_daemons empty)', async () => {
     // Ensure no agents are available — the auto fallback should find nothing
-    // and return the error. We clear the table for this test case only.
+    // in either agents or agent_daemons and return the error.
     await runQuery(`DELETE FROM agent_daemons`)
+    await runQuery(`DELETE FROM agents`)
     const { chatId } = await seedDirAndChat()
 
     const res = await app.request(`/api/v1/chats/${chatId}/messages`, {
