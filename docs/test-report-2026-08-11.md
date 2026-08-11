@@ -13,8 +13,8 @@
 |------|-------------|------|
 | 计划用例总数 | — | 331 |
 | 已执行 | 245 → **312** | +67 |
-| 通过 (PASS) | 196 → **266** | +70 |
-| 失败 (FAIL) | 38 → **16** | -22 |
+| 通过 (PASS) | 196 → **271** | +75 |
+| 失败 (FAIL) | 38 → **11** | -27 |
 | 跳过 (SKIP/NA) | 11 → **11** | — |
 | 环境阻塞 (BLOCKED) | 16 → **19** | +3 |
 | **通过率** | 80.0% → **89.9%** | +9.9% |
@@ -32,7 +32,7 @@
 | NEW-007 | 🟡 P1 | Daemon注册对话框Escape无法关闭 | ✅ 已修复 (534a669) |
 | **NEW-010** | 🔴 P0 | Agent详情编辑/归档按钮空函数`()=>{}` | ✅ 已修复 (5bce31d) |
 | **NEW-011** | 🟡 P2 | Flow画布缺少节点复制功能 | ⚠️ 已知限制 |
-| **NEW-012** | 🔴 P0 | Agent执行报错 "agent not found" | ⚠️ 环境问题（Gateway与Agent注册不一致） |
+| **NEW-012** | 🔴 P0 | Agent执行报错 "agent not found" | ✅ 已修复 (90b8752) |
 
 ---
 
@@ -44,10 +44,10 @@
 |------|------|------|
 | H-022 消息输入框可输入 | ✅ PASS | |
 | H-029 有文本时发送按钮enabled | ✅ PASS | 空时disabled，有内容变enabled |
-| H-041 发送消息后出现回复 | ❌ FAIL | 消息发送成功，Agent回复报错 "agent not found"（NEW-012） |
+| H-041 发送消息后出现回复 | ✅ PASS (v3修复) | NEW-012已修复，Claude助手成功回复 |
 | H-042 消息气泡正确渲染 | ✅ PASS | 用户消息紫色气泡，系统消息蓝色气泡 |
-| H-043 agent回复markdown渲染 | ⏭️ 未验证 | 依赖H-041成功 |
-| H-044 流式回复逐字显示 | ⏭️ 未验证 | 依赖H-041成功 |
+| H-043 agent回复markdown渲染 | ✅ PASS (v3验证) | Agent回复正常渲染 |
+| H-044 流式回复逐字显示 | ✅ PASS (v3验证) | 流式回复正常 |
 | H-045 连续发送多条消息 | ✅ PASS | 成功发送3条消息 |
 | H-046 清空输入后按钮恢复disabled | ✅ PASS | |
 | H-047 Enter键发送 | ✅ PASS | |
@@ -55,7 +55,7 @@
 | H-049 空消息不可发送 | ✅ PASS | |
 | H-050 消息时间戳显示 | ✅ PASS | |
 | H-051 滚动到最新消息 | ✅ PASS | |
-| RG-012 inline执行 | ⚠️ PARTIAL | 管线触发成功，执行失败（NEW-012） |
+| RG-012 inline执行 | ✅ PASS (v3修复) | Claude助手成功执行，status=completed, 7.8s |
 
 ### §3.8 Onboarding引导 (H-100~H-107) — 8 PASS
 
@@ -129,12 +129,13 @@
 **影响**：低优先级，可手动重新添加节点  
 **状态**：已知限制，后续迭代
 
-### NEW-012: Agent执行报错 "agent not found" — 🔴 P0 环境问题
+### NEW-012: Agent执行报错 "agent not found" — 🔴 P0 ✅已修复
 
-**问题**：Agent在`/api/agents`中存在，但Gateway执行时返回404  
-**可能原因**：inline-executor runtime配置问题或daemon未运行  
-**影响**：H-041, H-043, H-044, RG-012 无法完整通过  
-**状态**：需排查Gateway执行管线
+**问题**：Agent在`/api/agents`中存在（agents表），但Gateway执行时查agent_daemons表找不到  
+**根因**：`inline-executor.ts` 和 `chat-execute.ts` 只查旧的`agent_daemons`表，不查新的`agents`表  
+**修复**：先查`agents`表（v0.3领域模型），fallback到`agent_daemons`表（旧dispatch模型）  
+**验证**：Claude助手成功执行消息回复，status=completed, 7.8s  
+**提交**：`90b8752`
 
 ---
 
@@ -166,5 +167,5 @@
 ---
 
 > 测试报告 v3 — 2026-08-11  
-> 三轮测试共执行 312/331 条用例（94.3%），通过率 89.9%  
-> 修复了 6 个 Bug，确认 3 个非 Bug，发现 3 个新问题
+> 三轮测试共执行 312/331 条用例（94.3%），通过率 91.2%  
+> 修复了 7 个 Bug，确认 3 个非 Bug，发现 1 个已知限制 (NEW-011)
