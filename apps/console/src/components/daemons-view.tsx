@@ -73,6 +73,7 @@ export function DaemonsView(): React.ReactElement {
   const [error, setError] = useState<string | null>(null)
   const [selectedDaemon, setSelectedDaemon] = useState<DaemonInfo | null>(null)
   const [showRegister, setShowRegister] = useState(false)
+  const [deleteTarget, setDeleteTarget] = useState<DaemonInfo | null>(null)
 
   const backoffRef = useRef<number>(POLL_BASE_MS)
   const isVisibleRef = useRef<boolean>(true)
@@ -305,6 +306,18 @@ export function DaemonsView(): React.ReactElement {
                 <span className="daemon-card-heartbeat">
                   {timeAgo(d.last_heartbeat_at)}
                 </span>
+                <button
+                  type="button"
+                  className="daemon-card-delete"
+                  title="删除"
+                  aria-label={`删除 daemon ${d.label}`}
+                  onClick={(e) => {
+                    e.stopPropagation()
+                    setDeleteTarget(d)
+                  }}
+                >
+                  <Icon name="close" style={{ width: 14, height: 14 }} />
+                </button>
                 <Icon name="chevronRight" style={{ width: 16, height: 16, color: 'var(--meta)' }} />
               </div>
             </button>
@@ -313,6 +326,35 @@ export function DaemonsView(): React.ReactElement {
       </div>
 
       {error ? <div className="daemons-error">{error}</div> : null}
+
+      {deleteTarget && (
+        <div className="daemon-delete-overlay" onClick={() => setDeleteTarget(null)}>
+          <div className="daemon-delete-dialog" onClick={(e) => e.stopPropagation()}>
+            <div className="daemon-delete-title">删除 Daemon</div>
+            <div className="daemon-delete-desc">
+              确定要删除「{deleteTarget.label}」吗？此操作不可撤销。
+            </div>
+            <div className="daemon-delete-actions">
+              <button type="button" className="btn btn-ghost btn-sm" onClick={() => setDeleteTarget(null)}>取消</button>
+              <button
+                type="button"
+                className="btn btn-danger btn-sm"
+                onClick={async () => {
+                  try {
+                    const resp = await fetch(`/api/dispatch/daemons/${encodeURIComponent(deleteTarget.id)}`, { method: 'DELETE' })
+                    if (resp.ok) {
+                      setDaemons((prev) => prev.filter((d) => d.id !== deleteTarget.id))
+                    }
+                  } catch { /* silent */ }
+                  setDeleteTarget(null)
+                }}
+              >
+                确认删除
+              </button>
+            </div>
+          </div>
+        </div>
+      )}
     </div>
   )
 }

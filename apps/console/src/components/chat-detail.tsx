@@ -664,11 +664,16 @@ export function ChatDetail({ chatId }: ChatDetailProps): React.ReactElement {
                           </div>
                         )}
                         {m.role === 'assistant' ? (
-                          <AssistantContent
-                            content={m.content}
-                            streaming={isStreaming}
-                            meta={extractMeta(m.metadata)}
-                          />
+                          <div className="chat-msg-assistant-wrapper">
+                            <div className="chat-msg-avatar" aria-hidden="true">
+                              <Icon name="agents" style={{ width: 16, height: 16 }} />
+                            </div>
+                            <AssistantContent
+                              content={m.content}
+                              streaming={isStreaming}
+                              meta={extractMeta(m.metadata)}
+                            />
+                          </div>
                         ) : (
                           <div className="chat-msg-content">{m.content}</div>
                         )}
