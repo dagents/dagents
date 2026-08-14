@@ -1,5 +1,4 @@
 import type { Metadata } from 'next'
-import { RootGate } from '@/components/root-gate'
 import { ToastProvider } from '@/components/toast'
 import { ChatLayout } from '@/components/chat-layout'
 import '@/styles/tokens.css'
@@ -26,12 +25,13 @@ export default function RootLayout({ children }: { children: React.ReactNode }) 
           })();
         ` }} />
       </head>
-      <body>
-        <RootGate>
-          <ToastProvider>
-            <ChatLayout>{children}</ChatLayout>
-          </ToastProvider>
-        </RootGate>
+      {/* suppressHydrationWarning: browser extensions (e.g. cz-shortcut-listen
+          from translate/select-to-search plugins) inject attributes onto
+          <body> before React hydrates — harmless attribute-only mismatches. */}
+      <body suppressHydrationWarning>
+        <ToastProvider>
+          <ChatLayout>{children}</ChatLayout>
+        </ToastProvider>
       </body>
     </html>
   )

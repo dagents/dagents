@@ -10,10 +10,11 @@
  * Polling: 5s 基础间隔，页面隐藏时暂停，连续失败指数退避（上限 60s）。
  */
 
-import { useEffect, useRef, useState } from 'react'
+import { useCallback, useEffect, useRef, useState } from 'react'
 import { createPortal } from 'react-dom'
 import { Icon } from '@/components/icon'
 import { SkeletonList } from '@/components/skeleton'
+import { AGENT_KINDS } from '@/lib/agents-catalog'
 import {
   fetchDaemons,
   fetchDispatchTasks,
@@ -24,6 +25,19 @@ import {
   type FleetStats,
 } from '@/lib/daemons'
 import '@/styles/daemons.css'
+
+// ─── local CLI runtimes (auto-detected) ──────────────────────────────
+
+/** One row of the gateway's GET /api/v1/cli-runtimes PATH scan. */
+interface RuntimeDetection {
+  kind: string
+  binary: string
+  available: boolean
+  path: string | null
+}
+
+/** CLI agent kinds only (prompt/remote have no binary — nothing to detect). */
+const CLI_KINDS = AGENT_KINDS.filter((m) => m.binary.length > 0)
 
 // ─── daemon list ─────────────────────────────────────────────────────
 
@@ -74,6 +88,24 @@ export function DaemonsView(): React.ReactElement {
   const [selectedDaemon, setSelectedDaemon] = useState<DaemonInfo | null>(null)
   const [showRegister, setShowRegister] = useState(false)
   const [deleteTarget, setDeleteTarget] = useState<DaemonInfo | null>(null)
+  const [runtimes, setRuntimes] = useState<RuntimeDetection[]>([])
+  const [runtimesLoading, setRuntimesLoading] = useState(true)
+
+  // Local CLI detection (gateway scans PATH). Once on mount + manual refresh —
+  // unlike daemons this doesn't change on its own, no polling needed.
+  const loadRuntimes = useCallback(async (): Promise<void> => {
+    try {
+      const resp = await fetch('/api/cli-runtimes')
+      const json = (await resp.json()) as { success: boolean; data?: { runtimes: RuntimeDetection[] } }
+      if (json.success && json.data) setRuntimes(json.data.runtimes)
+    } catch {
+      // silent — the grid still renders with unknown (未检测) status
+    } finally {
+      setRuntimesLoading(false)
+    }
+  }, [])
+
+  useEffect(() => { void loadRuntimes() }, [loadRuntimes])
 
   const backoffRef = useRef<number>(POLL_BASE_MS)
   const isVisibleRef = useRef<boolean>(true)
@@ -231,6 +263,64 @@ export function DaemonsView(): React.ReactElement {
         />
       ) : null}
 
+      {/* ─── 本机 CLI（自动检测，inline 执行）─── */}
+      <section className="local-cli-section" aria-label="本机 CLI">
+        <div className="local-cli-head">
+          <span className="local-cli-title">本机 CLI</span>
+          <span className="local-cli-sub">
+            Gateway 自动检测本机 PATH — 已安装的可直接在对话中使用（inline 执行，无需 daemon）
+          </span>
+          <div className="grow" />
+          {!runtimesLoading && runtimes.length > 0 ? (
+            <span className={`status ${runtimes.some((r) => r.available) ? 'running' : 'idle'}`}>
+              <span className="dot" />
+              {runtimes.filter((r) => r.available).length} 个可用
+            </span>
+          ) : null}
+          <button
+            type="button"
+            className="btn btn-ghost btn-sm"
+            title="重新检测"
+            aria-label="重新检测本机 CLI"
+            onClick={() => {
+              setRuntimesLoading(true)
+              void loadRuntimes()
+            }}
+          >
+            <Icon name="refresh" style={{ width: 14, height: 14 }} />
+          </button>
+        </div>
+        <div className="local-cli-grid">
+          {runtimesLoading && runtimes.length === 0 ? (
+            <span className="local-cli-meta">检测中…</span>
+          ) : (
+            CLI_KINDS.map((m) => {
+              const det = runtimes.find((r) => r.kind === m.kind)
+              const available = det?.available ?? false
+              return (
+                <div
+                  key={m.kind}
+                  className={`local-cli-card${available ? '' : ' unavailable'}`}
+                  title={available ? det?.path ?? m.hint : `未安装 — ${m.hint}`}
+                >
+                  <span className={`status-dot ${available ? 'dot-running' : 'dot-done'}`} />
+                  <span className="local-cli-name">{m.label}</span>
+                  <span className="local-cli-meta">
+                    {available ? (det?.path ?? det?.binary ?? m.binary) : '未安装'}
+                  </span>
+                </div>
+              )
+            })
+          )}
+        </div>
+      </section>
+
+      {/* ─── 远程 daemon workers ─── */}
+      <div className="daemons-subhead">
+        <span className="daemons-subhead-title">远程 Daemon</span>
+        <span className="daemons-subhead-sub">多机分发用的 worker 进程 — 启动后自动注册，靠心跳保持在线</span>
+      </div>
+
       <div className="daemons-list">
         {loading && daemons.length === 0 ? (
           <SkeletonList rows={4} />
@@ -270,12 +360,21 @@ export function DaemonsView(): React.ReactElement {
           </div>
         ) : (
           filtered.map((d, i) => (
-            <button
+            // div[role=button] instead of a real <button> — the delete control
+            // inside is a button, and HTML forbids nested buttons (hydration error).
+            <div
               key={d.id}
-              type="button"
+              role="button"
+              tabIndex={0}
               className="daemon-card enter-rise"
               style={{ '--enter-i': i } as React.CSSProperties}
               onClick={() => setSelectedDaemon(d)}
+              onKeyDown={(e) => {
+                if (e.key === 'Enter' || e.key === ' ') {
+                  e.preventDefault()
+                  setSelectedDaemon(d)
+                }
+              }}
             >
               <div className="daemon-card-icon">
                 <span className={`status-dot ${DAEMON_STATUS_DOT[d.status] ?? 'dot-done'}`} />
@@ -320,7 +419,7 @@ export function DaemonsView(): React.ReactElement {
                 </button>
                 <Icon name="chevronRight" style={{ width: 16, height: 16, color: 'var(--meta)' }} />
               </div>
-            </button>
+            </div>
           ))
         )}
       </div>
@@ -630,15 +729,14 @@ function DaemonTasksView({
 // ─── register daemon dialog ─────────────────────────────────────────
 
 /**
- * Register a new daemon worker via POST /api/daemons → dispatch register.
+ * Daemon 启动命令生成器。
  *
- * Daemon 注册需要：
- *   - 标签（daemon 名称）
- *   - 能力列表（agentType，如 claude/codex/…）
- *   - 可选 endpoint
+ * daemon 进程是自注册的：`mil-daemon <serverUrl> <label> <agentType>` 启动后
+ * 自己 POST /daemons/register 注册并心跳，无需提前在页面上注册（旧版对话框
+ * 预注册拿 daemonId/token 再拼进启动命令是错的 — CLI 不接受这些参数）。
  *
- * 注册成功后返回 daemonId + token，我们展示给用户（daemon 进程需要 token
- * 来发送心跳和领取任务）。用户复制后可以在终端启动 daemon 时使用。
+ * 对话框只做一件事：根据用户填的 label + agent 类型生成正确的启动命令，
+ * 复制到任意机器的 dagents 仓库根目录运行即可。
  */
 const AGENT_TYPE_OPTIONS = [
   'claude', 'codex', 'copilot', 'qwen', 'opencode',
@@ -654,11 +752,9 @@ function RegisterDaemonDialog({
   onRegistered: () => void
 }): React.ReactElement {
   const [label, setLabel] = useState('')
-  const [endpoint, setEndpoint] = useState('')
   const [selectedTypes, setSelectedTypes] = useState<string[]>([])
-  const [submitting, setSubmitting] = useState(false)
   const [error, setError] = useState<string | null>(null)
-  const [result, setResult] = useState<{ daemonId: string; token: string } | null>(null)
+  const [cmds, setCmds] = useState<string[] | null>(null)
 
   function toggleType(t: string): void {
     setSelectedTypes((prev) =>
@@ -666,7 +762,7 @@ function RegisterDaemonDialog({
     )
   }
 
-  async function handleSubmit(): Promise<void> {
+  function handleGenerate(): void {
     setError(null)
     if (!label.trim()) {
       setError('请填写 daemon 标签')
@@ -676,66 +772,61 @@ function RegisterDaemonDialog({
       setError('请至少选择一种 agent 类型')
       return
     }
-    setSubmitting(true)
-    try {
-      const resp = await fetch('/api/daemons', {
-        method: 'POST',
-        headers: { 'content-type': 'application/json' },
-        body: JSON.stringify({
-          daemonLabel: label.trim(),
-          endpoint: endpoint.trim() || undefined,
-          capabilities: selectedTypes.map((agentType) => ({ agentType })),
-        }),
-      })
-      const json = await resp.json()
-      if (!resp.ok || !json.success) {
-        throw new Error(json.error ?? json.detail ?? `HTTP ${resp.status}`)
-      }
-      setResult(json.data as { daemonId: string; token: string })
-    } catch (err) {
-      setError(err instanceof Error ? err.message : String(err))
-    } finally {
-      setSubmitting(false)
-    }
+    // CLI 一次只接受一种 agentType — 每种类型生成一条命令。
+    setCmds(selectedTypes.map((t) => `pnpm --filter @dagents/daemon dev -- http://localhost:8080 ${label.trim()} ${t}`))
   }
 
-  // Success view — show daemonId + token
-  if (result) {
-    const startCmd = `pnpm --filter @dagents/daemon dev -- http://localhost:8080 ${result.daemonId} ${result.token}`
+  // Generated view — show the correct start commands
+  if (cmds) {
     return createPortal(
       <div className="daemon-dialog-overlay" onClick={onClose}>
         <div className="daemon-dialog" onClick={(e) => e.stopPropagation()}>
           <div className="daemon-dialog-header">
             <Icon name="check" style={{ width: 20, height: 20, color: 'var(--accent)' }} />
-            <span className="daemon-dialog-title">Daemon 注册成功</span>
+            <span className="daemon-dialog-title">启动命令已生成</span>
           </div>
           <div className="daemon-dialog-body">
             <p className="daemon-dialog-desc">
-              复制以下命令到终端启动 daemon 进程：
+              复制以下命令到目标机器的 dagents 仓库根目录运行。daemon 启动后会自动注册并出现在列表中（无需提前注册）：
             </p>
-            <div className="daemon-dialog-cmd-row">
-              <code className="daemon-dialog-cmd">{startCmd}</code>
+            {cmds.map((cmd) => (
+              <div key={cmd} className="daemon-dialog-cmd-row">
+                <code className="daemon-dialog-cmd">{cmd}</code>
+                <button
+                  type="button"
+                  className="btn btn-ghost btn-sm"
+                  onClick={() => navigator.clipboard?.writeText(cmd).catch(() => {})}
+                >
+                  <Icon name="copy" style={{ width: 14, height: 14 }} />
+                  复制
+                </button>
+              </div>
+            ))}
+            {cmds.length > 1 ? (
               <button
                 type="button"
                 className="btn btn-ghost btn-sm"
-                onClick={() => navigator.clipboard?.writeText(startCmd).catch(() => {})}
+                onClick={() => navigator.clipboard?.writeText(cmds.join('\n')).catch(() => {})}
               >
                 <Icon name="copy" style={{ width: 14, height: 14 }} />
-                复制
+                全部复制
               </button>
-            </div>
+            ) : null}
             <div className="daemon-dialog-info">
               <div className="meta-row">
-                <span className="meta-label">Daemon ID</span>
-                <span className="mono">{result.daemonId.slice(0, 8)}</span>
+                <span className="meta-label">标签</span>
+                <span className="mono">{label.trim()}</span>
               </div>
               <div className="meta-row">
-                <span className="meta-label">Token</span>
-                <span className="mono">{result.token.slice(0, 8)}••••</span>
+                <span className="meta-label">Agent 类型</span>
+                <span className="mono">{selectedTypes.join(', ')}</span>
               </div>
             </div>
           </div>
           <div className="daemon-dialog-footer">
+            <button type="button" className="btn btn-ghost btn-sm" onClick={() => setCmds(null)}>
+              返回修改
+            </button>
             <button type="button" className="btn btn-primary btn-sm" onClick={onRegistered}>
               完成
             </button>
@@ -783,30 +874,20 @@ function RegisterDaemonDialog({
                 </button>
               ))}
             </div>
-          </div>
-          <div className="daemon-dialog-field">
-            <label className="daemon-dialog-label">Endpoint（可选）</label>
-            <input
-              type="text"
-              className="daemon-dialog-input"
-              placeholder="如：http://192.168.1.100:9090"
-              value={endpoint}
-              onChange={(e) => setEndpoint(e.target.value)}
-            />
+            <span className="daemon-dialog-hint">可多选 — 每种类型生成一条启动命令（一个 daemon 进程对应一种 agent）</span>
           </div>
           {error ? <div className="daemon-dialog-error">⚠️ {error}</div> : null}
         </div>
         <div className="daemon-dialog-footer">
-          <button type="button" className="btn btn-ghost btn-sm" onClick={onClose} disabled={submitting}>
+          <button type="button" className="btn btn-ghost btn-sm" onClick={onClose}>
             取消
           </button>
           <button
             type="button"
             className="btn btn-primary btn-sm"
-            onClick={() => void handleSubmit()}
-            disabled={submitting}
+            onClick={handleGenerate}
           >
-            {submitting ? '注册中…' : '注册'}
+            生成启动命令
           </button>
         </div>
       </div>

@@ -11,9 +11,9 @@
  * Query params (`kind`/`status`/`role`/`region`/`q`) are forwarded as-is even
  * though the dispatch route currently filters client-side — the gateway passes
  * them through, and a future server-side filter can consume them without a
- * console change. `x-run-id` is always threaded through (M5b.4: generated if
- * the caller omitted one, so every hop is traceable), and the SSO session
- * cookie is forwarded so the gateway's session middleware sees the caller.
+ * console change. `x-run-id` is always threaded through (generated if
+ * the caller omitted one, so every hop is traceable), via the shared
+ * `forwardSessionHeaders`.
  */
 
 import { type NextRequest, NextResponse } from 'next/server'

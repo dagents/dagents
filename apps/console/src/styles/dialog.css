@@ -1,0 +1,147 @@
+/* ============================================================
+   dialog.css — shared modal-dialog styles for the create-agent /
+   create-flow / agent-template-gallery dialogs.
+
+   Previously these rules lived in agents.css, which only the /agents
+   page loads — on /flows the dialog rendered completely unstyled
+   (position: static, no width). Imported by each dialog component so
+   every page that mounts a dialog gets the styles.
+   ============================================================ */
+
+/* ─── modal-dialog shell ─── */
+.modal-dialog {
+  position: fixed;
+  top: 50%;
+  left: 50%;
+  transform: translate(-50%, -48%);
+  width: 560px;
+  max-width: 92vw;
+  max-height: 88vh;
+  background: var(--bg);
+  border: 1px solid var(--border);
+  border-radius: var(--radius-md);
+  box-shadow: var(--elev-overlay);
+  z-index: 100;
+  display: flex;
+  flex-direction: column;
+  opacity: 0;
+  pointer-events: none;
+  transition: opacity var(--motion-base), transform var(--motion-base) var(--ease-standard);
+}
+.modal-dialog.open {
+  opacity: 1;
+  pointer-events: auto;
+  transform: translate(-50%, -50%);
+}
+.modal-head {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  padding: var(--space-4) var(--space-6);
+  border-bottom: 1px solid var(--border-soft);
+  flex-shrink: 0;
+}
+.modal-title {
+  font-size: var(--text-base);
+  font-weight: 600;
+  color: var(--fg);
+  margin: 0;
+}
+.modal-body {
+  flex: 1;
+  overflow-y: auto;
+  padding: var(--space-6);
+}
+.modal-foot {
+  display: flex;
+  justify-content: flex-end;
+  gap: var(--space-2);
+  padding: var(--space-4) var(--space-6);
+  border-top: 1px solid var(--border-soft);
+  flex-shrink: 0;
+}
+.modal-loading,
+.modal-empty,
+.modal-error {
+  padding: var(--space-4);
+  font-size: var(--text-sm);
+  color: var(--muted);
+}
+.modal-error {
+  color: var(--danger);
+  background: var(--danger-soft);
+  border-radius: var(--radius-sm);
+  margin-top: var(--space-4);
+}
+
+/* ─── form sections inside modal ─── */
+.form-section {
+  margin-bottom: var(--space-6);
+}
+.form-section:last-child {
+  margin-bottom: 0;
+}
+.form-section-label {
+  font-size: 11px;
+  font-weight: 500;
+  color: var(--meta);
+  letter-spacing: var(--tracking-label);
+  text-transform: uppercase;
+  margin-bottom: var(--space-3);
+}
+.form-section .field {
+  margin-bottom: var(--space-3);
+}
+.form-section .field:last-child {
+  margin-bottom: 0;
+}
+
+/* ─── kind / visibility option chips ─── */
+.kind-options {
+  display: flex;
+  flex-wrap: wrap;
+  gap: var(--space-2);
+}
+.kind-option {
+  padding: 6px var(--space-3);
+  border: 1px solid var(--border);
+  border-radius: var(--radius-sm);
+  background: var(--bg);
+  font-size: var(--text-xs);
+  color: var(--muted);
+  font-weight: 500;
+  cursor: pointer;
+  transition: all var(--motion-fast);
+}
+.kind-option:hover {
+  border-color: var(--border);
+  color: var(--fg);
+  background: var(--surface-warm);
+}
+.kind-option.active {
+  background: var(--fg);
+  color: var(--bg);
+  border-color: var(--fg);
+}
+
+/* grouped kind picker (主流 / 国产 / ACP / 特殊 / 其他) — a vertical stack of
+ *   groups, each with a small meta label above its chip row. */
+.kind-options-grouped {
+  display: flex;
+  flex-direction: column;
+  gap: var(--space-3);
+}
+.kind-group-label {
+  font-size: 11px;
+  color: var(--meta);
+  font-weight: 600;
+  letter-spacing: 0.02em;
+  margin-bottom: var(--space-1);
+}
+
+.modal-empty {
+  padding: var(--space-6);
+  text-align: center;
+  color: var(--muted);
+  font-size: var(--text-sm);
+}

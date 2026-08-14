@@ -12,9 +12,9 @@ import {
  *
  * The gateway is the single choke point for key / permission / version-lock /
  * token-rotation mutations, so it owns the audit trail. An `actor` is either a
- * human user (authenticated via SSO, identified by `x-user-id` /
- * `x-client-id` headers the SSO middleware stamps) or a system principal (the
- * gateway itself, or an internal service driving a rotation). `actor_type` is
+ * human user (identified by the `x-user-id` header a caller forwards) or a
+ * system principal (the gateway itself, or an internal service driving a
+ * rotation). There is no login — the gateway runs open (本机模式). `actor_type` is
  * kept as open TEXT with a CHECK so new principal kinds (agent, daemon) can be
  * added without a migration, mirroring `runs.status`.
  */
@@ -49,7 +49,7 @@ export class AuditLog {
   @PrimaryGeneratedColumn('uuid')
   id!: string
 
-  /** Who performed the op: 'user' (SSO-authed) or 'system' (gateway/internal). */
+  /** Who performed the op: 'user' (named via x-user-id) or 'system' (gateway/internal). */
   @Column({ name: 'actor_type', type: 'text' })
   actorType!: AuditActorType
 

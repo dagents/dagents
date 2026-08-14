@@ -21,12 +21,8 @@ import { createLogger } from '@dagents/shared'
  *
  * `detail` is jsonb; pg returns it parsed, so it is forwarded verbatim.
  *
- * Auth: gated by the SSO session middleware (M5b.4 / P1.4.T2) — under
- * `REQUIRE_LOGIN=1` a request without a valid `mil_session` cookie 401s. The
- * middleware does not yet enforce admin-only: any logged-in user can read the
- * audit trail, which names actors and targets. Admin-only scoping is a
- * follow-up (RBAC); for now this is acceptable in dev. Documented in the route
- * comment.
+ * Auth: none — the gateway runs open (local-machine service). The audit
+ * trail names actors and targets, meant for the local operator only.
  *
  * Standard envelope (CLAUDE.md API convention): { success, data?, error? }.
  */
@@ -85,8 +81,7 @@ interface AuditRow {
  * page is the last (fewer than `limit` rows returned). A caller can also detect
  * exhaustion by `items.length < limit`.
  *
- * ⚠️ Admin-only once SSO lands (P1.4.T2). The audit trail names actors +
- * targets and is not for end users.
+ * The audit trail names actors + targets — meant for the local operator.
  */
 auditRoutes.get('/', async (c) => {
   const parsed = querySchema.safeParse(c.req.query())

@@ -2,7 +2,6 @@ import { runQuery } from '@dagents/db'
 import type { AuditActorType, AuditTargetType } from '@dagents/db'
 import { createLogger } from '@dagents/shared'
 import type { Context } from 'hono'
-import type { SsoUser } from './auth.js'
 
 /**
  * Audit logging for sensitive gateway operations (spec §1.4 gateway 职责 #5
@@ -27,10 +26,10 @@ import type { SsoUser } from './auth.js'
  *
  * `run_id` is read from the OTel-threaded `x-run-id` header (M6.1) so an audit
  * record correlates end-to-end with the trace that performed it. The actor is
- * read from the `x-user-id` / `x-client-id` headers the SSO middleware stamps
- * (M5b.4 / P1.4.T2); absent those (SSO not configured, or `REQUIRE_LOGIN`
- * off), the actor is `system:gateway` — the gateway itself is the principal
- * performing the admin mutation. Caller IP + User-Agent are captured
+ * read from the `x-user-id` / `x-client-id` headers forwarded by the console
+ * proxy or sent by internal services; absent those, the actor is
+ * `system:gateway` — the gateway itself is the principal performing the admin
+ * mutation. Caller IP + User-Agent are captured
  * best-effort for forensic value.
  *
  * Never log the raw key — `detail` carries operation-specific context (changed
@@ -73,20 +72,13 @@ function runIdFromContext(c: Context): string | null {
 }
 
 /**
- * Resolve the actor off the SSO-stamped identity. M5b.4 wires the gateway
- * session middleware, which stamps `ssoUser` on the context (a verified
- * logged-in user) — that is the strongest actor signal, so it wins. The
- * `x-user-id` / `x-client-id` headers (forwarded by the console proxy or sent
- * by internal services) cover calls without a session (REQUIRE_LOGIN off, or a
- * service-to-service call). Absent all of those, the actor is `system:gateway`
- * — the gateway itself is the principal performing the admin mutation on the
- * caller's behalf, which is the honest audit story for an unauthenticated dev
- * setup.
+ * Resolve the actor from the request headers. The `x-user-id` / `x-client-id`
+ * headers (forwarded by the console proxy or sent by internal services) name
+ * the caller; absent both, the actor is `system:gateway` — the gateway itself
+ * is the principal performing the admin mutation on the caller's behalf, which
+ * is the honest audit story for an unauthenticated local setup.
  */
 function actorFromContext(c: Context): { type: AuditActorType; id: string } {
-  // M5b.4: a verified SSO session is the authoritative actor.
-  const ssoUser = c.get('ssoUser') as SsoUser | undefined
-  if (ssoUser?.sub) return { type: 'user', id: ssoUser.sub }
   const userId = c.req.header('x-user-id')?.trim()
   if (userId) return { type: 'user', id: userId }
   const clientId = c.req.header('x-client-id')?.trim()

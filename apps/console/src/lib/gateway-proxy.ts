@@ -39,10 +39,16 @@ type PathBuilder = string | ((req: NextRequest, ctx: { params: Promise<Record<st
  *   from the request + params (for dynamic routes like `/api/agents/[id]`).
  */
 export function gatewayProxy(method: string, upstreamPath: PathBuilder) {
-  async function handler(req: NextRequest, segmentData?: { params: Promise<Record<string, string>> }): Promise<NextResponse> {
+  // Second param must be required (Next 15 route-context validation rejects
+  // signatures that admit `undefined`). Next always passes the context object,
+  // even for non-dynamic routes.
+  async function handler(
+    req: NextRequest,
+    segmentData: { params: Promise<Record<string, string>> },
+  ): Promise<NextResponse> {
     // Resolve the upstream path
     const path = typeof upstreamPath === 'function'
-      ? await upstreamPath(req, segmentData ?? { params: Promise.resolve({}) })
+      ? await upstreamPath(req, segmentData)
       : upstreamPath
 
     const upstreamUrl = `${gatewayUrl()}${path}${req.nextUrl.search}`

@@ -66,7 +66,7 @@ services:
     ports:
       - "127.0.0.1:3000:3000"   # console
       - "127.0.0.1:8080:8080"   # gateway
-    # `.env` carries POSTGRES_URL, GATEWAY_API_KEY, SSO_*, etc. The environment
+    # `.env` carries POSTGRES_URL, GATEWAY_API_KEY, etc. The environment
     # block below rewrites POSTGRES_URL so the container dials the `postgres`
     # service (not the host:15432 default in .env.example).
     env_file:

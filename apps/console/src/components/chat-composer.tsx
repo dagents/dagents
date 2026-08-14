@@ -39,6 +39,7 @@ interface CmdDef {
 const COMMANDS: readonly CmdDef[] = [
   { trigger: '@agent', label: '@agent', hint: '指定 Agent 执行', icon: 'agents', desc: '覆盖当前默认 Agent，用指定 Agent 执行任务' },
   { trigger: '@flow', label: '@flow', hint: '触发工作流', icon: 'flows', desc: '运行一个 AgentFlow 工作流，支持多步骤 DAG 编排' },
+  { trigger: '@workflow', label: '@workflow', hint: 'AI 创建工作流', icon: 'flows', desc: '用自然语言描述需求，AI 自动生成工作流画布' },
   { trigger: '@daemon', label: '@daemon', hint: '发送 Daemon 命令', icon: 'daemons', desc: '向 Daemon 发送原始命令（如 shell 指令）' },
 ] as const
 

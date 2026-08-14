@@ -4,36 +4,30 @@ import { auditRoutes } from './routes/audit.js'
 import { directoryRoutes } from './routes/directories.js'
 import { chatRoutes } from './routes/chats.js'
 import { agentsRoutes } from './routes/agents.js'
+import { agentInvokeRoutes } from './routes/agent-invoke.js'
 import { agentTemplateRoutes } from './routes/agent-templates.js'
 import { llmProviderRoutes } from './routes/llm-providers.js'
 import { workflowsRoutes } from './routes/workflows.js'
 import { cliRuntimeRoutes } from './routes/cli-runtimes.js'
-import { authRoutes, currentUser } from './routes/auth.js'
 import { internalRunsRoutes } from './routes/internal-runs.js'
 import { dispatchRoutes } from './routes/dispatch/index.js'
 import { createLogger } from '@dagents/shared'
-import { requireAuth, stampSsoUser, verifyApiKey, bearerFromRequest, type SsoContextVars } from './auth.js'
+import { requireAuth, verifyApiKey, bearerFromRequest } from './auth.js'
 
 // `app` is exported separately from the `serve()` entry so tests can drive it
 // via `app.request()` without binding a port. `index.ts` is the only place
-// that actually listens. The SSO context vars (`ssoUser`) are typed so routes
-// can `c.get('ssoUser')` without a cast.
-export const app = new Hono<{ Variables: SsoContextVars }>()
+// that actually listens.
+export const app = new Hono()
 
 app.get('/health', (c) => c.json({ ok: true, svc: 'gateway' }))
-
-// Auth routes (M5b.4 / P1.4.T2) mount before the session gate so login/session/
-// logout are reachable without a session — otherwise nobody could ever log in.
-app.route('/api/v1/auth', authRoutes)
 
 /**
  * Internal callback endpoints (Phase 1 / trial-readiness): daemons dial these
  * after an async task completes to write the assistant message + broadcast
- * chat:done. Mounted before the SSO session gate because internal services
- * authenticate via `x-internal-token` (matching INTERNAL_CALLBACK_TOKEN env),
- * not a browser session.
+ * chat:done. Internal services authenticate via `x-internal-token`
+ * (matching INTERNAL_CALLBACK_TOKEN env), not a browser session.
  *
- * ⚠️ Security: internal routes BYPASS SSO and rely SOLELY on `x-internal-token`
+ * ⚠️ Security: internal routes rely SOLELY on `x-internal-token`
  * for auth. The gateway binds 0.0.0.0 by default (see index.ts), so this surface
  * IS reachable from the network — operators MUST restrict `/internal/*` at the
  * network layer (firewall / service mesh / reverse-proxy allowlist) in
@@ -42,49 +36,33 @@ app.route('/api/v1/auth', authRoutes)
 app.route('/internal', internalRunsRoutes)
 
 /**
- * Gateway auth middleware (M5b.4 / P1.4.T2 + security hardening).
+ * Gateway auth middleware.
  *
- * Resolves the SSO session first (stamps `ssoUser` on the context for audit +
- * future RBAC). Then, when *any* auth is configured (`requireAuth()` true),
- * gates every non-public route. Auth is satisfied by EITHER a valid SSO
- * session OR a valid `GATEWAY_API_KEY` bearer token.
+ * The gateway is a local-machine service and runs open by default (no login).
+ * The only optional gate is `GATEWAY_API_KEY`: when set (16+ chars), every
+ * non-public route requires it as a bearer token — for operators who expose
+ * the gateway beyond localhost.
  *
  * Public routes (always reachable):
  *   - `/health`
- *   - `/api/v1/auth/*`  (login/session/logout)
  *   - `/api/v1/llm/*`   (LLM proxy; the upstream provider's own `sk-` token is the auth)
  *
  * Dispatch routes (`/api/v1/dispatch/*`) are passed through to per-route auth:
  *   - `register` requires `DAEMON_REGISTER_TOKEN` (when set)
  *   - `claim`/`heartbeat` require the daemon's own token (checked per-route)
- *
- * When no auth is configured (`requireAuth()` false) the middleware is a
- * no-op — the pre-M5b.4 open dev posture — so `pnpm test` + local dev without
- * any auth env keep working.
  */
 app.use('*', async (c, next) => {
-  // Resolve SSO session first (stamps user for audit).
-  const user = currentUser(c)
-  if (user) stampSsoUser(c, user)
-
   if (!requireAuth()) {
     await next()
     return
   }
 
-  // Auth is configured. Check public routes.
+  // API key gate is configured. Check public routes.
   const path = new URL(c.req.url).pathname
   const isPublic =
     path === '/health' ||
-    path.startsWith('/api/v1/auth/') ||
     path.startsWith('/api/v1/llm/')        // LLM proxy uses the provider's own API key as auth
   if (isPublic) {
-    await next()
-    return
-  }
-
-  // Check SSO session first.
-  if (user) {
     await next()
     return
   }
@@ -112,15 +90,12 @@ app.use('*', async (c, next) => {
 app.route('/api/v1/llm', llmRoutes)
 
 // Audit log query endpoint (M6.6 / P1.4.T6): read side of the audit trail.
-// ⚠️ admin-only once SSO (P1.4.T2) lands — the trail names actors + targets,
-// not for end users.
+// The trail names actors + targets — meant for the local operator, not end users.
 app.route('/api/v1/audit', auditRoutes)
 
 /**
  * Directory CRUD API: directories list + detail + create + update + delete
  * with chat_count subquery. Parameterised raw SQL via `runQuery`.
- * Gated by the SSO session middleware (M5b.4) under `REQUIRE_LOGIN=1`,
- * same posture as the other gateway-owned routes.
  */
 app.route('/api/v1/directories', directoryRoutes)
 
@@ -128,8 +103,6 @@ app.route('/api/v1/directories', directoryRoutes)
  * Chat CRUD API: chat list + detail + create + update + delete with messages.
  * Parameterised raw SQL via `runQuery`; message creation uses a transactional
  * CTE to atomically insert the message and update chat counters.
- * Gated by the SSO session middleware (M5b.4) under `REQUIRE_LOGIN=1`,
- * same posture as the other gateway-owned routes.
  */
 app.route('/api/v1/chats', chatRoutes)
 
@@ -142,32 +115,33 @@ app.route('/api/v1/chats', chatRoutes)
  * model/runtime/owner/activity[{total,ok,fail}]/status/availability/summary +
  * the design's run-context + derived fields). This is a *new* gateway-owned
  * read surface — distinct from the legacy dispatch `/api/v1/dispatch/agents/*`
- * proxy below, which returns the snake_case `agent_daemons` join. Gated by the
- * SSO session middleware (M5b.4) under `REQUIRE_LOGIN=1`, same posture as the
- * other gateway-owned reads; membership scoping is a follow-up (RBAC).
+ * proxy below, which returns the snake_case `agent_daemons` join.
  */
 app.route('/api/v1/agents', agentsRoutes)
 
 /**
+ * Synchronous one-shot agent invoke (POST /:id/invoke): spawn the agent's CLI
+ * backend and return the final text. Mounted at the same prefix as the
+ * catalogue routes above (Hono merges routers) — used by the canvas AI flow
+ * generator and any "run agent, get text" caller.
+ */
+app.route('/api/v1/agents', agentInvokeRoutes)
+
+/**
  * Agent Template Library (one-click agent creation): static catalogue of
  * pre-configured agent templates + an `instantiate` endpoint that writes a
- * real `agents` row from a template. Same SSO posture as the agents routes
- * above. Mounted alongside `/api/v1/agents` so the console's template gallery
- * proxy can sit next to the agents proxy.
+ * real `agents` row from a template. Mounted alongside `/api/v1/agents` so
+ * the console's template gallery proxy can sit next to the agents proxy.
  */
 app.route('/api/v1/agent-templates', agentTemplateRoutes)
 
 /**
  * LLM Provider CRUD API: llm provider list + detail + create + update + delete + test.
- * Gated by the SSO session middleware (M5b.4) under `REQUIRE_LOGIN=1`,
- * same posture as the other gateway-owned routes.
  */
 app.route('/api/v1/llm-providers', llmProviderRoutes)
 
 /**
  * Workflows CRUD API: workflow list + detail + create + update + delete.
- * Gated by the SSO session middleware (M5b.4) under `REQUIRE_LOGIN=1`,
- * same posture as the other gateway-owned routes.
  */
 app.route('/api/v1/workflows', workflowsRoutes)
 
@@ -187,10 +161,10 @@ app.route('/api/v1/cli-runtimes', cliRuntimeRoutes)
  * The 20 routes (daemons/tasks/agents/invoke/runs-usage/fleet-stats) + 2 service
  * modules live in `src/routes/dispatch/`.
  *
- * SSO posture: `/api/v1/dispatch/*` is on the public allowlist above — daemon
- * protocol paths are machine-to-machine and rely on network isolation (gateway
- * binds 127.0.0.1) rather than session auth. Production deployments should put
- * a reverse proxy with IP allowlist in front for the dispatch paths.
+ * Auth posture: `/api/v1/dispatch/*` routes are machine-to-machine and rely
+ * on network isolation (gateway binds 127.0.0.1) plus per-route daemon tokens
+ * rather than session auth. Production deployments should put a reverse proxy
+ * with IP allowlist in front for the dispatch paths.
  */
 app.route('/api/v1/dispatch', dispatchRoutes)
 

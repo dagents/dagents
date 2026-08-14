@@ -1,23 +1,19 @@
 /**
- * Shared header-forwarding for the console → gateway proxy routes (M5b.4).
+ * Shared header-forwarding for the console → gateway proxy routes.
  *
- * Every console API route forwards to the gateway. Two headers matter for
- * SSO + run_id threading (the M5b.4 acceptance bar "登录可用, 所有请求带 run_id"):
+ * Every console API route forwards to the gateway. The header that always
+ * matters is the run-id thread:
  *
  *  - `x-run-id` — always set. The caller (browser) attaches the per-page run
  *    id; `resolveRunId` generates one if absent so a request that arrived with
  *    none still leaves the console carrying one. The gateway's OTel run-entry
  *    span + audit trail key off this.
- *  - `cookie` — forwarded so the gateway's SSO session middleware sees the
- *    `mil_session` cookie the console's `/api/auth/*` routes set. Same-origin
- *    the browser sends it to the console route automatically; this forwards it
- *    the next hop to the gateway (a server-side fetch does NOT auto-attach
- *    cookies the way a browser does, so we copy the header explicitly).
  *
- * `authorization` is also forwarded when present — the LLM/token paths use a
- * caller `sk-` token and the chat path may carry one; read paths don't send
- * it, which is fine. Centralizing the three here means a new proxy route can't
- * forget the run id or the session cookie (the exact gap M5b.4 closes).
+ * `cookie` and `authorization` are also forwarded when present — there is no
+ * login (本机模式), but the LLM/token paths use a caller `sk-` token and a
+ * future hop may carry a gateway API key, so both headers pass through
+ * untouched. Centralizing them here means a new proxy route can't forget the
+ * run id (the exact gap this helper closes).
  */
 
 import type { NextRequest } from 'next/server'
@@ -36,10 +32,10 @@ export function forwardSessionHeaders(
   const headers: Record<string, string> = {
     'x-run-id': runId,
   }
-  // Forward the session cookie so the gateway's SSO middleware sees the caller.
-  // `req.cookies` is Hono/Next's parsed cookie bag; reconstructing the header
-  // from it (rather than copying the raw `cookie` header) normalizes spacing
-  // and avoids forwarding a malformed header a buggy client might send.
+  // Forward cookies verbatim (no login exists; kept so any future hop that
+  // relies on a cookie keeps working). `req.headers.get('cookie')` is the raw
+  // header — we copy it explicitly because a server-side fetch does NOT
+  // auto-attach cookies the way a browser does.
   const cookie = req.headers.get('cookie')
   if (cookie) headers['cookie'] = cookie
   const auth = req.headers.get('authorization')

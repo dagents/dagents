@@ -47,6 +47,83 @@
 .status-dot.dot-done { background: var(--meta); }
 .status-dot.dot-failed { background: var(--danger); }
 
+/* ─── local CLI section (auto-detected, inline execution) ─── */
+.local-cli-section {
+  margin-bottom: var(--space-5);
+}
+.local-cli-head {
+  display: flex;
+  align-items: center;
+  gap: var(--space-3);
+  margin-bottom: var(--space-2);
+  flex-wrap: wrap;
+}
+.local-cli-title {
+  font-size: var(--text-sm);
+  font-weight: 600;
+  color: var(--fg);
+  flex-shrink: 0;
+}
+.local-cli-sub {
+  font-size: var(--text-xs);
+  color: var(--meta);
+  min-width: 0;
+}
+.local-cli-grid {
+  display: grid;
+  grid-template-columns: repeat(auto-fill, minmax(215px, 1fr));
+  gap: var(--space-2);
+}
+.local-cli-card {
+  display: flex;
+  align-items: center;
+  gap: var(--space-2);
+  padding: var(--space-2) var(--space-3);
+  background: var(--bg);
+  border: 1px solid var(--border-soft);
+  border-radius: var(--radius-sm);
+  min-width: 0;
+}
+.local-cli-card .status-dot {
+  flex-shrink: 0;
+}
+.local-cli-card.unavailable {
+  opacity: 0.55;
+}
+.local-cli-name {
+  font-size: var(--text-sm);
+  font-weight: 500;
+  color: var(--fg);
+  flex-shrink: 0;
+}
+.local-cli-meta {
+  flex: 1;
+  min-width: 0;
+  font-size: var(--text-xs);
+  color: var(--meta);
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  text-align: right;
+}
+
+/* ─── remote daemons subhead ─── */
+.daemons-subhead {
+  display: flex;
+  align-items: baseline;
+  gap: var(--space-3);
+  margin: var(--space-2) 0 var(--space-2);
+}
+.daemons-subhead-title {
+  font-size: var(--text-sm);
+  font-weight: 600;
+  color: var(--fg);
+}
+.daemons-subhead-sub {
+  font-size: var(--text-xs);
+  color: var(--meta);
+}
+
 /* ─── daemon list ─── */
 .daemons-list {
   display: flex;
@@ -54,7 +131,8 @@
   gap: var(--space-2);
 }
 
-/* daemon card — single row, multica MachineRow style */
+/* daemon card — single row, multica MachineRow style. div[role=button] —
+   cursor set here because it's no longer a real <button>. */
 .daemon-card {
   display: flex;
   align-items: center;
@@ -63,6 +141,7 @@
   background: var(--bg);
   border: 1px solid var(--border-soft);
   border-radius: var(--radius-md);
+  cursor: pointer;
   transition: border-color var(--motion-fast), box-shadow var(--motion-fast), transform var(--motion-fast);
 }
 .daemon-card:hover {
@@ -205,7 +284,7 @@
   z-index: 1000;
 }
 .daemon-delete-dialog {
-  background: var(--bg-1);
+  background: var(--bg);
   border: 1px solid var(--border);
   border-radius: 12px;
   padding: var(--space-5);
@@ -680,6 +759,13 @@
   font-size: var(--text-sm);
   color: var(--muted);
   margin: 0;
+}
+
+.daemon-dialog-hint {
+  display: block;
+  font-size: var(--text-xs);
+  color: var(--meta);
+  margin-top: var(--space-1);
 }
 
 .daemon-dialog-cmd-row {

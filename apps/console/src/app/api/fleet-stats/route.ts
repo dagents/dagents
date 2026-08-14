@@ -13,9 +13,9 @@
  * sends the design's preset token as `?window=1h|24h|7d`; this proxy resolves
  * it to the numeric `windowHours` the dispatch server consumes (clamped to
  * 1–168) and forwards that upstream. A bare `?windowHours=N` is still honored
- * for back-compat with any direct numeric caller. M5b.4: `x-run-id` is always
- * threaded through (generated if absent) and the SSO session cookie is
- * forwarded, via the shared `forwardSessionHeaders`. Read-only — no body.
+ * for back-compat with any direct numeric caller. `x-run-id` is always
+ * threaded through (generated if absent), via the shared
+ * `forwardSessionHeaders`. Read-only — no body.
  */
 
 import { type NextRequest, NextResponse } from 'next/server'

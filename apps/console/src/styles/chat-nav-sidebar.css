@@ -417,11 +417,6 @@
   background: var(--success);
   border: 2px solid var(--surface-warm);
 }
-/* When the user is not authenticated, the status dot turns gray to avoid
-   the misleading "online" green. Matches the root-gate's unauthed state. */
-.chat-nav-user-avatar[data-authed="false"]::after {
-  background: var(--meta);
-}
 
 .chat-nav-user-info {
   display: flex;
@@ -554,8 +549,8 @@
   padding: 4px 8px;
   border: 1px solid var(--accent);
   border-radius: 6px;
-  background: var(--bg-1);
-  color: var(--fg-1);
+  background: var(--bg);
+  color: var(--fg);
   font-size: var(--text-sm);
   outline: none;
 }

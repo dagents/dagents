@@ -23,6 +23,7 @@ import {
   fetchAgentTemplates,
   instantiateAgentTemplate,
 } from '@/lib/agent-templates'
+import '@/styles/dialog.css'
 import '@/styles/agent-templates.css'
 
 type CategoryFilter = 'all' | AgentTemplateCategory

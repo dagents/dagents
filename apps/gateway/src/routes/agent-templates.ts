@@ -4,7 +4,6 @@ import { z } from 'zod'
 import { randomUUID } from 'node:crypto'
 import { runQuery } from '@dagents/db'
 import { createLogger } from '@dagents/shared'
-import type { SsoContextVars, SsoUser } from '../auth.js'
 
 /**
  * `/api/v1/agent-templates/*` — Agent Template Library (one-click agent creation).
@@ -24,14 +23,9 @@ import type { SsoContextVars, SsoUser } from '../auth.js'
  * executable_path), plus display-only fields the gallery renders (icon emoji,
  * description, category). `category` drives the gallery's filter tabs
  * (popular / coding / specialist).
- *
- * Auth: gated by the SSO session middleware under `REQUIRE_LOGIN=1`, same
- * posture as the other gateway-owned routes. The instantiate endpoint derives
- * `owner_id` from the session (`c.get('ssoUser').sub`) when the caller does not
- * supply one, so a browser flow with a valid session needs no extra headers.
  */
 
-export const agentTemplateRoutes = new Hono<{ Variables: SsoContextVars }>()
+export const agentTemplateRoutes = new Hono()
 
 const log = createLogger({ svc: 'gateway:agent-templates' })
 
@@ -175,8 +169,7 @@ agentTemplateRoutes.get('/', (c) => {
  * `workspace_id` defaults to the nil UUID (the agent is workspace-scoped at the
  * DB level; a zero workspace is the honest placeholder when the caller has no
  * workspace context — same posture as a fresh install before any workspace is
- * created). `owner_id` defaults to the SSO session's `sub` so a browser flow
- * needs no extra headers.
+ * created). `owner_id` defaults to `'system'` (no login — 本机模式).
  *
  * Returns `{ id }` (the new agent's id) on success. 404 when the template id is
  * unknown, 404 when a supplied daemon_id does not exist, 422 on INSERT failure.
@@ -206,9 +199,8 @@ agentTemplateRoutes.post('/:id/instantiate', async (c) => {
   }
 
   // Resolve the agent fields: template defaults overridable by the caller.
-  const ssoUser = c.get('ssoUser') as SsoUser | undefined
   const workspaceId = parsed.workspace_id ?? '00000000-0000-0000-0000-000000000000'
-  const ownerId = parsed.owner_id ?? ssoUser?.sub ?? 'system'
+  const ownerId = parsed.owner_id ?? 'system'
   const name = parsed.name ?? template.name
   const daemonId = parsed.daemon_id ?? null
 

@@ -15,9 +15,9 @@ import { fleetStatsRoutes } from './fleet-stats-route.js'
  * (runs-usage.ts, fleet-stats.ts) are co-located here. daemon clients dial the
  * gateway port (:8080) instead of a separate dispatch port.
  *
- * SSO posture: `/api/v1/dispatch/*` is on the gateway's SSO public allowlist
- * (see app.ts) — daemon protocol paths are machine-to-machine and rely on
- * network isolation (gateway binds 127.0.0.1) rather than session auth.
+ * Auth posture: daemon protocol paths are machine-to-machine and rely on
+ * network isolation (gateway binds 127.0.0.1) plus per-route daemon tokens
+ * rather than session auth (there is no login — 本机模式).
  *
  * Route files use the shared `ok` / `fail` envelope helpers exported below
  * (moved verbatim from the old dispatch `app.ts`).

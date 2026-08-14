@@ -6,8 +6,8 @@
  * The gateway 404s for an unknown agent id; that 404 is forwarded verbatim
  * so the drawer can show "agent not found" rather than a generic 502.
  *
- * M5b.4: `x-run-id` is always forwarded (generated if absent) and the SSO
- * session cookie is threaded through, via the shared `forwardSessionHeaders`.
+ * `x-run-id` is always forwarded (generated if absent), via the shared
+ * `forwardSessionHeaders`.
  */
 
 import { type NextRequest, NextResponse } from 'next/server'

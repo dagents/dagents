@@ -53,9 +53,8 @@ import { findAgentReferences } from '@dagents/workflow'
  * so we forward them verbatim (never re-stringify, mirroring the dispatch
  * routes' handling).
  *
- * Auth: gated by the SSO session middleware (M5b.4) under `REQUIRE_LOGIN=1`,
- * same posture as the other gateway-owned reads; membership scoping is a
- * follow-up (RBAC). `x-run-id` is forwarded best-effort for trace correlation.
+ * Auth: none — the gateway runs open (local-machine service); membership
+ * scoping is a non-goal. `x-run-id` is forwarded best-effort for trace correlation.
  */
 
 export const agentsRoutes = new Hono()

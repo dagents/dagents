@@ -4,13 +4,13 @@
  * Create Agent dialog (multica-inspired).
  *
  * Modal form for registering a new agent. Collects name / kind / workspace /
- * daemon / summary / visibility / executable_path, then POSTs /api/agents
- * (→ gateway POST /api/v1/agents). On success the parent reloads the list
- * and the dialog closes.
+ * execution target / summary / visibility / executable_path, then POSTs
+ * /api/agents (→ gateway POST /api/v1/agents). On success the parent reloads
+ * the list and the dialog closes.
  *
- * The gateway POST requires `workspaceId` (uuid) and `ownerId`. `ownerId` is
- * pulled from the session (`useSession().user.sub`); `workspaceId` has no
- * app-wide context today, so it is collected via a text input.
+ * The gateway POST only truly requires `name` + `kind`. There is no login
+ * (本机模式), so `ownerId` defaults to `'local'`; `workspaceId` is omitted —
+ * the gateway assigns the Default workspace (…0001) automatically.
  *
  * multica's full AgentCreationStudio (mode chooser → templates → AI builder)
  * is intentionally out of scope for the initial version — this is the simpler
@@ -20,7 +20,7 @@
 
 import { useEffect, useMemo, useRef, useState } from 'react'
 import { Icon } from '@/components/icon'
-import { useSession } from '@/lib/auth-client'
+import '@/styles/dialog.css'
 import {
   type AgentKind,
   type AgentKindGroup,
@@ -63,13 +63,9 @@ export function CreateAgentDialog({
   const [submitting, setSubmitting] = useState(false)
   const [error, setError] = useState<string | null>(null)
 
-  // Session — gateway POST requires ownerId (the current user's sub).
-  const { user } = useSession()
-
   // Form state
   const [name, setName] = useState('')
   const [kind, setKind] = useState<AgentKind>('prompt')
-  const [workspaceId, setWorkspaceId] = useState('')
   const [daemonId, setDaemonId] = useState('')
   const [summary, setSummary] = useState('')
   const [visibility, setVisibility] = useState<'workspace' | 'public'>('workspace')
@@ -92,8 +88,8 @@ export function CreateAgentDialog({
         const list = await fetchDaemons()
         if (cancelled) return
         setDaemons(list)
-        if (list.length > 0 && !daemonId) setDaemonId(list[0]!.id)
       } catch (err) {
+        // Daemon 列表加载失败不阻塞创建 — 默认"本机"不依赖它。
         if (!cancelled) setError(err instanceof Error ? err.message : String(err))
       } finally {
         if (!cancelled) setLoadingDaemons(false)
@@ -120,7 +116,6 @@ export function CreateAgentDialog({
     if (open) return
     setName('')
     setKind('prompt')
-    setWorkspaceId('')
     setDaemonId('')
     setSummary('')
     setVisibility('workspace')
@@ -156,10 +151,12 @@ export function CreateAgentDialog({
   if (!open) return null
 
   const nameValid = name.trim().length > 0 && name.trim().length <= 128
-  const workspaceValid = workspaceId.trim().length > 0
-  const daemonValid = daemonId.length > 0
-  const ownerId = user?.sub ?? ''
-  const canSubmit = nameValid && workspaceValid && daemonValid && ownerId.length > 0 && !submitting && !loadingDaemons
+  // 本机模式无登录：owner 固定 'local'（与 gateway POST 默认值一致）。
+  const ownerId = 'local'
+  // daemon 可选：默认"本机"走 inline 执行（gateway 直接 spawn CLI），只有绑定
+  // 远程 daemon 时才选具体条目（gateway 端 daemonId 本就是 optional）。
+  // workspace 同理不收集 — gateway 端默认 Default 工作区（...0001）。
+  const canSubmit = nameValid && !submitting && !loadingDaemons
 
   const handleSubmit = async () => {
     if (!canSubmit) return
@@ -169,12 +166,11 @@ export function CreateAgentDialog({
       const id = await createAgent({
         name: name.trim(),
         kind,
-        workspaceId: workspaceId.trim(),
         ownerId,
-        daemonId,
+        daemonId: daemonId || undefined,
         executablePath: executablePath.trim() || null,
         visibility,
-        summary: summary.trim() || null,
+        summary: summary.trim() || undefined,
       })
       onCreated(id)
     } catch (err) {
@@ -232,17 +228,6 @@ export function CreateAgentDialog({
                   />
                 </div>
                 <div className="field">
-                  <label htmlFor="agent-workspace">工作区 ID *</label>
-                  <input
-                    id="agent-workspace"
-                    type="text"
-                    className={`input${workspaceId.length === 0 ? '' : workspaceValid ? '' : ' invalid'}`}
-                    value={workspaceId}
-                    onChange={(e) => setWorkspaceId(e.target.value)}
-                    placeholder="例如 00000000-0000-4000-8000-000000000000"
-                  />
-                </div>
-                <div className="field">
                   <label htmlFor="agent-summary">描述</label>
                   <textarea
                     id="agent-summary"
@@ -283,16 +268,17 @@ export function CreateAgentDialog({
                   </div>
                 </div>
                 <div className="field">
-                  <label htmlFor="agent-daemon">Daemon *</label>
+                  <label htmlFor="agent-daemon">执行位置</label>
                   <select
                     id="agent-daemon"
                     className="select"
                     value={daemonId}
                     onChange={(e) => setDaemonId(e.target.value)}
                   >
+                    <option value="">本机（inline 直接执行，无需 daemon）</option>
                     {daemons.map((d) => (
                       <option key={d.id} value={d.id}>
-                        {d.label}（{d.status}）
+                        Daemon · {d.label}（{d.status}）
                       </option>
                     ))}
                   </select>

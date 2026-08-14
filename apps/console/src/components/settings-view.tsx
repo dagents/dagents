@@ -1045,7 +1045,6 @@ const ACCOUNT_KV = [
   ['姓名', '饶哲'],
   ['邮箱', 'rz@team.dev'],
   ['角色', 'owner'],
-  ['SSO', '已绑定 · Google'],
   ['默认 workspace', '论文复现 · RL'],
 ] as const
 

@@ -26,14 +26,9 @@ import { defineConfig, devices } from '@playwright/test'
  * already runs against a console booted on a free port pointed at via
  * `E2E_PORT`; the same override works for the design-fidelity suite.
  *
- * Auth: these e2e POST the gateway directly (`/api/v1/tasks`) and rely on the
- * agents picker resolving from `/api/agents`. The gateway's SSO session gate
- * is a no-op when `SSO_SESSION_SECRET` is unset (the open dev posture), and
- * `REQUIRE_LOGIN=1` is only honored when SSO is configured. So a plain dev
- * stack (no SSO) runs auth-free. On a stack with SSO + `REQUIRE_LOGIN=1`,
- * `postDirectTask` would 401 — the spec asserts the HTTP status so that 401
- * surfaces as a clear failure rather than a misleading assertion. Run e2e
- * against a stack with SSO gated off, or arrange a dev login first.
+ * Auth: none — login was removed (本机模式), the gateway runs open. These e2e
+ * POST the gateway directly (`/api/v1/tasks`) and rely on the agents picker
+ * resolving from `/api/agents`; no login bootstrap is needed.
  *
  * Browsers: Chromium only. The 9-viewport visual matrix is MZW-309 (M10.2),
  * not here.

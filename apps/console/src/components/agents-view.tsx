@@ -74,7 +74,7 @@ const SCOPE_TABS: { key: Scope; label: string }[] = [
 type SortField = 'name' | 'load'
 
 function isArchived(a: CatalogAgent): boolean {
-  return a.status === 'failed' || a.status === 'paused'
+  return a.visibility === 'archived'
 }
 
 function compareAgents(a: CatalogAgent, b: CatalogAgent, field: SortField): number {

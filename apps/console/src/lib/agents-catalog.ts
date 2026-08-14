@@ -615,15 +615,17 @@ export async function fetchDaemons(): Promise<DaemonOption[]> {
 }
 
 /** Request body for createAgent — matches gateway POST /api/v1/agents schema.
- *  Required: name, kind, workspaceId, ownerId. */
+ *  Required: name, kind. */
 export interface CreateAgentRequest {
   name: string
   kind: AgentKind
-  /** Required by gateway — the workspace this agent belongs to. */
-  workspaceId: string
-  /** Required by gateway — the owner's user id (from session). */
-  ownerId: string
-  daemonId: string
+  /** Optional — gateway assigns the Default workspace (…0001) when omitted. */
+  workspaceId?: string
+  /** Owner id. 本机模式无登录，固定 'local'（与 gateway 默认值一致）。 */
+  ownerId?: string
+  /** Optional — omit for inline execution (gateway spawns the CLI directly,
+   *  no daemon needed); set only to bind the agent to a remote daemon. */
+  daemonId?: string
   executablePath?: string | null
   visibility?: 'workspace' | 'public' | null
   summary?: string | null

@@ -17,7 +17,6 @@ import { usePathname, useRouter } from 'next/navigation'
 import Link from 'next/link'
 import { Icon } from '@/components/icon'
 import { NAV } from '@/components/nav'
-import { useSession } from '@/lib/auth-client'
 import { fetchDirectories, pickDirectory, createDirectory, type Directory } from '@/lib/directories'
 import { fetchChats, createChat, updateChat, deleteChat, type Chat } from '@/lib/chats'
 import { ThemeToggle } from '@/components/theme-toggle'
@@ -67,7 +66,6 @@ function sanitizeChatTitle(raw: string, max = 80): string {
 export function ChatNavSidebar({ collapsed }: ChatNavSidebarProps): React.ReactElement {
   const pathname = usePathname() ?? '/'
   const router = useRouter()
-  const { user } = useSession()
   const [directories, setDirectories] = useState<Directory[]>([])
   const [chatsByDir, setChatsByDir] = useState<Record<string, Chat[]>>({})
   const [expandedDirs, setExpandedDirs] = useState<Set<string>>(new Set())
@@ -484,25 +482,17 @@ export function ChatNavSidebar({ collapsed }: ChatNavSidebarProps): React.ReactE
         )}
       </div>
 
-      {/* User footer */}
+      {/* User footer — 本机模式，无登录 */}
       <div className="chat-nav-footer">
-        <Link href={user ? '/' : '/login'} className="chat-nav-user">
-          <div
-            className="chat-nav-user-avatar"
-            data-authed={user ? 'true' : 'false'}
-            title={user ? undefined : '未登录 — 点击登录'}
-          >
-            {user ? (
-              user.name.slice(0, 1).toUpperCase()
-            ) : (
-              <Icon name="user" style={{ width: 14, height: 14 }} />
-            )}
+        <div className="chat-nav-user" title="本机模式 — 无需登录">
+          <div className="chat-nav-user-avatar">
+            <Icon name="user" style={{ width: 14, height: 14 }} />
           </div>
           <div className="chat-nav-user-info">
-            <span className="chat-nav-user-name">{user?.name ?? '未登录'}</span>
-            <span className="chat-nav-user-plan">{user ? '专业版' : '点击登录'}</span>
+            <span className="chat-nav-user-name">本地工作台</span>
+            <span className="chat-nav-user-plan">本机模式</span>
           </div>
-        </Link>
+        </div>
         <ThemeToggle />
         <Link
           href="/settings"

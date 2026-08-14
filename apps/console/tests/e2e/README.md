@@ -66,7 +66,7 @@ The e2e suite needs the **full dagents dev stack** up:
 
 ### Auth posture
 
-The dev stack runs **auth-free** when `SSO_SESSION_SECRET` is unset (the open dev posture). `REQUIRE_LOGIN=1` is only honored when SSO is configured. Run e2e against an SSO-gated-off stack, or arrange a dev login first.
+Login was removed — the stack runs **auth-free** by design (本机模式). No login bootstrap is needed for e2e.
 
 ---
 

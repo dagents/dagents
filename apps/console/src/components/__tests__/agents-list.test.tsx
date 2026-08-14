@@ -30,24 +30,10 @@ vi.mock('next/navigation', () => ({
   usePathname: () => '/agents',
 }))
 
-// `CreateAgentDialog` (mounted inside AgentsView) calls `useSession()` before
-// its `open` guard, so the hook must resolve even though the list-page test
-// never opens the dialog. Stub the session with an unauthed value — the dialog
-// is never submitted in this suite, so a null user is sufficient.
-vi.mock('@/lib/auth-client', () => ({
-  useSession: () => ({
-    user: null,
-    status: 'unauthed' as const,
-    refresh: vi.fn(),
-    logout: vi.fn(),
-  }),
-  SessionProvider: ({ children }: { children: React.ReactNode }) => children,
-}))
-
 // A raw snake_case `AgentListRow[]` envelope — what `GET /api/agents` returns
 // from dispatch (before `fetchAgents` maps it). reader-04 (running) and
-// coder-12 (queued) are non-archived (my/all); fetcher-18 (failed) archives
-// under `isArchived` (status === 'failed'). Kinds cover the 4 filter chips
+// coder-12 (queued) are non-archived (my/all); fetcher-18 archives under
+// `isArchived` (visibility === 'archived'). Kinds cover the 4 filter chips
 // (claude/codex/remote).
 //
 // Loads are derived deterministically: reader-04 running with no
@@ -113,7 +99,7 @@ const AGENTS_FIXTURE = {
         tags: ['reader'],
       },
       executable_path: 'fetch',
-      visibility: 'workspace',
+      visibility: 'archived',
       created_at: '2026-06-25T15:00:00Z',
       daemon_label: 'daemon-31',
       daemon_status: 'offline',

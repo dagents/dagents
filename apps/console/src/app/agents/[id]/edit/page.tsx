@@ -77,90 +77,94 @@ export default function AgentEditPage({ params }: { params: Promise<{ id: string
 
   return (
     <div className="page" style={{ padding: 'var(--space-6)', maxWidth: 640 }}>
-      <div className="mb-4">
-        <Link className="detail-back" href={`/agents/${encodeURIComponent(id)}`}>
-          <Icon name="chevronLeft" style={{ width: 16, height: 16 }} />
+      <div style={{ marginBottom: 'var(--space-4)' }}>
+        <Link className="btn btn-ghost btn-sm" href={`/agents/${encodeURIComponent(id)}`}>
+          <Icon name="chevronLeft" style={{ width: 14, height: 14 }} />
           返回 Agent 详情
         </Link>
       </div>
 
-      <h1 className="mb-6" style={{ fontSize: 'var(--text-xl)', fontWeight: 600 }}>编辑 Agent</h1>
+      <h1 style={{ fontSize: 'var(--text-xl)', fontWeight: 600, margin: '0 0 var(--space-6)' }}>编辑 Agent</h1>
 
       {error && (
-        <div className="mb-4" style={{ color: 'var(--danger)', fontSize: 'var(--text-sm)' }}>{error}</div>
+        <div className="modal-error" style={{ marginTop: 0, marginBottom: 'var(--space-4)' }}>{error}</div>
       )}
 
-      <div className="mb-4">
-        <label className="block mb-1" style={{ fontSize: 'var(--text-sm)', color: 'var(--fg-2)' }}>名称</label>
-        <input
-          type="text"
-          className="agent-edit-input"
-          value={data.name}
-          onChange={(e) => setData((d) => ({ ...d, name: e.target.value }))}
-          style={{ width: '100%', padding: '8px 12px', borderRadius: 6, border: '1px solid var(--border)', background: 'var(--bg-1)', color: 'var(--fg)' }}
-        />
-      </div>
+      {/* Fields use the global form system (.field / .input / .textarea / .select
+          from shell.css) — same visual language as every other form in the app. */}
+      <div style={{ display: 'flex', flexDirection: 'column', gap: 'var(--space-5)' }}>
+        <div className="field">
+          <label htmlFor="edit-name">名称</label>
+          <input
+            id="edit-name"
+            type="text"
+            className="input"
+            value={data.name}
+            onChange={(e) => setData((d) => ({ ...d, name: e.target.value }))}
+          />
+        </div>
 
-      <div className="mb-4">
-        <label className="block mb-1" style={{ fontSize: 'var(--text-sm)', color: 'var(--fg-2)' }}>简介</label>
-        <input
-          type="text"
-          className="agent-edit-input"
-          value={data.summary}
-          onChange={(e) => setData((d) => ({ ...d, summary: e.target.value }))}
-          style={{ width: '100%', padding: '8px 12px', borderRadius: 6, border: '1px solid var(--border)', background: 'var(--bg-1)', color: 'var(--fg)' }}
-        />
-      </div>
+        <div className="field">
+          <label htmlFor="edit-summary">简介</label>
+          <input
+            id="edit-summary"
+            type="text"
+            className="input"
+            value={data.summary}
+            onChange={(e) => setData((d) => ({ ...d, summary: e.target.value }))}
+          />
+        </div>
 
-      <div className="mb-4">
-        <label className="block mb-1" style={{ fontSize: 'var(--text-sm)', color: 'var(--fg-2)' }}>指令 (Instructions)</label>
-        <textarea
-          className="agent-edit-input"
-          rows={5}
-          value={data.instructions}
-          onChange={(e) => setData((d) => ({ ...d, instructions: e.target.value }))}
-          style={{ width: '100%', padding: '8px 12px', borderRadius: 6, border: '1px solid var(--border)', background: 'var(--bg-1)', color: 'var(--fg)', resize: 'vertical' }}
-        />
-      </div>
+        <div className="field">
+          <label htmlFor="edit-instructions">指令 (Instructions)</label>
+          <textarea
+            id="edit-instructions"
+            className="textarea"
+            rows={5}
+            value={data.instructions}
+            onChange={(e) => setData((d) => ({ ...d, instructions: e.target.value }))}
+          />
+        </div>
 
-      <div className="mb-4">
-        <label className="block mb-1" style={{ fontSize: 'var(--text-sm)', color: 'var(--fg-2)' }}>模型</label>
-        <input
-          type="text"
-          className="agent-edit-input"
-          value={data.model}
-          onChange={(e) => setData((d) => ({ ...d, model: e.target.value }))}
-          placeholder="留空使用 CLI 默认模型"
-          style={{ width: '100%', padding: '8px 12px', borderRadius: 6, border: '1px solid var(--border)', background: 'var(--bg-1)', color: 'var(--fg)' }}
-        />
-      </div>
+        <div className="field">
+          <label htmlFor="edit-model">模型</label>
+          <input
+            id="edit-model"
+            type="text"
+            className="input"
+            value={data.model}
+            onChange={(e) => setData((d) => ({ ...d, model: e.target.value }))}
+            placeholder="留空使用 CLI 默认模型"
+          />
+        </div>
 
-      <div className="mb-6">
-        <label className="block mb-1" style={{ fontSize: 'var(--text-sm)', color: 'var(--fg-2)' }}>可见性</label>
-        <select
-          className="agent-edit-input"
-          value={data.visibility}
-          onChange={(e) => setData((d) => ({ ...d, visibility: e.target.value }))}
-          style={{ width: '100%', padding: '8px 12px', borderRadius: 6, border: '1px solid var(--border)', background: 'var(--bg-1)', color: 'var(--fg)' }}
-        >
-          <option value="workspace">Workspace</option>
-          <option value="public">Public</option>
-          <option value="archived">Archived</option>
-        </select>
-      </div>
+        <div className="field">
+          <label htmlFor="edit-visibility">可见性</label>
+          <select
+            id="edit-visibility"
+            className="select"
+            value={data.visibility}
+            onChange={(e) => setData((d) => ({ ...d, visibility: e.target.value }))}
+          >
+            <option value="workspace">工作区</option>
+            <option value="public">公开</option>
+            <option value="archived">已归档</option>
+          </select>
+        </div>
 
-      <div className="flex gap-2">
-        <button
-          type="button"
-          className="btn btn-primary btn-sm"
-          onClick={() => void handleSave()}
-          disabled={saving || !data.name}
-        >
-          {saving ? '保存中…' : '保存'}
-        </button>
-        <Link href={`/agents/${encodeURIComponent(id)}`} className="btn btn-ghost btn-sm">
-          取消
-        </Link>
+        <div style={{ display: 'flex', gap: 'var(--space-2)' }}>
+          <button
+            type="button"
+            className="btn btn-primary btn-sm"
+            onClick={() => void handleSave()}
+            disabled={saving || !data.name}
+          >
+            {saving ? '保存中…' : '保存'}
+          </button>
+          <Link href={`/agents/${encodeURIComponent(id)}`} className="btn btn-ghost btn-sm">
+            取消
+          </Link>
+        </div>
       </div>
     </div>
   )

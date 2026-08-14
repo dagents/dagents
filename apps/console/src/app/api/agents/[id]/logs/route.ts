@@ -6,8 +6,8 @@
  * Returns the mapped `{ logs: [{ ts, level, msg }] }` envelope for the
  * drawer's `.log` section.
  *
- * M5b.4: `x-run-id` is always forwarded (generated if absent) and the SSO
- * session cookie is threaded through, via the shared `forwardSessionHeaders`.
+ * `x-run-id` is always forwarded (generated if absent), via the shared
+ * `forwardSessionHeaders`.
  */
 
 import { type NextRequest, NextResponse } from 'next/server'

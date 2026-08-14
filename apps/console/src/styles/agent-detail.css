@@ -219,7 +219,7 @@
   backdrop-filter: blur(2px);
 }
 .agent-delete-dialog {
-  background: var(--bg-1);
+  background: var(--bg);
   border: 1px solid var(--border);
   border-radius: 12px;
   padding: var(--space-5);
@@ -230,7 +230,7 @@
 .agent-delete-title {
   font-size: var(--text-lg);
   font-weight: 600;
-  color: var(--fg-1);
+  color: var(--fg);
   margin-bottom: var(--space-2);
 }
 .agent-delete-desc {

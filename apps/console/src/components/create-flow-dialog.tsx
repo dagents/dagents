@@ -14,6 +14,7 @@
 
 import { useEffect, useState } from 'react'
 import { Icon } from '@/components/icon'
+import '@/styles/dialog.css'
 
 interface CreateFlowResponse {
   id: string

@@ -36,9 +36,8 @@ import { createSeedContext, seedDirectory, seedChat, type SeedContext } from './
  * `playwright.config.ts` webServer only owns the Next dev process (baseURL,
  * :3000 by default — override with `E2E_PORT`).
  *
- * Auth: on the open dev stack (no SSO) `REQUIRE_LOGIN` is off, so the sidebar
- * renders for everyone after the brief `loading` session-resolve window; the
- * assertions auto-wait on sidebar elements so that window is absorbed.
+ * Auth: none — login was removed (本机模式), the sidebar renders immediately;
+ * assertions auto-wait on sidebar elements regardless.
  *
  * ## Seed
  *

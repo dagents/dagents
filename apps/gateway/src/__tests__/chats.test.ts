@@ -130,9 +130,14 @@ describe('GET /api/v1/chats — list by directory', () => {
     expect(bIdx).toBeLessThan(aIdx)
   })
 
-  it('requires directory_id query param (400 if missing)', async () => {
+  it('lists across directories when directory_id is omitted (200, not 400)', async () => {
+    // NEW-013 (6542f02) made directory_id optional so search/all-chats views
+    // can list without a directory scope.
     const res = await app.request('/api/v1/chats', { method: 'GET' })
-    expect(res.status).toBe(400)
+    expect(res.status).toBe(200)
+    const body = (await res.json()) as { success: boolean; data: { items: unknown[] } }
+    expect(body.success).toBe(true)
+    expect(Array.isArray(body.data.items)).toBe(true)
   })
 })
 

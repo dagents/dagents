@@ -7,9 +7,12 @@
 
 /* The gallery modal is wider than the create-agent dialog so the
    card grid has room to breathe. The base .modal-dialog rule (in
-   agents.css) sets the shell; .atg-dialog just widens it. */
+   dialog.css) sets the shell; .atg-dialog widens it and pins the
+   height — switching category tabs (different card counts) or opening
+   the confirm step must not resize the dialog; the body scrolls. */
 .modal-dialog.atg-dialog {
   width: 720px;
+  height: min(680px, 85vh);
 }
 
 /* ─── category filter tabs ──────────────────────────────────── */

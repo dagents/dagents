@@ -3,14 +3,15 @@ import type { ContentfulStatusCode } from 'hono/utils/http-status'
 import { randomUUID } from 'node:crypto'
 import { runQuery } from '@dagents/db'
 import { createLogger } from '@dagents/shared'
-import { DagExecutor, NodeRegistry, allNodes, type FlowData } from '@dagents/workflow'
+import { DagExecutor, NodeRegistry, allNodes, CANVAS_NODES, type FlowData } from '@dagents/workflow'
 import { executeInline } from '../inline-executor.js'
 import { persistComplete } from './internal-runs-helpers.js'
 import { enqueueTask } from './dispatch/service.js'
+import { createLlmClient } from './workflow-clients.js'
 
 const log = createLogger({ svc: 'gateway:chat-execute' })
 
-export type CommandKind = 'flow' | 'daemon' | 'agent'
+export type CommandKind = 'flow' | 'daemon' | 'agent' | 'workflow'
 
 export interface ParsedCommand {
   kind: CommandKind
@@ -30,11 +31,16 @@ export function parseCommand(content: string): ParsedCommand | null {
   if (!content.startsWith('@')) return null
   const parts = content.slice(1).split(/\s+/)
   const kind = parts[0]
-  if (kind !== 'flow' && kind !== 'daemon' && kind !== 'agent') return null
+  if (kind !== 'flow' && kind !== 'daemon' && kind !== 'agent' && kind !== 'workflow') return null
 
   if (kind === 'daemon') {
     const message = parts.slice(1).join(' ').trim()
     return { kind: 'daemon', target: null, message }
+  }
+
+  if (kind === 'workflow') {
+    const message = parts.slice(1).join(' ').trim()
+    return { kind: 'workflow', target: null, message }
   }
 
   const target = parts[1] ?? ''
@@ -239,6 +245,8 @@ async function routeCommand(
       return routeFlowCommand(chatId, cmd, systemMessageId)
     case 'daemon':
       return routeDaemonCommand(chatId, cmd, systemMessageId)
+    case 'workflow':
+      return routeWorkflowCommand(chatId, cmd, systemMessageId)
   }
 }
 
@@ -522,6 +530,169 @@ async function routeFlowCommand(
   }
 }
 
+/**
+ * Route a @workflow command: use the configured LLM provider to generate a
+ * FlowData JSON from the user's natural-language description, persist it as
+ * a new flow in the `flows` table, then reply in chat with a link to the
+ * canvas editor.
+ *
+ * The LLM is prompted with the full list of registered node types (from
+ * CANVAS_NODES) so it knows which `data.name` values are valid. The response
+ * is parsed as JSON; if parsing fails, we fall back to a minimal Start → LLM
+ * → DirectReply flow.
+ *
+ * Returns immediately with an ack payload; the actual LLM call + DB insert
+ * happen asynchronously (fire-and-forget) and the result is pushed via
+ * `persistComplete` → WebSocket `chat:done`.
+ */
+async function routeWorkflowCommand(
+  chatId: string,
+  cmd: ParsedCommand,
+  systemMessageId: string | undefined,
+): Promise<RouteResult> {
+  const runId = randomUUID()
+  const userDesc = cmd.message || '创建一个简单的工作流'
+
+  // Fire-and-forget — LLM call + DB insert happen async, result pushed via WS.
+  void (async () => {
+    const startedAt = Date.now()
+    try {
+      // 1. Build the system prompt with node type reference
+      const nodeNames = CANVAS_NODES.map((n) => `${n.name} (${n.label})`).join(', ')
+      const systemPrompt = `You are a workflow designer for the Dagents platform.
+Given a user's description, generate a valid FlowData JSON object with "nodes" and "edges" arrays.
+
+Available node types (use these EXACT values in data.name):
+${nodeNames}
+
+Rules:
+- Every flow MUST start with a node whose data.name is "startAgentflow"
+- Use unique node ids like "node_1", "node_2", etc.
+- Each node MUST have: id, type: "customNode", position: {x, y}, data: { name, label, ...config }
+- Edges connect nodes: { id: "edge_1", source: "node_1", target: "node_2" }
+- For LLM nodes (data.name: "llmAgentflow"), set data.model and data.systemPrompt
+- For DirectReply nodes (data.name: "directReplyAgentflow"), set data.content
+- Position nodes in a left-to-right layout with ~250px spacing
+- Return ONLY the JSON object, no markdown fences, no explanation
+
+Example structure:
+{"nodes":[{"id":"node_1","type":"customNode","position":{"x":0,"y":200},"data":{"name":"startAgentflow","label":"Start"}},{"id":"node_2","type":"customNode","position":{"x":250,"y":200},"data":{"name":"llmAgentflow","label":"LLM","model":"","systemPrompt":"You are helpful."}},{"id":"node_3","type":"customNode","position":{"x":500,"y":200},"data":{"name":"directReplyAgentflow","label":"Direct Reply","content":"Done"}}],"edges":[{"id":"edge_1","source":"node_1","target":"node_2"},{"id":"edge_2","source":"node_2","target":"node_3"}]}`
+
+      // 2. Call LLM to generate the flow JSON
+      const llm = createLlmClient()
+      const llmResult = await llm.chat({
+        model: '',
+        messages: [
+          { role: 'system', content: systemPrompt },
+          { role: 'user', content: userDesc },
+        ],
+        temperature: 0.7,
+      })
+
+      // 3. Parse the generated JSON
+      let flowData: FlowData
+      try {
+        // Strip markdown fences if present
+        const cleaned = llmResult.text
+          .replace(/^```(?:json)?\s*/i, '')
+          .replace(/\s*```\s*$/, '')
+          .trim()
+        flowData = JSON.parse(cleaned) as FlowData
+
+        // Basic validation
+        if (!Array.isArray(flowData.nodes) || !Array.isArray(flowData.edges)) {
+          throw new Error('missing nodes or edges arrays')
+        }
+        if (flowData.nodes.length === 0) {
+          throw new Error('empty nodes array')
+        }
+      } catch (parseErr) {
+        log.warn('routeWorkflowCommand LLM output parse failed, using fallback', {
+          chatId, runId, error: String(parseErr),
+          rawOutput: llmResult.text.slice(0, 300),
+        })
+        // Fallback: minimal Start → LLM → DirectReply
+        flowData = {
+          nodes: [
+            { id: 'node_1', type: 'customNode', position: { x: 0, y: 200 }, data: { name: 'startAgentflow', label: 'Start' } },
+            { id: 'node_2', type: 'customNode', position: { x: 250, y: 200 }, data: { name: 'llmAgentflow', label: 'LLM', model: '', systemPrompt: userDesc } },
+            { id: 'node_3', type: 'customNode', position: { x: 500, y: 200 }, data: { name: 'directReplyAgentflow', label: 'Direct Reply', content: '' } },
+          ],
+          edges: [
+            { id: 'edge_1', source: 'node_1', target: 'node_2' },
+            { id: 'edge_2', source: 'node_2', target: 'node_3' },
+          ],
+        }
+      }
+
+      // 4. Generate a flow name from the user description
+      const flowName = userDesc.slice(0, 40).trim() || 'AI生成的工作流'
+
+      // 5. Persist to DB
+      const { records } = await runQuery<{ id: string }>(
+        `INSERT INTO flows (name, description, flow_data, status)
+         VALUES ($1, $2, $3, 'draft')
+         RETURNING id`,
+        [flowName, `由聊天 @workflow 命令生成: ${userDesc}`, JSON.stringify(flowData)],
+      )
+      const flowId = records[0]?.id
+
+      if (!flowId) {
+        throw new Error('flow insert returned no id')
+      }
+
+      log.info('routeWorkflowCommand flow created', { chatId, runId, flowId, nodeCount: flowData.nodes.length })
+
+      // 6. Reply in chat with canvas link
+      const nodeCount = flowData.nodes.length
+      const canvasUrl = `/workflows/${flowId}/canvas`
+      const output = [
+        `✅ 工作流已创建！`,
+        ``,
+        `**名称**: ${flowName}`,
+        `**节点数**: ${nodeCount}`,
+        `**描述**: ${userDesc}`,
+        ``,
+        `👉 [打开画布编辑](${canvasUrl})`,
+        ``,
+        `你可以在画布中调整节点参数，然后点击"发布"来运行它。`,
+      ].join('\n')
+
+      await persistComplete({
+        chatId,
+        runId,
+        output,
+        status: 'completed',
+        durationMs: Date.now() - startedAt,
+      })
+    } catch (err) {
+      log.error('routeWorkflowCommand failed', { chatId, runId, error: String(err) })
+      try {
+        await persistComplete({
+          chatId,
+          runId,
+          output: `工作流创建失败: ${String(err)}`,
+          status: 'failed',
+          durationMs: Date.now() - startedAt,
+        })
+      } catch (persistErr) {
+        log.error('routeWorkflowCommand persistComplete failed', { chatId, runId, error: String(persistErr) })
+      }
+    }
+  })()
+
+  return {
+    mode: 'json',
+    payload: {
+      ack: `⚡ 正在用 AI 生成工作流: ${userDesc}`,
+      command: cmd,
+      systemMessageId,
+      runId,
+    },
+    systemMessageId,
+  }
+}
+
 async function writeErrorSystemMessage(chatId: string, text: string): Promise<void> {
   await runQuery(
     `INSERT INTO chat_messages (chat_id, role, content, created_at) VALUES ($1::uuid, 'system', $2, NOW())`,
@@ -644,6 +815,8 @@ function formatCommandAck(cmd: ParsedCommand): { text: string } {
       return { text: `⚡ Daemon invoked: ${cmd.message}` }
     case 'agent':
       return { text: `⚡ Routed to agent: ${cmd.target}` }
+    case 'workflow':
+      return { text: `⚡ 正在工作流生成中: ${cmd.message}` }
   }
 }
 
