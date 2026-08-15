@@ -31,6 +31,17 @@ import { persistComplete } from './routes/internal-runs-helpers.js'
 const log = createLogger({ svc: 'gateway:inline-executor' })
 
 /**
+ * inline 执行器支持的 agent kind（CLI 运行时）。
+ * routeMessage 的 auto 兜底也用它过滤掉 remote 等需要 daemon 的类型，
+ * 避免新会话默认绑定到无法本机执行的 agent。
+ */
+export const INLINE_SUPPORTED_KINDS = [
+  'claude', 'codex', 'qwen', 'copilot', 'opencode',
+  'codebuddy', 'cursor', 'deveco', 'antigravity', 'openclaw', 'pi',
+  'hermes', 'kimi', 'kiro', 'grok', 'qoder', 'traecli',
+] as const
+
+/**
  * Reference price table (USD per 1M tokens) for Anthropic models.
  *
  * ⚠️ These are ONLY used as a fallback when the actual provider's pricing
@@ -160,7 +171,11 @@ export async function executeInline(
       )
       const daemonRow = daemonRows[0]
       if (!daemonRow) {
-        await reportError(chatId, runId, `agent not found: ${agentId}`)
+        await reportError(
+          chatId,
+          runId,
+          `本会话绑定的 Agent 已不存在（可能已被删除）。请在输入框左侧的 Agent 选择器重新选择一个 Agent 后重试。`,
+        )
         return
       }
       agentName = daemonRow.name
@@ -178,13 +193,15 @@ export async function executeInline(
     }
 
     // 使用 createBackend factory 支持所有已适配的 agent CLI
-    const supportedKinds = [
-      'claude', 'codex', 'qwen', 'copilot', 'opencode',
-      'codebuddy', 'cursor', 'deveco', 'antigravity', 'openclaw', 'pi',
-      'hermes', 'kimi', 'kiro', 'grok', 'qoder', 'traecli',
-    ]
-    if (!supportedKinds.includes(agentKind)) {
-      await reportError(chatId, runId, `inline executor only supports [${supportedKinds.join(', ')}], got '${agentKind}'`)
+    if (!(INLINE_SUPPORTED_KINDS as readonly string[]).includes(agentKind)) {
+      const supported = INLINE_SUPPORTED_KINDS.join(', ')
+      await reportError(
+        chatId,
+        runId,
+        `Agent「${agentName}」的运行时类型为 ${agentKind}，无法在本机直接执行` +
+          `（支持本机执行的类型：${supported}）。` +
+          `请在输入框左侧的 Agent 选择器切换为 CLI 类型的 Agent，或为该 Agent 启动对应的 Daemon 后重试。`,
+      )
       return
     }
   } catch (err) {

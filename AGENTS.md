@@ -60,8 +60,9 @@ console (Next) → gateway (Hono) → @dagents/workflow engine
 
 ## 已知问题
 
-- **openclaw agent 需 Node ≥22.22.3**：当前系统 node v22.22.0 不满足，openclaw 会 spawn 失败（重试 3 次后报错）。需要升级 node 或切换其他 agent。
 - **旧 mil-agents 僵尸进程**：`mil-agents-main` 项目可能有残留 tsx watch 进程（PID 61329），不占端口但耗内存，定期清理。
+- **remote 类型 Agent 需 Daemon 在线**：`auto` 路由已优先选择 CLI 类型 Agent（2026-08-15 修复）；库里残留的 remote Agent（如 "test"）手动选中时会收到引导性报错，建议清理或为其启动 Daemon。
+- ~~openclaw agent 需 Node ≥22.22.3~~：已解决 — 系统 node 已升级至 v22.23.1，openclaw 2026.7.1 正常运行（2026-08-15 验证）。
 
 ## 配置
 

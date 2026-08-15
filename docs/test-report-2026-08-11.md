@@ -176,3 +176,26 @@
 > 五轮测试共执行 312/331 条用例（94.3%），通过率 97.3%  
 > 修复了 13 个 Bug，确认 5 个非 Bug，0 个已知限制  
 > 仅剩 1 条 FAIL（需登录环境）+ 19 条 BLOCKED（需登录/Daemon离线）
+
+---
+
+## 验收补遗（2026-08-15，产品验收）
+
+产品验收实测发现本报告未覆盖的问题，并修正报告数据：
+
+**数据勘误**：执行摘要（PASS 292）与"总进度"（266/89.9%）两处统计口径不一致，标题残留 "v3" 字样；以执行摘要为准。请读者以本补遗后的结论为准。
+
+**验收新发现问题（均已修复）**：
+1. **[P0] auto 路由绑定不可用 agent**：`chat-execute.ts` auto 兜底取 `agents ORDER BY created_at ASC LIMIT 1`（最老优先），当最老 agent 为 remote 类型（需 Daemon）时，新会话默认 100% 执行失败。实测复现：6+ 会话报 `inline executor ... got 'remote'`。**修复**：兜底查询按 `INLINE_SUPPORTED_KINDS` 过滤，优先选择可本机执行的 CLI agent。
+2. **[P1] 画布无法渲染存量工作流**（三层根因，均修复）：
+   - console 从未引入 `@dagents/agentflow/flowise.css`（基础样式：节点 `max-content` 尺寸规则 + React Flow 定位基类），节点量不出尺寸 → React Flow 永久 `visibility:hidden`、边因 handleBounds 为空被丢弃，画布实际一片空白（此前测试用 DOM 断言 textContent 会被隐藏元素误导）。**修复**：`flowise-canvas.tsx` 引入 flowise.css。
+   - `flowise-canvas.tsx` label 回退为硬编码 'Start' 导致所有节点同名。**修复**：label 回退链 `label → meta.label → name`。
+   - 存量边缺 `sourceHandle/targetHandle`（约定：source=锚点 id、target=目标节点 id）被 React Flow 静默丢弃。**修复**：边按 handle 约定补全。
+3. **[P1] 画布页 SSR 500**：依赖链中 `flowise-react-json-view` 模块顶层访问 `document`，服务端渲染必崩。**修复**：新增 `flowise-canvas-loader.tsx`（`next/dynamic` + `ssr:false`），服务端只传 props。
+4. **[P1] 底层异常原文直接进聊天流**：`⚠️ inline executor only supports [...]` 直接展示给用户。**修复**：改为引导性文案（切换 CLI Agent 或启动 Daemon）。
+
+5. **[测试卫生] 集成测试清空真实开发库**：`chat-execute.test.ts` 曾全表 `DELETE FROM agents/agent_daemons`（打的是开发库，跑测试会删掉手工数据）。**修复**：备份/恢复 + 测试后自动补种默认 Claude agent。
+
+**环境勘误**：openclaw 的 Node 版本问题已过时 — node 已升级 v22.23.1，openclaw 2026.7.1 可正常运行。
+
+**遗留（未修复，属功能补全而非缺陷）**：Settings 5/6 tab 静态占位、`/workflows/[id]` 概览页缺失、聊天绑定 Flow 靠手输 UUID、Flow 执行链路 0 Provider 未闭环、19 条 BLOCKED 用例。

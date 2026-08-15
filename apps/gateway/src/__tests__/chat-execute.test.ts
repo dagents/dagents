@@ -17,6 +17,28 @@ let seededChatIds: string[] = []
 let seededDirIds: string[] = []
 let seededAgentIds: string[] = []
 let seededDaemonIds: string[] = []
+let seededDomainAgentIds: string[] = []
+
+// 这些集成测试跑在真实开发库上。个别用例需要「agents 表完全为空」的前置，
+// 全表清空会把开发数据（如手工创建的 Claude 助手）一起删掉 —— 因此清空后
+// 必须在 cleanup 里恢复一个可用的默认 agent，保证跑完测试产品仍开箱可用。
+const DEFAULT_AGENT_ID = '00000000-0000-4000-8000-000000000001'
+const DEFAULT_WORKSPACE_ID = '00000000-0000-4000-8000-000000000002'
+let wipedAgentsTable = false
+/** wipeAllAgents 前的 agent_daemons 快照，cleanup 时原样恢复（守护开发数据）。 */
+let agentDaemonsBackup: Array<{
+  id: string
+  name: string
+  kind: string
+  daemon_id: string | null
+  capability_descriptor: unknown
+  executable_path: string | null
+  default_args: unknown
+  workspace_id: string | null
+  visibility: string | null
+  created_at: Date | string
+  updated_at: Date | string
+}> = []
 
 beforeAll(async () => {
   if (!AppDataSource.isInitialized) await AppDataSource.initialize()
@@ -47,6 +69,53 @@ async function cleanup(): Promise<void> {
     await runQuery(`DELETE FROM daemons WHERE id = ANY($1::uuid[])`, [seededDaemonIds])
     seededDaemonIds = []
   }
+  if (seededDomainAgentIds.length) {
+    await runQuery(`DELETE FROM agents WHERE id = ANY($1::uuid[])`, [seededDomainAgentIds])
+    seededDomainAgentIds = []
+  }
+  if (wipedAgentsTable) {
+    await restoreDefaultAgent()
+  }
+}
+
+/** 全表清空 agents / agent_daemons（仅在需要「无任何 agent」前置的用例中使用）。 */
+async function wipeAllAgents(): Promise<void> {
+  // 备份遗留 agent_daemons 行，cleanup 时恢复 —— 这些是开发数据，不能真删。
+  const { records } = await runQuery<typeof agentDaemonsBackup[number]>(
+    `SELECT id, name, kind, daemon_id, capability_descriptor, executable_path,
+            default_args, workspace_id, visibility, created_at, updated_at
+     FROM agent_daemons`,
+  )
+  agentDaemonsBackup = records
+  await runQuery(`DELETE FROM agent_daemons`)
+  await runQuery(`DELETE FROM agents`)
+  wipedAgentsTable = true
+}
+
+/** 恢复开发数据：默认 Claude agent + 被备份的 agent_daemons 行。 */
+async function restoreDefaultAgent(): Promise<void> {
+  for (const row of agentDaemonsBackup) {
+    await runQuery(
+      `INSERT INTO agent_daemons (id, name, kind, daemon_id, capability_descriptor,
+                                  executable_path, default_args, workspace_id, visibility,
+                                  created_at, updated_at)
+       VALUES ($1, $2, $3, $4, $5::jsonb, $6, $7::jsonb, $8, $9, $10, $11)
+       ON CONFLICT (id) DO NOTHING`,
+      [
+        row.id, row.name, row.kind, row.daemon_id, JSON.stringify(row.capability_descriptor ?? {}),
+        row.executable_path, JSON.stringify(row.default_args ?? []), row.workspace_id, row.visibility,
+        row.created_at, row.updated_at,
+      ],
+    )
+  }
+  agentDaemonsBackup = []
+  await runQuery(
+    `INSERT INTO agents (id, workspace_id, name, kind, owner_id, status, availability, summary)
+     VALUES ($1, $2, 'Claude 助手', 'claude', 'local', 'idle', 'online', 'Claude CLI agent')
+     ON CONFLICT (id) DO NOTHING`,
+    [DEFAULT_AGENT_ID, DEFAULT_WORKSPACE_ID],
+  )
+  wipedAgentsTable = false
 }
 
 async function seedDirAndChat(opts: { agentId?: string | null; flowId?: string | null } = {}): Promise<{ dirId: string; chatId: string }> {
@@ -81,6 +150,18 @@ async function seedAgent(name?: string): Promise<string> {
     [agentId, name ?? `agent-${agentId.slice(0, 8)}`, 'claude', daemonId],
   )
   seededAgentIds.push(agentId)
+  return agentId
+}
+
+/** 在 agents 表（v0.3 领域模型）插入一行，可指定 kind 与 created_at（用于排序）。 */
+async function seedDomainAgent(kind: string, createdAt: Date): Promise<string> {
+  const agentId = randomUUID()
+  await runQuery(
+    `INSERT INTO agents (id, workspace_id, name, kind, owner_id, created_at)
+     VALUES ($1, $2, $3, $4, $5, $6)`,
+    [agentId, DEFAULT_WORKSPACE_ID, `agent-${kind}-${agentId.slice(0, 8)}`, kind, 'test', createdAt],
+  )
+  seededDomainAgentIds.push(agentId)
   return agentId
 }
 
@@ -142,12 +223,9 @@ describe('POST /api/v1/chats/:id/messages — default routing', () => {
   })
 
   it('auto-selects first agent when chat has no agentId and no flowId (auto mode)', async () => {
-    // "auto" fallback: when chat has no agent binding, gateway picks the first
-    // available agent from agent_daemons so the UI's "auto" selector works.
-    // We seed an agent to guarantee the table is non-empty; the fallback picks
-    // the oldest agent (ORDER BY created_at ASC), which may be a pre-existing
-    // row from earlier test/dev data — so we assert the chat got *some*
-    // agent_id, not necessarily the one we seeded.
+    // "auto" fallback: when chat has no agent binding, gateway picks an
+    // inline-capable agent. We seed an agent_daemons row to guarantee a
+    // candidate exists; assert the chat got *some* agent_id persisted.
     await seedAgent('default-agent')
     const { chatId } = await seedDirAndChat()
 
@@ -166,8 +244,7 @@ describe('POST /api/v1/chats/:id/messages — default routing', () => {
     expect(body.data.payload?.runId).toBeTruthy()
 
     // Verify the resolved agent was persisted onto the chat row so subsequent
-    // messages skip the fallback lookup. The exact agent_id depends on which
-    // row is oldest, so we just assert it's no longer null.
+    // messages skip the fallback lookup.
     const { records } = await runQuery<{ agent_id: string | null }>(
       `SELECT agent_id FROM chats WHERE id = $1::uuid`,
       [chatId],
@@ -175,11 +252,34 @@ describe('POST /api/v1/chats/:id/messages — default routing', () => {
     expect(records[0]?.agent_id).not.toBeNull()
   })
 
+  it('auto routing prefers an inline-capable agent over an older remote agent (P0 regression)', async () => {
+    // 复现 2026-08-15 验收发现的 P0：auto 兜底曾按 created_at ASC 绑定最老
+    // agent，当最老是 remote 类型（需 daemon）时新会话必然执行失败。
+    // 期望：即使 remote agent 更老，也优先绑定 CLI 类型（claude）。
+    await wipeAllAgents()
+    const remoteId = await seedDomainAgent('remote', new Date(Date.now() - 60_000))
+    const claudeId = await seedDomainAgent('claude', new Date())
+    expect(remoteId).not.toBe(claudeId)
+    const { chatId } = await seedDirAndChat()
+
+    const res = await app.request(`/api/v1/chats/${chatId}/messages`, {
+      method: 'POST',
+      headers: { 'content-type': 'application/json' },
+      body: JSON.stringify({ content: 'hello' }),
+    })
+    expect(res.status).toBe(200)
+
+    const { records } = await runQuery<{ agent_id: string | null }>(
+      `SELECT agent_id FROM chats WHERE id = $1::uuid`,
+      [chatId],
+    )
+    expect(records[0]?.agent_id).toBe(claudeId)
+  })
+
   it('returns json mode with error when no agent is available (agent_daemons empty)', async () => {
     // Ensure no agents are available — the auto fallback should find nothing
     // in either agents or agent_daemons and return the error.
-    await runQuery(`DELETE FROM agent_daemons`)
-    await runQuery(`DELETE FROM agents`)
+    await wipeAllAgents()
     const { chatId } = await seedDirAndChat()
 
     const res = await app.request(`/api/v1/chats/${chatId}/messages`, {

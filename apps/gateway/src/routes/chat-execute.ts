@@ -4,7 +4,7 @@ import { randomUUID } from 'node:crypto'
 import { runQuery } from '@dagents/db'
 import { createLogger } from '@dagents/shared'
 import { DagExecutor, NodeRegistry, allNodes, CANVAS_NODES, type FlowData } from '@dagents/workflow'
-import { executeInline } from '../inline-executor.js'
+import { executeInline, INLINE_SUPPORTED_KINDS } from '../inline-executor.js'
 import { persistComplete } from './internal-runs-helpers.js'
 import { enqueueTask } from './dispatch/service.js'
 import { createLlmClient } from './workflow-clients.js'
@@ -91,46 +91,47 @@ export async function routeMessage(
   const flowId = opts.flowIdOverride ?? chat.flow_id
   let agentId = opts.agentIdOverride ?? chat.agent_id
 
-  // "auto" fallback: when neither override nor chat.agent_id is set, pick the
-  // first available agent. Prefer the agents table (v0.3 domain model), fall
-  // back to agent_daemons (legacy dispatch model).
+  // "auto" fallback: when neither override nor chat.agent_id is set, pick an
+  // agent that can actually run inline (CLI kinds). Prefer the agents table
+  // (v0.3 domain model), fall back to agent_daemons (legacy dispatch model).
+  // Kind 过滤是必须的：remote 等类型需要 daemon 在线，inline executor 无法
+  // spawn —— 若不过滤，auto 会话可能绑定到必然执行失败的 agent。
+  // 兜底顺序：① agents 表可本机执行 → ② agent_daemons 可本机执行 →
+  // ③ agents 表任意（执行时报友好错误）→ ④ agent_daemons 任意。
   if (!flowId && !agentId) {
-    try {
-      const { records } = await runQuery<{ id: string }>(
-        `SELECT id FROM agents ORDER BY created_at ASC LIMIT 1`,
-      )
-      const fallback = records[0]
-      if (!fallback) {
-        // fallback to agent_daemons if agents table is empty
-        const { records: adRecords } = await runQuery<{ id: string }>(
-          `SELECT id FROM agent_daemons ORDER BY created_at ASC LIMIT 1`,
-        )
-        if (adRecords[0]) {
-          agentId = adRecords[0].id
-          try {
-            await runQuery(
-              `UPDATE chats SET agent_id = $1::uuid, updated_at = NOW() WHERE id = $2::uuid`,
-              [agentId, chatId],
-            )
-          } catch (err) {
-            log.warn('routeMessage auto-agent persist failed', { chatId, agentId, error: String(err) })
-          }
-        }
-      } else {
-        agentId = fallback.id
-        // Persist the resolved agent onto the chat row so subsequent messages
-        // skip this lookup (and the chat-detail context panel shows the binding).
-        try {
-          await runQuery(
-            `UPDATE chats SET agent_id = $1::uuid, updated_at = NOW() WHERE id = $2::uuid`,
-            [agentId, chatId],
-          )
-        } catch (err) {
-          log.warn('routeMessage auto-agent persist failed', { chatId, agentId, error: String(err) })
-        }
+    const inlineKinds = [...INLINE_SUPPORTED_KINDS]
+    const pickAgentId = async (sql: string, params?: unknown[]): Promise<string | null> => {
+      try {
+        const { records } = await runQuery<{ id: string }>(sql, params)
+        return records[0]?.id ?? null
+      } catch (err) {
+        log.error('routeMessage auto-agent lookup failed', { chatId, error: String(err) })
+        return null
       }
-    } catch (err) {
-      log.error('routeMessage auto-agent lookup failed', { chatId, error: String(err) })
+    }
+    agentId =
+      (await pickAgentId(
+        `SELECT id FROM agents WHERE kind = ANY($1::text[]) ORDER BY created_at ASC LIMIT 1`,
+        [inlineKinds],
+      )) ??
+      (await pickAgentId(
+        `SELECT id FROM agent_daemons WHERE kind = ANY($1::text[]) ORDER BY created_at ASC LIMIT 1`,
+        [inlineKinds],
+      )) ??
+      (await pickAgentId(`SELECT id FROM agents ORDER BY created_at ASC LIMIT 1`)) ??
+      (await pickAgentId(`SELECT id FROM agent_daemons ORDER BY created_at ASC LIMIT 1`))
+
+    // Persist the resolved agent onto the chat row so subsequent messages
+    // skip this lookup (and the chat-detail context panel shows the binding).
+    if (agentId) {
+      try {
+        await runQuery(
+          `UPDATE chats SET agent_id = $1::uuid, updated_at = NOW() WHERE id = $2::uuid`,
+          [agentId, chatId],
+        )
+      } catch (err) {
+        log.warn('routeMessage auto-agent persist failed', { chatId, agentId, error: String(err) })
+      }
     }
   }
 

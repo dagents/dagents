@@ -72,9 +72,15 @@ sleep 2
 echo "⏳ 等端口 3000 释放..."
 for i in $(seq 1 10); do
   lsof -i :3000 -sTCP:LISTEN -t 2>/dev/null | grep -q . || { echo "✅ 端口已释放"; break; }
-  [ $i -eq 10 ] && { echo "❌ 端口 3000 仍被占用"; }
+  [ $i -eq 10 ] && echo "❌ 端口 3000 仍被占用"
   sleep 1
 done
+
+# 上面的 kill -9 可能在 webpack 写 .next 时打断它，留下损坏的增量编译缓存，
+# 复用会导致所有 API 路由 500（__webpack_require__ undefined module）。
+# 缓存重建只需几十秒，直接清掉最稳。
+echo "🧹 清理 console .next 编译缓存..."
+rm -rf apps/console/.next
 
 echo "🚀 后台启动 console..."
 nohup pnpm --filter @dagents/console dev > /tmp/dagents-console.log 2>&1 &
