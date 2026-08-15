@@ -6,9 +6,14 @@ import { useCallback, useMemo, useRef, useState } from 'react'
 import { Agentflow } from '@dagents/agentflow'
 import type { AgentFlowInstance, FlowData, HeaderRenderProps } from '@dagents/agentflow'
 import { getNodeMeta } from '@dagents/workflow'
+// flowise.css 是 vendor 画布的基础样式（节点 max-content 尺寸规则 + React Flow
+// 定位/handle/edge 基类），canvas.css 只在其上做主题变量覆盖。此前 base 缺失，
+// 节点量不出尺寸 → React Flow 永久 visibility:hidden → 边被静默丢弃，
+// 画布表现为空白只剩工具栏。必须在 canvas.css 之前引入。
+import '@dagents/agentflow/flowise.css'
 import './canvas.css'
 
-interface FlowiseCanvasProps {
+export interface FlowiseCanvasProps {
   flowId: string
   flowName?: string
   initialFlow: {
@@ -76,7 +81,10 @@ export function convertToFlowiseFormat(initialFlow: FlowiseCanvasProps['initialF
         ...node.data,
         id: node.id,
         name,
-        label: node.data?.label || node.label || 'Start',
+        // 显示名优先级：存量 label → meta.label（Start / LLM / Direct Reply 等
+        // 注册表显示名）→ 内部 name。老数据只有 data.name，缺少 label 与
+        // handle 字段，若直接回退成 'Start' 会让所有节点看起来一模一样。
+        label: node.data?.label || node.label || meta?.label || name,
         outputAnchors,
         inputs: node.data?.inputs ?? {},
         hideInput: node.data?.hideInput ?? meta?.category === 'start',
@@ -86,10 +94,26 @@ export function convertToFlowiseFormat(initialFlow: FlowiseCanvasProps['initialF
     }
   })
 
+  // NodeInputHandle 的 target handle id 约定为「目标节点自身 id」，
+  // NodeOutputHandles 的 source handle id 约定为「输出锚点 id」。存量/AI 生成的
+  // 边只有 source/target，缺 handle 字段 —— React Flow 匹配不到 handle 会静默
+  // 丢弃这些边，因此这里按约定补全。type/data 也对齐 handleConnect 生成的
+  // agentflowEdge 形状，保证加载的边与手工连线渲染一致。
+  const sourceAnchorByNodeId = new Map(
+    nodes.map((n) => [n.id, n.data.outputAnchors?.[0]?.id ?? 'output']),
+  )
   const edges = initialFlow.edges.map((edge) => ({
     ...edge,
-    type: edge.type || 'smoothstep',
+    sourceHandle: edge.sourceHandle ?? sourceAnchorByNodeId.get(edge.source) ?? 'output',
+    targetHandle: edge.targetHandle ?? edge.target,
+    type: edge.type ?? 'agentflowEdge',
     animated: edge.animated ?? false,
+    data: edge.data ?? {
+      sourceColor: '#10b981',
+      targetColor: '#10b981',
+      edgeLabel: undefined,
+      isHumanInput: false,
+    },
   }))
 
   return {

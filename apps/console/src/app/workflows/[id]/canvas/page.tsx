@@ -1,5 +1,5 @@
 import { PageShell } from '@/components/page-shell'
-import { FlowiseCanvas } from '@/components/canvas/flowise-canvas'
+import { FlowiseCanvasLoader } from '@/components/canvas/flowise-canvas-loader'
 import { gatewayUrl } from '@/lib/config'
 
 interface CanvasWorkflowPageProps {
@@ -45,7 +45,7 @@ export default async function CanvasWorkflowPage({
 
   return (
     <PageShell fullBleed>
-      <FlowiseCanvas flowId={id} flowName={flowName} initialFlow={flowData} />
+      <FlowiseCanvasLoader flowId={id} flowName={flowName} initialFlow={flowData} />
     </PageShell>
   )
 }

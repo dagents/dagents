@@ -55,6 +55,46 @@ describe('convertToFlowiseFormat', () => {
     expect(node.data.outputAnchors[0]).toMatchObject({ id: 'output', name: 'output', label: 'Output' })
   })
 
+  it('derives node label from meta when legacy data has only name (not all-Start)', () => {
+    const result = convertToFlowiseFormat({
+      nodes: [
+        { id: 'start', type: 'customNode', data: { name: 'startAgentflow', variables: {} } },
+        { id: 'llm_1', type: 'customNode', data: { name: 'llmAgentflow', model: 'glm-5.2' } },
+        { id: 'reply', type: 'customNode', data: { name: 'directReplyAgentflow', text: '' } },
+      ],
+      edges: [],
+    })
+    const labels = result.nodes.map((n) => (n as { data: { label: string } }).data.label)
+    expect(labels).toEqual(['Start', 'LLM', 'Direct Reply'])
+  })
+
+  it('completes missing edge handles per handle-id conventions', () => {
+    const result = convertToFlowiseFormat({
+      nodes: [
+        { id: 'start', type: 'customNode', data: { name: 'startAgentflow' } },
+        { id: 'llm_1', type: 'customNode', data: { name: 'llmAgentflow' } },
+      ],
+      edges: [{ id: 'e1', source: 'start', target: 'llm_1' }],
+    })
+    const edge = result.edges[0] as { sourceHandle?: string; targetHandle?: string }
+    // source handle = 源节点第一个输出锚点 id；target handle = 目标节点自身 id
+    expect(edge.sourceHandle).toBe('output')
+    expect(edge.targetHandle).toBe('llm_1')
+  })
+
+  it('keeps explicit edge handles when present', () => {
+    const result = convertToFlowiseFormat({
+      nodes: [
+        { id: 'c1', type: 'customNode', data: { name: 'conditionAgentflow' } },
+        { id: 'n2', type: 'customNode', data: { name: 'llmAgentflow' } },
+      ],
+      edges: [{ id: 'e1', source: 'c1', sourceHandle: 'false', target: 'n2', targetHandle: 'n2' }],
+    })
+    const edge = result.edges[0] as { sourceHandle?: string; targetHandle?: string }
+    expect(edge.sourceHandle).toBe('false')
+    expect(edge.targetHandle).toBe('n2')
+  })
+
   it('normalizes node types to agentflowNode except special types', () => {
     const result = convertToFlowiseFormat({
       nodes: [
