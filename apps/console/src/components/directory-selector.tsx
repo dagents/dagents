@@ -92,9 +92,7 @@ export function DirectorySelector({
             <span>{picking ? '等待选择…' : '浏览本地目录…'}</span>
           </button>
           {directories.length === 0 && !picking ? (
-            <a className="directory-selector-empty" href="/directories">
-              或前往目录管理页 →
-            </a>
+            <div className="directory-selector-empty">还没有项目目录，点击上方按钮添加</div>
           ) : null}
           {directories.length > 0 ? (
             <div className="directory-selector-list">

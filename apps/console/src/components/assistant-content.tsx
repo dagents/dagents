@@ -24,8 +24,9 @@
  * assistant messages the same way, so the parsing + rendering lives here
  * to avoid duplicating the tag grammar in two places.
  */
-import { Fragment, useEffect, useRef, useState } from 'react'
+import { Fragment, memo, useEffect, useRef, useState } from 'react'
 import { Icon } from '@/components/icon'
+import { CodeBlock } from '@/components/code-block'
 import { ToolCallCard } from '@/components/tool-call-card'
 import {
   classifyTool,
@@ -350,8 +351,11 @@ function formatDuration(ms: number): string {
 
 /** Plain text block — the assistant's main reply (preface / final).
  *  Now renders basic markdown (code blocks, inline code, bold, italic,
- *  links, lists, blockquotes, headings) via a lightweight formatter. */
-function TextBlock({ content, streaming }: { content: string; streaming?: boolean }): React.ReactNode {
+ *  links, lists, blockquotes, headings) via a lightweight formatter.
+ *  Memoized: segments are re-parsed on every WS chunk, but settled text is
+ *  byte-identical — only the streaming tail re-renders (deepseek-harness
+ *  IncrementalMarkdownParser's freeze-the-settled-blocks idea, cheap cut). */
+const TextBlock = memo(function TextBlock({ content, streaming }: { content: string; streaming?: boolean }): React.ReactNode {
   if (!content) return null
   return (
     <div className="prose assistant-text">
@@ -359,7 +363,7 @@ function TextBlock({ content, streaming }: { content: string; streaming?: boolea
       {streaming ? <span className="streaming-cursor" aria-hidden="true" /> : null}
     </div>
   )
-}
+})
 
 /**
  * Lightweight inline markdown renderer — converts common patterns to
@@ -388,9 +392,7 @@ function renderMarkdown(text: string): React.ReactNode {
       }
       i++ // skip closing ```
       blocks.push(
-        <pre key={key++} data-lang={lang || undefined}>
-          <code>{codeLines.join('\n')}</code>
-        </pre>,
+        <CodeBlock key={key++} code={codeLines.join('\n')} lang={lang || undefined} />,
       )
       continue
     }
@@ -575,51 +577,75 @@ function ProcessFold({
   )
 }
 
-/** Single row inside the process fold — dispatches by segment kind. */
-function ProcessRow({
-  item,
-  streaming,
-}: {
-  item: Segment
-  streaming?: boolean
-}): React.ReactNode {
-  switch (item.kind) {
-    case 'text':
-      // Intermediate text inside the process fold — down-shifted to read as
-      // part of the agent's process, not the final answer.
-      return (
-        <div className="assistant-process-text">
-          {item.content}
-          {streaming ? <span className="assistant-cursor">▋</span> : null}
-        </div>
-      )
+/** Single row inside the process fold — dispatches by segment kind.
+ *  Memoized with a value compare: segments are re-parsed (new identities)
+ *  on every chunk, so compare kind/content/tool; the streaming tail's
+ *  `streaming` flip re-renders just that row. */
+const ProcessRow = memo(
+  function ProcessRow({
+    item,
+    streaming,
+  }: {
+    item: Segment
+    streaming?: boolean
+  }): React.ReactNode {
+    switch (item.kind) {
+      case 'text':
+        // Intermediate text inside the process fold — down-shifted to read as
+        // part of the agent's process, not the final answer.
+        return (
+          <div className="assistant-process-text">
+            {item.content}
+            {streaming ? <span className="assistant-cursor">▋</span> : null}
+          </div>
+        )
 
-    case 'thinking':
-      return <ThinkingRow content={item.content} streaming={streaming} />
+      case 'thinking':
+        return <ThinkingRow content={item.content} streaming={streaming} />
 
-    case 'tool-use':
-      return <ToolUseRow tool={item.tool ?? 'tool'} input={item.input} />
+      case 'tool-use':
+        return <ToolUseRow tool={item.tool ?? 'tool'} input={item.input} />
 
-    case 'tool-result':
-      return <ToolResultRow content={item.content} />
+      case 'tool-result':
+        return <ToolResultRow content={item.content} />
 
-    case 'error':
-      return (
-        <div className="assistant-error">
-          <Icon name="alertTriangle" style={{ width: 12, height: 12 }} />
-          <span>{item.content}</span>
-        </div>
-      )
+      case 'error':
+        return (
+          <div className="assistant-error">
+            <Icon name="alertTriangle" style={{ width: 12, height: 12 }} />
+            <span>{item.content}</span>
+          </div>
+        )
 
-    default:
-      return null
-  }
+      default:
+        return null
+    }
+  },
+  (prev, next) =>
+    prev.item.kind === next.item.kind &&
+    prev.item.content === next.item.content &&
+    prev.item.tool === next.item.tool &&
+    prev.streaming === next.streaming,
+)
+
+/** First line of a reasoning block — the settled preview. */
+function firstLine(text: string): string {
+  const newline = text.indexOf('\n')
+  return newline === -1 ? text : text.slice(0, newline)
 }
 
-/** Collapsible thinking section — grey italic preview, fold to expand.
- *  Uses the new `.thinking-section` styles from tool-call.css: a labeled
- *  "思考" header with a brain icon, italic muted preview, and an indented
- *  italic body block. Streams show the cursor while the tag is open. */
+/** Latest non-empty line — the streaming preview, following the tail. */
+function latestLine(text: string): string {
+  const visible = text.trimEnd()
+  const newline = visible.lastIndexOf('\n')
+  return newline === -1 ? visible : visible.slice(newline + 1)
+}
+
+/** Collapsible thinking section — deepseek-harness ReasoningRow pattern:
+ *  a labeled "思考" disclosure whose collapsed preview follows the LATEST
+ *  line while streaming (auto-scrolled to its end) and shows the FIRST
+ *  line once settled. A light sweep plays across the row while running
+ *  (CSS, disabled under prefers-reduced-motion). */
 function ThinkingRow({
   content,
   streaming,
@@ -628,11 +654,21 @@ function ThinkingRow({
   streaming?: boolean
 }): React.ReactNode {
   const [open, setOpen] = useState(false)
+  const summaryRef = useRef<HTMLSpanElement>(null)
+
+  const summary = streaming ? latestLine(content) : firstLine(content)
+
+  // Keep the streaming preview scrolled to its end so the user watches the
+  // tail of the reasoning as it arrives (mirrors deepseek's follow-end).
+  useEffect(() => {
+    const el = summaryRef.current
+    if (el && streaming) el.scrollLeft = el.scrollWidth - el.clientWidth
+  }, [summary, streaming])
+
   if (!content) return null
-  const preview = content.length > 150 ? content.slice(0, 150) + '…' : content
 
   return (
-    <div className="thinking-section">
+    <div className="thinking-section" data-running={streaming || undefined}>
       <button
         type="button"
         className="thinking-trigger"
@@ -641,11 +677,22 @@ function ThinkingRow({
       >
         <Icon name={open ? 'chevronDown' : 'chevronRight'} className="thinking-trigger-icon" style={{ width: 12, height: 12 }} />
         <Icon name="brain" className="thinking-trigger-icon" style={{ width: 12, height: 12 }} />
-        <span className="thinking-trigger-label">思考</span>
-        <span className="thinking-preview">{preview}</span>
-        {streaming ? <span className="assistant-cursor">▋</span> : null}
+        <span className="thinking-trigger-label">{streaming ? '思考中' : '思考'}</span>
+        {!open ? (
+          <>
+            <span className="thinking-sep" aria-hidden="true" />
+            <span ref={summaryRef} className="thinking-preview" data-follow-end={streaming || undefined}>
+              {summary}
+            </span>
+          </>
+        ) : null}
       </button>
-      {open ? <div className="thinking-body">{content}</div> : null}
+      {open ? (
+        <div className="thinking-body">
+          {content}
+          {streaming ? <span className="assistant-cursor">▋</span> : null}
+        </div>
+      ) : null}
     </div>
   )
 }

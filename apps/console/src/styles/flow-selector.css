@@ -1,21 +1,24 @@
 .flow-selector { position: relative; display: inline-block; }
 
 .flow-selector-trigger {
+  /* Composer chip chrome (deepseek .select): 28px, borderless, 8px radius;
+     hover answers in the interactive surface, not a stroke change. */
   display: inline-flex;
   align-items: center;
   gap: 6px;
-  padding: 4px 10px;
+  height: 28px;
+  padding: 0 10px;
   background: transparent;
-  border: 1px solid var(--border-soft);
-  border-radius: var(--radius-pill);
-  color: var(--fg-2);
-  font-size: var(--text-xs);
+  border: none;
+  border-radius: 8px;
+  color: var(--muted);
+  font-size: 13px;
   font-weight: 500;
   cursor: pointer;
-  transition: background var(--motion-fast), border-color var(--motion-fast);
+  transition: background var(--motion-fast), color var(--motion-fast);
   max-width: 180px;
 }
-.flow-selector-trigger:hover { background: var(--surface); border-color: var(--border); }
+.flow-selector-trigger:hover { background: var(--surface); color: var(--fg); }
 .flow-selector-trigger:disabled { opacity: 0.5; cursor: not-allowed; }
 .flow-selector-trigger span {
   overflow: hidden;

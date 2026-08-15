@@ -188,20 +188,59 @@
   cursor: not-allowed;
 }
 
-/* Message bubbles */
+/* Message rows — role-specific chrome lives on the role classes; the base
+   only carries the enter animation and wrapping. */
 .chat-msg {
-  max-width: 70%;
-  padding: var(--space-3) var(--space-4);
-  border-radius: var(--radius-md);
+  max-width: 100%;
   font-size: var(--text-sm);
   line-height: 1.5;
   word-break: break-word;
 }
 
+.chat-msg-system,
+.chat-msg-tool {
+  padding: var(--space-3) var(--space-4);
+  border-radius: var(--radius-md);
+}
+
+/* User message — deepseek-harness pattern: right-aligned soft neutral
+   bubble (accent stays on interactive chrome), time + copy hover-revealed
+   in a slim action row tucked under the bubble. */
 .chat-msg-user {
   align-self: flex-end;
-  background: var(--accent);
-  color: var(--accent-on);
+  max-width: min(525px, 85%);
+}
+
+.chat-msg-user-stack {
+  display: flex;
+  flex-direction: column;
+  align-items: flex-end;
+  gap: 4px;
+  min-width: 0;
+}
+
+.chat-msg-user-bubble {
+  background: var(--bubble-user);
+  color: var(--fg);
+  border-radius: var(--radius-xl);
+  padding: 10px 16px;
+  font-size: 15px;
+  line-height: 1.55;
+  white-space: pre-wrap;
+  overflow-wrap: anywhere;
+}
+
+.chat-msg-user-actions {
+  display: flex;
+  align-items: center;
+  gap: var(--space-1);
+  opacity: 0;
+  transition: opacity var(--motion-fast);
+}
+
+.chat-msg-user:hover .chat-msg-user-actions,
+.chat-msg-user-actions:focus-within {
+  opacity: 1;
 }
 
 /* multica-style: assistant messages have NO bubble shell —
@@ -219,6 +258,17 @@
   display: flex;
   gap: var(--space-2);
   width: 100%;
+  min-width: 0;
+}
+
+/* Content column — keeps the footer (time + copy) aligned with the
+   assistant's content instead of under the avatar. */
+.chat-msg-assistant-col {
+  flex: 1;
+  min-width: 0;
+  display: flex;
+  flex-direction: column;
+  gap: var(--space-1);
 }
 .chat-msg-avatar {
   flex-shrink: 0;
@@ -256,10 +306,6 @@
   opacity: 0.7;
 }
 
-.chat-msg-user .chat-msg-meta {
-  color: color-mix(in oklab, var(--accent-on) 80%, transparent);
-}
-
 /* WS disconnect banner — sticky, hard to miss */
 .chat-detail-ws-warning {
   display: flex;
@@ -280,6 +326,11 @@
   align-items: center;
   gap: var(--space-3);
   margin-top: var(--space-1);
+}
+
+/* Inside the assistant column the flex gap already provides the offset. */
+.chat-msg-assistant-col .chat-msg-footer {
+  margin-top: 0;
 }
 
 .chat-msg-copy {
@@ -317,13 +368,30 @@
 }
 .chat-msg-retry:hover { background: var(--danger); color: var(--accent-on); }
 
-/* Floating scroll-to-bottom button */
+/* Icon-only copy variant (user action row) */
+.chat-msg-copy.chat-msg-copy-icon {
+  padding: 2px;
+}
+
+/* Scroll-to-bottom — zero-height sticky slot centered above the composer
+   (deepseek toBottomSlot pattern). Sticking inside the scroller means the
+   button floats over messages only and can never overlap the composer's
+   send/stop button. */
+.chat-detail-scroll-slot {
+  position: sticky;
+  bottom: var(--space-2);
+  height: 0;
+  display: flex;
+  justify-content: center;
+  z-index: 5;
+  pointer-events: none;
+}
+
 .chat-detail-scroll-btn {
-  position: absolute;
-  right: var(--space-4);
-  bottom: var(--space-4);
-  width: 36px;
-  height: 36px;
+  pointer-events: auto;
+  transform: translateY(calc(-100% - var(--space-2)));
+  width: 34px;
+  height: 34px;
   border-radius: 50%;
   border: 1px solid var(--border);
   background: var(--bg);
@@ -334,17 +402,68 @@
   cursor: pointer;
   box-shadow: var(--elev-raised);
   transition: background var(--motion-fast), color var(--motion-fast);
-  z-index: 5;
 }
 .chat-detail-scroll-btn:hover {
   background: var(--accent);
   color: var(--accent-on);
   border-color: var(--accent);
 }
+.chat-detail-scroll-btn:focus-visible {
+  outline: none;
+  box-shadow: var(--focus-ring);
+}
 
-/* Position context for the floating scroll button */
-.chat-detail-conversation {
-  position: relative;
+/* Pending placeholder ("正在思考…") — deepseek TurnStatus shimmer: the text
+   itself carries a left-to-right light sweep while awaiting the first
+   chunk. Falls back to a static muted label under reduced motion. */
+.assistant-pending-row {
+  padding: 0;
+}
+
+.assistant-pending {
+  display: flex;
+  align-items: center;
+  gap: var(--space-2);
+  min-height: 28px;
+}
+
+/* Elapsed clock (deepseek TurnStatus) — appears after 15s so long silent
+   tool work still reads as alive. */
+.assistant-pending-clock {
+  font-size: var(--text-xs);
+  color: var(--meta);
+  font-variant-numeric: tabular-nums;
+}
+
+.assistant-pending-text {
+  font-size: var(--text-sm);
+  font-weight: 500;
+  background: linear-gradient(
+    90deg,
+    var(--meta) 0%,
+    var(--meta) 35%,
+    var(--accent) 50%,
+    var(--meta) 65%,
+    var(--meta) 100%
+  );
+  background-size: 240% 100%;
+  -webkit-background-clip: text;
+  background-clip: text;
+  color: transparent;
+  animation: assistant-pending-sweep 2s linear infinite;
+}
+
+@keyframes assistant-pending-sweep {
+  from { background-position: 130% 0; }
+  to { background-position: -130% 0; }
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .assistant-pending-text {
+    animation: none;
+    background: none;
+    color: var(--muted);
+  }
 }
 
 /* ─── Error card ───────────────────────────────────────────────────────

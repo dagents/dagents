@@ -30,6 +30,12 @@
   overflow-wrap: anywhere;
 }
 
+/* The settled reply reads at chat size (15px, matching the user bubble);
+   `.prose` in shell.css defaults to the smaller ui text-sm. */
+.assistant-content .prose {
+  font-size: 15px;
+}
+
 /* ─── Outer process fold ("N steps") ────────────────────────── */
 .assistant-process {
   display: flex;

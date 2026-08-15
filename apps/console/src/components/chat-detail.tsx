@@ -17,7 +17,7 @@
  * shares the same WS hub, so a chat open in both surfaces stays in sync.
  */
 
-import { useCallback, useEffect, useMemo, useRef, useState } from 'react'
+import { useCallback, useEffect, useLayoutEffect, useMemo, useRef, useState } from 'react'
 import Link from 'next/link'
 import { Icon } from '@/components/icon'
 import { ChatComposer } from '@/components/chat-composer'
@@ -67,7 +67,6 @@ export function ChatDetail({ chatId }: ChatDetailProps): React.ReactElement {
   const [selectedFlowId, setSelectedFlowId] = useState<string | null>(chat?.flowId ?? null)
   const [copiedId, setCopiedId] = useState<string | null>(null)
   const [showScrollBtn, setShowScrollBtn] = useState(false)
-  const messagesEndRef = useRef<HTMLDivElement>(null)
   const messagesScrollRef = useRef<HTMLDivElement>(null)
   // Last user text — kept so the retry button can re-send after an error.
   const lastSentTextRef = useRef<string | null>(null)
@@ -114,6 +113,7 @@ export function ChatDetail({ chatId }: ChatDetailProps): React.ReactElement {
     setShowScrollBtn(false)
     lastSentTextRef.current = null
     stoppedRef.current = false
+    atBottomRef.current = true
     retryCountRef.current = 0
     setRetryExhausted(false)
     setReconnecting(false)
@@ -156,28 +156,139 @@ export function ChatDetail({ chatId }: ChatDetailProps): React.ReactElement {
     }
   }, [chat])
 
-  // Auto-scroll to bottom on new messages — but only if the user is already
-  // near the bottom. If they've scrolled up to read history, don't yank them
-  // down mid-read. The scroll-to-bottom button appears when they're scrolled up.
-  const isNearBottom = useCallback(() => {
+  // ─── Bottom-follow scroll engine (deepseek-harness ChatView pattern) ───
+  // "At bottom" is OWNED state that flips only on reader-attributed scrolls:
+  // our programmatic writes record their expected scrollTop first so the
+  // scroll handler can ignore its own echoes (smooth flights additionally
+  // suppress ownership for a short window). Streaming follows with INSTANT
+  // scrolls — queued smooth animations would fight each other chunk-to-chunk
+  // and read as jank. Threshold 24px: a stray pixel of layout shift doesn't
+  // unpin the reader. atBottomRef starts true so a freshly opened long
+  // conversation lands at the bottom instead of the top.
+  const atBottomRef = useRef(true)
+  const programmaticTopRef = useRef<number | null>(null)
+  const suppressOwnershipUntilRef = useRef(0)
+  const FOLLOW_THRESHOLD = 24
+
+  const followIfPinned = useCallback((behavior: ScrollBehavior = 'auto') => {
+    if (!atBottomRef.current) return
     const el = messagesScrollRef.current
-    if (!el) return true
-    return el.scrollHeight - el.scrollTop - el.clientHeight < 120
+    if (!el) return
+    // scrollTo the exact bottom — anchor-based scrollIntoView would stop
+    // one bottom-padding short, permanently past the follow threshold.
+    const target = el.scrollHeight - el.clientHeight
+    programmaticTopRef.current = target
+    if (behavior === 'smooth') suppressOwnershipUntilRef.current = Date.now() + 800
+    el.scrollTo({ top: target, behavior })
   }, [])
 
-  useEffect(() => {
-    if (isNearBottom()) {
-      messagesEndRef.current?.scrollIntoView({ behavior: 'smooth' })
-    }
-  }, [messages, isNearBottom])
+  // A streaming assistant bubble exists once the first WS chunk lands.
+  // Follow new content while pinned — always INSTANT: CSS smooth scrolls
+  // are rAF-driven and freeze in background tabs, and queued animations
+  // fight each other during rapid chunks. The scroll-to-bottom button is
+  // the only place that keeps the animated scroll.
+  // useLayoutEffect (not useEffect): a passive effect can be deferred past
+  // the commit that renders the loaded messages, leaving a long cold-loaded
+  // conversation sitting at the top with ownership still "pinned". The
+  // layout effect runs synchronously after the DOM mutation — the correct
+  // primitive for a scroll that must land with the content.
+  const hasStreamBubble = messages.some((m) => m.id.startsWith('stream-'))
+  useLayoutEffect(() => {
+    followIfPinned('auto')
+  }, [messages, followIfPinned])
+
+  // Last-resort heal (deepseek needs no equivalent — its tabs load visible):
+  // a tab that loads while HIDDEN gets its layout computed asynchronously —
+  // the layout effect measures empty geometry, RO callbacks never deliver
+  // (no rendering steps), and rAF is frozen. A cheap interval still runs in
+  // background tabs, so while ownership is pinned it re-checks the gap and
+  // follows once real layout exists. Unpinned readers pay one comparison
+  // per tick; the interval is idempotent with the streaming follow.
+  useLayoutEffect(() => {
+    const timer = window.setInterval(() => {
+      const box = messagesScrollRef.current
+      if (!box || !atBottomRef.current) return
+      if (box.scrollHeight - box.scrollTop - box.clientHeight > FOLLOW_THRESHOLD) {
+        followIfPinned('auto')
+      }
+    }, 600)
+    return () => window.clearInterval(timer)
+  }, [followIfPinned])
+
+  // Content can grow WITHOUT a `messages` change (font swap, a shiki lazy
+  // grammar landing, media load) — deepseek-harness follows those with a
+  // ResizeObserver on the column. Re-observing also delivers an initial
+  // size callback on every messages swap, which heals the case where the
+  // follow effect measured before layout was ready (e.g. a backgrounded
+  // tab): while we still own the bottom, ANY observed growth re-follows.
+  useLayoutEffect(() => {
+    const el = messagesScrollRef.current
+    if (!el || typeof ResizeObserver === 'undefined') return
+    const observer = new ResizeObserver(() => {
+      const box = messagesScrollRef.current
+      if (!box) return
+      const gap = box.scrollHeight - box.scrollTop - box.clientHeight
+      if (atBottomRef.current || gap < 80) {
+        atBottomRef.current = true
+        followIfPinned('auto')
+      }
+    })
+    for (const child of Array.from(el.children)) observer.observe(child)
+    return () => observer.disconnect()
+  }, [messages, followIfPinned])
 
   const handleScroll = useCallback(() => {
-    setShowScrollBtn(!isNearBottom())
-  }, [isNearBottom])
+    const el = messagesScrollRef.current
+    if (!el) return
+    const expected = programmaticTopRef.current
+    if (expected !== null && Math.abs(el.scrollTop - expected) < 2) {
+      // Our own write landed — keep the pinned ownership.
+      programmaticTopRef.current = null
+      atBottomRef.current = true
+      setShowScrollBtn(false)
+      return
+    }
+    if (expected !== null && Date.now() < suppressOwnershipUntilRef.current) {
+      // A smooth flight still travelling — ignore until it lands or times out.
+      return
+    }
+    programmaticTopRef.current = null
+    atBottomRef.current =
+      el.scrollHeight - el.scrollTop - el.clientHeight < FOLLOW_THRESHOLD
+    setShowScrollBtn(!atBottomRef.current)
+  }, [])
 
   const scrollToBottom = useCallback(() => {
-    messagesEndRef.current?.scrollIntoView({ behavior: 'smooth' })
+    const el = messagesScrollRef.current
+    if (el) {
+      programmaticTopRef.current = el.scrollHeight - el.clientHeight
+      suppressOwnershipUntilRef.current = Date.now() + 800
+      atBottomRef.current = true
+      setShowScrollBtn(false)
+      el.scrollTo({ top: el.scrollHeight, behavior: 'smooth' })
+    }
   }, [])
+
+  // ─── Turn status (deepseek-harness TurnStatus) ───
+  // The shimmer row occupies the assistant's seat from send to done: while
+  // `sending` is true but no bubble exists yet ("正在思考…"), and for the
+  // whole run once streaming starts ("正在执行…") so silent tool work never
+  // reads as frozen. The elapsed clock stays hidden until 15s so short runs
+  // stay quiet.
+  const runInProgress = sending || hasStreamBubble
+  const [elapsedSec, setElapsedSec] = useState(0)
+  useEffect(() => {
+    if (!runInProgress) {
+      setElapsedSec(0)
+      return
+    }
+    const startedAt = Date.now()
+    const timer = window.setInterval(
+      () => setElapsedSec(Math.floor((Date.now() - startedAt) / 1000)),
+      1000,
+    )
+    return () => window.clearInterval(timer)
+  }, [runInProgress])
 
   // Refresh chat when flow selection is changed via the composer (emits
   // 'chat-updated' after persisting). Keeps breadcrumb status in sync.
@@ -230,12 +341,20 @@ export function ChatDetail({ chatId }: ChatDetailProps): React.ReactElement {
       if (frame.usage) doneMetadata.usage = frame.usage
       if (frame.durationMs != null) doneMetadata.durationMs = frame.durationMs
       if (frame.cost != null) doneMetadata.cost = frame.cost
+      // Seal the streaming bubble under a `done-` id (computed outside the
+      // updater so it stays pure under StrictMode). handleSend's cleanup
+      // only drops `stream-` bubbles — without this rename a COMPLETED
+      // live-streamed reply keeps its `stream-` id and vanishes from the
+      // UI on the next send (it stays in the DB and only returns on the
+      // next full fetch).
+      const doneId = `done-${Date.now()}`
+      const doneAt = new Date().toISOString()
       setMessages((prev) => {
         const existing = prev.find((m) => m.id.startsWith('stream-'))
         if (existing) {
           return prev.map((m) =>
             m.id === existing.id
-              ? { ...m, content: frame.content || m.content, metadata: { ...m.metadata, ...doneMetadata } }
+              ? { ...m, id: doneId, content: frame.content || m.content, metadata: { ...m.metadata, ...doneMetadata } }
               : m,
           )
         }
@@ -243,13 +362,13 @@ export function ChatDetail({ chatId }: ChatDetailProps): React.ReactElement {
         return [
           ...prev,
           {
-            id: `done-${Date.now()}`,
+            id: doneId,
             chatId,
             role: 'assistant',
             content: frame.content,
             runId: frame.runId ?? null,
             metadata: doneMetadata,
-            createdAt: new Date().toISOString(),
+            createdAt: doneAt,
           },
         ]
       })
@@ -318,7 +437,10 @@ export function ChatDetail({ chatId }: ChatDetailProps): React.ReactElement {
     lastSentTextRef.current = text
     stoppedRef.current = false
     // A fresh (non-retry) send resets the consecutive-retry counter and
-    // drops any stale error card so the new run starts from a clean slate.
+    // drops stale transient bubbles (in-flight `stream-` zombies, `err-`
+    // error cards) so the new run starts from a clean slate. Completed
+    // replies survive: the chat:done handler renames them to `done-` ids,
+    // which this filter keeps.
     retryCountRef.current = 0
     setRetryExhausted(false)
     setReconnecting(false)
@@ -505,14 +627,13 @@ export function ChatDetail({ chatId }: ChatDetailProps): React.ReactElement {
       {/* Breadcrumb — 各部分都有 ellipsis + tooltip，长 title/path 不挤 status */}
       <div className="chat-detail-breadcrumb">
         {directory && (
-          <Link
-            href="/directories"
+          <span
             className="chat-detail-breadcrumb-dir"
             title={directory.path ?? directory.name}
           >
             <Icon name="folder" style={{ width: 14, height: 14 }} />
             <span className="chat-detail-breadcrumb-dir-name">{directory.name}</span>
-          </Link>
+          </span>
         )}
         {directory && <span className="chat-detail-breadcrumb-sep">/</span>}
         <span
@@ -668,31 +789,52 @@ export function ChatDetail({ chatId }: ChatDetailProps): React.ReactElement {
                             <div className="chat-msg-avatar" aria-hidden="true">
                               <Icon name="agents" style={{ width: 16, height: 16 }} />
                             </div>
-                            <AssistantContent
-                              content={m.content}
-                              streaming={isStreaming}
-                              meta={extractMeta(m.metadata)}
-                            />
+                            {/* Column keeps the footer (time + copy) aligned
+                                with the content, not under the avatar. */}
+                            <div className="chat-msg-assistant-col">
+                              <AssistantContent
+                                content={m.content}
+                                streaming={isStreaming}
+                                meta={extractMeta(m.metadata)}
+                              />
+                              {!isStreaming ? (
+                                <div className="chat-msg-footer">
+                                  <span className="chat-msg-meta">{formatTime(m.createdAt)}</span>
+                                  <button
+                                    type="button"
+                                    className="chat-msg-copy"
+                                    onClick={() => void handleCopy(m.id, m.content)}
+                                    title="复制"
+                                    aria-label="复制回复内容"
+                                  >
+                                    <Icon name={copiedId === m.id ? 'check' : 'copy'} style={{ width: 12, height: 12 }} />
+                                    <span>{copiedId === m.id ? '已复制' : '复制'}</span>
+                                  </button>
+                                </div>
+                              ) : null}
+                            </div>
+                          </div>
+                        ) : m.role === 'user' ? (
+                          // User message — deepseek-harness pattern: a soft
+                          // neutral right-aligned bubble with a hover-revealed
+                          // time + copy action row tucked under it.
+                          <div className="chat-msg-user-stack">
+                            <div className="chat-msg-user-bubble">{m.content}</div>
+                            <div className="chat-msg-user-actions">
+                              <span className="chat-msg-meta">{formatTime(m.createdAt)}</span>
+                              <button
+                                type="button"
+                                className="chat-msg-copy chat-msg-copy-icon"
+                                onClick={() => void handleCopy(m.id, m.content)}
+                                title="复制"
+                                aria-label="复制消息"
+                              >
+                                <Icon name={copiedId === m.id ? 'check' : 'copy'} style={{ width: 12, height: 12 }} />
+                              </button>
+                            </div>
                           </div>
                         ) : (
                           <div className="chat-msg-content">{m.content}</div>
-                        )}
-                        {m.role !== 'system' && (
-                          <div className="chat-msg-footer">
-                            <span className="chat-msg-meta">{formatTime(m.createdAt)}</span>
-                            {m.role === 'assistant' && !isStreaming ? (
-                              <button
-                                type="button"
-                                className="chat-msg-copy"
-                                onClick={() => void handleCopy(m.id, m.content)}
-                                title="复制"
-                                aria-label="复制回复内容"
-                              >
-                                <Icon name={copiedId === m.id ? 'check' : 'copy'} style={{ width: 12, height: 12 }} />
-                                <span>{copiedId === m.id ? '已复制' : '复制'}</span>
-                              </button>
-                            ) : null}
-                          </div>
                         )}
                       </>
                     )}
@@ -700,21 +842,47 @@ export function ChatDetail({ chatId }: ChatDetailProps): React.ReactElement {
                 )
               })
             )}
-            <div ref={messagesEndRef} />
+
+            {/* Turn status row (deepseek TurnStatus): shimmer from send to
+                done — "正在思考…" before the first chunk, "正在执行…" for the
+                rest of the run. Elapsed clock appears after 15s so long
+                silent tool work still reads as alive. */}
+            {!loading && runInProgress && messages.length > 0 ? (
+              <div className="chat-msg chat-msg-flat assistant-pending-row" role="status" aria-live="polite">
+                <div className="chat-msg-assistant-wrapper">
+                  <div className="chat-msg-avatar" aria-hidden="true">
+                    <Icon name="agents" style={{ width: 16, height: 16 }} />
+                  </div>
+                  <div className="assistant-pending">
+                    <span className="assistant-pending-text">
+                      {hasStreamBubble ? '正在执行…' : '正在思考…'}
+                    </span>
+                    {elapsedSec >= 15 ? (
+                      <span className="assistant-pending-clock">{elapsedSec}s</span>
+                    ) : null}
+                  </div>
+                </div>
+              </div>
+            ) : null}
+            {/* Scroll-to-bottom — a zero-height sticky slot centered above the
+                composer (deepseek toBottomSlot pattern). Sticking inside the
+                scroller means the button can never overlap the composer's
+                send/stop button, which the old absolutely-positioned variant
+                did. */}
+            <div className="chat-detail-scroll-slot">
+              {showScrollBtn ? (
+                <button
+                  type="button"
+                  className="chat-detail-scroll-btn"
+                  onClick={scrollToBottom}
+                  aria-label="滚动到最新消息"
+                  title="滚动到最新消息"
+                >
+                  <Icon name="arrowDown" style={{ width: 16, height: 16 }} />
+                </button>
+              ) : null}
+            </div>
           </div>
-          {/* Scroll-to-bottom button — appears when the user has scrolled up
-              in a long conversation. Floats above the composer. */}
-          {showScrollBtn ? (
-            <button
-              type="button"
-              className="chat-detail-scroll-btn"
-              onClick={scrollToBottom}
-              aria-label="滚动到最新消息"
-              title="滚动到最新消息"
-            >
-              <Icon name="arrowDown" style={{ width: 16, height: 16 }} />
-            </button>
-          ) : null}
           <ChatComposer
             onSend={handleSend}
             onStop={handleStop}

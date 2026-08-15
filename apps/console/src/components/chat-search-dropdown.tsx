@@ -1,58 +1,54 @@
 'use client'
 
 /**
- * ChatSearchDropdown — full-text search results dropdown for the chat sidebar.
+ * ChatSearchResults — inline full-text search results for the sidebar
+ * (deepseek-harness search-results tree, ported).
  *
- * Renders below the sidebar search input. When the query is non-empty, it
- * debounces (300ms) and calls searchChats() to hit the gateway's
- * /api/v1/chats/search endpoint, then shows results with <mark>-highlighted
- * snippets.
+ * While the query is non-empty the sidebar's browser area swaps the
+ * directory tree for this panel: compact two-line rows (title heading /
+ * directory · content snippet with <mark> highlights), pending / failed /
+ * empty states in place, and a refine hint when the result cap is hit.
+ * No floating dropdown — the results own the list column exactly like
+ * deepseek's WorkspaceBrowser search mode.
  *
- * When the query is empty and the dropdown is open (input focused), it shows
- * the recent chat list (passed in by the sidebar) so the dropdown doubles as
- * a quick-jump menu.
+ * Keyboard navigation stays driven by the sidebar's search input: it
+ * forwards ArrowUp / ArrowDown / Enter here via the imperative handle, so
+ * the input keeps focus while rows highlight.
  *
- * Keyboard navigation is driven by the parent sidebar, which forwards
- * ArrowUp/ArrowDown/Enter/Escape from the search input to `handleKeyDown`.
- * This keeps the input as the single source of focus while the dropdown
- * visually highlights the active row.
- *
- * The snippet HTML is produced by the gateway with <mark> tags around the hit
- * and HTML-escaped surrounding text, so it is safe to render via
+ * The snippet HTML is produced by the gateway with <mark> tags around the
+ * hit and HTML-escaped surrounding text, so it is safe to render via
  * dangerouslySetInnerHTML (no other HTML is permitted in the snippet).
  */
 
-import { useEffect, useMemo, useRef, useState, useCallback, useImperativeHandle, forwardRef } from 'react'
+import { useEffect, useRef, useState, useCallback, useImperativeHandle, forwardRef } from 'react'
 import { useRouter } from 'next/navigation'
-import { searchChats, type ChatSearchResult, type Chat } from '@/lib/chats'
+import { searchChats, type ChatSearchResult } from '@/lib/chats'
 import { Icon } from '@/components/icon'
 import '@/styles/chat-search.css'
 
-interface ChatSearchDropdownProps {
+interface ChatSearchResultsProps {
   /** Current search query (controlled by the sidebar's input). */
   query: string
-  /** Whether the dropdown should be visible (typically: input is focused). */
-  open: boolean
-  /** Called when the user dismisses the dropdown (Escape or pick). */
+  /** Called when a result is picked (navigate + clear). */
   onClose: () => void
-  /** Recent chats to show when the query is empty (quick-jump mode). */
-  recentChats: Chat[]
   /** Optional scope — if set, searches are limited to this directory. */
   directoryId?: string
-  /** Currently-active chat id, to highlight the active row in recent mode. */
-  activeChatId?: string | null
 }
 
 export interface ChatSearchDropdownHandle {
-  /** Forward keydown events from the parent input so the dropdown can react. */
+  /** Forward keydown events from the parent input so the panel can react. */
   handleKeyDown: (e: React.KeyboardEvent) => void
 }
 
-const DEBOUNCE_MS = 300
+const DEBOUNCE_MS = 250
 
-export const ChatSearchDropdown = forwardRef<ChatSearchDropdownHandle, ChatSearchDropdownProps>(
-  function ChatSearchDropdown(
-    { query, open, onClose, recentChats, directoryId, activeChatId },
+/** deepseek's hasMore hint: the gateway caps results; tell the reader the
+ *  list is truncated and a tighter query refines it. */
+const RESULT_CAP_HINT = 20
+
+export const ChatSearchDropdown = forwardRef<ChatSearchDropdownHandle, ChatSearchResultsProps>(
+  function ChatSearchResults(
+    { query, onClose, directoryId },
     ref,
   ): React.ReactElement | null {
     const router = useRouter()
@@ -66,10 +62,11 @@ export const ChatSearchDropdown = forwardRef<ChatSearchDropdownHandle, ChatSearc
     const trimmed = query.trim()
     const isSearching = trimmed.length > 0
 
-    // Debounced search. Each new query bumps an internal request id; only the
-    // response matching the latest id lands — stale responses are dropped.
+    // Debounced search (deepseek SEARCH_DEBOUNCE_MS = 250). Each new query
+    // bumps an internal request id; only the response matching the latest
+    // id lands — stale responses are dropped.
     useEffect(() => {
-      if (!open || !isSearching) {
+      if (!isSearching) {
         setResults([])
         setLoading(false)
         setError(null)
@@ -103,26 +100,14 @@ export const ChatSearchDropdown = forwardRef<ChatSearchDropdownHandle, ChatSearc
       return () => {
         window.clearTimeout(handle)
       }
-    }, [trimmed, open, isSearching, directoryId])
-
-    // Build a flat list of "rows" the keyboard can navigate. In search mode
-    // these are the search results; in recent mode they're the recent chats.
-    type Row =
-      | { kind: 'result'; result: ChatSearchResult; href: string }
-      | { kind: 'recent'; chat: Chat; href: string }
-    const rows: Row[] = useMemo(() => {
-      if (isSearching) {
-        return results.map((r) => ({ kind: 'result' as const, result: r, href: `/chats/${r.chatId}` }))
-      }
-      return recentChats.map((c) => ({ kind: 'recent' as const, chat: c, href: `/chats/${c.id}` }))
-    }, [isSearching, results, recentChats])
+    }, [trimmed, isSearching, directoryId])
 
     // Clamp activeIndex when the row set shrinks.
     useEffect(() => {
-      if (activeIndex >= rows.length) {
-        setActiveIndex(rows.length === 0 ? 0 : rows.length - 1)
+      if (activeIndex >= results.length) {
+        setActiveIndex(results.length === 0 ? 0 : results.length - 1)
       }
-    }, [rows.length, activeIndex])
+    }, [results.length, activeIndex])
 
     // Scroll the active row into view inside the list.
     useEffect(() => {
@@ -132,8 +117,8 @@ export const ChatSearchDropdown = forwardRef<ChatSearchDropdownHandle, ChatSearc
     }, [activeIndex])
 
     const pickRow = useCallback(
-      (row: Row) => {
-        router.push(row.href)
+      (result: ChatSearchResult) => {
+        router.push(`/chats/${result.chatId}`)
         onClose()
       },
       [router, onClose],
@@ -141,123 +126,85 @@ export const ChatSearchDropdown = forwardRef<ChatSearchDropdownHandle, ChatSearc
 
     const handleKeyDown = useCallback(
       (e: React.KeyboardEvent) => {
-        if (!open) return
         if (e.key === 'ArrowDown') {
           e.preventDefault()
-          setActiveIndex((i) => (rows.length === 0 ? 0 : (i + 1) % rows.length))
+          setActiveIndex((i) => (results.length === 0 ? 0 : (i + 1) % results.length))
         } else if (e.key === 'ArrowUp') {
           e.preventDefault()
-          setActiveIndex((i) => (rows.length === 0 ? 0 : (i - 1 + rows.length) % rows.length))
+          setActiveIndex((i) => (results.length === 0 ? 0 : (i - 1 + results.length) % results.length))
         } else if (e.key === 'Enter') {
-          if (rows.length > 0) {
+          if (results.length > 0) {
             e.preventDefault()
-            const row = rows[activeIndex] ?? rows[0]
+            const row = results[activeIndex] ?? results[0]
             if (row) pickRow(row)
           }
-        } else if (e.key === 'Escape') {
-          e.preventDefault()
-          onClose()
         }
       },
-      [open, rows, activeIndex, pickRow, onClose],
+      [results, activeIndex, pickRow],
     )
 
     // Expose handleKeyDown so the sidebar can forward input keydown events.
     useImperativeHandle(ref, () => ({ handleKeyDown }), [handleKeyDown])
 
-    if (!open) return null
+    if (!isSearching) return null
 
-    const showEmpty = isSearching && !loading && !error && results.length === 0
-    const showRecent = !isSearching
+    const showEmpty = !loading && !error && results.length === 0
 
     return (
-      <div
-        className={`chat-search-dropdown${loading ? ' is-loading' : ''}`}
-        role="listbox"
-        aria-label={isSearching ? '搜索结果' : '最近对话'}
-      >
+      <div className="chat-search-results" role="listbox" aria-label="搜索结果">
         {loading && (
-          <div className="chat-search-dropdown-loading">
-            <Icon name="loader" className="chat-search-spinner" style={{ width: 14, height: 14 }} />
+          <div className="chat-search-status" role="status">
+            <Icon name="loader" className="chat-search-spinner" style={{ width: 13, height: 13 }} />
             <span>搜索中…</span>
           </div>
         )}
 
         {error && (
-          <div className="chat-search-dropdown-error">{error}</div>
+          <div className="chat-search-status is-warning" role="status">{error}</div>
         )}
 
         {showEmpty && (
-          <div className="chat-search-dropdown-empty">无结果</div>
+          <div className="chat-search-status">无匹配结果</div>
         )}
 
-        {showRecent && recentChats.length === 0 && (
-          <div className="chat-search-dropdown-empty">暂无对话</div>
-        )}
-
-        {rows.length > 0 && (
-          <div className="chat-search-dropdown-list" ref={listRef}>
-            {showRecent && (
-              <div className="chat-search-dropdown-section">最近对话</div>
-            )}
-            {rows.map((row, i) => {
+        {results.length > 0 && (
+          <div className="chat-search-list" ref={listRef}>
+            {results.map((r, i) => {
               const isActive = i === activeIndex
-              if (row.kind === 'result') {
-                const r = row.result
-                return (
-                  <button
-                    type="button"
-                    key={`${r.chatId}-${r.matchType}-${i}`}
-                    data-idx={i}
-                    className={`chat-search-item${isActive ? ' is-active' : ''}`}
-                    onMouseEnter={() => setActiveIndex(i)}
-                    onClick={() => pickRow(row)}
-                    role="option"
-                    aria-selected={isActive}
-                  >
-                    <div className="chat-search-item-main">
-                      <span className="chat-search-item-title">{r.chatTitle}</span>
-                      <span
-                        className={`chat-search-item-badge ${r.matchType}`}
-                        title={r.matchType === 'title' ? '标题匹配' : '内容匹配'}
-                      >
-                        {r.matchType === 'title' ? '标题匹配' : '内容匹配'}
-                      </span>
-                    </div>
-                    <p
-                      className="chat-search-item-snippet"
-                      dangerouslySetInnerHTML={{ __html: r.snippet }}
-                    />
-                    <div className="chat-search-item-meta">
-                      <span className="chat-search-item-dir">{r.directoryName}</span>
-                    </div>
-                  </button>
-                )
-              }
-              // recent mode
-              const c = row.chat
               return (
                 <button
                   type="button"
-                  key={c.id}
+                  key={`${r.chatId}-${i}`}
                   data-idx={i}
-                  className={`chat-search-item chat-search-item-recent${isActive ? ' is-active' : ''}${activeChatId === c.id ? ' is-current' : ''}`}
+                  className={`chat-search-item${isActive ? ' is-active' : ''}`}
                   onMouseEnter={() => setActiveIndex(i)}
-                  onClick={() => pickRow(row)}
+                  onClick={() => pickRow(r)}
                   role="option"
                   aria-selected={isActive}
                 >
-                  <div className="chat-search-item-main">
-                    <span className={`chat-search-item-status ${c.status}`} />
-                    <span className="chat-search-item-title">{c.title || '新对话'}</span>
-                  </div>
-                  <div className="chat-search-item-meta">
-                    <span className="chat-search-item-dir">{c.lastMessage ?? '空对话'}</span>
-                  </div>
+                  {/* Heading: title (deepseek .searchResultHeading — we have no
+                      per-result status from the search endpoint, so no slot). */}
+                  <span className="chat-search-item-heading">
+                    <span className="chat-search-item-title">{r.chatTitle || '新对话'}</span>
+                  </span>
+                  {/* Meta line: directory label + content snippet, one line. */}
+                  <span className="chat-search-item-meta">
+                    <span className="chat-search-item-dir">{r.directoryName}</span>
+                    {r.snippet ? (
+                      <span
+                        className="chat-search-item-snippet"
+                        dangerouslySetInnerHTML={{ __html: r.snippet }}
+                      />
+                    ) : null}
+                  </span>
                 </button>
               )
             })}
           </div>
+        )}
+
+        {!loading && !error && results.length >= RESULT_CAP_HINT && (
+          <div className="chat-search-status">仅显示前 {RESULT_CAP_HINT} 条，输入更精确的关键词可缩小范围</div>
         )}
       </div>
     )

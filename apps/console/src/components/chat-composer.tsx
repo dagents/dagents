@@ -132,6 +132,12 @@ export function ChatComposer({
       // IME composition guard
       if (e.nativeEvent.isComposing || e.keyCode === 229) return
 
+      // Holding Enter must not machine-gun sends (deepseek InputBar).
+      if (e.key === 'Enter' && e.nativeEvent.repeat) {
+        e.preventDefault()
+        return
+      }
+
       // Command menu navigation
       if (showCmdMenu && filteredCmds.length > 0) {
         if (e.key === 'ArrowDown') {
@@ -166,6 +172,21 @@ export function ChatComposer({
 
   const canSend = input.trim().length > 0 && !disabled
   const showStop = Boolean(onStop && stopping)
+
+  // `+` affordance (deepseek-harness InputBar): one click inserts an `@`
+  // token and opens the command menu — the same path as typing `@` by hand.
+  const openCommandMenu = useCallback(() => {
+    const el = textareaRef.current
+    if (!el || disabled) return
+    const next = input === '' || input.endsWith(' ') ? input + '@' : input + ' @'
+    setInput(next)
+    requestAnimationFrame(() => {
+      const pos = next.length
+      el.focus()
+      el.setSelectionRange(pos, pos)
+      checkCmdTrigger(next, pos)
+    })
+  }, [input, disabled, checkCmdTrigger])
 
   return (
     <div className="chat-composer-wrap">
@@ -218,37 +239,54 @@ export function ChatComposer({
           />
         </div>
         <div className="chat-composer-bottom">
-          {agentSelector && onAgentChange && (
-            <AgentSelector value={agentId} onChange={onAgentChange} disabled={disabled} />
-          )}
-          {onFlowChange && (
-            <FlowSelector value={flowId} onChange={onFlowChange} disabled={disabled} />
-          )}
-          <span className="chat-composer-hint">
-            {'⏎'} 发送 · {'⇧⏎'} 换行 · {'@'} 命令
-          </span>
-          {showStop ? (
+          <div className="chat-composer-tools">
             <button
               type="button"
-              className="chat-composer-stop"
-              onClick={onStop}
-              title="停止生成"
-              aria-label="停止生成"
+              className="chat-composer-add"
+              onMouseDown={(e) => e.preventDefault()}
+              onClick={openCommandMenu}
+              disabled={disabled}
+              title="插入 @ 命令"
+              aria-label="插入 @ 命令"
             >
-              <Icon name="stop" style={{ width: 14, height: 14 }} />
+              <Icon name="plus" style={{ width: 14, height: 14 }} />
             </button>
-          ) : (
-            <button
-              type="button"
-              className="chat-composer-send"
-              onClick={handleSend}
-              disabled={!canSend}
-              title="发送消息"
-              aria-label="发送消息"
-            >
-              <Icon name="send" style={{ width: 16, height: 16 }} />
-            </button>
-          )}
+            {agentSelector && onAgentChange && (
+              <AgentSelector value={agentId} onChange={onAgentChange} disabled={disabled} />
+            )}
+            {onFlowChange && (
+              <FlowSelector value={flowId} onChange={onFlowChange} disabled={disabled} />
+            )}
+          </div>
+          <div className="chat-composer-trailing">
+            <span className="chat-composer-hint">
+              {'⏎'} 发送 · {'⇧⏎'} 换行 · {'@'} 命令
+            </span>
+            {showStop ? (
+              <button
+                type="button"
+                className="chat-composer-stop"
+                onMouseDown={(e) => e.preventDefault()}
+                onClick={onStop}
+                title="停止生成"
+                aria-label="停止生成"
+              >
+                <Icon name="stop" style={{ width: 14, height: 14 }} />
+              </button>
+            ) : (
+              <button
+                type="button"
+                className="chat-composer-send"
+                onMouseDown={(e) => e.preventDefault()}
+                onClick={handleSend}
+                disabled={!canSend}
+                title="发送消息"
+                aria-label="发送消息"
+              >
+                <Icon name="arrowUp" style={{ width: 16, height: 16 }} />
+              </button>
+            )}
+          </div>
         </div>
       </div>
     </div>

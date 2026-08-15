@@ -1,0 +1,98 @@
+/* ============================================================
+   code-block.css — assistant markdown code fences.
+
+   Borrowed from deepseek-harness's CodeBlock.module.css: a rounded
+   bordered surface with a sticky banner (language label left, copy
+   button right) riding above the scrollable pre. Highlighted output
+   (shiki) and the plain fallback share identical geometry so a lazy
+   grammar landing mid-view doesn't shift layout.
+   ============================================================ */
+
+.code-block {
+  margin: 0.75em 0;
+  border: 1px solid var(--border-soft);
+  border-radius: 12px;
+  background: var(--prose-code-bg);
+  overflow: hidden;
+  min-width: 0;
+}
+
+.code-block-banner {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: var(--space-2);
+  padding: 5px var(--space-2) 5px var(--space-3);
+  border-bottom: 1px solid var(--border-soft);
+  background: color-mix(in oklab, var(--prose-code-bg) 60%, var(--surface));
+}
+
+.code-block-lang {
+  font-family: var(--font-mono);
+  font-size: 11px;
+  color: var(--meta);
+  text-transform: lowercase;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+  min-width: 0;
+}
+
+.code-block-copy {
+  display: inline-flex;
+  align-items: center;
+  gap: 4px;
+  flex-shrink: 0;
+  padding: 2px var(--space-2);
+  border: none;
+  border-radius: 6px;
+  background: transparent;
+  color: var(--meta);
+  font-size: 11px;
+  cursor: pointer;
+  transition: background var(--motion-fast), color var(--motion-fast);
+}
+
+.code-block-copy:hover {
+  background: var(--surface);
+  color: var(--fg);
+}
+
+.code-block-copy:focus-visible {
+  outline: none;
+  box-shadow: var(--focus-ring);
+}
+
+.code-block-copy.copied {
+  color: var(--success);
+}
+
+/* Plain fallback and shiki output share padding / wrap rules. */
+.code-block-plain,
+.code-block-highlighted pre {
+  margin: 0;
+  padding: var(--space-3) var(--space-4);
+  font-family: var(--font-mono);
+  font-size: 12px;
+  line-height: 1.6;
+  white-space: pre-wrap;
+  word-break: break-word;
+}
+
+.code-block-plain code {
+  font-family: inherit;
+  background: transparent;
+  padding: 0;
+  color: var(--prose-code-fg);
+}
+
+/* shiki emits its own <pre class="shiki"> with a background style — force
+   ours so light/dark token sheets stay authoritative. */
+.code-block-highlighted pre {
+  background: transparent !important;
+  color: var(--shiki-foreground);
+}
+
+.code-block-highlighted code {
+  font-family: inherit;
+}

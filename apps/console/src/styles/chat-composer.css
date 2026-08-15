@@ -5,126 +5,180 @@
 }
 
 .chat-composer-card {
-  width: 100%;
-  max-width: 768px;
+  box-sizing: border-box;
+  /* Anchor for the absolutely-positioned @ command menu */
+  position: relative;
   display: flex;
   flex-direction: column;
-  border-radius: var(--radius-lg);
-  border: 1px solid var(--border-soft);
-  background: color-mix(in oklab, var(--bg) 80%, transparent);
-  backdrop-filter: blur(8px);
-  box-shadow: 0 1px 2px 0 rgba(0, 0, 0, 0.04);
-  transition: border-color var(--motion-fast) var(--ease-standard);
+  /* deepseek-harness InputBar (figma Input_Bottom 75:8208): 12px between
+     the text area and the action row; 10px top pad before the textarea. */
+  gap: 12px;
+  width: 100%;
+  max-width: 768px;
+  padding-top: 10px;
+  /* Input stroke is one notch softer than button borders; fill is the
+     elevated input surface. Colors via --composer-* tokens (tokens.css). */
+  border: 1px solid var(--composer-border);
+  border-radius: var(--radius-xl);
+  background: var(--composer-bg);
+  box-shadow: var(--elev-raised);
+  font-size: 16px;
+  line-height: 24px;
+  transition: border-color var(--motion-fast) var(--ease-standard),
+              box-shadow var(--motion-fast) var(--ease-standard);
 }
 
 .chat-composer-card:focus-within {
-  border-color: var(--border);
+  border-color: color-mix(in oklab, var(--accent) 35%, var(--composer-border));
+  box-shadow: var(--accent-glow-soft);
 }
 
 .chat-composer-top {
   display: flex;
   align-items: flex-start;
-  gap: var(--space-2);
-  padding: var(--space-3) var(--space-3) 0;
+  min-width: 0;
 }
 
 .chat-composer-textarea {
   flex: 1;
+  box-sizing: border-box;
   resize: none;
   border: none;
   outline: none;
   background: transparent;
-  font-size: var(--text-sm);
-  line-height: 1.5;
-  color: var(--fg);
   font-family: var(--font-body);
+  font-size: inherit;
+  line-height: inherit;
+  color: var(--fg);
+  caret-color: var(--accent);
+  /* figma .InputText 34:10434: pl 16 / pr 12 / pt 4 */
+  padding: 4px 12px 0 16px;
+  /* 24px line + 4px top pad; the JS auto-resize grows it up to the cap. */
   min-height: 28px;
   max-height: 200px;
   overflow-y: auto;
-  padding: var(--space-1) 0;
+  white-space: pre-wrap;
+  word-break: break-word;
 }
 
 .chat-composer-textarea::placeholder {
   /* --muted (~5.1:1 on white) passes WCAG AA; --meta (~3.1:1) does not. */
   color: var(--muted);
+  user-select: none;
+}
+
+/* Running lock: grayed but the draft stays visible. */
+.chat-composer-textarea:disabled {
+  color: var(--muted);
+  cursor: not-allowed;
+}
+
+/* The app-wide :focus-visible ring (shell.css) would paint a second accent
+   ring around the draft INSIDE the card. The card's own :focus-within
+   treatment (accent border + soft glow) is the one focus indicator here. */
+.chat-composer-textarea:focus-visible {
+  box-shadow: none;
 }
 
 .chat-composer-bottom {
   display: flex;
   align-items: center;
-  gap: var(--space-2);
-  padding: 0 var(--space-3) var(--space-2);
+  justify-content: space-between;
+  gap: 12px;
+  /* deepseek .row: 2px moved from the bottom pad to the top so the whole
+     control row sits slightly lower against the textarea. */
+  padding: 2px 8px 6px;
+  min-width: 0;
 }
 
-.chat-composer-agent {
+.chat-composer-tools,
+.chat-composer-trailing {
   display: flex;
   align-items: center;
-  gap: var(--space-1);
-  padding: var(--space-1) var(--space-2);
-  border-radius: var(--radius-sm);
-  border: none;
-  background: transparent;
-  color: var(--muted);
-  font-size: var(--text-xs);
-  font-weight: 500;
-  cursor: pointer;
-  transition: background var(--motion-fast), color var(--motion-fast);
+  min-width: 0;
 }
 
-.chat-composer-agent:hover {
+.chat-composer-tools {
+  gap: 8px;
+}
+
+.chat-composer-trailing {
+  flex: none;
+  gap: 12px;
+}
+
+/* Attach circle (deepseek .add): 28px, selector fill, primary glyph. */
+.chat-composer-add {
+  display: grid;
+  place-items: center;
+  flex: none;
+  width: 28px;
+  height: 28px;
+  margin-right: 8px; /* 16px total to the chips (deepseek .tools gap) */
+  border: none;
+  border-radius: 999px;
   background: var(--surface);
   color: var(--fg);
+  cursor: pointer;
+  transition: background var(--motion-fast);
+}
+
+.chat-composer-add:hover:not(:disabled) {
+  background: var(--surface-sunk);
+}
+
+.chat-composer-add:disabled {
+  opacity: 0.5;
+  cursor: default;
+}
+
+.chat-composer-add:focus-visible {
+  outline: none;
+  box-shadow: var(--focus-ring);
 }
 
 .chat-composer-hint {
   font-size: var(--text-xs);
   color: var(--meta);
-  margin-left: auto;
-  margin-right: var(--space-2);
+  white-space: nowrap;
 }
 
-.chat-composer-send {
-  /* 36px hit target (up from 32px) — closer to the 44px mobile minimum
-   * without visually dominating the composer row. The icon stays 16px. */
-  width: 36px;
-  height: 36px;
-  border-radius: 50%;
-  border: none;
-  background: var(--surface);
-  color: var(--meta);
-  display: flex;
-  align-items: center;
-  justify-content: center;
-  cursor: pointer;
-  transition: background var(--motion-fast), color var(--motion-fast);
-  flex-shrink: 0;
-}
-
-.chat-composer-send:hover:not(:disabled) {
-  background: var(--accent);
-  color: var(--accent-on);
-}
-
-.chat-composer-send:disabled {
-  opacity: 0.5;
-  cursor: not-allowed;
-}
-
+/* Primary action (deepseek .primary): one 34px circle, accent fill, static
+   white glyph — Send when idle, Stop while a turn runs (same seat and fill;
+   the glyph carries the semantics). translateY(-2px) opts out of the row's
+   2px downward shift so the circle keeps its original position. */
+.chat-composer-send,
 .chat-composer-stop {
-  width: 36px;
-  height: 36px;
-  border-radius: 50%;
+  display: grid;
+  place-items: center;
+  flex: none;
+  width: 34px;
+  height: 34px;
   border: none;
-  background: var(--danger);
-  color: var(--accent-on);
-  display: flex;
-  align-items: center;
-  justify-content: center;
+  border-radius: 999px;
+  background: var(--accent);
+  color: #fff;
   cursor: pointer;
-  transition: opacity var(--motion-fast);
-  flex-shrink: 0;
+  transition: background-color 100ms ease, opacity 100ms ease;
+  transform: translateY(-2px);
 }
-.chat-composer-stop:hover { opacity: 0.88; }
+
+.chat-composer-send:hover:not(:disabled),
+.chat-composer-stop:hover {
+  background: var(--accent-hover);
+}
+
+.chat-composer-send:focus-visible,
+.chat-composer-stop:focus-visible {
+  outline: none;
+  box-shadow: var(--focus-ring);
+}
+
+/* Empty draft: dimmed fill, never a grey ghost disc (deepseek pattern). */
+.chat-composer-send:disabled {
+  opacity: 0.4;
+  cursor: default;
+}
 
 /* ─── @ command menu ─────────────────────────────────────────── */
 .cmd-menu {
@@ -225,9 +279,6 @@
   background: var(--surface);
   border: 1px solid var(--border-soft);
 }
-
-/* Composer card needs relative positioning for the absolute cmd-menu */
-.chat-composer-card { position: relative; }
 
 /* kbd hint in the bottom bar */
 .chat-composer-kbd {

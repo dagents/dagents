@@ -81,14 +81,6 @@ export function CommandPalette({ open, onClose }: CommandPaletteProps) {
       run: () => navigate('/'),
     })
     cmds.push({
-      id: 'nav-directories',
-      label: '项目目录',
-      hint: '跳转',
-      group: '页面',
-      icon: 'folder',
-      run: () => navigate('/directories'),
-    })
-    cmds.push({
       id: 'nav-settings',
       label: '设置',
       hint: '跳转',

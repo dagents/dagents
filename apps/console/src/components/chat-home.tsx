@@ -12,7 +12,6 @@
 
 import { useEffect, useState, useCallback } from 'react'
 import { useRouter } from 'next/navigation'
-import Link from 'next/link'
 import { Icon } from '@/components/icon'
 import { SuggestionCards } from '@/components/suggestion-cards'
 import { OnboardingChecklist } from '@/components/onboarding-checklist'
@@ -106,9 +105,6 @@ export function ChatHome(): React.ReactElement {
           {addError ? (
             <div className="chat-home-empty-error">{addError}</div>
           ) : null}
-          <Link className="chat-home-empty-secondary" href="/directories">
-            或前往目录管理页 →
-          </Link>
           <div className="chat-home-empty-steps">
             <div className="chat-home-empty-step">
               <div className="chat-home-empty-step-num">1</div>

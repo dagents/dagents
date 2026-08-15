@@ -91,7 +91,6 @@ export function FloatingChat(): React.ReactElement {
     pathname.startsWith('/flows') ||
     pathname.startsWith('/workflows') ||
     pathname.startsWith('/daemons') ||
-    pathname.startsWith('/directories') ||
     pathname.startsWith('/settings')
   const shouldHide = onChatDetail || onChatHome || onManagementPage
 

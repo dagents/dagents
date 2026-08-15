@@ -28,7 +28,7 @@ const DISMISS_KEY = 'dagents:onboarding-dismissed'
 
 export function OnboardingChecklist(): React.ReactElement | null {
   const [steps, setSteps] = useState<StepState[]>([
-    { id: 'dir', label: '项目目录', done: false, href: '/directories' },
+    { id: 'dir', label: '项目目录', done: false, href: '/' },
     { id: 'cli', label: 'CLI 已安装', done: false, href: '/settings' },
     { id: 'agent', label: 'Agent 已创建', done: false, href: '/agents' },
   ])
@@ -56,7 +56,7 @@ export function OnboardingChecklist(): React.ReactElement | null {
 
         if (!cancelled) {
           setSteps([
-            { id: 'dir', label: '项目目录', done: dirList.length > 0, href: '/directories' },
+            { id: 'dir', label: '项目目录', done: dirList.length > 0, href: '/' },
             { id: 'cli', label: 'CLI 已安装', done: hasCli, href: '/settings' },
             { id: 'agent', label: 'Agent 已创建', done: agentList.length > 0, href: '/agents' },
           ])

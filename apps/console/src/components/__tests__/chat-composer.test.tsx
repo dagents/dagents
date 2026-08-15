@@ -81,6 +81,22 @@ describe('ChatComposer — Enter behavior matches hint text', () => {
     expect(onSend).not.toHaveBeenCalled()
   })
 
+  it('§6: auto-repeat Enter (key held down) does NOT machine-gun sends', () => {
+    const { onSend } = setup()
+    const textarea = screen.getByLabelText('消息输入框')
+    fireEvent.change(textarea, { target: { value: 'hello' } })
+    // Holding Enter fires repeated keydowns (repeat = true in the event
+    // init, exactly like a real auto-repeat) — a repeat must not send
+    // (deepseek InputBar e.repeat guard).
+    fireEvent.keyDown(textarea, {
+      key: 'Enter',
+      repeat: true,
+      nativeEvent: { isComposing: false } as KeyboardEventInit,
+      keyCode: 13,
+    })
+    expect(onSend).not.toHaveBeenCalled()
+  })
+
   it('renders the hint text advertising the Enter / Shift+Enter contract', () => {
     setup()
     // The hint must surface the keyboard contract so users know how to send

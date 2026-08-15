@@ -33,8 +33,8 @@
 }
 
 .chat-layout-sidebar.collapsed {
-  width: 60px;
-  min-width: 60px;
+  width: 56px;
+  min-width: 56px;
 }
 
 .chat-layout-main {
@@ -91,19 +91,6 @@
   gap: var(--space-1);
 }
 
-.chat-layout-toggle {
-  display: flex;
-  align-items: center;
-  justify-content: center;
-  width: 32px;
-  height: 32px;
-  border-radius: var(--radius-sm);
-  border: none;
-  background: transparent;
-  color: var(--muted);
-  cursor: pointer;
-  transition: background var(--motion-fast) var(--ease-standard);
-}
 
 .chat-layout-toggle:hover {
   background: var(--surface);

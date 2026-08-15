@@ -365,6 +365,15 @@
   color: var(--meta);
 }
 
+/* Dot separator between the label and the preview — deepseek ReasoningRow. */
+.thinking-sep {
+  flex: none;
+  width: 2px;
+  height: 2px;
+  border-radius: 1px;
+  background: var(--meta);
+}
+
 .thinking-preview {
   flex: 1;
   min-width: 0;
@@ -372,6 +381,48 @@
   text-overflow: ellipsis;
   white-space: nowrap;
   font-style: italic;
+}
+
+/* While streaming the preview auto-scrolls to its end (JS in ThinkingRow);
+   clip instead of ellipsize so the tail stays visible. */
+.thinking-preview[data-follow-end] {
+  text-overflow: clip;
+}
+
+/* ── Running light sweep (deepseek ReasoningRow pattern) ──
+   A soft gradient band sweeps left→right across the row while the
+   thinking block is the streaming tail. Pure CSS; disabled under
+   prefers-reduced-motion. */
+.thinking-section[data-running] .thinking-trigger {
+  position: relative;
+  overflow: hidden;
+}
+
+.thinking-section[data-running] .thinking-trigger::after {
+  content: '';
+  position: absolute;
+  inset-block: 0;
+  left: 0;
+  width: 300px;
+  background: linear-gradient(
+    90deg,
+    transparent 0%,
+    color-mix(in srgb, var(--bg) 60%, transparent) 55%,
+    transparent 100%
+  );
+  animation: thinking-sweep 2.6s ease-out infinite;
+  pointer-events: none;
+}
+
+@keyframes thinking-sweep {
+  0% { left: -300px; }
+  90%, 100% { left: 100%; }
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .thinking-section[data-running] .thinking-trigger::after {
+    animation: none;
+  }
 }
 
 .thinking-body {

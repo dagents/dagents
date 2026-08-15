@@ -204,3 +204,10 @@
   text-align: center;
   line-height: 1.4;
 }
+
+/* Hero composer floor (deepseek .hero .mirror): the centered empty-state
+   input keeps a 2-line minimum (48px + 4px top pad ≈ figma's 52px) so it
+   doesn't collapse to a single line like the docked detail-page composer. */
+.chat-home-body .chat-composer-textarea {
+  min-height: 48px;
+}

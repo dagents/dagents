@@ -58,7 +58,6 @@ const CRUMBS: readonly { match: string; segments: readonly CrumbSegment[] }[] = 
   { match: '/agents', segments: [{ label: 'Agent' }] },
   { match: '/flows', segments: [{ label: 'Flow' }] },
   { match: '/daemons', segments: [{ label: 'Daemon' }] },
-  { match: '/directories', segments: [{ label: '项目目录' }] },
   { match: '/settings', segments: [{ label: '设置' }] },
   { match: '/', segments: [] },
 ]

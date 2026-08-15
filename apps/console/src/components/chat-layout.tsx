@@ -91,20 +91,11 @@ export function ChatLayout({ children }: { children: React.ReactNode }) {
   return (
     <div className="chat-layout">
       <aside className={`chat-layout-sidebar${collapsed ? ' collapsed' : ''}`}>
-        <ChatNavSidebar collapsed={collapsed} />
+        <ChatNavSidebar collapsed={collapsed} onToggle={toggleCollapsed} />
       </aside>
       <div className="chat-layout-main">
         <header className={`chat-layout-navbar${scrolled ? ' scrolled' : ''}`}>
           <div className="chat-layout-navbar-left">
-            <button
-              type="button"
-              className="chat-layout-toggle"
-              onClick={toggleCollapsed}
-              aria-label={collapsed ? '展开侧栏' : '折叠侧栏'}
-              title={collapsed ? '展开侧栏' : '折叠侧栏'}
-            >
-              <Icon name="collapse" style={{ transform: collapsed ? 'rotate(180deg)' : '', transition: 'transform var(--motion-fast)' }} />
-            </button>
             {title ? <h1 className="chat-layout-navbar-title">{title}</h1> : null}
           </div>
           <div className="chat-layout-navbar-right">

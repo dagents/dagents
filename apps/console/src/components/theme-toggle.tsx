@@ -41,28 +41,38 @@ export function ThemeToggle(): React.ReactElement {
     return () => mq.removeEventListener('change', handler)
   }, [])
 
-  const cycle = useCallback(() => {
-    setTheme((prev) => {
-      const next: Theme = prev === 'auto' ? 'light' : prev === 'light' ? 'dark' : 'auto'
-      if (next === 'auto') {
-        localStorage.removeItem(THEME_KEY)
-      } else {
-        localStorage.setItem(THEME_KEY, next)
-      }
-      applyTheme(next)
-      return next
-    })
-  }, [])
+  // Click flips the RENDERED appearance (resolved = stored theme, or the
+  // system preference in auto mode), so every click visibly changes the
+  // page. The old auto→light→dark→auto cycle had a blind step: an explicit
+  // dark with a dark system preference cycling to auto changed nothing
+  // visually — the "first click does nothing" report. Auto stays reachable
+  // via Shift+click.
+  const cycle = useCallback((restoreAuto: boolean) => {
+    if (restoreAuto) {
+      localStorage.removeItem(THEME_KEY)
+      applyTheme('auto')
+      setTheme('auto')
+      return
+    }
+    const systemDark = window.matchMedia('(prefers-color-scheme: dark)').matches
+    const resolved: 'light' | 'dark' = theme === 'auto' ? (systemDark ? 'dark' : 'light') : theme
+    const next = resolved === 'dark' ? 'light' : 'dark'
+    localStorage.setItem(THEME_KEY, next)
+    applyTheme(next)
+    setTheme(next)
+  }, [theme])
 
-  const icon = theme === 'light' ? '☀️' : theme === 'dark' ? '🌙' : '🖥️'
-  const label = theme === 'light' ? '浅色' : theme === 'dark' ? '深色' : '跟随系统'
+  const systemDark = typeof window !== 'undefined' && window.matchMedia('(prefers-color-scheme: dark)').matches
+  const resolved: 'light' | 'dark' = theme === 'auto' ? (systemDark ? 'dark' : 'light') : theme
+  const icon = resolved === 'light' ? '☀️' : '🌙'
+  const label = theme === 'auto' ? '跟随系统' : resolved === 'light' ? '浅色' : '深色'
 
   return (
     <button
       type="button"
       className="theme-toggle"
-      onClick={cycle}
-      title={`主题：${label}（点击切换）`}
+      onClick={(e) => cycle(e.shiftKey)}
+      title={`主题：${label}（点击切换 · Shift+点击跟随系统）`}
       aria-label={`切换主题，当前：${label}`}
       suppressHydrationWarning
     >
