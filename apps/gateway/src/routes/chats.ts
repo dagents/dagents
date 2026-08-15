@@ -242,35 +242,40 @@ chatRoutes.get('/search', async (c) => {
   try {
     const { records } = await runQuery<SearchRow>(
       `
-      -- Title matches: snippet_raw is the raw title (capped at 200 chars).
-      SELECT ch.id            AS chat_id,
-             ch.title         AS chat_title,
-             ch.directory_id  AS directory_id,
-             d.name           AS directory_name,
-             left(ch.title, 200) AS snippet_raw,
-             'title'::text    AS match_type,
-             ch.created_at    AS created_at
-        FROM chats ch
-        JOIN directories d ON d.id = ch.directory_id
-       WHERE ch.title ILIKE $1 ESCAPE '\\'
-         ${dirFilter}
-       UNION ALL
-      -- Content matches: snippet_raw is a ~200-char window centered on the
-      -- first hit (60 chars of context before, then the hit, then the tail).
+      -- The union is wrapped in a subselect: Postgres only allows the outer
+      -- ORDER BY of a UNION to reference output columns directly, not
+      -- expressions over them (the CASE below), so it must sort the wrapper.
+      SELECT * FROM (
+        -- Title matches: snippet_raw is the raw title (capped at 200 chars).
         SELECT ch.id            AS chat_id,
                ch.title         AS chat_title,
                ch.directory_id  AS directory_id,
                d.name           AS directory_name,
-               substring(cm.content
-                        FROM GREATEST(1, POSITION(LOWER($2) IN LOWER(cm.content)) - 60)
-                        FOR 200) AS snippet_raw,
-               'content'::text  AS match_type,
-               cm.created_at    AS created_at
-          FROM chat_messages cm
-          JOIN chats ch ON ch.id = cm.chat_id
+               left(ch.title, 200) AS snippet_raw,
+               'title'::text    AS match_type,
+               ch.created_at    AS created_at
+          FROM chats ch
           JOIN directories d ON d.id = ch.directory_id
-         WHERE cm.content ILIKE $1 ESCAPE '\\'
+         WHERE ch.title ILIKE $1 ESCAPE '\\'
            ${dirFilter}
+         UNION ALL
+        -- Content matches: snippet_raw is a ~200-char window centered on the
+        -- first hit (60 chars of context before, then the hit, then the tail).
+          SELECT ch.id            AS chat_id,
+                 ch.title         AS chat_title,
+                 ch.directory_id  AS directory_id,
+                 d.name           AS directory_name,
+                 substring(cm.content
+                          FROM GREATEST(1, POSITION(LOWER($2) IN LOWER(cm.content)) - 60)
+                          FOR 200) AS snippet_raw,
+                 'content'::text  AS match_type,
+                 cm.created_at    AS created_at
+            FROM chat_messages cm
+            JOIN chats ch ON ch.id = cm.chat_id
+            JOIN directories d ON d.id = ch.directory_id
+           WHERE cm.content ILIKE $1 ESCAPE '\\'
+             ${dirFilter}
+      ) search_results
       ORDER BY
         CASE match_type WHEN 'title' THEN 0 ELSE 1 END,
         created_at DESC
