@@ -112,8 +112,9 @@ export function runDaemon(opts: DaemonOpts): DaemonHandle {
     /**
      * Register (or re-register) the daemon with dispatch. Extracted so the
      * heartbeat and claim loops can re-register when they detect the daemon
-     * row is gone (404). Re-registration creates a new daemonId + token; the
-     * old row (if any) will be reaped by the gateway's offline reaper.
+     * row is lost. Re-registration creates a new daemonId + token; the old
+     * row (if any) is only marked offline by the gateway's reaper —— 它不删
+     * 行，旧行会残留，需要定期手动清理。
      */
     async function register(): Promise<void> {
       const reg = await client.register({
@@ -122,6 +123,17 @@ export function runDaemon(opts: DaemonOpts): DaemonHandle {
       })
       client.setToken(reg.token)
       daemonId = reg.daemonId
+    }
+
+    /**
+     * True when the error means "dispatch no longer knows this daemon" ——
+     * gateway 对丢失/离线的 daemon 行返回 403 invalid daemon token（不是
+     * 404；dispatch 的 404 只表示路由不存在）。401/403/404 都触发重注册。
+     */
+    function daemonRowLost(err: unknown): boolean {
+      return (
+        err instanceof DispatchHttpError && (err.status === 404 || err.status === 401 || err.status === 403)
+      )
     }
 
     /** Track consecutive heartbeat failures to trigger re-registration. */
@@ -133,9 +145,11 @@ export function runDaemon(opts: DaemonOpts): DaemonHandle {
       log.info('daemon registered', { daemonId, agentType: opts.agentType })
     } catch (err) {
       // Register failing is fatal — without a daemonId we can't claim or
-      // heartbeat. Surface and exit (the supervisor / user will restart).
-      log.error('daemon register failed, exiting', { error: String(err) })
-      return
+      // heartbeat. Reject so the CLI exits 1（文档契约；supervisor / docker
+      // restart:on-failure 依赖非零退出码重启）。此前 resolve 会让进程以
+      // exit 0 结束，supervisor 不会重启。
+      log.error('daemon register failed, exiting (code 1)', { error: String(err) })
+      throw err
     }
 
     // ── heartbeat loop ──────────────────────────────────────────────────
@@ -146,11 +160,12 @@ export function runDaemon(opts: DaemonOpts): DaemonHandle {
           heartbeatFailures = 0
         })
         .catch(async (err) => {
-          if (err instanceof DispatchHttpError && err.status === 404) {
-            // The daemon row was lost (DB reset, gateway restart with data
-            // loss, manual deletion). Re-register immediately to get a new
-            // daemonId + token so subsequent heartbeats and claims succeed.
-            log.warn('heartbeat got 404 — daemon row lost, re-registering', { daemonId })
+          if (daemonRowLost(err)) {
+            // The daemon row was lost or went stale (DB reset, gateway restart
+            // with data loss, reaper marked it offline → 403). Re-register
+            // immediately to get a new daemonId + token so subsequent
+            // heartbeats and claims succeed.
+            log.warn('heartbeat auth lost (401/403/404) — daemon row lost or stale, re-registering', { daemonId })
             try {
               await register()
               heartbeatFailures = 0
@@ -193,9 +208,9 @@ export function runDaemon(opts: DaemonOpts): DaemonHandle {
       try {
         claimed = await client.claimTask(daemonId)
       } catch (err) {
-        if (err instanceof DispatchHttpError && err.status === 404) {
-          // Daemon row lost — re-register before continuing to claim.
-          log.warn('claim got 404 — daemon row lost, re-registering', { daemonId })
+        if (daemonRowLost(err)) {
+          // Daemon row lost or stale — re-register before continuing to claim.
+          log.warn('claim auth lost (401/403/404) — daemon row lost or stale, re-registering', { daemonId })
           try {
             await register()
             log.info('daemon re-registered from claim', { daemonId })

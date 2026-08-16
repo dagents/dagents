@@ -45,6 +45,10 @@ const DEVECO_BLOCKED_ARGS: Record<string, 'value' | 'standalone'> = {
   '--dir': 'value',
   '--variant': 'value',
   '--dangerously-skip-permissions': 'standalone',
+  // 2026-08-16：补齐 daemon 注入的 flag —— 此前调用者的 customArgs 可以
+  // 覆盖 daemon 拥有的 --model/--session（与 opencode 适配器对齐）。
+  '--model': 'value',
+  '--session': 'value',
 }
 
 /**

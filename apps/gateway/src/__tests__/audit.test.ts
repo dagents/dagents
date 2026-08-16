@@ -191,7 +191,7 @@ describe('audit fire-and-forget — a failed audit write never blocks the op', (
           "user_agent" TEXT,
           "created_at" TIMESTAMPTZ NOT NULL DEFAULT NOW(),
           CONSTRAINT audit_log_actor_type_chk CHECK ("actor_type" IN ('user','system')),
-          CONSTRAINT audit_log_target_type_chk CHECK ("target_type" IN ('token','pipeline_version','llm_provider'))
+          CONSTRAINT audit_log_target_type_chk CHECK ("target_type" IN ('token','pipeline_version','llm_provider','workflow','agent','chat'))
         )
       `)
       await AppDataSource.query(`CREATE INDEX idx_audit_log_created_at ON "audit_log" ("created_at")`)

@@ -11,6 +11,7 @@ import { workflowsRoutes } from './routes/workflows.js'
 import { cliRuntimeRoutes } from './routes/cli-runtimes.js'
 import { internalRunsRoutes } from './routes/internal-runs.js'
 import { dispatchRoutes } from './routes/dispatch/index.js'
+import { runQuery } from '@dagents/db'
 import { createLogger } from '@dagents/shared'
 import { requireAuth, verifyApiKey, bearerFromRequest } from './auth.js'
 
@@ -19,21 +20,16 @@ import { requireAuth, verifyApiKey, bearerFromRequest } from './auth.js'
 // that actually listens.
 export const app = new Hono()
 
-app.get('/health', (c) => c.json({ ok: true, svc: 'gateway' }))
-
-/**
- * Internal callback endpoints (Phase 1 / trial-readiness): daemons dial these
- * after an async task completes to write the assistant message + broadcast
- * chat:done. Internal services authenticate via `x-internal-token`
- * (matching INTERNAL_CALLBACK_TOKEN env), not a browser session.
- *
- * ⚠️ Security: internal routes rely SOLELY on `x-internal-token`
- * for auth. The gateway binds 0.0.0.0 by default (see index.ts), so this surface
- * IS reachable from the network — operators MUST restrict `/internal/*` at the
- * network layer (firewall / service mesh / reverse-proxy allowlist) in
- * production, and `INTERNAL_CALLBACK_TOKEN` must be a strong random secret.
- */
-app.route('/internal', internalRunsRoutes)
+// Liveness/readiness probe: HTTP 层活着返回 ok:true，同时探测 Postgres ——
+// DB 挂掉时返回 503，避免编排器把一个所有业务路由都在 502 的实例当成健康。
+app.get('/health', async (c) => {
+  try {
+    await runQuery('SELECT 1')
+    return c.json({ ok: true, svc: 'gateway', db: 'up' })
+  } catch {
+    return c.json({ ok: false, svc: 'gateway', db: 'down' }, 503)
+  }
+})
 
 /**
  * Gateway auth middleware.
@@ -47,9 +43,18 @@ app.route('/internal', internalRunsRoutes)
  *   - `/health`
  *   - `/api/v1/llm/*`   (LLM proxy; the upstream provider's own `sk-` token is the auth)
  *
- * Dispatch routes (`/api/v1/dispatch/*`) are passed through to per-route auth:
+ * NOTE: this middleware must be registered BEFORE any route that should be
+ * gated (Hono runs matched handlers in registration order — a route registered
+ * above this block would skip the gate entirely).
+ *
+ * Dispatch daemon-protocol routes (`/api/v1/dispatch/*`) carry their own
+ * per-route token auth and are exempted below:
  *   - `register` requires `DAEMON_REGISTER_TOKEN` (when set)
- *   - `claim`/`heartbeat` require the daemon's own token (checked per-route)
+ *   - `heartbeat`/`claim` require the daemon's own token (checked per-route)
+ *   - task lifecycle (`start`/`progress`/`messages`/`complete`/`fail`) requires
+ *     the claiming daemon's token (checked per-route)
+ * Everything else under dispatch/* (fleet reads, invoke, agent/task reads)
+ * falls through to the gateway key like any other route.
  */
 app.use('*', async (c, next) => {
   if (!requireAuth()) {
@@ -74,16 +79,32 @@ app.use('*', async (c, next) => {
     return
   }
 
-  // Dispatch routes: check daemon token (not gateway API key).
-  if (path.startsWith('/api/v1/dispatch/')) {
-    // Daemon protocol routes are auth'd by daemon tokens, checked per-route
-    // (register needs DAEMON_REGISTER_TOKEN, claim/heartbeat need daemon token).
+  // Daemon protocol routes: token-authed per route (see block comment above).
+  const daemonProtocol =
+    path === '/api/v1/dispatch/daemons/register' ||
+    path === '/api/v1/dispatch/daemons/heartbeat' ||
+    /^\/api\/v1\/dispatch\/daemons\/[^/]+\/tasks\/claim$/.test(path) ||
+    /^\/api\/v1\/dispatch\/tasks\/[^/]+\/(start|progress|messages|complete|fail)$/.test(path)
+  if (daemonProtocol) {
     await next()
     return
   }
 
   return c.json({ success: false, error: 'authentication required' }, 401)
 })
+
+/**
+ * Internal callback endpoints (Phase 1 / trial-readiness): daemons dial these
+ * after an async task completes to write the assistant message + broadcast
+ * chat:done. Internal services authenticate via `x-internal-token`
+ * (matching INTERNAL_CALLBACK_TOKEN env), not a browser session. The token
+ * check fails closed when INTERNAL_CALLBACK_TOKEN is unset; when
+ * `GATEWAY_API_KEY` is configured, the middleware above gates this surface
+ * too (defense in depth).
+ *
+ * Registered AFTER the auth middleware so the gate applies to it.
+ */
+app.route('/internal', internalRunsRoutes)
 
 // LLM provider proxy: dynamically forwards to the user-configured LLM provider
 // based on X-LLM-Provider-Id header (or first active provider).

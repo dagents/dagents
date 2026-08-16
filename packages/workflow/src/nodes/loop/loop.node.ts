@@ -13,9 +13,13 @@ import type { INode, INodeData, INodeOutput, IExecutionContext } from '../../typ
  * loop early before a new iteration starts.
  *
  * MAX_LOOP_COUNT defaults to 10 (matches Flowise's buildAgentflow.ts
- * `process.env.MAX_LOOP_COUNT ?? 10`).
+ * `process.env.MAX_LOOP_COUNT ?? 10`). A non-numeric / <1 env value falls
+ * back to 10 — NaN here would silently run ZERO iterations and report success.
  */
-const MAX_LOOP_COUNT = Number(process.env.MAX_LOOP_COUNT ?? 10)
+const MAX_LOOP_COUNT = (() => {
+  const n = Number(process.env.MAX_LOOP_COUNT ?? 10)
+  return Number.isFinite(n) && n >= 1 ? Math.floor(n) : 10
+})()
 
 export class LoopNode implements INode {
   label = 'Loop'

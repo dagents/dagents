@@ -864,6 +864,29 @@ function DeleteModal(props: {
 // tabs are available and visually consistent with the design. The sample rows
 // are the design's own placeholder values, not live data.
 
+/**
+ * 未接入提示条 — 占位 tab 顶部的统一提示。这些区块的 DOM 是 design 的形状
+ * 回填（保留作设计参考），数据未接线，展示的数字/名单/开关均为占位。
+ */
+function StubNotice({ note }: { note: string }): React.ReactElement {
+  return (
+    <div
+      className="muted"
+      role="note"
+      style={{
+        fontSize: 13,
+        lineHeight: 1.6,
+        padding: '10px 14px',
+        marginBottom: 16,
+        border: '1px dashed var(--border)',
+        borderRadius: 8,
+      }}
+    >
+      ⚠️ 未接入后端 — {note}
+    </div>
+  )
+}
+
 /** 默认模型 — design §models. 按角色分派 + 回退链 (model-row + toggle-row). */
 const MODEL_ROWS = [
   { role: '阅读 / reader', p: '长上下文 · 便宜', model: 'claude-sonnet-4', price: '$3/M in' },
@@ -883,6 +906,7 @@ function DefaultModelsTab(): React.ReactElement {
   return (
     <section className="settings-section active" aria-label={TAB_LABEL.models}>
       <div className="card-title mb-4" style={{ fontSize: 'var(--text-lg)' }}>{TAB_LABEL.models}</div>
+      <StubNotice note="本页为设计占位数据，不反映真实配置" />
       <div className="card mb-6">
         <div className="card-head">
           <div className="card-title">按角色分派</div>
@@ -933,6 +957,7 @@ function QuotaTab(): React.ReactElement {
   return (
     <section className="settings-section active" aria-label={TAB_LABEL.quota}>
       <div className="card-title mb-4" style={{ fontSize: 'var(--text-lg)' }}>{TAB_LABEL.quota}</div>
+      <StubNotice note="本页为设计占位数据，不反映真实配置" />
       <div className="card mb-4">
         <div className="card-head">
           <div className="card-title">全平台预算</div>
@@ -999,6 +1024,9 @@ function NotifyTab(): React.ReactElement {
           (localStorage persistence + Web Audio + Notifications API). */}
       <NotificationSettings />
 
+      {/* 下方通知事件/渠道列表是 design 的占位形状 — 开关均为禁用死开关。
+          Banner 放在真实 NotificationSettings 卡片之后，只标记占位部分。 */}
+      <StubNotice note="下方通知事件 / 渠道列表为设计占位数据，开关未接线（上方的任务通知已生效）" />
       <div className="card mt-4">
         <div className="card-head">
           <div className="card-title">通知事件</div>
@@ -1058,6 +1086,7 @@ function AccountTab(): React.ReactElement {
   return (
     <section className="settings-section active" aria-label={TAB_LABEL.account}>
       <div className="card-title mb-4" style={{ fontSize: 'var(--text-lg)' }}>{TAB_LABEL.account}</div>
+      <StubNotice note="本页为设计占位数据（成员名单非真实），不反映真实配置" />
       <div className="card mb-4">
         <div className="card-head">
           <div className="card-title">个人</div>
@@ -1122,6 +1151,7 @@ const DANGER_ROWS = [
 function DangerTab(): React.ReactElement {
   return (
     <section className="settings-section active" aria-label={TAB_LABEL.danger}>
+      <StubNotice note="本页为设计占位，功能未实现（按钮均不可用）" />
       <div className="danger-zone">
         <div className="card-title mb-2" style={{ color: 'var(--danger)' }}>{TAB_LABEL.danger}</div>
         {DANGER_ROWS.map((r) => (

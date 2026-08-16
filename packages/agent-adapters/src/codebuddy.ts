@@ -58,17 +58,16 @@ const CODEBUDDY_BLOCKED_ARGS: Record<string, 'value' | 'standalone'> = {
  * first (so it is readable in `agent command` logs), then model/effort/turns/
  * system-prompt/resume, then the caller's filtered args.
  *
- * Like the claude adapter, the prompt is written to stdin via the stream-json
- * input-format framing — but for this MVP we use the simpler `--input-format
- * stream-json` + raw-text stdin path (the CLI accepts a raw text prompt on
- * stdin even with input-format set, treating it as a single user turn).
- * `inputMethod: 'stdin'` is used so `spawnStreamAgent` writes the prompt.
+ * 2026-08-16 修复：去掉 `--input-format stream-json` —— 该 flag 要求 stdin
+ * 上是 JSON 帧的用户消息，而本适配器发的是裸文本 prompt，两者自相矛盾
+ * （每个 run 都会死在第一次 stdin 解析）。Claude Code 系 CLI 的 `-p` 无头
+ * 模式直接从 stdin 读裸文本 prompt，这正是我们要的行为。
+ * `inputMethod: 'stdin'` 让 `spawnStreamAgent` 写入 prompt。
  */
 export function buildCodebuddyArgs(opts: ExecOptions): string[] {
   const args = [
     '-p',
     '--output-format', 'stream-json',
-    '--input-format', 'stream-json',
     '--verbose',
     '--strict-mcp-config',
     '--permission-mode', 'bypassPermissions',

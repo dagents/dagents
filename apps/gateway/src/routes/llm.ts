@@ -71,6 +71,13 @@ llmRoutes.all('/*', async (c) => {
   if (!rest || rest.includes('..')) {
     return fail(c, 400, 'unsupported llm path')
   }
+  // `rest` must stay a path-only suffix of the provider base URL. `new URL()`
+  // honors absolute and protocol-relative inputs (`https://evil/x`, `//evil/x`),
+  // which would redirect the proxied request — with the provider's decrypted
+  // API key attached — to an attacker-controlled host.
+  if (/^[a-z][a-z0-9+.-]*:/i.test(rest) || rest.startsWith('//')) {
+    return fail(c, 400, 'unsupported llm path')
+  }
 
   const providerId = c.req.header('x-llm-provider-id')
   let provider: LlmProviderRow | null

@@ -329,18 +329,23 @@ export function AgentsView(): React.ReactElement {
                     <span className={`status-dot ${STATUS_DOT_CLASS[a.status]}`} />
                     {STATUS_LABEL[a.status]}
                   </span>
-                  <div className="agent-load">
+                  {/* load/cost 均为前端估算（非网关下发的真实数据）— 带「估」标记 */}
+                  <div className="agent-load" title="按运行时长推算的负载估计，非实时监控">
                     <div className="load-bar">
                       <span
                         className={`load-fill${a.load > 85 ? ' danger' : a.load > 70 ? ' warn' : ''}`}
                         style={{ width: `${a.load}%` }}
                       />
                     </div>
-                    <span className="load-val mono">{a.load}%</span>
+                    <span className="load-val mono">{a.load}% 估</span>
                   </div>
                   {a.cost !== '—' ? (
-                    <span className="chip chip-outline mono" style={{ fontSize: 10 }}>
-                      {a.cost}
+                    <span
+                      className="chip chip-outline mono"
+                      style={{ fontSize: 10 }}
+                      title="按 $0.01/1k tokens 估算，非真实账单"
+                    >
+                      估 · {a.cost}
                     </span>
                   ) : null}
                 </div>

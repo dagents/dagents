@@ -64,7 +64,7 @@ describe('integration: linear DAG with mixed nodes', () => {
       ok: true,
       status: 200,
       headers: { get: () => 'application/json' },
-      json: async () => ({ temperature: 72 }),
+      text: async () => JSON.stringify({ temperature: 72 }),
     })) as unknown as typeof fetch
 
     try {

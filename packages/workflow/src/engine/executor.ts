@@ -168,10 +168,21 @@ export class DagExecutor {
         if (!nodeInstance) {
           throw new Error(`Node type "${flowNode.data.name}" not registered`)
         }
+        // 两种数据形态归一化：AI 生成/手工编写的 flow 把配置平铺在
+        // `data.<field>`；画布编辑器（vendor/agentflow nodeFactory +
+        // EditNodeDialog）把配置嵌套在 `data.inputs.<field>`。节点统一从
+        // `nodeData.inputs.<field>` 读 —— 平铺键打底、嵌套 inputs 覆盖，
+        // 这样画布保存后改的值生效，且老 flow 不受影响。
+        const flat = flowNode.data as Record<string, unknown>
+        const nested = flat?.inputs
+        const mergedInputs =
+          nested && typeof nested === 'object' && !Array.isArray(nested)
+            ? { ...flat, ...(nested as Record<string, unknown>) }
+            : { ...flat }
         const nodeData: INodeData = {
           id: flowNode.id,
           name: flowNode.data.name as string,
-          inputs: flowNode.data,
+          inputs: mergedInputs,
         }
         const isLast = this.isLastExecutableNode(flowNode, outgoingEdges, opts.isLastNode)
         return nodeInstance.run(nodeData, nodeInput, buildContext(isLast))
@@ -186,7 +197,7 @@ export class DagExecutor {
         return edges.filter((edge) => {
           const sourceOutput = outputs.get(edge.source)
           if (!sourceOutput) return false
-          return this.shouldExecuteEdge(edge, sourceOutput)
+          return this.shouldExecuteEdge(edge, sourceOutput, nodeById.get(edge.source))
         })
       }
 
@@ -375,7 +386,18 @@ export class DagExecutor {
       ): Promise<{ output: Record<string, unknown>; error?: string }> => {
         const controllerOutput = globalOutputs.get(controller.id) ?? {}
         const iterations: Array<Record<string, unknown>> = []
-        const count = plan.kind === 'loop' ? Number(controllerOutput.loopCount ?? 0) : plan.items.length
+        const rawCount =
+          plan.kind === 'loop' ? Number(controllerOutput.loopCount ?? 0) : plan.items.length
+        // Iteration 项数没有上游节点把关（数组可能来自 HTTP 响应或状态变量），
+        // 必须在这里设上限，否则一个 10k 项的数组会把循环体（可能每项一次
+        // LLM 调用）跑 10k 次。Loop 的次数已在 LoopNode 里按 MAX_LOOP_COUNT 截断。
+        const MAX_ITERATION_ITEMS = 100
+        const count =
+          plan.kind === 'iteration'
+            ? Math.min(rawCount, MAX_ITERATION_ITEMS)
+            : Number.isFinite(rawCount) && rawCount >= 1
+              ? Math.floor(rawCount)
+              : 0
         let lastBodyOutput: Record<string, unknown> = {}
         let completed = 0
 
@@ -548,9 +570,23 @@ export class DagExecutor {
    * - No sourceHandle → always active
    * - sourceHandle='true' → active when output.matched/result === 'true' or output.matched === true
    * - sourceHandle='false' → active when output.matched/result === 'false' or output.matched === false
-   * - Other sourceHandle → active when output.selected or output.result matches
+   * - Other sourceHandle → active when output.selected or output.result matches.
+   *   If the output carries neither `selected` nor `result`（普通数据节点：
+   *   LLM/Agent/HTTP/Loop 聚合输出等，画布给它们的边填的是锚点 id 如
+   *   'output'/'data'/'result'/`${nodeId}-output-N`)，默认激活 —— 只有
+   *   声明了分支语义且不匹配时才剪枝，否则整条下游会被静默跳过、运行
+   *   却仍报 success。
+   *
+   * 画布 Condition 节点例外：它的输出只有 `matched`（引擎把多条条件 OR 成
+   * 一个布尔），但画布锚点是 `${id}-output-0..N`（最后一个是 Else）。对带
+   * `matched` 的输出：Else 锚点（index ≥ 条件数）→ false 分支，其余数字
+   * 锚点 → true 分支。
    */
-  private shouldExecuteEdge(edge: FlowEdge, nodeOutput: Record<string, unknown>): boolean {
+  private shouldExecuteEdge(
+    edge: FlowEdge,
+    nodeOutput: Record<string, unknown>,
+    sourceNode?: FlowNode,
+  ): boolean {
     const handle = edge.sourceHandle
     if (!handle) {
       return true
@@ -570,7 +606,30 @@ export class DagExecutor {
 
     const selected = nodeOutput.selected
     const result = nodeOutput.result
-    return selected === handle || result === handle
+    if (selected !== undefined || result !== undefined) {
+      return selected === handle || result === handle
+    }
+
+    const matched = nodeOutput.matched
+    if (matched !== undefined) {
+      // Condition 源节点：把画布数字/Else 锚点映射回 true/false 分支。
+      const matchedTrue = matched === 'true' || matched === true
+      if (/^else$/i.test(handle)) return !matchedTrue
+      const anchorMatch = sourceNode ? /^-output-(\d+)$/.exec(handle.replace(sourceNode.id, '')) : null
+      if (anchorMatch) {
+        const index = Number(anchorMatch[1])
+        const flat = sourceNode?.data as Record<string, unknown> | undefined
+        const nested = flat?.inputs as Record<string, unknown> | undefined
+        const conditions = (nested?.conditions ?? flat?.conditions) as unknown[] | undefined
+        const conditionCount = Array.isArray(conditions) ? conditions.length : Number.NaN
+        const isElseAnchor = Number.isFinite(conditionCount) && index >= conditionCount
+        return isElseAnchor ? !matchedTrue : matchedTrue
+      }
+      // 未知 handle 但输出声明了 matched —— 默认走 true 分支语义。
+      return matchedTrue
+    }
+
+    return true
   }
 
   /**

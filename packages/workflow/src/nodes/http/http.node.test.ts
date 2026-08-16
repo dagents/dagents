@@ -31,7 +31,7 @@ describe('HttpNode', () => {
       ok: true,
       status: 200,
       headers: { get: () => 'application/json' },
-      json: async () => ({ result: 'success' }),
+      text: async () => JSON.stringify({ result: 'success' }),
     }
     vi.mocked(fetch).mockResolvedValue(fakeResponse as any)
 
@@ -46,7 +46,7 @@ describe('HttpNode', () => {
       ok: true,
       status: 201,
       headers: { get: () => 'application/json' },
-      json: async () => ({ id: 1 }),
+      text: async () => JSON.stringify({ id: 1 }),
     }
     vi.mocked(fetch).mockResolvedValue(fakeResponse as any)
 
@@ -84,7 +84,7 @@ describe('HttpNode', () => {
       ok: true,
       status: 200,
       headers: { get: () => 'application/json' },
-      json: async () => ({}),
+      text: async () => JSON.stringify({}),
     }
     vi.mocked(fetch).mockResolvedValue(fakeResponse as any)
 
@@ -114,6 +114,50 @@ describe('HttpNode', () => {
     const node = new HttpNode()
     const result = await node.run(makeNodeData(), '', makeContext())
     expect(result.output).toEqual({ content: 'plain text response' })
+  })
+
+  it('rejects non-http(s) schemes (SSRF guard)', async () => {
+    const node = new HttpNode()
+    await expect(
+      node.run(makeNodeData({ url: 'file:///etc/passwd' }), '', makeContext()),
+    ).rejects.toThrow(/only allows http\(s\)/)
+    await expect(
+      node.run(makeNodeData({ url: 'not-a-url' }), '', makeContext()),
+    ).rejects.toThrow(/not absolute/)
+    expect(fetch).not.toHaveBeenCalled()
+  })
+
+  it('truncates oversized response bodies', async () => {
+    const huge = 'x'.repeat(64 * 1024)
+    const fakeResponse = {
+      ok: true,
+      status: 200,
+      headers: { get: () => 'text/plain' },
+      text: async () => huge,
+    }
+    vi.mocked(fetch).mockResolvedValue(fakeResponse as any)
+
+    const node = new HttpNode()
+    const result = await node.run(makeNodeData(), '', makeContext())
+    expect((result.output.content as string).length).toBe(32 * 1024)
+    expect(result.output.truncated).toBe(true)
+  })
+
+  it('accepts headers as an object (canvas defaultData shape)', async () => {
+    const fakeResponse = {
+      ok: true,
+      status: 200,
+      headers: { get: () => 'application/json' },
+      text: async () => JSON.stringify({ ok: 1 }),
+    }
+    vi.mocked(fetch).mockResolvedValue(fakeResponse as any)
+
+    const node = new HttpNode()
+    await node.run(makeNodeData({ headers: { Authorization: 'Bearer t' } }), '', makeContext())
+    expect(fetch).toHaveBeenCalledWith(
+      expect.any(String),
+      expect.objectContaining({ headers: { Authorization: 'Bearer t' } }),
+    )
   })
 
   it('has correct static metadata', () => {

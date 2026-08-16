@@ -1,4 +1,4 @@
-import { Hono } from 'hono'
+import { Hono, type Context } from 'hono'
 import { z } from 'zod'
 import { runQuery } from '@dagents/db'
 import { ok, fail } from './index.js'
@@ -72,6 +72,35 @@ async function getTaskStatus(id: string): Promise<string | null> {
 }
 
 /**
+ * Task-lifecycle auth (P0 hardening): only the daemon that claimed a task may
+ * drive its lifecycle (start/progress/messages/complete/fail). Callers present
+ * the daemon bearer token issued at registration; it is checked against the
+ * daemon stored in `claimed_by_daemon_id`. Returns a fail Response when the
+ * caller is not the owning daemon, or null when authorized.
+ */
+async function requireTaskDaemon(c: Context, taskId: string): Promise<Response | null> {
+  const { records } = await runQuery<{ claimed_by: string | null; token: string | null }>(
+    `SELECT t.claimed_by_daemon_id AS claimed_by, d.token
+       FROM dispatch_tasks t
+       LEFT JOIN daemons d ON d.id = t.claimed_by_daemon_id
+      WHERE t.id = $1`,
+    [taskId],
+  )
+  const row = records[0]
+  if (!row) return fail(c, 404, 'task not found', { taskId })
+  if (!row.claimed_by || !row.token) {
+    // 未被认领的任务没有归属 daemon —— 任何人都不能驱动它的生命周期。
+    return fail(c, 403, 'task has not been claimed by a daemon')
+  }
+  const token = c.req.header('authorization')?.replace(/^Bearer\s+/i, '').trim()
+  if (!token) return fail(c, 401, 'daemon token required')
+  if (row.token !== token) {
+    return fail(c, 403, 'invalid daemon token for this task')
+  }
+  return null
+}
+
+/**
  * Read-only task lookup (spec §1.5 line 412). workflow's DispatchInvoke node
  * polls this to resolve a task's terminal result after invoke→claim→complete.
  *
@@ -112,6 +141,8 @@ tasksRoutes.get('/tasks/:id', async (c) => {
 
 tasksRoutes.post('/tasks/:id/start', async (c) => {
   const id = c.req.param('id')
+  const denied = await requireTaskDaemon(c, id)
+  if (denied) return denied
   const { affected } = await runQuery(
     `UPDATE dispatch_tasks
        SET status = 'running', started_at = COALESCE(started_at, NOW())
@@ -128,6 +159,8 @@ tasksRoutes.post('/tasks/:id/start', async (c) => {
 
 tasksRoutes.post('/tasks/:id/progress', async (c) => {
   const id = c.req.param('id')
+  const denied = await requireTaskDaemon(c, id)
+  if (denied) return denied
   let parsed: z.infer<typeof progressSchema>
   try {
     parsed = progressSchema.parse(await c.req.json())
@@ -150,6 +183,8 @@ tasksRoutes.post('/tasks/:id/progress', async (c) => {
 
 tasksRoutes.post('/tasks/:id/messages', async (c) => {
   const id = c.req.param('id')
+  const denied = await requireTaskDaemon(c, id)
+  if (denied) return denied
   let parsed: z.infer<typeof messagesSchema>
   try {
     parsed = messagesSchema.parse(await c.req.json())
@@ -187,6 +222,8 @@ tasksRoutes.post('/tasks/:id/messages', async (c) => {
 
 tasksRoutes.post('/tasks/:id/complete', async (c) => {
   const id = c.req.param('id')
+  const denied = await requireTaskDaemon(c, id)
+  if (denied) return denied
   let parsed: z.infer<typeof completeSchema>
   try {
     parsed = completeSchema.parse(await c.req.json())
@@ -223,6 +260,8 @@ tasksRoutes.post('/tasks/:id/complete', async (c) => {
 
 tasksRoutes.post('/tasks/:id/fail', async (c) => {
   const id = c.req.param('id')
+  const denied = await requireTaskDaemon(c, id)
+  if (denied) return denied
   let parsed: z.infer<typeof failSchema>
   try {
     parsed = failSchema.parse(await c.req.json())

@@ -88,6 +88,8 @@ export function DaemonsView(): React.ReactElement {
   const [selectedDaemon, setSelectedDaemon] = useState<DaemonInfo | null>(null)
   const [showRegister, setShowRegister] = useState(false)
   const [deleteTarget, setDeleteTarget] = useState<DaemonInfo | null>(null)
+  const [deleteError, setDeleteError] = useState<string | null>(null)
+  const [deleting, setDeleting] = useState(false)
   const [runtimes, setRuntimes] = useState<RuntimeDetection[]>([])
   const [runtimesLoading, setRuntimesLoading] = useState(true)
 
@@ -412,6 +414,7 @@ export function DaemonsView(): React.ReactElement {
                   aria-label={`删除 daemon ${d.label}`}
                   onClick={(e) => {
                     e.stopPropagation()
+                    setDeleteError(null)
                     setDeleteTarget(d)
                   }}
                 >
@@ -433,19 +436,31 @@ export function DaemonsView(): React.ReactElement {
             <div className="daemon-delete-desc">
               确定要删除「{deleteTarget.label}」吗？此操作不可撤销。
             </div>
+            {deleteError ? <div className="daemon-dialog-error">⚠️ {deleteError}</div> : null}
             <div className="daemon-delete-actions">
               <button type="button" className="btn btn-ghost btn-sm" onClick={() => setDeleteTarget(null)}>取消</button>
               <button
                 type="button"
                 className="btn btn-danger btn-sm"
+                disabled={deleting}
                 onClick={async () => {
+                  setDeleting(true)
+                  setDeleteError(null)
                   try {
                     const resp = await fetch(`/api/dispatch/daemons/${encodeURIComponent(deleteTarget.id)}`, { method: 'DELETE' })
                     if (resp.ok) {
+                      // 仅在删除成功后更新列表，失败时保留原列表并提示
                       setDaemons((prev) => prev.filter((d) => d.id !== deleteTarget.id))
+                      setDeleteTarget(null)
+                    } else {
+                      const body = (await resp.json().catch(() => null)) as { error?: string } | null
+                      setDeleteError(`删除失败（${resp.status}）${body?.error ? `：${body.error}` : ''}`)
                     }
-                  } catch { /* silent */ }
-                  setDeleteTarget(null)
+                  } catch (err) {
+                    setDeleteError(err instanceof Error ? err.message : String(err))
+                  } finally {
+                    setDeleting(false)
+                  }
                 }}
               >
                 确认删除
@@ -482,6 +497,33 @@ const TASK_STATUS_LABEL: Record<string, string> = {
   failed: '失败',
 }
 
+// ─── task events (real, from dispatch_task_events) ────────────────────
+
+/** One row of the gateway's GET /api/v1/dispatch/tasks/:id/events. */
+interface TaskEvent {
+  seq: number
+  kind: string
+  payload: unknown
+  created_at: string | null
+}
+
+/** 事件 payload 摘要：message 类型且有 content 时展示文本，否则截断 JSON。 */
+function summarizeEventPayload(payload: unknown): string {
+  if (
+    payload != null && typeof payload === 'object' &&
+    'content' in payload && typeof (payload as { content: unknown }).content === 'string'
+  ) {
+    return (payload as { content: string }).content
+  }
+  let text: string
+  try {
+    text = JSON.stringify(payload)
+  } catch {
+    text = String(payload)
+  }
+  return text.length > 200 ? `${text.slice(0, 200)}…` : text
+}
+
 function DaemonTasksView({
   daemon,
   onBack,
@@ -493,6 +535,37 @@ function DaemonTasksView({
   const [filter, setFilter] = useState<DispatchTaskStatus | 'all'>('all')
   const [loading, setLoading] = useState(true)
   const [selectedTaskId, setSelectedTaskId] = useState<string | null>(null)
+  const [taskEvents, setTaskEvents] = useState<TaskEvent[] | null>(null)
+  const [eventsLoading, setEventsLoading] = useState(false)
+
+  // 选中任务变化时拉取真实的 dispatch_task_events（替换旧的伪造日志面板）
+  useEffect(() => {
+    if (!selectedTaskId) {
+      setTaskEvents(null)
+      return
+    }
+    let cancelled = false
+    setEventsLoading(true)
+    setTaskEvents(null)
+    fetch(`/api/dispatch/tasks/${encodeURIComponent(selectedTaskId)}/events`, { cache: 'no-store' })
+      .then(async (resp) => {
+        const body = (await resp.json().catch(() => null)) as
+          | { success: boolean; data?: { events: TaskEvent[] } }
+          | null
+        if (cancelled) return
+        if (resp.ok && body?.success && body.data) setTaskEvents(body.data.events)
+        else setTaskEvents([])
+      })
+      .catch(() => {
+        if (!cancelled) setTaskEvents([])
+      })
+      .finally(() => {
+        if (!cancelled) setEventsLoading(false)
+      })
+    return () => {
+      cancelled = true
+    }
+  }, [selectedTaskId])
 
   useEffect(() => {
     let cancelled = false
@@ -628,7 +701,8 @@ function DaemonTasksView({
                   <div className="task-card-top">
                     <span className={`status-dot ${TASK_STATUS_DOT[t.status] ?? ''}`} />
                     <span className="task-type">{t.type}</span>
-                    <span className="task-priority mono">P{t.priority}</span>
+                    {/* priority 仅在后端真实提供时展示（>0），否则不渲染 */}
+                    {t.priority > 0 ? <span className="task-priority mono">P{t.priority}</span> : null}
                   </div>
                   <div className="task-card-desc">{t.description ?? t.id.slice(0, 8)}</div>
                   <div className="task-card-meta">
@@ -652,7 +726,7 @@ function DaemonTasksView({
               <span className="daemons-empty-desc">
                 {tasks.length === 0
                   ? '任务由 Agent / Flow 运行时自动派发到此队列。'
-                  : '点击队列中的任务卡片查看时间线、任务信息和日志。'}
+                  : '点击队列中的任务卡片查看时间线、任务信息和任务事件。'}
               </span>
             </div>
           ) : (
@@ -695,7 +769,7 @@ function DaemonTasksView({
                 <div className="detail-meta">
                   <div className="meta-row">
                     <span className="meta-label">优先级</span>
-                    <span className="mono">P{selectedTask.priority}</span>
+                    <span className="mono">{selectedTask.priority > 0 ? `P${selectedTask.priority}` : '—'}</span>
                   </div>
                   <div className="meta-row">
                     <span className="meta-label">Flow ID</span>
@@ -709,13 +783,25 @@ function DaemonTasksView({
               </div>
 
               <div className="detail-section">
-                <div className="detail-section-head">日志</div>
+                <div className="detail-section-head">任务事件</div>
                 <div className="detail-logs">
-                  <pre className="detail-logs-body">
-{`[task ${selectedTask.id.slice(0, 8)}] type=${selectedTask.type} priority=${selectedTask.priority}
-[task ${selectedTask.id.slice(0, 8)}] status=${selectedTask.status}
-[task ${selectedTask.id.slice(0, 8)}] flow=${selectedTask.flow_id ?? 'none'}`}
-                  </pre>
+                  {eventsLoading ? (
+                    <div className="daemons-empty">
+                      <Icon name="loader" style={{ width: 28, height: 28, color: 'var(--meta)' }} />
+                      <span>加载中…</span>
+                    </div>
+                  ) : !taskEvents || taskEvents.length === 0 ? (
+                    <div className="daemons-empty">
+                      <Icon name="info" style={{ width: 28, height: 28, color: 'var(--meta)' }} />
+                      <span className="daemons-empty-title">暂无事件记录</span>
+                    </div>
+                  ) : (
+                    <pre className="detail-logs-body">
+{taskEvents
+  .map((ev) => `[${ev.seq}] ${ev.kind} ${summarizeEventPayload(ev.payload)}`)
+  .join('\n')}
+                    </pre>
+                  )}
                 </div>
               </div>
             </div>

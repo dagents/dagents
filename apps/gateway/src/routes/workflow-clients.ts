@@ -11,6 +11,7 @@
 
 import { runQuery } from '@dagents/db'
 import { createLogger } from '@dagents/shared'
+import { decryptSecret } from '../crypto.js'
 import {
   DagExecutor,
   NodeRegistry,
@@ -78,13 +79,15 @@ export function resetProviderCache(): void {
   providerFetchPromise = null
 }
 
-/** Decode the base64-encoded API key stored in llm_providers. */
+/**
+ * Decode the API key stored in llm_providers. Keys are stored either
+ * AES-256-GCM encrypted (`enc:v1:…`, when ENCRYPTION_KEY is set) or legacy
+ * Base64 — `decryptSecret` handles both. (This used to base64-decode the
+ * ciphertext blob directly, which garbled the Bearer token and 401'd every
+ * workflow LLM call whenever encryption was configured.)
+ */
 function decodeApiKey(encoded: string): string {
-  try {
-    return Buffer.from(encoded, 'base64').toString('utf-8')
-  } catch {
-    return encoded
-  }
+  return decryptSecret(encoded)
 }
 
 /**

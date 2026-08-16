@@ -44,7 +44,11 @@ const querySchema = z.object({
   actorType: z.enum(['user', 'system']).optional(),
   actorId: z.string().max(256).optional(),
   action: z.string().max(128).optional(),
-  targetType: z.enum(['token', 'pipeline_version', 'llm_provider']).optional(),
+  // 与迁移 1720000015000 的 CHECK 对齐 —— 此前缺 workflow/agent/chat，
+  // 写得进审计却查不出来（?targetType=workflow 直接 400）。
+  targetType: z
+    .enum(['token', 'pipeline_version', 'llm_provider', 'workflow', 'agent', 'chat'])
+    .optional(),
   targetId: z.string().max(256).optional(),
   runId: z.string().max(128).optional(),
   workspaceId: z.string().uuid().optional(),

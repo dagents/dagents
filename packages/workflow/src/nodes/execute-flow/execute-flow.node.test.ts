@@ -45,19 +45,14 @@ describe('ExecuteFlowNode', () => {
     expect(result.output.result).toEqual({ result: 'success', data: { key: 'value' } })
   })
 
-  it('returns input as output when flowExecutor is missing', async () => {
+  it('throws when flowExecutor is missing — never echoes input as subflow output', async () => {
     const node = new ExecuteFlowNode()
     const context = makeContext()
 
     const inputData = { foo: 'bar' }
-    const result = await node.run(
-      makeNodeData({ flowId: 'flow-test', input: inputData }),
-      '',
-      context,
-    )
-
-    expect(result.output.output).toEqual(inputData)
-    expect(result.output.result).toEqual(inputData)
+    await expect(
+      node.run(makeNodeData({ flowId: 'flow-test', input: inputData }), '', context),
+    ).rejects.toThrow(/flowExecutor/)
   })
 
   it('resolves variables in flowId from state', async () => {

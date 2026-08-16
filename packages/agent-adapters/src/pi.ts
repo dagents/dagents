@@ -111,6 +111,20 @@ function newPiSessionPath(): string {
   return path.join(piSessionDir(), name)
 }
 
+/**
+ * Resolve a caller-provided session id to a path inside the pi session dir.
+ * `resumeSessionId` is untrusted input — using it verbatim as a filesystem
+ * path would let a caller create/touch arbitrary files (mkdir -p + append).
+ * Contain it: take the basename (drops any directory component), sanitize the
+ * characters, and re-root it under piSessionDir().
+ */
+function resolveResumeSessionPath(sessionId: string): string {
+  const base = path.basename(sessionId).replace(/[^A-Za-z0-9._-]/g, '_')
+  if (!base || base === '.' || base === '..') return newPiSessionPath()
+  const name = base.endsWith('.jsonl') ? base : `${base}.jsonl`
+  return path.join(piSessionDir(), name)
+}
+
 /** Ensure the session file exists (Pi refuses to start on a missing --session path). */
 function ensurePiSessionFile(filePath: string): void {
   fs.mkdirSync(path.dirname(filePath), { recursive: true })
@@ -375,7 +389,11 @@ export function piBackend(cfg: BackendConfig): AgentBackend {
     execute(prompt: string, opts: ExecOptions): AgentSession {
       const execPath = cfg.executablePath || 'pi'
       // Session path: reuse the provided one, or create a fresh session file.
-      const sessionPath = opts.resumeSessionId || newPiSessionPath()
+      // Caller-provided ids are contained under the session dir (see
+      // resolveResumeSessionPath) — never used as a raw filesystem path.
+      const sessionPath = opts.resumeSessionId
+        ? resolveResumeSessionPath(opts.resumeSessionId)
+        : newPiSessionPath()
       try {
         ensurePiSessionFile(sessionPath)
       } catch (e) {

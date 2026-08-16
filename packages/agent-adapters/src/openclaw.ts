@@ -2,21 +2,19 @@
  * OpenClaw adapter — spawn `openclaw agent --message <prompt> --json
  * --session-id <id> [--local]` and parse its stdout.
  *
- * OpenClaw's stdout may contain either:
- *   1. A single pretty-printed JSON result blob (the format openclaw 2026.5.x
- *      emits today) with `payloads[].text` + `meta.agentMeta.{model,usage}`.
- *   2. NDJSON streaming events (text, tool_use, tool_result, error,
- *      lifecycle, step_start, step_finish) — supported for forward
- *      compatibility; openclaw does not emit these today.
+ * 实测（openclaw 2026.7.1，2026-08-16）：
+ *   - 成功时 `--json` 输出一个 JSON 结果 blob（可能是单行，也可能
+ *     pretty-printed 多行 —— `payloads[].text` + `meta.agentMeta`）。
+ *   - 失败时输出**纯文本**：`[diagnostic] lane task error: …` 行 + 最终
+ *     `FailoverError: …` / `ProviderAuthError: …` 行，且**退出码为 0**。
+ *     因此必须靠解析错误行来判定失败，退出码不可信。
  *
- * The whole-buffer fast path (single JSON blob) is the dominant happy path.
- * Because `spawnStreamAgent` drives a line-by-line reader, this adapter
- * handles the single-blob case by buffering lines that don't parse as
- * standalone events and attempting a whole-buffer parse when the run ends.
- * In practice, openclaw's pretty-printed JSON has one object per line, so
- * the line scanner sees `{`, intermediate lines, then `}` — none parse as
- * standalone events, so they're accumulated and the result is reconstructed
- * from the final accumulated output (see parseOpenclawLine's buffering).
+ * 解析策略（见 parseOpenclawLine）：
+ *   1. NDJSON 流式事件（text/tool_use/tool_result/error/lifecycle/…）。
+ *   2. JSON 结果 blob —— 支持多行 pretty-printed：以 `{` 开始缓冲，逐行
+ *      追加并尝试整体 JSON.parse（按 state 对象隔离，每次运行独立）。
+ *   3. 纯文本错误行（FailoverError: 等已知前缀）→ 标记 failed。
+ *   4. 其余 → log 事件（保留可调试性）。
  *
  * Translated from multica `openclaw.go`.
  *
@@ -25,6 +23,7 @@
  * and system instructions must be injected inline into --message (openclaw
  * loads AGENTS.md from its own workspace dir, not cwd).
  */
+import { randomUUID } from 'node:crypto'
 import type {
   AgentBackend,
   AgentEvent,
@@ -167,22 +166,6 @@ function parseOpenclawUsage(data: Record<string, unknown>): {
   }
 }
 
-/**
- * Try to parse a line as a final result blob. Returns the result and true
- * when the line parses as JSON with payloads or a non-zero durationMs.
- */
-function tryParseOpenclawResult(raw: string): OpenclawResult | null {
-  if (!raw.startsWith('{')) return null
-  let result: OpenclawResult
-  try {
-    result = JSON.parse(raw) as OpenclawResult
-  } catch {
-    return null
-  }
-  if (!result.payloads && !result.meta?.durationMs) return null
-  return result
-}
-
 /** Extract events from a final result blob, appending text to state.output. */
 function emitOpenclawResult(
   result: OpenclawResult,
@@ -210,103 +193,162 @@ function emitOpenclawResult(
 }
 
 // ────────────────────────────────────────────────────────────────────────────
-// parseLine — pure: one stdout line → AgentEvent[] (+ state mutation)
+// parseLine — pure-ish: one stdout line → AgentEvent[] (+ state mutation)
 // ────────────────────────────────────────────────────────────────────────────
 
 /**
- * Parse one openclaw stdout line. Handles three cases:
- *   1. Streaming NDJSON event (type field present) — emit events directly.
- *   2. Final result blob (payloads or meta.durationMs) — extract text +
- *      usage + session id.
- *   3. Anything else (including partial pretty-printed JSON lines) — buffer
- *      as a log event; the spawnStreamAgent loop will surface it for
- *      debuggability. (openclaw 2026.5.x emits pretty-printed JSON across
- *      many lines; only the line starting with `{` that parses as a whole
- *      result yields events. A future whole-buffer fast path could be added
- *      if line-by-line proves lossy in practice.)
+ * Per-run buffer for pretty-printed (multi-line) JSON blobs, keyed by the
+ * run's state object identity (spawnStreamAgent allocates one per run).
+ */
+const jsonBuffers = new WeakMap<StreamAgentRunState, string[]>()
+
+/** 已知的 openclaw 纯文本错误行前缀（失败时 CLI 打印这些且退出码仍为 0）。 */
+const OPENCLAW_ERROR_LINE_RE =
+  /^(FailoverError|ProviderAuthError|GatewayCredentialsRequiredError|GatewayError|ConfigError|Error):/
+
+/** Max bytes to buffer while waiting for a pretty-printed JSON blob to complete. */
+const MAX_JSON_BUFFER_CHARS = 1_000_000
+
+/**
+ * Try to parse one openclaw stdout line. Handles four cases:
+ *   1. Streaming NDJSON event（type 字段）— 直接产出事件。
+ *   2. JSON 结果 blob（payloads 或 meta.durationMs）— 提取 text/usage/
+ *      session id。支持多行 pretty-printed：`{` 起缓冲，逐行追加尝试整体解析。
+ *   3. 纯文本错误行（FailoverError: 等已知前缀）→ 标记 failed（openclaw
+ *      失败时退出码是 0，只能靠这里判定）。
+ *   4. 其余 → log 事件。
  *
  * Exported as `parseOpenclawLine` for direct unit testing.
  */
 export function parseOpenclawLine(line: string, state: StreamAgentRunState): AgentEvent[] {
-  // Fast path: a standalone JSON object line.
-  if (line.startsWith('{')) {
-    // Try final result blob first.
-    const result = tryParseOpenclawResult(line)
-    if (result) return emitOpenclawResult(result, state)
+  const trimmed = line.trim()
 
-    // Try streaming NDJSON event.
+  // [diagnostic] 行保留为 log（往往是错误的第一现场，但不作为终止依据）。
+  if (trimmed.startsWith('[diagnostic]')) {
+    return [{ type: 'log', content: trimmed }]
+  }
+
+  // 纯文本错误行 —— openclaw 失败路径（退出码 0），必须显式判失败。
+  if (OPENCLAW_ERROR_LINE_RE.test(trimmed)) {
+    state.finalStatus = 'failed'
+    state.finalError = trimmed
+    return [{ type: 'error', content: trimmed }]
+  }
+
+  // 多行 JSON 缓冲：已经在攒一个 blob，或本行开启一个新 blob。
+  const buf = jsonBuffers.get(state)
+  if (buf && buf.length > 0) {
+    buf.push(line)
+    const joined = buf.join('\n')
+    if (joined.length > MAX_JSON_BUFFER_CHARS) {
+      jsonBuffers.set(state, [])
+      return [{ type: 'log', content: `openclaw: unparsable JSON blob (${joined.length} chars)` }]
+    }
     try {
-      const evt = JSON.parse(line) as OpenclawEvent
-      if (evt.type) {
-        const out: AgentEvent[] = []
-        if (evt.sessionId) state.sessionId = evt.sessionId
-        switch (evt.type) {
-          case 'text':
-            if (evt.text) {
-              state.output += evt.text
-              out.push({ type: 'text', content: evt.text })
-            }
-            break
-          case 'tool_use':
-            out.push({
-              type: 'tool-use',
-              tool: evt.tool ?? '',
-              callId: evt.callId ?? '',
-              input: evt.input,
-            })
-            break
-          case 'tool_result':
-            out.push({
-              type: 'tool-result',
-              tool: evt.tool ?? '',
-              callId: evt.callId ?? '',
-              output: evt.text ?? '',
-            })
-            break
-          case 'error': {
-            const errMsg = openclawErrorMessage(evt)
-            state.finalStatus = 'failed'
-            state.finalError = errMsg
-            out.push({ type: 'error', content: errMsg })
-            break
-          }
-          case 'lifecycle': {
-            if (evt.phase === 'error' || evt.phase === 'failed' || evt.phase === 'cancelled') {
-              const errMsg = openclawErrorMessage(evt)
-              state.finalStatus = 'failed'
-              state.finalError = errMsg
-              out.push({ type: 'error', content: errMsg })
-            }
-            break
-          }
-          case 'step_start':
-            out.push({ type: 'status', status: 'running' })
-            break
-          case 'step_finish':
-            if (evt.usage) {
-              const u = parseOpenclawUsage(evt.usage)
-              const model = 'openclaw'
-              const existing = state.usage[model] ?? { inputTokens: 0, outputTokens: 0 }
-              existing.inputTokens += u.inputTokens
-              existing.outputTokens += u.outputTokens
-              existing.cacheReadTokens = (existing.cacheReadTokens ?? 0) + u.cacheReadTokens
-              existing.cacheWriteTokens = (existing.cacheWriteTokens ?? 0) + u.cacheWriteTokens
-              state.usage[model] = existing
-            }
-            break
-          default:
-            out.push({ type: 'log', content: `openclaw event: ${evt.type}` })
-        }
-        return out
-      }
+      const parsed = JSON.parse(joined) as unknown
+      jsonBuffers.set(state, [])
+      return handleParsedJson(parsed, state)
     } catch {
-      // fall through to log
+      return [] // blob 还没闭合，继续缓冲
     }
   }
 
-  // Not a standalone parseable JSON event — surface as a log line so
-  // partial pretty-printed JSON fragments are visible for debugging.
+  // Fast path: a standalone JSON object line.
+  if (trimmed.startsWith('{')) {
+    try {
+      const parsed = JSON.parse(trimmed) as unknown
+      return handleParsedJson(parsed, state)
+    } catch {
+      // 不完整 —— 进入多行缓冲模式。
+      jsonBuffers.set(state, [line])
+      return []
+    }
+  }
+
+  // Not JSON at all — surface as a log line.
   return [{ type: 'log', content: line }]
+}
+
+/** A parsed JSON object (event or result blob) → AgentEvent[]. */
+function handleParsedJson(parsed: unknown, state: StreamAgentRunState): AgentEvent[] {
+  if (parsed === null || typeof parsed !== 'object' || Array.isArray(parsed)) {
+    return []
+  }
+  const obj = parsed as Record<string, unknown>
+
+  // Final result blob?
+  const asResult = obj as OpenclawResult
+  if (asResult.payloads !== undefined || asResult.meta?.durationMs !== undefined) {
+    return emitOpenclawResult(asResult, state)
+  }
+
+  // Streaming NDJSON event?
+  const evt = obj as unknown as OpenclawEvent
+  if (evt.type) {
+    const out: AgentEvent[] = []
+    if (evt.sessionId) state.sessionId = evt.sessionId
+    switch (evt.type) {
+      case 'text':
+        if (evt.text) {
+          state.output += evt.text
+          out.push({ type: 'text', content: evt.text })
+        }
+        break
+      case 'tool_use':
+        out.push({
+          type: 'tool-use',
+          tool: evt.tool ?? '',
+          callId: evt.callId ?? '',
+          input: evt.input,
+        })
+        break
+      case 'tool_result':
+        out.push({
+          type: 'tool-result',
+          tool: evt.tool ?? '',
+          callId: evt.callId ?? '',
+          output: evt.text ?? '',
+        })
+        break
+      case 'error': {
+        const errMsg = openclawErrorMessage(evt)
+        state.finalStatus = 'failed'
+        state.finalError = errMsg
+        out.push({ type: 'error', content: errMsg })
+        break
+      }
+      case 'lifecycle': {
+        if (evt.phase === 'error' || evt.phase === 'failed' || evt.phase === 'cancelled') {
+          const errMsg = openclawErrorMessage(evt)
+          state.finalStatus = 'failed'
+          state.finalError = errMsg
+          out.push({ type: 'error', content: errMsg })
+        }
+        break
+      }
+      case 'step_start':
+        out.push({ type: 'status', status: 'running' })
+        break
+      case 'step_finish':
+        if (evt.usage) {
+          const u = parseOpenclawUsage(evt.usage)
+          const model = 'openclaw'
+          const existing = state.usage[model] ?? { inputTokens: 0, outputTokens: 0 }
+          existing.inputTokens += u.inputTokens
+          existing.outputTokens += u.outputTokens
+          existing.cacheReadTokens = (existing.cacheReadTokens ?? 0) + u.cacheReadTokens
+          existing.cacheWriteTokens = (existing.cacheWriteTokens ?? 0) + u.cacheWriteTokens
+          state.usage[model] = existing
+        }
+        break
+      default:
+        out.push({ type: 'log', content: `openclaw event: ${evt.type}` })
+    }
+    return out
+  }
+
+  // JSON 但既非事件也非结果 blob —— 记 log。
+  return [{ type: 'log', content: JSON.stringify(obj).slice(0, 200) }]
 }
 
 // ────────────────────────────────────────────────────────────────────────────
@@ -317,8 +359,9 @@ export function openclawBackend(cfg: BackendConfig): AgentBackend {
   return {
     execute(prompt: string, opts: ExecOptions): AgentSession {
       const execPath = cfg.executablePath || 'openclaw'
-      // Session id: reuse the provided one, or generate a fresh daemon-scoped id.
-      const sessionId = opts.resumeSessionId || `dagents-${Date.now()}`
+      // Session id: reuse the provided one, or generate a fresh random id
+      // （`dagents-${Date.now()}` 同毫秒并发会撞 id）。
+      const sessionId = opts.resumeSessionId || `dagents-${randomUUID()}`
       const args = buildOpenclawArgs(prompt, sessionId, opts)
       return spawnStreamAgent({
         execPath,

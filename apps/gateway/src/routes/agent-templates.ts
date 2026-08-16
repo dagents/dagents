@@ -131,19 +131,9 @@ const TEMPLATES: AgentTemplate[] = [
     executable_path: 'qwen',
     category: 'coding',
   },
-  {
-    id: 'gemini-general',
-    name: 'Gemini 助手',
-    kind: 'gemini',
-    model: '',
-    instructions: 'You are a helpful coding assistant.',
-    roles: ['coding'],
-    skills: [],
-    description: 'Google Gemini 编码助手，多语言通用开发支持。',
-    icon: '✨',
-    executable_path: 'gemini',
-    category: 'coding',
-  },
+  // 2026-08-16：移除 gemini-general 模板 —— `gemini` 不在 inline/invoke 的
+  // 支持列表（无适配器），一键实例化出来的 agent 永远无法执行。等 gemini
+  // 适配器落地后再加回来。
 ]
 
 /**

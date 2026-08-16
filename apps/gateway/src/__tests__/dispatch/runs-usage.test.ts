@@ -27,6 +27,7 @@ import { randomUUID } from 'node:crypto'
 
 let agentDaemonId: string
 let daemonId: string
+let daemonToken: string
 let runId: string
 
 beforeAll(async () => {
@@ -53,7 +54,9 @@ beforeEach(async () => {
       capabilities: [{ agentType: 'claude', tags: ['gpu'] }],
     }),
   })
-  daemonId = ((await daemon.json()) as { data: { daemonId: string } }).data.daemonId
+  const regBody = (await daemon.json()) as { data: { daemonId: string; token: string } }
+  daemonId = regBody.data.daemonId
+  daemonToken = regBody.data.token
 
   const adRows = await AppDataSource.query(
     `INSERT INTO agent_daemons (name, kind, daemon_id, executable_path)
@@ -79,8 +82,8 @@ async function claimStartedTask(): Promise<string> {
     body: JSON.stringify({ agentDaemonId, runId, prompt: 'do work', execOptions: {} }),
   })
   const taskId = ((await r.json()) as { data: { taskId: string } }).data.taskId
-  await app.request(`/api/v1/dispatch/daemons/${daemonId}/tasks/claim`, { method: 'POST' })
-  await app.request(`/api/v1/dispatch/tasks/${taskId}/start`, { method: 'POST' })
+  await app.request(`/api/v1/dispatch/daemons/${daemonId}/tasks/claim`, { method: 'POST', headers: { authorization: `Bearer ${daemonToken}` } })
+  await app.request(`/api/v1/dispatch/tasks/${taskId}/start`, { method: 'POST', headers: { authorization: `Bearer ${daemonToken}` } })
   return taskId
 }
 
@@ -89,7 +92,7 @@ describe('complete / fail → runs.agent_daemon_calls', () => {
     const taskId = await claimStartedTask()
     const res = await app.request(`/api/v1/dispatch/tasks/${taskId}/complete`, {
       method: 'POST',
-      headers: { 'content-type': 'application/json' },
+      headers: { 'content-type': 'application/json', authorization: `Bearer ${daemonToken}` },
       body: JSON.stringify({
         output: 'done',
         sessionId: 'sess-1',
@@ -126,7 +129,7 @@ describe('complete / fail → runs.agent_daemon_calls', () => {
     const taskId = await claimStartedTask()
     const res = await app.request(`/api/v1/dispatch/tasks/${taskId}/fail`, {
       method: 'POST',
-      headers: { 'content-type': 'application/json' },
+      headers: { 'content-type': 'application/json', authorization: `Bearer ${daemonToken}` },
       body: JSON.stringify({ error: 'boom', failureReason: 'timeout', sessionId: 'sess-2' }),
     })
     expect(res.status).toBe(204)
@@ -150,7 +153,7 @@ describe('complete / fail → runs.agent_daemon_calls', () => {
     const t1 = await claimStartedTask()
     await app.request(`/api/v1/dispatch/tasks/${t1}/complete`, {
       method: 'POST',
-      headers: { 'content-type': 'application/json' },
+      headers: { 'content-type': 'application/json', authorization: `Bearer ${daemonToken}` },
       body: JSON.stringify({
         output: 'one',
         usage: { claude: { inputTokens: 10, outputTokens: 5 } },
@@ -160,7 +163,7 @@ describe('complete / fail → runs.agent_daemon_calls', () => {
     const t2 = await claimStartedTask()
     await app.request(`/api/v1/dispatch/tasks/${t2}/complete`, {
       method: 'POST',
-      headers: { 'content-type': 'application/json' },
+      headers: { 'content-type': 'application/json', authorization: `Bearer ${daemonToken}` },
       body: JSON.stringify({
         output: 'two',
         usage: { claude: { inputTokens: 20, outputTokens: 15 } },
@@ -188,11 +191,11 @@ describe('complete / fail → runs.agent_daemon_calls', () => {
       }),
     })
     const taskId = ((await r.json()) as { data: { taskId: string } }).data.taskId
-    await app.request(`/api/v1/dispatch/daemons/${daemonId}/tasks/claim`, { method: 'POST' })
-    await app.request(`/api/v1/dispatch/tasks/${taskId}/start`, { method: 'POST' })
+    await app.request(`/api/v1/dispatch/daemons/${daemonId}/tasks/claim`, { method: 'POST', headers: { authorization: `Bearer ${daemonToken}` } })
+    await app.request(`/api/v1/dispatch/tasks/${taskId}/start`, { method: 'POST', headers: { authorization: `Bearer ${daemonToken}` } })
     const res = await app.request(`/api/v1/dispatch/tasks/${taskId}/complete`, {
       method: 'POST',
-      headers: { 'content-type': 'application/json' },
+      headers: { 'content-type': 'application/json', authorization: `Bearer ${daemonToken}` },
       body: JSON.stringify({
         output: 'ok',
         usage: { claude: { inputTokens: 1, outputTokens: 1 } },
@@ -214,7 +217,7 @@ describe('GET /runs/:runId/usage', () => {
     const taskId = await claimStartedTask()
     await app.request(`/api/v1/dispatch/tasks/${taskId}/complete`, {
       method: 'POST',
-      headers: { 'content-type': 'application/json' },
+      headers: { 'content-type': 'application/json', authorization: `Bearer ${daemonToken}` },
       body: JSON.stringify({
         output: 'done',
         sessionId: 'sess-1',
@@ -281,7 +284,7 @@ describe('GET /runs/:runId/usage/by-agent', () => {
     const t1 = await claimStartedTask()
     await app.request(`/api/v1/dispatch/tasks/${t1}/complete`, {
       method: 'POST',
-      headers: { 'content-type': 'application/json' },
+      headers: { 'content-type': 'application/json', authorization: `Bearer ${daemonToken}` },
       body: JSON.stringify({
         output: 'one',
         usage: { claude: { inputTokens: 10, outputTokens: 5 } },
@@ -291,7 +294,7 @@ describe('GET /runs/:runId/usage/by-agent', () => {
     const t2 = await claimStartedTask()
     await app.request(`/api/v1/dispatch/tasks/${t2}/complete`, {
       method: 'POST',
-      headers: { 'content-type': 'application/json' },
+      headers: { 'content-type': 'application/json', authorization: `Bearer ${daemonToken}` },
       body: JSON.stringify({
         output: 'two',
         usage: { claude: { inputTokens: 20, outputTokens: 15 } },

@@ -88,6 +88,24 @@ export class Run {
   @Column({ name: 'parent_run_id', type: 'uuid', nullable: true })
   parentRunId!: string | null
 
+  // ── 活跃列（gateway 用 raw SQL 读写，entity 此前漏声明 —— 2026-08-16 补齐） ──
+
+  /** 派发任务 id（dispatch_tasks.id，任务↔运行联动迁移 1720000008002）。 */
+  @Column({ name: 'task_id', type: 'uuid', nullable: true })
+  taskId!: string | null
+
+  /** 关联 agent（agent_daemons.id）。 */
+  @Column({ name: 'agent_id', type: 'uuid', nullable: true })
+  agentId!: string | null
+
+  /** 运行工作目录（agent 执行 cwd）。 */
+  @Column({ type: 'text', nullable: true })
+  path!: string | null
+
+  /** 关联聊天（chat-tables 迁移 1720000009000）。 */
+  @Column({ name: 'chat_id', type: 'uuid', nullable: true })
+  chatId!: string | null
+
   @Column({ type: 'jsonb', default: {} })
   input!: unknown
 

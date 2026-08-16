@@ -208,7 +208,7 @@ describe('task lifecycle', () => {
 
   it('start moves claimed → running', async () => {
     const id = await claimTask()
-    const res = await app.request(`/api/v1/dispatch/tasks/${id}/start`, { method: 'POST' })
+    const res = await app.request(`/api/v1/dispatch/tasks/${id}/start`, { method: 'POST', headers: { authorization: `Bearer ${daemonToken}` } })
     expect(res.status).toBe(204)
     const rows = await AppDataSource.query(`SELECT status FROM dispatch_tasks WHERE id = $1`, [id])
     expect(rows[0].status).toBe('running')
@@ -218,13 +218,13 @@ describe('task lifecycle', () => {
     const id = await claimTask()
     const m1 = await app.request(`/api/v1/dispatch/tasks/${id}/messages`, {
       method: 'POST',
-      headers: { 'content-type': 'application/json' },
+      headers: { 'content-type': 'application/json', authorization: `Bearer ${daemonToken}` },
       body: JSON.stringify({ messages: [{ type: 'text', content: 'a' }, { type: 'text', content: 'b' }] }),
     })
     expect(m1.status).toBe(204)
     const m2 = await app.request(`/api/v1/dispatch/tasks/${id}/messages`, {
       method: 'POST',
-      headers: { 'content-type': 'application/json' },
+      headers: { 'content-type': 'application/json', authorization: `Bearer ${daemonToken}` },
       body: JSON.stringify({ messages: [{ type: 'log', content: 'c' }] }),
     })
     expect(m2.status).toBe(204)
@@ -240,7 +240,7 @@ describe('task lifecycle', () => {
     const id = await claimTask()
     const res = await app.request(`/api/v1/dispatch/tasks/${id}/complete`, {
       method: 'POST',
-      headers: { 'content-type': 'application/json' },
+      headers: { 'content-type': 'application/json', authorization: `Bearer ${daemonToken}` },
       body: JSON.stringify({
         output: 'done',
         sessionId: 'sess-1',
@@ -261,7 +261,7 @@ describe('task lifecycle', () => {
 
     const dup = await app.request(`/api/v1/dispatch/tasks/${id}/complete`, {
       method: 'POST',
-      headers: { 'content-type': 'application/json' },
+      headers: { 'content-type': 'application/json', authorization: `Bearer ${daemonToken}` },
       body: JSON.stringify({ output: 'again', usage: {}, durationMs: 1 }),
     })
     expect(dup.status).toBe(409)
@@ -271,7 +271,7 @@ describe('task lifecycle', () => {
     const id = await claimTask()
     const fail = await app.request(`/api/v1/dispatch/tasks/${id}/fail`, {
       method: 'POST',
-      headers: { 'content-type': 'application/json' },
+      headers: { 'content-type': 'application/json', authorization: `Bearer ${daemonToken}` },
       body: JSON.stringify({ error: 'boom', failureReason: 'timeout' }),
     })
     expect(fail.status).toBe(204)
@@ -285,7 +285,7 @@ describe('task lifecycle', () => {
 
     const late = await app.request(`/api/v1/dispatch/tasks/${id}/complete`, {
       method: 'POST',
-      headers: { 'content-type': 'application/json' },
+      headers: { 'content-type': 'application/json', authorization: `Bearer ${daemonToken}` },
       body: JSON.stringify({ output: 'x', usage: {}, durationMs: 1 }),
     })
     expect(late.status).toBe(409)
@@ -358,7 +358,7 @@ describe('GET /tasks/:id result lookup', () => {
       method: 'POST',
       headers: { authorization: `Bearer ${daemonToken}` },
     })
-    await app.request(`/api/v1/dispatch/tasks/${id}/start`, { method: 'POST' })
+    await app.request(`/api/v1/dispatch/tasks/${id}/start`, { method: 'POST', headers: { authorization: `Bearer ${daemonToken}` } })
 
     const run = await app.request(`/api/v1/dispatch/tasks/${id}`)
     expect(run.status).toBe(200)
@@ -371,7 +371,7 @@ describe('GET /tasks/:id result lookup', () => {
     const id = await claimTask()
     await app.request(`/api/v1/dispatch/tasks/${id}/complete`, {
       method: 'POST',
-      headers: { 'content-type': 'application/json' },
+      headers: { 'content-type': 'application/json', authorization: `Bearer ${daemonToken}` },
       body: JSON.stringify({
         output: 'final answer',
         sessionId: 'sess-x',
@@ -409,7 +409,7 @@ describe('GET /tasks/:id result lookup', () => {
     const id = await claimTask()
     await app.request(`/api/v1/dispatch/tasks/${id}/fail`, {
       method: 'POST',
-      headers: { 'content-type': 'application/json' },
+      headers: { 'content-type': 'application/json', authorization: `Bearer ${daemonToken}` },
       body: JSON.stringify({ error: 'boom', failureReason: 'timeout' }),
     })
 

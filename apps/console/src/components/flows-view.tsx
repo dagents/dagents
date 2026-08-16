@@ -6,9 +6,10 @@
  * Two layout modes, swapped at the top level the way design/agentflows.html's
  * `showDetail`/`hideDetail` swap `.flow-list-page` ↔ `.flow-detail-page`:
  *
- *   - LIST page: scope tabs (mine / all / archived) + a toolbar (search +
- *     status filter chips) + a vertical list of `.flow-card`s, each expanding
- *     to reveal its `.flow-runs` (run history). The per-card edit button
+ *   - LIST page: scope tabs (mine / all / archived) + a toolbar (search) + a
+ *     vertical list of `.flow-card`s, each expanding to reveal its
+ *     `.flow-runs` (run history — currently an honest empty state; the
+ *     workflows list carries no run history yet). The per-card edit button
  *     routes to `/workflows/:id/canvas` (the workflow canvas editor).
  *     The run button opens the inline detail by calling `showDetail`.
  *   - DETAIL page: rendered when BOTH `selectedFlowId` and `selectedRunId` are
@@ -58,30 +59,11 @@ const STATUS_CN: Record<NodeRunStatus, string> = {
   idle: '未触发',
 }
 
-/**
- * The four status filter-chip labels (design agentflows.html:168-171). These
- * differ from `STATUS_CN` (the status-badge label) on purpose: the chips use
- * the "状态中/已完成" filter grammar the design specifies, while the badge
- * uses the short status word. Keeping them separate is what makes the DOM
- * 1:1 with the design.
- */
-const FILTER_LABEL: Record<NodeRunStatus, string> = {
-  running: '运行中',
-  done: '已完成',
-  paused: '已暂停',
-  failed: '失败',
-  queued: '排队',
-  idle: '未触发',
-}
-
 /** Chinese label for a node-span status (the M6.4 domain adds `unknown`). */
 const SPAN_STATUS_CN: Record<string, string> = {
   ...STATUS_CN,
   unknown: '未知',
 }
-
-/** The four status filter chips the design renders (agentflows.html:168-171). */
-const STATUS_FILTERS: NodeRunStatus[] = ['running', 'done', 'paused', 'failed']
 
 /** The three scope tabs (agentflows.html:157-161). */
 type Scope = 'mine' | 'all' | 'archived'
@@ -237,7 +219,6 @@ export function FlowsView(): React.ReactElement {
   const [flows, setFlows] = useState<FlowSummary[]>([])
   // ── list-page state (M2.1) ──────────────────────────────────────────────
   const [scope, setScope] = useState<Scope>('all')
-  const [statusFilter, setStatusFilter] = useState<Set<NodeRunStatus>>(new Set())
   const [query, setQuery] = useState('')
   const [expandedId, setExpandedId] = useState<string | null>(null)
   // ── detail-page selection state (M2.2 swap) ────────────────────────────
@@ -456,8 +437,10 @@ export function FlowsView(): React.ReactElement {
     return c
   }, [flows])
 
-  // The flows visible under the current scope + status filter + search — the
-  // design's `visibleFlows()` (agentflows.html:281-296).
+  // The flows visible under the current scope + search — the design's
+  // `visibleFlows()` (agentflows.html:281-296), minus the status filter
+  // (removed: the workflows list carries no live run status, so status chips
+  // could never match anything).
   const visibleFlows = useMemo(() => {
     const ql = query.trim().toLowerCase()
     return flows.filter((f) => {
@@ -467,20 +450,10 @@ export function FlowsView(): React.ReactElement {
         if (f.archived) return false
         if (scope === 'mine' && f.owner == null) return false
       }
-      if (statusFilter.size > 0 && !statusFilter.has(f.status)) return false
       if (ql && !(f.name.toLowerCase().includes(ql) || f.id.toLowerCase().includes(ql))) return false
       return true
     })
-  }, [flows, scope, statusFilter, query])
-
-  const toggleStatus = useCallback((s: NodeRunStatus) => {
-    setStatusFilter((prev) => {
-      const next = new Set(prev)
-      if (next.has(s)) next.delete(s)
-      else next.add(s)
-      return next
-    })
-  }, [])
+  }, [flows, scope, query])
 
   const onSelectNode = useCallback((nodeId: string | null) => {
     setSelectedNodeId(nodeId)
@@ -568,19 +541,6 @@ export function FlowsView(): React.ReactElement {
               onChange={(e) => setQuery(e.target.value)}
             />
           </div>
-          {STATUS_FILTERS.map((s) => (
-            <button
-              key={s}
-              type="button"
-              className="filter-chip"
-              data-f="status"
-              data-v={s}
-              aria-pressed={statusFilter.has(s)}
-              onClick={() => toggleStatus(s)}
-            >
-              {FILTER_LABEL[s]}
-            </button>
-          ))}
           <div className="grow" />
           <span className="result-count">
             {visibleFlows.length} / {flows.length} 个 flow
@@ -627,7 +587,6 @@ export function FlowsView(): React.ReactElement {
                   type="button"
                   className="btn btn-ghost btn-sm"
                   onClick={() => {
-                    setStatusFilter(new Set())
                     setQuery('')
                     setScope('all')
                   }}
@@ -672,9 +631,10 @@ export function FlowsView(): React.ReactElement {
                       </div>
                     </div>
                     <div className="flow-card-meta">
-                      <span className={`status ${f.status}`}>
-                        <span className="dot" />
-                        {STATUS_CN[f.status]}
+                      {/* workflows 列表不携带运行状态 — 渲染中性的「未触发」，
+                          不伪造带状态点的 idle 指示灯 */}
+                      <span className="muted" style={{ fontSize: 12 }} title="尚无运行状态数据">
+                        未触发
                       </span>
                       {f.latestRunId ? (
                         <span className="chip chip-outline mono" style={{ fontSize: 10 }}>
@@ -722,42 +682,11 @@ export function FlowsView(): React.ReactElement {
                       <span>时间</span>
                       <span />
                     </div>
-                    {f.latestRunId ? (
-                      <a
-                        key={f.latestRunId}
-                        className="run-row"
-                        role="button"
-                        tabIndex={0}
-                        aria-label={`查看 ${f.latestRunId} 的 DAG 详情`}
-                        onClick={(e) => {
-                          e.preventDefault()
-                          showDetail(f.id, f.latestRunId ?? '')
-                        }}
-                        onKeyDown={(e) => {
-                          if (e.key === 'Enter' || e.key === ' ') {
-                            e.preventDefault()
-                            showDetail(f.id, f.latestRunId ?? '')
-                          }
-                        }}
-                      >
-                        <span className="run-id">{f.latestRunId}</span>
-                        <span className="run-trigger">手动触发</span>
-                        <span>
-                          <span className={`status ${f.status}`}>
-                            <span className="dot" />
-                            {STATUS_CN[f.status]}
-                          </span>
-                        </span>
-                        <span className="run-cell">—</span>
-                        <span className="run-cell num">—</span>
-                        <span className="run-time">{f.updatedAt.slice(11, 16)}</span>
-                        <span className="run-arrow">›</span>
-                      </a>
-                    ) : (
-                      <div className="muted" style={{ padding: 'var(--space-4)', fontSize: 12 }}>
-                        暂无运行记录。
-                      </div>
-                    )}
+                    {/* 列表页没有真实的 run 历史数据（不伪造「手动触发」行）—
+                        运行请从卡片「▶ 运行」按钮、Flow 详情页或画布触发 */}
+                    <div className="muted" style={{ padding: 'var(--space-4)', fontSize: 12 }}>
+                      暂无运行记录 — 从 Flow 详情页或画布触发运行
+                    </div>
                   </div>
                 </div>
               )

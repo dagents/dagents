@@ -2,12 +2,16 @@
  * Flows list-page fidelity tests (v0.3-M2.1).
  *
  * These pin the design/agentflows.html list-page DOM + interactions the
- * redesign moves `flows-view.tsx` onto — scope tabs, status filter chips, the
- * expandable flow-card with its run history, and the per-card edit/run action
- * buttons. The fetch to `/api/workflows` is stubbed so the suite runs without a
- * gateway; `next/navigation`'s `useRouter` is mocked so the edit button's
- * `router.push('/flows/'+fid+'/edit')` wiring can be asserted (the route
- * itself lands in M2.3).
+ * redesign moves `flows-view.tsx` onto — scope tabs, the search toolbar, the
+ * expandable flow-card with its (honest empty) run panel, and the per-card
+ * edit/run action buttons. The fetch to `/api/workflows` is stubbed so the
+ * suite runs without a gateway; `next/navigation`'s `useRouter` is mocked so
+ * the edit button's `router.push('/flows/'+fid+'/edit')` wiring can be
+ * asserted (the route itself lands in M2.3).
+ *
+ * The status filter chips were removed (the gateway's workflows list carries
+ * no live run status — the chips could never match); a test pins their
+ * absence so they don't sneak back.
  *
  * Scope: list-page surface only. The DAG canvas (`FlowDag`) mounts under a
  * ResizeObserver stub (vitest.setup.ts) but its internals aren't asserted
@@ -132,24 +136,15 @@ describe('FlowsView list-page (M2.1 fidelity)', () => {
     expect(mine).toHaveAttribute('aria-selected', 'false')
   })
 
-  it('renders the four status filter chips with aria-pressed toggling', async () => {
+  it('does not render status filter chips (list carries no live run status)', async () => {
     await renderView()
-    const running = await screen.findByRole('button', { name: '运行中' })
-    expect(running).toHaveAttribute('data-f', 'status')
-    expect(running).toHaveAttribute('data-v', 'running')
-    expect(running).toHaveAttribute('aria-pressed', 'false')
-
-    await userEvent.click(running)
-    expect(running).toHaveAttribute('aria-pressed', 'true')
-
-    // Toggling again turns it back off.
-    await userEvent.click(running)
-    expect(running).toHaveAttribute('aria-pressed', 'false')
-
-    // The other three chips are present too.
-    expect(screen.getByRole('button', { name: '已完成' })).toHaveAttribute('data-v', 'done')
-    expect(screen.getByRole('button', { name: '已暂停' })).toHaveAttribute('data-v', 'paused')
-    expect(screen.getByRole('button', { name: '失败' })).toHaveAttribute('data-v', 'failed')
+    // The chips (运行中/已完成/已暂停/失败) were removed — the gateway's
+    // workflows list hard-codes status 'idle', so the filters could never
+    // match anything. Assert none of the old chip buttons remain.
+    expect(screen.queryByRole('button', { name: '运行中' })).not.toBeInTheDocument()
+    expect(screen.queryByRole('button', { name: '已完成' })).not.toBeInTheDocument()
+    expect(screen.queryByRole('button', { name: '已暂停' })).not.toBeInTheDocument()
+    expect(screen.queryByRole('button', { name: '失败' })).not.toBeInTheDocument()
   })
 
   it('renders a flow-card per visible flow with the design sub-meta', async () => {
@@ -164,29 +159,29 @@ describe('FlowsView list-page (M2.1 fidelity)', () => {
     expect(head.textContent).toContain('R-8821')
   })
 
-  it('expands a flow-card to reveal its run history rows', async () => {
+  it('expands a flow-card to reveal the honest empty runs panel', async () => {
     await renderView()
     const head = (await screen.findByText('论文批量复现流水线'))
       .closest('.flow-card')!.querySelector('.flow-card-head') as HTMLElement
     await userEvent.click(head)
     expect(head).toHaveAttribute('aria-expanded', 'true')
-    // The expanded card surfaces at least one run-row carrying the latest run id.
+    // The runs panel keeps its structure (header row) but shows an honest
+    // empty state instead of fabricated run rows.
     const card = head.closest('.flow-card')!
     const runs = card.querySelector('.flow-runs')
     expect(runs).not.toBeNull()
-    expect(runs!.textContent).toContain('R-8821')
+    expect(runs!.textContent).toContain('暂无运行记录 — 从 Flow 详情页或画布触发运行')
   })
 
-  it('filters flows by status when a chip is pressed (paused → archived flow)', async () => {
+  it('filters flows by search query (visibleFlows scope + search)', async () => {
     await renderView()
     // Both flows are visible under `all` initially (await the async fetch).
     expect(await screen.findByText('论文批量复现流水线')).toBeInTheDocument()
     expect(await screen.findByText('发布门控（HITL）')).toBeInTheDocument()
 
-    // Press `失败` (failed) — neither fixture flow is failed, so the list empties.
-    const failed = screen.getByRole('button', { name: '失败' })
-    await userEvent.click(failed)
-    expect(failed).toHaveAttribute('aria-pressed', 'true')
+    // Type a query matching neither fixture — the list empties.
+    const search = screen.getByLabelText('搜索 flow')
+    await userEvent.type(search, '不存在的flow')
     expect(screen.queryByText('论文批量复现流水线')).not.toBeInTheDocument()
     expect(screen.queryByText('发布门控（HITL）')).not.toBeInTheDocument()
 

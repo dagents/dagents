@@ -1,25 +1,28 @@
 'use client'
 
 /**
- * useOnboarding — shared hook that probes the 4 setup endpoints and reports
+ * useOnboarding — shared hook that probes the setup endpoints and reports
  * whether all onboarding steps are complete.
  *
  * Mirrors the probe logic in OnboardingChecklist so the completion banner,
  * enhanced suggestion cards, and the checklist itself stay in sync without
  * duplicating fetch wiring in every component.
  *
+ * In the inline-executor architecture there is NO daemon step and NO LLM
+ * provider requirement — the gateway spawns CLI agents directly, and chat
+ * runs on the CLI's own LLM config. Only 3 steps matter:
  *   1. ✅ 项目目录已添加  → GET /api/directories returns ≥1
- *   2. ✅ LLM Provider 已配置 → GET /api/llm-providers returns ≥1
- *   3. ✅ Daemon 已启动  → GET /api/daemons returns ≥1 online/idle
- *   4. ✅ Agent 已创建  → GET /api/agents returns ≥1
+ *   2. ✅ CLI 已安装      → GET /api/cli-runtimes returns ≥1 available
+ *   3. ✅ Agent 已创建    → GET /api/agents returns ≥1
  *
  * The gateway wraps every response as `{ success, data: { ... } }`; this hook
- * defensively unwraps both the envelope and the bare-array shapes.
+ * defensively unwraps both the envelope and the bare-array shapes. Any fetch
+ * failure counts as not-complete.
  */
 import { useEffect, useState } from 'react'
 
 export interface OnboardingState {
-  /** True only when all 4 steps are done. */
+  /** True only when all 3 steps are done. */
   complete: boolean
   /** False during the first probe, true once it settles (success or error). */
   loading: boolean
@@ -39,31 +42,26 @@ function pickList(body: unknown, envelopeKey: string, bareKey: string): UnknownR
 }
 
 async function checkOnboardingComplete(): Promise<boolean> {
-  const [dirsRes, llmRes, daemonsRes, agentsRes] = await Promise.all([
+  const [dirsRes, cliRes, agentsRes] = await Promise.all([
     fetch('/api/directories'),
-    fetch('/api/llm-providers'),
-    fetch('/api/daemons'),
+    fetch('/api/cli-runtimes'),
     fetch('/api/agents'),
   ])
 
   const dirs = dirsRes.ok ? await dirsRes.json() : null
-  const llms = llmRes.ok ? await llmRes.json() : null
-  const daemons = daemonsRes.ok ? await daemonsRes.json() : null
+  const cli = cliRes.ok ? await cliRes.json() : null
   const agents = agentsRes.ok ? await agentsRes.json() : null
 
   const dirList = pickList(dirs, 'items', 'items')
-  const llmList = pickList(llms, 'providers', 'providers')
-  const daemonList = pickList(daemons, 'daemons', 'daemons')
+  const runtimeList = pickList(cli, 'runtimes', 'runtimes')
   const agentList = pickList(agents, 'agents', 'agents')
 
-  const hasOnlineDaemon = daemonList.some(
-    (d) => d.status === 'online' || d.status === 'idle',
-  )
+  // CLI 运行时检测：gateway 扫描 PATH，至少一个 binary available 即视为已安装
+  const hasInstalledRuntime = runtimeList.some((r) => r.available === true)
 
   return (
     dirList.length > 0 &&
-    llmList.length > 0 &&
-    hasOnlineDaemon &&
+    hasInstalledRuntime &&
     agentList.length > 0
   )
 }

@@ -42,14 +42,13 @@ describe('HumanInputNode', () => {
     expect(result.output.text).toBe('User response')
   })
 
-  it('returns prompt as default when humanInputResolver is missing', async () => {
+  it('throws when humanInputResolver is missing — never fabricates the human answer', async () => {
     const node = new HumanInputNode()
     const context = makeContext()
 
-    const result = await node.run(makeNodeData({ prompt: 'Default prompt' }), '', context)
-
-    expect(result.output.response).toBe('Default prompt')
-    expect(result.output.text).toBe('Default prompt')
+    await expect(node.run(makeNodeData({ prompt: 'Default prompt' }), '', context)).rejects.toThrow(
+      /humanInputResolver/,
+    )
   })
 
   it('resolves variables in prompt from state', async () => {

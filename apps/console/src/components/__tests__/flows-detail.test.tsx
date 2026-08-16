@@ -1,5 +1,5 @@
 import { describe, it, expect, beforeEach, vi, afterEach } from 'vitest'
-import { render, screen, within } from '@testing-library/react'
+import { render, screen, waitFor, within } from '@testing-library/react'
 import userEvent from '@testing-library/user-event'
 import type React from 'react'
 import type { FlowSummary, FlowDetailView } from '@/lib/flows'
@@ -25,18 +25,21 @@ async function renderView(): Promise<void> {
  * Component tests for the AgentFlows list↔detail swap (M2.2).
  *
  * Mirrors the design's `showDetail`/`hideDetail` contract (design/agentflows.html
- * L432-469): the list page renders a flow-card whose run-row click swaps the
- * DOM into the detail page (`.flow-detail-page.active`), mounting the DAG
- * canvas + the inspector; the 返回 AgentFlows button swaps back. The DAG itself
- * (`FlowDag` → React Flow) is exercised end-to-end in the e2e suite; here we
- * assert the swap DOM contract + the inspector's io-box sections the audit
- * flagged (§1.x), keeping React Flow's ResizeObserver dependency behind the
- * setup-file polyfill so the canvas mounts without erroring.
+ * L432-469): the list page renders a flow-card whose ▶ 运行 button (the run-row
+ * was removed with the fabricated run history — the run button is now the list
+ * page's entry into the detail) swaps the DOM into the detail page
+ * (`.flow-detail-page.active`), mounting the DAG canvas + the inspector; the
+ * 返回 AgentFlows button swaps back. The DAG itself (`FlowDag` → React Flow) is
+ * exercised end-to-end in the e2e suite; here we assert the swap DOM contract +
+ * the inspector's io-box sections the audit flagged (§1.x), keeping React
+ * Flow's ResizeObserver dependency behind the setup-file polyfill so the canvas
+ * mounts without erroring.
  *
- * The three console routes the view fetches are stubbed via `global.fetch`:
- *   GET /api/workflows                        → flow list
- *   GET /api/workflows/:id                    → flow detail (DAG)
- *   GET /api/workflows/runs/:runId/node-spans → node-level spans (inspector)
+ * The four console routes the view fetches are stubbed via `global.fetch`:
+ *   GET  /api/workflows                        → flow list
+ *   GET  /api/workflows/:id                    → flow detail (DAG)
+ *   GET  /api/workflows/runs/:runId/node-spans → node-level spans (inspector)
+ *   POST /api/workflows/:id/run                → run trigger (x-run-id header)
  */
 
 const flows: FlowSummary[] = [
@@ -106,9 +109,9 @@ function jsonResponse(body: unknown, init?: ResponseInit): Response {
 }
 
 /**
- * Stub `global.fetch` so the view's three console routes resolve with the
- * fixtures above. The url-path matcher routes by pathname so a single stub
- * answers all three fetches the view makes on mount + on showDetail.
+ * Stub `global.fetch` so the view's console routes resolve with the fixtures
+ * above. The url-path matcher routes by pathname so a single stub answers all
+ * the fetches the view makes on mount + on showDetail / runFlow.
  */
 function stubFetch(): { calls: string[] } {
   const calls: string[] = []
@@ -120,6 +123,10 @@ function stubFetch(): { calls: string[] } {
     if (path === '/api/workflows') return jsonResponse({ success: true, data: flows })
     if (path.startsWith('/api/workflows/') && path.endsWith('/node-spans')) {
       return jsonResponse(spansEnvelope)
+    }
+    if (path.startsWith('/api/workflows/') && path.endsWith('/run')) {
+      // runFlow reads the run id from the x-run-id response header.
+      return jsonResponse({ success: true }, { headers: { 'x-run-id': 'run-flow_r' } })
     }
     if (path.startsWith('/api/workflows/')) {
       return jsonResponse({ success: true, data: detail })
@@ -142,7 +149,7 @@ afterEach(() => {
 })
 
 describe('FlowsView — list↔detail swap (M2.2)', () => {
-  it('renders the list page on mount (flow-card + run-row), detail page hidden', async () => {
+  it('renders the list page on mount (flow-card + honest empty runs panel), detail page hidden', async () => {
     stubFetch()
     await renderView()
 
@@ -158,19 +165,18 @@ describe('FlowsView — list↔detail swap (M2.2)', () => {
     expect(document.querySelector('.flow-list-page')?.classList.contains('active')).toBe(true)
   })
 
-  it('expands a flow-card to reveal the run-row, and clicking the run-row swaps to the detail page', async () => {
+  it('clicking the card\'s ▶ 运行 button swaps to the detail page', async () => {
     stubFetch()
     const user = userEvent.setup()
     await renderView()
 
-    // expand the flow-card → run-row appears
-    const cardHead = await screen.findByRole('button', { name: /展开 flow 论文复现流水线 的运行记录/ })
-    await user.click(cardHead)
-    const runRow = await screen.findByRole('button', { name: /查看 run-flow_r 的 DAG 详情/ })
-    expect(runRow).toBeInTheDocument()
+    // the run button is the list page's entry into the detail page now that
+    // the fabricated run-rows are gone
+    const runBtn = await screen.findByRole('button', { name: /▶ 运行/ })
+    expect(runBtn).toBeInTheDocument()
 
-    // click the run-row → showDetail → detail page becomes active
-    await user.click(runRow)
+    // click 运行 → runFlow → showDetail → detail page becomes active
+    await user.click(runBtn)
     const detailPage = document.querySelector('.flow-detail-page')
     expect(detailPage?.classList.contains('active')).toBe(true)
     expect(document.querySelector('.flow-list-page')?.classList.contains('active')).toBe(false)
@@ -184,11 +190,9 @@ describe('FlowsView — list↔detail swap (M2.2)', () => {
     const user = userEvent.setup()
     await renderView()
 
-    // expand + enter detail
-    const cardHead = await screen.findByRole('button', { name: /展开 flow 论文复现流水线 的运行记录/ })
-    await user.click(cardHead)
-    const runRow = await screen.findByRole('button', { name: /查看 run-flow_r 的 DAG 详情/ })
-    await user.click(runRow)
+    // run → enter detail
+    const runBtn = await screen.findByRole('button', { name: /▶ 运行/ })
+    await user.click(runBtn)
     expect(document.querySelector('.flow-detail-page')?.classList.contains('active')).toBe(true)
 
     // back
@@ -204,10 +208,8 @@ describe('FlowsView — list↔detail swap (M2.2)', () => {
     await renderView()
 
     // enter detail
-    const cardHead = await screen.findByRole('button', { name: /展开 flow 论文复现流水线 的运行记录/ })
-    await user.click(cardHead)
-    const runRow = await screen.findByRole('button', { name: /查看 run-flow_r 的 DAG 详情/ })
-    await user.click(runRow)
+    const runBtn = await screen.findByRole('button', { name: /▶ 运行/ })
+    await user.click(runBtn)
 
     // legend: all 6 statuses present in the detail page
     const legend = await screen.findByText('运行', { selector: '.legend-flow .li' })
@@ -217,14 +219,19 @@ describe('FlowsView — list↔detail swap (M2.2)', () => {
     }
 
     // inspector: the io-box sections the audit flagged as missing (§1.x) now
-    // render. Auto-selected first node (n1) drives the inspector; assert the
-    // 输入 + 输出 section labels are present in the inspector body.
+    // render. Auto-selected first node (n1) drives the inspector. The run
+    // button enters the detail via an async fetch chain (runFlow → showDetail
+    // → detail fetch → auto-select), so poll until the NodeInspector sections
+    // are present instead of asserting the intermediate FlowOverview.
+    await waitFor(() => {
+      const insp = document.querySelector('.flow-inspector')
+      expect(insp).not.toBeNull()
+      const labels = Array.from(insp!.querySelectorAll('.flow-insp-section .lbl')).map((el) => el.textContent)
+      expect(labels).toContain('输入')
+      expect(labels).toContain('输出')
+      expect(labels).toContain('预算与计量')
+    })
     const inspector = document.querySelector('.flow-inspector')
-    expect(inspector).not.toBeNull()
-    const labels = Array.from(inspector!.querySelectorAll('.flow-insp-section .lbl')).map((el) => el.textContent)
-    expect(labels).toContain('输入')
-    expect(labels).toContain('输出')
-    expect(labels).toContain('预算与计量')
     // the n1 span carried input_tokens/output_tokens → the io-box is not "—"
     const ioBoxes = inspector!.querySelectorAll('.io-box')
     expect(ioBoxes.length).toBeGreaterThanOrEqual(2)

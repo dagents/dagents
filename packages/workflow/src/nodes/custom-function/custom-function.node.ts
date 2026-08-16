@@ -5,13 +5,14 @@ import type { INode, INodeData, INodeOutput, IExecutionContext } from '../../typ
  *
  * Migrated from vendor/flowise/packages/components/nodes/agentflow/CustomFunction/CustomFunction.ts
  * (219 lines). The function code is wrapped in `new Function` with `$input`
- * and `$flow` parameters — no access to `process`, `require`, or globals
- * (sandboxed by the Function constructor's scope).
+ * and `$flow` parameters.
  *
- * Security note: `new Function` is NOT a true sandbox (it can access globals
- * via `this` tricks). For production hardening, consider `vm2` or `isolated-vm`.
- * For now, this matches Flowise's behavior — the function is trusted to be
- * authored by the flow designer, not an end user.
+ * ⚠️ Security note: `new Function` is NOT a sandbox — the code runs in global
+ * scope with full access to `process`, `fetch`, `require`-equivalent globals,
+ * and runs synchronously on the gateway's event loop（`while(true)` 会冻住整
+ * 个进程）. Only use flows you trust; a real sandbox (isolated-vm 类方案) is
+ * required before exposing flow authoring to untrusted users. 同样的模型适用
+ * 于 loop break condition 和 Tool 节点 handler。
  *
  * Flowise dependencies removed:
  *   - `eval` with `flow.state` / `input` → `new Function('$input', '$flow', code)`
@@ -43,12 +44,19 @@ export class CustomFunctionNode implements INode {
   ]
 
   async run(nodeData: INodeData, input: unknown, options: IExecutionContext): Promise<INodeOutput> {
-    const functionCode = (nodeData.inputs?.functionCode as string) ?? ''
-    const functionInput = nodeData.inputs?.functionInput ?? input
+    // `functionCode` 是引擎侧字段名；画布元数据用 `code`。两者都读，
+    // 画布保存的函数才能真正执行（此前画布配的代码静默跑成 undefined）。
+    // `functionInput` 同理兼容画布的 `parameters`。
+    const functionCode =
+      (nodeData.inputs?.functionCode as string) ??
+      (nodeData.inputs?.code as string) ??
+      ''
+    const functionInput = nodeData.inputs?.functionInput ?? nodeData.inputs?.parameters ?? input
 
-    // Wrap in a function with named params — sandboxed from module scope.
-    // `new Function` creates a function with its own scope; it can't see
-    // imports or local variables, only the params we pass.
+    if (!functionCode.trim()) {
+      throw new Error('Custom Function requires function code')
+    }
+
     const fn = new Function('$input', '$flow', functionCode)
 
     const result = fn(functionInput, { state: options.state })

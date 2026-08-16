@@ -45,7 +45,11 @@ export class HumanInputNode implements INode {
     if (options.humanInputResolver) {
       response = await options.humanInputResolver(resolvedPrompt, inputType, inputOptions)
     } else {
-      response = resolvedPrompt
+      // 没有 resolver 时必须失败，不能把"问题本身"当"人类的回答"继续跑 ——
+      // 那等于流程自己替人类确认了自己。宿主（gateway）总是注入 resolver。
+      throw new Error(
+        'HumanInput node requires a humanInputResolver in the execution context (host did not provide one)',
+      )
     }
 
     return {

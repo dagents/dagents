@@ -451,7 +451,8 @@ describe('runDaemon — resilience', () => {
       heartbeatIntervalMs: 50,
     })
 
-    // register failure resolves `done` (graceful exit), it does not reject
-    await expect(handle.done).resolves.toBeUndefined()
+    // register failure rejects `done`（2026-08-16 修复：此前 resolve 会让
+    // CLI 以 exit 0 退出，supervisor / docker restart:on-failure 不会重启）
+    await expect(handle.done).rejects.toThrow('dispatch 503')
   })
 })

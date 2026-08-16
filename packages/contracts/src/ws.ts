@@ -4,10 +4,15 @@
  * The console subscribes to a single platform WS hub and reacts to live-state
  * frames instead of polling. Frames are a closed discriminated union keyed by
  * `type`; each variant carries the minimal delta a client view needs to patch
- * its in-memory model. The union starts with the one frame this milestone
- * consumes — `agent-updated` (refresh agent-detail availability/status) — and
- * is open to grow (run-updated, fleet-tick, …) without breaking consumers
- * that default on unknown `type`s.
+ * its in-memory model. Clients must default on unknown `type`s so the union
+ * can grow without breaking consumers.
+ *
+ * ⚠️ Production status (2026-08-16 audit): the gateway's ws-hub currently
+ * broadcasts ONLY `chat:*` frames. `agent-updated` / `run-updated` are
+ * RESERVED shapes —— no producer exists in `apps/gateway` yet. The console's
+ * agent-detail listener is forward-compat code that never fires against
+ * today's gateway; the view relies on its REST polling fallback until a
+ * producer lands. Do not treat these variants as a working feature.
  *
  * This lives in `@dagents/contracts` (zero-dependency, built first) so the browser
  * client (`apps/console/src/lib/ws-client.ts`) and any future server-side

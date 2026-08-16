@@ -809,3 +809,176 @@ describe('DagExecutor (human input + subflow wiring)', () => {
     expect(result.finalOutput?.output).toEqual({ content: '子流程结果' })
   })
 })
+
+describe('DagExecutor (canvas-shape compatibility)', () => {
+  // 画布编辑器（vendor/agentflow）保存的节点配置嵌套在 data.inputs 下，
+  // 边的 sourceHandle 是锚点 id（如 'output' / `${nodeId}-output-N`）。
+  // 这组回归测试保证画布保存的 flow 能被引擎正确执行（2026-08-16 修复）。
+  let registry: NodeRegistry
+
+  beforeEach(() => {
+    registry = new NodeRegistry()
+  })
+
+  it('reads node config nested under data.inputs (canvas save shape)', async () => {
+    // 一个读 inputs.suffix 的 echo 节点，模拟真实节点从 nodeData.inputs 读配置
+    const makeConfigNode = (name: string): INode => ({
+      label: name,
+      name,
+      version: 1,
+      type: name,
+      category: 'Test',
+      color: '#000',
+      inputs: [],
+      async run(nodeData: INodeData, input: unknown): Promise<INodeOutput> {
+        const suffix = (nodeData.inputs?.suffix as string) ?? 'MISSING'
+        return {
+          id: nodeData.id,
+          name,
+          input: { raw: input },
+          output: { content: `${typeof input === 'string' ? input : JSON.stringify(input)} ${suffix}` },
+        }
+      },
+    })
+    registry.register(makeConfigNode('cfgA'))
+    const flow: FlowData = {
+      nodes: [
+        {
+          id: 'n1',
+          data: {
+            name: 'cfgA',
+            label: 'Config A',
+            inputs: { suffix: 'FROM_CANVAS' }, // 画布形状：配置在 data.inputs 下
+          },
+        },
+      ],
+      edges: [],
+    }
+    const executor = new DagExecutor(registry)
+    const result = await executor.execute(flow, 'hello', {
+      chatId: 'c1',
+      runId: 'r1',
+      state: {},
+      isLastNode: true,
+    })
+    expect(result.status).toBe('success')
+    expect(result.executedNodes[0].output.content).toBe('hello FROM_CANVAS')
+  })
+
+  it('nested data.inputs overrides stale flat keys (edited AI flow)', async () => {
+    const makeConfigNode = (name: string): INode => ({
+      label: name,
+      name,
+      version: 1,
+      type: name,
+      category: 'Test',
+      color: '#000',
+      inputs: [],
+      async run(nodeData: INodeData): Promise<INodeOutput> {
+        return {
+          id: nodeData.id,
+          name,
+          input: {},
+          output: { content: String(nodeData.inputs?.suffix) },
+        }
+      },
+    })
+    registry.register(makeConfigNode('cfgB'))
+    const flow: FlowData = {
+      nodes: [
+        {
+          id: 'n1',
+          data: {
+            name: 'cfgB',
+            suffix: 'STALE_FLAT', // AI 生成的旧值
+            inputs: { suffix: 'NEW_NESTED' }, // 画布编辑后的新值
+          },
+        },
+      ],
+      edges: [],
+    }
+    const executor = new DagExecutor(registry)
+    const result = await executor.execute(flow, '', {
+      chatId: 'c1',
+      runId: 'r1',
+      state: {},
+      isLastNode: true,
+    })
+    expect(result.executedNodes[0].output.content).toBe('NEW_NESTED')
+  })
+
+  it('anchor-handle edges from data nodes are active (no silent downstream skip)', async () => {
+    // LLM/HTTP 等数据节点的输出没有 selected/result —— 画布给它们的边填
+    // 'output' 锚点 id。此前 shouldExecuteEdge 会判定不匹配而静默跳过下游。
+    const dataNode: INode = {
+      label: 'Data',
+      name: 'dataNode',
+      version: 1,
+      type: 'Data',
+      category: 'Test',
+      color: '#000',
+      inputs: [],
+      async run(nodeData: INodeData, input: unknown): Promise<INodeOutput> {
+        return {
+          id: nodeData.id,
+          name: 'dataNode',
+          input: { raw: input },
+          output: { content: 'data-out' }, // 无 selected/result/matched
+        }
+      },
+    }
+    const downstream = makeEchoNode('echoDown', 'DOWN')
+    registry.register(dataNode)
+    registry.register(downstream)
+    const flow: FlowData = {
+      nodes: [
+        { id: 'src', data: { name: 'dataNode' } },
+        { id: 'dst', data: { name: 'echoDown' } },
+      ],
+      edges: [{ id: 'e1', source: 'src', target: 'dst', sourceHandle: 'output' }],
+    }
+    const executor = new DagExecutor(registry)
+    const result = await executor.execute(flow, 'in', {
+      chatId: 'c1',
+      runId: 'r1',
+      state: {},
+      isLastNode: true,
+    })
+    expect(result.status).toBe('success')
+    expect(result.executedNodes).toHaveLength(2)
+    expect(result.finalOutput?.content).toBe('data-out DOWN')
+  })
+
+  it('canvas condition node routes numeric/Else anchors to true/false branches', async () => {
+    // 用真实 ConditionNode（输出只有 matched，无 selected/result —— 这是
+    // shouldExecuteEdge 里 matched 分支的前提）；假节点常带 result 字段会走
+    // 另一条路由规则。
+    registry.registerMany(allNodes())
+    registry.register(makeEchoNode('branchA', 'A'))
+    registry.register(makeEchoNode('branchB', 'B'))
+    const flow: FlowData = {
+      nodes: [
+        { id: 'cond', data: { name: 'conditionAgentflow', conditions: [{ comparisonOperator: '===', valueToCompare: 'a', valueToCompareAgainst: 'a' }] } },
+        { id: 'a', data: { name: 'branchA' } },
+        { id: 'b', data: { name: 'branchB' } },
+      ],
+      edges: [
+        // 画布锚点：conditions.length = 1，index 0 = true 分支，index 1 = Else
+        { id: 'e1', source: 'cond', target: 'a', sourceHandle: 'cond-output-0' },
+        { id: 'e2', source: 'cond', target: 'b', sourceHandle: 'cond-output-1' },
+      ],
+    }
+    const executor = new DagExecutor(registry)
+    const result = await executor.execute(flow, 'x', {
+      chatId: 'c1',
+      runId: 'r1',
+      state: {},
+      isLastNode: true,
+    })
+    expect(result.status).toBe('success')
+    const executedNames = result.executedNodes.map((n) => n.nodeName)
+    expect(executedNames).toContain('conditionAgentflow')
+    expect(executedNames).toContain('branchA')
+    expect(executedNames).not.toContain('branchB')
+  })
+})

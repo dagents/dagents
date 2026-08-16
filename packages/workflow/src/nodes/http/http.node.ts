@@ -38,27 +38,44 @@ export class HttpNode implements INode {
   async run(nodeData: INodeData, _input: unknown, options: IExecutionContext): Promise<INodeOutput> {
     const method = (nodeData.inputs?.method as string) ?? 'GET'
     const url = nodeData.inputs?.url as string
-    const headersStr = (nodeData.inputs?.headers as string) ?? ''
-    const body = (nodeData.inputs?.body as string) ?? ''
-    const bodyType = (nodeData.inputs?.bodyType as string) ?? 'none'
+    // headers 兼容两种形态：字符串 JSON（AI 生成的平铺 flow）或对象
+    // （画布 defaultData.headers = {}）。空对象 / 空串都视为无自定义头。
+    const headersInput = nodeData.inputs?.headers
+    const body = nodeData.inputs?.body as string
+    const bodyType = nodeData.inputs?.bodyType as string | undefined
 
     if (!url) throw new Error('HTTP Request requires a URL')
 
-    // Parse headers
-    let headers: Record<string, string> = {}
-    if (headersStr) {
-      try {
-        headers = JSON.parse(headersStr)
-      } catch {
-        throw new Error(`Invalid headers JSON: ${headersStr}`)
-      }
+    // SSRF 防线：只允许 http(s) 绝对 URL。fetch 原生拒绝 file: 等协议，
+    // 但自定义 scheme + 重定向组合仍是逃逸面，这里显式白名单。
+    let parsedUrl: URL
+    try {
+      parsedUrl = new URL(url)
+    } catch {
+      throw new Error(`HTTP Request URL is not absolute: ${url}`)
+    }
+    if (parsedUrl.protocol !== 'http:' && parsedUrl.protocol !== 'https:') {
+      throw new Error(`HTTP Request only allows http(s) URLs, got: ${parsedUrl.protocol}`)
     }
 
-    // Build fetch options
+    // Parse headers
+    let headers: Record<string, string> = {}
+    if (typeof headersInput === 'string' && headersInput.trim() !== '') {
+      try {
+        headers = JSON.parse(headersInput) as Record<string, string>
+      } catch {
+        throw new Error(`Invalid headers JSON: ${headersInput}`)
+      }
+    } else if (headersInput && typeof headersInput === 'object' && !Array.isArray(headersInput)) {
+      headers = headersInput as Record<string, string>
+    }
+
+    // Build fetch options. 画布没有暴露 bodyType 输入 —— body 非空且
+    // bodyType 未显式设为 'none' 时照常发送，避免画布上配了 body 却永远发不出去。
     const fetchOpts: RequestInit = { method }
     if (body && bodyType !== 'none') {
       fetchOpts.body = body
-      if (bodyType === 'json' && !headers['Content-Type']) {
+      if ((bodyType ?? 'json') === 'json' && !headers['Content-Type']) {
         headers['Content-Type'] = 'application/json'
       }
     }
@@ -66,20 +83,35 @@ export class HttpNode implements INode {
       fetchOpts.headers = headers
     }
 
-    const response = await fetch(url, fetchOpts)
+    // 15s 超时 + 响应 32KB 截断（对齐 gateway 内置 http_request 工具的防护）。
+    // 有执行级 signal 时合并（AbortSignal.any 需 Node ≥20.3）。
+    const timeoutSignal = AbortSignal.timeout(15_000)
+    fetchOpts.signal = options.signal
+      ? AbortSignal.any([options.signal, timeoutSignal])
+      : timeoutSignal
+
+    const response = await fetch(parsedUrl.toString(), fetchOpts)
+
+    const rawText = await response.text().catch(() => '')
+    const MAX_RESPONSE_BYTES = 32 * 1024
+    const truncated = rawText.length > MAX_RESPONSE_BYTES
+    const text = truncated ? rawText.slice(0, MAX_RESPONSE_BYTES) : rawText
 
     if (!response.ok) {
-      const errText = await response.text().catch(() => '')
-      throw new Error(`HTTP ${response.status} ${response.statusText}${errText ? `: ${errText.slice(0, 200)}` : ''}`)
+      throw new Error(`HTTP ${response.status} ${response.statusText}${text ? `: ${text.slice(0, 200)}` : ''}`)
     }
 
     // Auto-detect JSON vs text
     const contentType = response.headers.get('content-type') ?? ''
     let output: Record<string, unknown>
-    if (contentType.includes('application/json')) {
-      output = (await response.json()) as Record<string, unknown>
+    if (contentType.includes('application/json') && !truncated) {
+      try {
+        output = JSON.parse(text) as Record<string, unknown>
+      } catch {
+        output = { content: text }
+      }
     } else {
-      output = { content: await response.text() }
+      output = truncated ? { content: text, truncated: true } : { content: text }
     }
 
     return {

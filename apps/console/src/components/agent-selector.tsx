@@ -121,15 +121,21 @@ export function AgentSelector({ value, onChange, disabled }: AgentSelectorProps)
           visibility: 'workspace',
         }),
       })
-      const json = await resp.json()
-      if (!resp.ok && !json.success && !json.id) {
+      const json = (await resp.json()) as {
+        success?: boolean
+        data?: { id?: string }
+        error?: string
+        detail?: string
+      }
+      // 200 + { success: false } 也是失败 — 任一失败信号都要抛错
+      if (!resp.ok || json.success === false || !json.data?.id) {
         throw new Error(json.error ?? json.detail ?? `HTTP ${resp.status}`)
       }
-      // Refresh agent list
+      // Refresh agent list, then select the created agent by its real id
+      // (POST /api/agents returns { success, data: { id } }).
       const { agents: rows } = await fetchAgents()
       setAgents(rows.map((a) => ({ id: a.id, name: a.name })))
-      const newAgent = rows[rows.length - 1]
-      if (newAgent) onChange(newAgent.id)
+      onChange(json.data.id)
     } catch (err) {
       setCreateError(err instanceof Error ? err.message : String(err))
     } finally {

@@ -106,6 +106,11 @@ agentInvokeRoutes.post('/:id/invoke', async (c) => {
       }
       return session.result
     })()
+    // 超时后 race 已结算，但 collect 仍在跑；它随后 reject 会变成 unhandled
+    // rejection 直接杀死整个 gateway 进程。挂一个兜底 catch 吞掉迟到的错误。
+    collect.catch((err) => {
+      log.warn('invoke collector settled after timeout/race', { id, error: String(err) })
+    })
     result = await Promise.race([
       collect,
       new Promise<never>((_, reject) =>

@@ -20,6 +20,7 @@ import { randomUUID } from 'node:crypto'
 
 let agentDaemonId: string
 let daemonId: string
+let daemonToken: string
 
 beforeAll(async () => {
   if (!AppDataSource.isInitialized) await AppDataSource.initialize()
@@ -44,7 +45,9 @@ beforeEach(async () => {
       capabilities: [{ agentType: 'claude', tags: ['gpu', 'ap-northeast'] }],
     }),
   })
-  daemonId = ((await reg.json()) as { data: { daemonId: string } }).data.daemonId
+  const regBody = (await reg.json()) as { data: { daemonId: string; token: string } }
+  daemonId = regBody.data.daemonId
+  daemonToken = regBody.data.token
 
   const ad = await AppDataSource.query(
     `INSERT INTO agent_daemons (name, kind, daemon_id, capability_descriptor, executable_path, visibility)
@@ -185,11 +188,11 @@ describe('GET /agents/:id/logs', () => {
   it('returns mapped log lines for the agent’s tasks', async () => {
     const taskId = await invoke('R-8821')
     // Claim + start so we can post messages.
-    await app.request(`/api/v1/dispatch/daemons/${daemonId}/tasks/claim`, { method: 'POST' })
-    await app.request(`/api/v1/dispatch/tasks/${taskId}/start`, { method: 'POST' })
+    await app.request(`/api/v1/dispatch/daemons/${daemonId}/tasks/claim`, { method: 'POST', headers: { authorization: `Bearer ${daemonToken}` } })
+    await app.request(`/api/v1/dispatch/tasks/${taskId}/start`, { method: 'POST', headers: { authorization: `Bearer ${daemonToken}` } })
     await app.request(`/api/v1/dispatch/tasks/${taskId}/messages`, {
       method: 'POST',
-      headers: { 'content-type': 'application/json' },
+      headers: { 'content-type': 'application/json', authorization: `Bearer ${daemonToken}` },
       body: JSON.stringify({
         messages: [
           { type: 'status', status: 'started', sessionId: 'sess-1' },

@@ -32,10 +32,11 @@ export class DirectReplyNode implements INode {
 
   async run(nodeData: INodeData, _input: unknown, options: IExecutionContext): Promise<INodeOutput> {
     // Read the configured message. Prefer the canonical `directReplyMessage`
-    // input name; fall back to `content` for older flow data that used that
-    // field name before the canvas metadata standardised on `directReplyMessage`.
+    // input name; fall back to `text`（画布元数据用的字段名）and `content`
+    // （更老的 flow 数据）。三条名字都指向同一个配置。
     const rawMessage =
       (nodeData.inputs?.directReplyMessage as string) ??
+      (nodeData.inputs?.text as string) ??
       (nodeData.inputs?.content as string) ??
       ''
     const directReplyMessage = resolveVariables(rawMessage, options.state) as string

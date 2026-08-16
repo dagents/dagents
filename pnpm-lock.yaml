@@ -248,46 +248,6 @@ importers:
         specifier: ^2.0.0
         version: 2.1.9(@types/node@26.1.1)(jsdom@25.0.1(canvas@2.11.2(encoding@0.1.13)))(sass@1.101.0)(terser@5.48.0)
 
-  packages/e2e:
-    dependencies:
-      '@dagents/agent-adapters':
-        specifier: workspace:*
-        version: link:../agent-adapters
-      '@dagents/contracts':
-        specifier: workspace:*
-        version: link:../contracts
-      '@dagents/daemon':
-        specifier: workspace:*
-        version: link:../daemon
-      '@dagents/db':
-        specifier: workspace:*
-        version: link:../db
-      '@dagents/shared':
-        specifier: workspace:*
-        version: link:../shared
-      '@hono/node-server':
-        specifier: ^1.12.0
-        version: 1.19.14(hono@4.12.28)
-    devDependencies:
-      '@opentelemetry/api':
-        specifier: ^1.9.0
-        version: 1.9.1
-      '@opentelemetry/core':
-        specifier: ^1.29.0
-        version: 1.30.1(@opentelemetry/api@1.9.1)
-      '@types/node':
-        specifier: ^20.0.0
-        version: 20.19.43
-      tsx:
-        specifier: ^4.0.0
-        version: 4.23.0
-      typescript:
-        specifier: ^5.5.0
-        version: 5.9.3
-      vitest:
-        specifier: ^2.0.0
-        version: 2.1.9(@types/node@20.19.43)(jsdom@25.0.1(canvas@2.11.2(encoding@0.1.13)))(sass@1.101.0)(terser@5.48.0)
-
   packages/shared:
     dependencies:
       '@opentelemetry/api':
@@ -1808,12 +1768,6 @@ packages:
     peerDependencies:
       '@opentelemetry/api': '>=1.0.0 <1.10.0'
 
-  '@opentelemetry/core@1.30.1':
-    resolution: {integrity: sha512-OOCM2C/QIURhJMuKaekP3TRBxBKxG/TWWA0TL2J6nXUtDnuCtccy49LUJF8xPFXMX+0LMcxFpCo8M9cGY1W6rQ==}
-    engines: {node: '>=14'}
-    peerDependencies:
-      '@opentelemetry/api': '>=1.0.0 <1.10.0'
-
   '@opentelemetry/core@2.9.0':
     resolution: {integrity: sha512-m2nckMT80NnmjTYSPjJQObBJ+8dgkoajEOUbznL8AHZ3T3yHRk2P7gI1PhEBc1+lOnrYE9UWrWHqJDsmqjmNbw==}
     engines: {node: ^18.19.0 || >=20.6.0}
@@ -2249,10 +2203,6 @@ packages:
     engines: {node: ^18.19.0 || >=20.6.0}
     peerDependencies:
       '@opentelemetry/api': '>=1.3.0 <1.10.0'
-
-  '@opentelemetry/semantic-conventions@1.28.0':
-    resolution: {integrity: sha512-lp4qAiMTD4sNWW4DbKLBkfiMZ4jbAboJIGOQr5DvciMRI494OapieI9qiODpOt0XBr1LjIDy1xAGAnVs5supTA==}
-    engines: {node: '>=14'}
 
   '@opentelemetry/semantic-conventions@1.42.0':
     resolution: {integrity: sha512-icc5xCzndZfhuJMy5oqk5AvloWquR7jtae74qzpkKkhGp8BivK+oCcEXgGnjCdTfp8hA44l+w8gE8yYJbocJJw==}
@@ -8326,11 +8276,6 @@ snapshots:
     dependencies:
       '@opentelemetry/api': 1.9.1
 
-  '@opentelemetry/core@1.30.1(@opentelemetry/api@1.9.1)':
-    dependencies:
-      '@opentelemetry/api': 1.9.1
-      '@opentelemetry/semantic-conventions': 1.28.0
-
   '@opentelemetry/core@2.9.0(@opentelemetry/api@1.9.1)':
     dependencies:
       '@opentelemetry/api': 1.9.1
@@ -8947,8 +8892,6 @@ snapshots:
       '@opentelemetry/core': 2.9.0(@opentelemetry/api@1.9.1)
       '@opentelemetry/resources': 2.9.0(@opentelemetry/api@1.9.1)
       '@opentelemetry/semantic-conventions': 1.42.0
-
-  '@opentelemetry/semantic-conventions@1.28.0': {}
 
   '@opentelemetry/semantic-conventions@1.42.0': {}
 

@@ -35,13 +35,14 @@ llm_providers 表 → OpenAI 兼容 API     nodes 里嵌的平台 Agent → tool
 
 `DagExecutor`（`packages/workflow/src/engine/executor.ts`）：
 
-- **Kahn 拓扑排序 + 环检测**（有环时报出具体环路径）
+- **Kahn 拓扑排序 + 环检测**（报出未能参与排序的剩余节点 id 集合 —— 含环及其全部下游，非精确环路径）
 - **并行分支**：同一波次（所有入边都已解析的节点）用 `Promise.all` 并发执行；波次按拓扑序推进，`executedNodes` 顺序保持确定
-- **条件路由**：边上的 `sourceHandle` 匹配 Condition 节点的 `matched`/`result`（true/false），或 ConditionAgent 节点 LLM 选出的 `selected` 场景名；不活跃分支的下游被剪枝跳过，跳过会传递
+- **条件路由**：边上的 `sourceHandle` 匹配 Condition 节点的 `matched`/`result`（true/false），或 ConditionAgent 节点 LLM 选出的 `selected` 场景名；画布 Condition 节点的数字/Else 锚点（`${id}-output-N`）映射回 true/false 分支；不活跃分支的下游被剪枝跳过，跳过会传递。普通数据节点（输出无 `selected`/`result`）的锚点边默认激活，不再静默剪枝
+- **节点配置双形态**（2026-08-16）：画布保存的 `data.inputs.<field>` 与 AI 生成/手写的平铺 `data.<field>` 在执行入口归一化（平铺打底、嵌套覆盖）
 - **Loop / Iteration 真执行**：执行器识别 loop 控制节点，抽取从 `loop` / `iteration` 输出锚点可达的子图作为循环体，逐轮执行（旧单锚点图兼容：全部出边视为循环体）：
-  - **Loop**：循环 `loopCount`/`maxIterations` 次（上限 `MAX_LOOP_COUNT`，默认 10），每轮把上一轮的最终输出喂给下一轮；可选 `condition`（对 `$flow.state` 求值的 JS 表达式）提前跳出
-  - **Iteration**：对 `items` JSON 数组逐项执行，每轮种子是当前项；`iterationIndex` / `iterationItem` / `iterationCount` 写入运行时状态，模板变量可引用
-  - 聚合输出 `{ iterations, completedIterations, content }` 经 `result` 锚点流向下流
+  - **Loop**：循环 `loopCount`/`maxIterations` 次（上限 `MAX_LOOP_COUNT`，默认 10；env 配成非数字时回落 10），每轮把上一轮的最终输出喂给下一轮；可选 `condition`（对 `$flow.state` 求值的 JS 表达式）提前跳出
+  - **Iteration**：对 `items` JSON 数组逐项执行（上限 100 项，超出截断），每轮种子是当前项；`iterationIndex` / `iterationItem` / `iterationCount` 写入运行时状态，模板变量可引用
+  - 聚合输出 `{ iterations, completedIterations, content }` 经 `result` 锚点流向下流（聚合输出无 `selected`/`result` 键，result 锚点边默认激活）
 
 ### 4. 节点里嵌平台 Agent 与内联工具
 
@@ -79,7 +80,7 @@ llm_providers 表 → OpenAI 兼容 API     nodes 里嵌的平台 Agent → tool
 | 多入边合并 | 单入边取 `content` 字符串；多入边浅合并 + content 换行拼接 |
 | 失败语义 | 波次内失败：记录后整次 run 置 failed（同波其余节点跑完） |
 | finalOutput | 拓扑序最深的已执行节点的输出 |
-| AbortSignal | 波次间与循环轮间检查；LLM 请求可传 signal |
+| AbortSignal | 波次间与循环轮间检查；HTTP 节点合并超时 signal。LLM 请求**尚未**接 signal（gateway 的 provider fetch 无超时，挂起的上游会挂住 run） |
 | 循环体边界 | `loop`/`iteration` 锚点可达子图；`result` 锚点承接聚合输出 |
 | HumanInput（聊天） | 挂起等下一条用户消息；系统消息 + `custom:human_input` SSE 事件；超时失败 |
 | HumanInput（API run） | `state.humanInputs`（按 prompt 键）预置答案，缺失即明确报错 |
@@ -89,10 +90,12 @@ llm_providers 表 → OpenAI 兼容 API     nodes 里嵌的平台 Agent → tool
 
 > 这一节记录的是**仍真实存在的设计取舍**及其升级路径——不是待办清单。已修复的问题会从这里移除。
 
-- **Tool / CustomFunction / Loop condition 的 JS 执行是 `new Function`**，不是硬沙箱——代码信任对象是 flow 设计者而非终端用户；要对外暴露需换 `isolated-vm` 类方案
+- **Tool / CustomFunction / Loop condition 的 JS 执行是 `new Function`**，不是硬沙箱——代码信任对象是 flow 设计者而非终端用户；要对外暴露需换 `isolated-vm` 类方案。CustomFunction 同步跑在主事件循环上（死循环会冻住 gateway）
 - **Retriever 目前是关键词检索**（当前会话的 chat_messages ILIKE），不是向量 RAG；接向量库时替换 gateway 的 `historyRetriever` 实现即可，节点契约不变
 - **HumanInput 的挂起状态在 gateway 内存里**（单进程本机模式）：gateway 重启会丢挂起中的输入（流随超时失败）；前端暂未渲染 `custom:human_input` 专用输入框，但系统消息 + 聊天回复已构成完整可用闭环
 - **Langfuse 需手工申请 keys**；未配置时导出静默关闭，不影响 run
+- **LLM 请求无超时/取消**：gateway 的 provider fetch 不传 signal —— 上游挂起会挂住整个 run（HTTP 节点已有 15s 超时 + 32KB 截断）
+- **普通 Agent 节点无工具循环**：`agentAgentflow` 是单次 LLM 调用（不读 tools/maxIterations）；需要工具循环用 `platformAgentAgentflow`
 
 ## 关键文件索引
 

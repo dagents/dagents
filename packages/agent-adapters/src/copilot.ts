@@ -35,7 +35,9 @@ const COPILOT_BLOCKED_ARGS: Record<string, 'value' | 'standalone'> = {
 }
 
 export function buildCopilotArgs(prompt: string, opts: ExecOptions): string[] {
-  const args = ['-p', prompt, '--output-format', 'json']
+  // 2026-08-16：加 --allow-all-tools —— 无头模式没有权限交互 UI，缺自主
+  // flag 时运行会卡在权限请求上直到 inactivity/timeout watchdog 杀进程。
+  const args = ['-p', prompt, '--output-format', 'json', '--allow-all-tools']
   if (opts.model) args.push('--model', opts.model)
   if (opts.maxTurns && opts.maxTurns > 0) args.push('--max-turns', String(opts.maxTurns))
   args.push(...filterCustomArgs(opts.extraArgs, COPILOT_BLOCKED_ARGS))

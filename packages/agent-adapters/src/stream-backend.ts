@@ -422,9 +422,13 @@ export function spawnStreamAgent(config: StreamAgentConfig): {
 
     // Write the prompt and signal EOF (stdin mode). `end(chunk)` handles
     // backpressure internally; write errors are swallowed by the stdin
-    // 'error' handler. For argv mode the prompt is already in args — skip.
+    // 'error' handler. For argv mode the prompt is already in args — still
+    // close stdin so children that wait for stdin EOF before acting don't
+    // hang until the inactivity watchdog (2026-08-16).
     if (inputMethod === 'stdin') {
       proc.stdin!.end(stdinPayload)
+    } else {
+      proc.stdin?.end()
     }
 
     const rl = readline.createInterface({ input: proc.stdout!, crlfDelay: Infinity })

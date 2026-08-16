@@ -41,7 +41,11 @@ export class ExecuteFlowNode implements INode {
     if (options.flowExecutor) {
       output = await options.flowExecutor(resolvedFlowId, flowInput)
     } else {
-      output = this.toRecord(flowInput)
+      // 没有 flowExecutor 时必须失败，不能把输入回显成"子流程的输出" ——
+      // 那会让配置了 flowId 的节点看起来成功执行了子流程。宿主总是注入。
+      throw new Error(
+        'ExecuteFlow node requires a flowExecutor in the execution context (host did not provide one)',
+      )
     }
 
     return {
@@ -53,13 +57,5 @@ export class ExecuteFlowNode implements INode {
       output: { ...output, output, result: output },
       state: options.state,
     }
-  }
-
-  private toRecord(value: unknown): Record<string, unknown> {
-    if (value == null) return {}
-    if (typeof value === 'object' && !Array.isArray(value)) {
-      return value as Record<string, unknown>
-    }
-    return { value }
   }
 }

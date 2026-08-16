@@ -20,7 +20,9 @@ import { WebSocketServer, WebSocket } from 'ws'
 import { createLogger } from '@dagents/shared'
 import type { TokenUsage } from '@dagents/contracts'
 import type { IncomingMessage } from 'node:http'
+import type { Duplex } from 'node:stream'
 import type { Server } from 'node:http'
+import { authConfigured, verifyApiKey } from './auth.js'
 
 const log = createLogger({ svc: 'gateway:ws-hub' })
 
@@ -62,12 +64,50 @@ class WsHub {
   attachToServer(server: Server): void {
     this.wss = new WebSocketServer({ noServer: true })
 
-    server.on('upgrade', (req: IncomingMessage, socket, head) => {
+    server.on('upgrade', (req: IncomingMessage, socket: Duplex, head: Buffer) => {
+      const reject = (): void => {
+        // 必须显式拒绝：注册了 upgrade 监听后 Node 不再自动销毁未处理
+        // 的连接，半开 socket 会一直挂着（连接耗尽向量）。
+        socket.write('HTTP/1.1 401 Unauthorized\r\nConnection: close\r\n\r\n')
+        socket.destroy()
+      }
+
       const url = new URL(req.url ?? '/', `http://${req.headers.host ?? 'localhost'}`)
       if (url.pathname !== '/ws') {
-        // 不是 /ws 的升级请求，交给其他 handler（或拒绝）
+        socket.write('HTTP/1.1 404 Not Found\r\nConnection: close\r\n\r\n')
+        socket.destroy()
         return
       }
+
+      // 浏览器 WebSocket 握手不受同源策略约束（cross-site WebSocket
+      // hijacking）：本机模式下任何网页都能连 ws://127.0.0.1:8080/ws 偷看
+      // 聊天流。配置了 GATEWAY_API_KEY 时要求 token（query 或 header）+
+      // 同源 Origin，二选一满足即可（非浏览器客户端无 Origin）。
+      if (authConfigured()) {
+        const token =
+          url.searchParams.get('token') ??
+          req.headers.authorization?.replace(/^Bearer\s+/i, '').trim() ??
+          ''
+        if (!verifyApiKey(token)) {
+          reject()
+          return
+        }
+        const origin = req.headers.origin
+        if (origin) {
+          let originHost: string | null = null
+          try {
+            originHost = new URL(origin).host
+          } catch {
+            originHost = null
+          }
+          const host = req.headers.host ?? ''
+          if (!originHost || originHost !== host) {
+            reject()
+            return
+          }
+        }
+      }
+
       this.wss!.handleUpgrade(req, socket, head, (ws) => {
         this.wss!.emit('connection', ws, req)
       })

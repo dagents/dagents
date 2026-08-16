@@ -20,10 +20,26 @@ const fail = (
 
 const UUID_RE = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i
 
+/** base_url 必须是 http(s) 绝对 URL —— gateway 会向它发请求并附带解密后的 API key。 */
+const baseUrlSchema = z
+  .string()
+  .min(1)
+  .refine(
+    (v) => {
+      try {
+        const u = new URL(v)
+        return u.protocol === 'http:' || u.protocol === 'https:'
+      } catch {
+        return false
+      }
+    },
+    { message: 'baseUrl must be an absolute http(s) URL' },
+  )
+
 const createBodySchema = z.object({
   name: z.string().min(1),
   providerType: z.string().min(1).optional(),
-  baseUrl: z.string().min(1),
+  baseUrl: baseUrlSchema,
   apiKey: z.string().min(1),
   defaultModel: z.string().min(1),
   models: z.array(z.unknown()).optional(),
@@ -34,7 +50,7 @@ const createBodySchema = z.object({
 const updateBodySchema = z.object({
   name: z.string().min(1).optional(),
   providerType: z.string().min(1).optional(),
-  baseUrl: z.string().min(1).optional(),
+  baseUrl: baseUrlSchema.optional(),
   apiKey: z.string().min(1).optional(),
   defaultModel: z.string().min(1).optional(),
   models: z.array(z.unknown()).optional(),
@@ -226,6 +242,12 @@ llmProviderRoutes.patch('/:id', async (c) => {
     params.push(data.name)
     sets.push(`name = $${params.length}`)
   }
+  if (data.providerType !== undefined) {
+    // schema 接受了 providerType 但此前 SET 构建器没有对应分支 —— PATCH
+    // {providerType} 会落进"无字段可更新"分支返回 200，变更被静默丢弃。
+    params.push(data.providerType)
+    sets.push(`provider_type = $${params.length}`)
+  }
   if (data.baseUrl !== undefined) {
     params.push(data.baseUrl)
     sets.push(`base_url = $${params.length}`)
@@ -379,9 +401,10 @@ llmProviderRoutes.post('/:id/test', async (c) => {
     })
 
     if (!resp.ok) {
-      const text = await resp.text().catch(() => '')
+      // 不回显上游响应体：/test 是一个服务端 fetch 通道，把响应内容带回
+      // 给调用方等于一个读型 SSRF 原语（内网元数据端点等）。只报状态码。
       log.warn('llm provider test failed', { id, status: resp.status })
-      return fail(c, 502, 'connection test failed', { upstreamStatus: resp.status, detail: text.slice(0, 500) })
+      return fail(c, 502, 'connection test failed', { upstreamStatus: resp.status })
     }
 
     const data = await resp.json()
