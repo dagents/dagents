@@ -170,3 +170,73 @@ describe('LLMNode', () => {
     ])
   })
 })
+
+describe('LLMNode (streaming)', () => {
+  function makeStreamingClient(deltas: string[]) {
+    return {
+      chat: vi.fn(),
+      chatStream: vi.fn().mockImplementation(async function* () {
+        for (const d of deltas) {
+          yield { delta: d }
+        }
+        yield { usage: { prompt_tokens: 1, completion_tokens: 2, total_tokens: 3 } }
+      }),
+    }
+  }
+
+  function makeStreamingContext(client: ReturnType<typeof makeStreamingClient>) {
+    const streamer = {
+      streamTokenEvent: vi.fn(),
+      streamEndEvent: vi.fn(),
+      streamErrorEvent: vi.fn(),
+    }
+    return {
+      context: {
+        chatId: 'c1',
+        runId: 'r1',
+        state: {},
+        isLastNode: true,
+        sseStreamer: streamer,
+        llmClient: client,
+      } as unknown as IExecutionContext,
+      streamer,
+    }
+  }
+
+  it('streams tokens via sseStreamer when last node + chatStream available', async () => {
+    const node = new LLMNode()
+    const client = makeStreamingClient(['Hello', ' ', 'world'])
+    const { context, streamer } = makeStreamingContext(client)
+
+    const result = await node.run(makeNodeData({ prompt: 'Hi' }), '', context)
+
+    expect(client.chat).not.toHaveBeenCalled()
+    expect(client.chatStream).toHaveBeenCalledTimes(1)
+    expect(streamer.streamTokenEvent).toHaveBeenCalledTimes(3)
+    expect(streamer.streamTokenEvent).toHaveBeenNthCalledWith(1, 'c1', 'Hello')
+    expect(streamer.streamTokenEvent).toHaveBeenNthCalledWith(3, 'c1', 'world')
+    expect(result.output.text).toBe('Hello world')
+    expect(result.usage).toEqual({ prompt_tokens: 1, completion_tokens: 2, total_tokens: 3 })
+  })
+
+  it('falls back to chat when not the last node', async () => {
+    const node = new LLMNode()
+    const client = makeStreamingClient(['ignored'])
+    const { context } = makeStreamingContext(client)
+    context.isLastNode = false
+    client.chat = vi.fn().mockResolvedValue({ text: 'non-streamed' })
+
+    const result = await node.run(makeNodeData({ prompt: 'Hi' }), '', context)
+    expect(client.chatStream).not.toHaveBeenCalled()
+    expect(result.output.text).toBe('non-streamed')
+  })
+
+  it('falls back to chat when the client has no chatStream', async () => {
+    const node = new LLMNode()
+    const client = { chat: vi.fn().mockResolvedValue({ text: 'plain' }) }
+    const { context } = makeStreamingContext(client as never)
+
+    const result = await node.run(makeNodeData({ prompt: 'Hi' }), '', context)
+    expect(result.output.text).toBe('plain')
+  })
+})

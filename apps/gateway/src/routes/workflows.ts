@@ -4,8 +4,17 @@ import { randomUUID } from 'node:crypto'
 import { z } from 'zod'
 import { runQuery, type NodeSpanStatus } from '@dagents/db'
 import { createLogger } from '@dagents/shared'
+import { exportRunTraceToLangfuse, isLangfuseConfigured } from '@dagents/shared/langfuse'
 import { DagExecutor, NodeRegistry, allNodes, CANVAS_NODES, type FlowData, type IExecutedNode } from '@dagents/workflow'
-import { createLlmClient, createAgentFetcher, resetProviderCache } from './workflow-clients.js'
+import {
+  createLlmClient,
+  createAgentFetcher,
+  createBuiltInToolRegistry,
+  createHistoryRetriever,
+  createFlowExecutor,
+  resetProviderCache,
+} from './workflow-clients.js'
+import { createStaticHumanInputResolver } from './human-input.js'
 import { recordAudit } from '../audit.js'
 
 export const workflowsRoutes = new Hono()
@@ -405,6 +414,30 @@ workflowsRoutes.post('/:id/run', async (c) => {
   resetProviderCache()
   const llmClient = createLlmClient()
   const agentFetcher = createAgentFetcher()
+  const toolRegistry = createBuiltInToolRegistry()
+  const historyRetriever = createHistoryRetriever(chatId)
+  // Non-interactive run: HumanInput answers must be pre-supplied via the
+  // request's state.humanInputs map (keyed by prompt); a missing answer
+  // fails the node with guidance to use the chat path instead.
+  const humanInputsRaw = (data.state ?? {}).humanInputs
+  const humanInputs: Record<string, string> =
+    typeof humanInputsRaw === 'object' && humanInputsRaw !== null && !Array.isArray(humanInputsRaw)
+      ? (humanInputsRaw as Record<string, string>)
+      : {}
+  const humanInputResolver = createStaticHumanInputResolver(humanInputs)
+  // ExecuteFlow nodes run subflows on this run's clients; their executed
+  // nodes are collected and persisted as spans alongside the parent's.
+  const subflowNodes: IExecutedNode[] = []
+  const flowExecutor = createFlowExecutor({
+    chatId,
+    runId,
+    llmClient,
+    agentFetcher,
+    toolRegistry,
+    historyRetriever,
+    humanInputResolver,
+    onExecutedNodes: (nodes) => subflowNodes.push(...nodes),
+  })
 
   let result: { status: string; finalOutput: unknown; executedNodes: IExecutedNode[]; state: Record<string, unknown>; error?: string }
   try {
@@ -416,16 +449,20 @@ workflowsRoutes.post('/:id/run', async (c) => {
       startInput,
       llmClient,
       agentFetcher,
-      // Tool registry for the Platform Agent / Agent tool-calling loop. Empty
-      // today — tools are wired through the context contract so nodes can
-      // consume them as soon as a tool source (e.g. Tool nodes in the graph)
-      // is registered here.
-      toolRegistry: {},
+      // Built-in tools (http_request / datetime_now) form the base registry;
+      // Tool nodes in the graph register themselves into the per-run overlay
+      // as they execute, so downstream Agent nodes can call them.
+      toolRegistry,
+      historyRetriever,
+      humanInputResolver,
+      flowExecutor,
     })
   } catch (err) {
     log.error('workflow execution failed', { id, error: String(err) })
     return fail(c, 500, 'workflow execution failed')
   }
+  // Subflow executions surface in the same trace/span set as the parent run.
+  result.executedNodes = [...result.executedNodes, ...subflowNodes]
   const finishedAt = new Date()
   const durationMs = Math.round(finishedAt.getTime() - startedAt.getTime())
   const runStatus: 'running' | 'completed' | 'failed' =
@@ -509,6 +546,37 @@ workflowsRoutes.post('/:id/run', async (c) => {
     }
   } catch (err) {
     log.warn('persist run_node_spans failed', { id, runId, error: String(err) })
+  }
+
+  // Export the run's node trace to Langfuse (v2 ingestion API — see
+  // @dagents/shared/langfuse). Off unless LANGFUSE_* env keys are set; a
+  // failed export never fails the run. On success the trace id (== runId)
+  // is stamped onto the spans for end-to-end correlation.
+  if (isLangfuseConfigured()) {
+    const langfuse = await exportRunTraceToLangfuse({
+      runId,
+      flowId: id,
+      flowName: row.name,
+      chatId,
+      status: runStatus,
+      startedAt: startedAt.toISOString(),
+      finishedAt: finishedAt.toISOString(),
+      input: data.input ?? null,
+      output: result.finalOutput ?? null,
+      nodes: result.executedNodes,
+    })
+    if (langfuse.exported && langfuse.traceId) {
+      try {
+        await runQuery(
+          `UPDATE run_node_spans SET trace_id = $1 WHERE run_id = $2 AND trace_id IS NULL`,
+          [langfuse.traceId, runId],
+        )
+      } catch (err) {
+        log.warn('stamp trace_id on spans failed', { id, runId, error: String(err) })
+      }
+    } else if (langfuse.error) {
+      log.warn('langfuse export failed', { id, runId, error: langfuse.error })
+    }
   }
 
   c.header('x-run-id', runId)

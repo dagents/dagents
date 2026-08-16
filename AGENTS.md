@@ -56,6 +56,7 @@ console (Next) → gateway (Hono) → @dagents/workflow engine
 - Chat-First UX：聊天主页 `/` + 聊天详情 `/chats/{id}`
 - `inline-executor` 是默认执行路径（不需要 daemon）
 - Workflow 画布编辑器：`/workflows/[id]/canvas`（vendor/agentflow/）
+- Workflow 引擎文档：`docs/workflow-engine.md`（架构 / 执行模型 / Langfuse 开启方式 / 已知限制）
 - LLM Provider CRUD + 动态代理转发
 
 ## 已知问题

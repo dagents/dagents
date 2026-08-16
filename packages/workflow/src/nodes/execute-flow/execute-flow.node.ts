@@ -25,26 +25,41 @@ export class ExecuteFlowNode implements INode {
 
   async run(nodeData: INodeData, input: unknown, options: IExecutionContext): Promise<INodeOutput> {
     const flowId = (nodeData.inputs?.flowId as string) ?? ''
-    const flowInput = (nodeData.inputs?.input as Record<string, unknown>) ?? {}
+    const configuredInput = nodeData.inputs?.input
 
     const resolvedFlowId = resolveVariables(flowId, options.state) as string
+
+    // Fall back to the upstream node's output when no explicit input is
+    // configured — the common case is chaining `parent → ExecuteFlow` with
+    // the upstream content as the subflow prompt.
+    const flowInput =
+      configuredInput !== undefined && configuredInput !== null && configuredInput !== ''
+        ? configuredInput
+        : input
 
     let output: Record<string, unknown>
     if (options.flowExecutor) {
       output = await options.flowExecutor(resolvedFlowId, flowInput)
     } else {
-      output = flowInput
+      output = this.toRecord(flowInput)
     }
 
     return {
       id: nodeData.id,
       name: this.name,
       input: { flowId, input: flowInput },
-      output: {
-        output,
-        result: output,
-      },
+      // Spread the subflow output (keeps `content` / `text` passthrough for
+      // text-flow downstream) with `output`/`result` aliases on top.
+      output: { ...output, output, result: output },
       state: options.state,
     }
+  }
+
+  private toRecord(value: unknown): Record<string, unknown> {
+    if (value == null) return {}
+    if (typeof value === 'object' && !Array.isArray(value)) {
+      return value as Record<string, unknown>
+    }
+    return { value }
   }
 }

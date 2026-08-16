@@ -5,12 +5,17 @@ import { z } from 'zod'
 import { runQuery } from '@dagents/db'
 import { createLogger } from '@dagents/shared'
 import { DagExecutor, NodeRegistry, allNodes, SseStreamer, type FlowData } from '@dagents/workflow'
-import {
-  parseCommand,
-  routeMessage,
-  type RouteResult,
-} from './chat-execute.js'
+import { routeMessage } from './chat-execute.js'
 import { enqueueTask, getTask, getTaskEvents } from './dispatch/service.js'
+import {
+  createLlmClient,
+  createAgentFetcher,
+  createBuiltInToolRegistry,
+  createHistoryRetriever,
+  createFlowExecutor,
+  resetProviderCache,
+} from './workflow-clients.js'
+import { createChatHumanInputResolver, resolvePendingHumanInput } from './human-input.js'
 
 export const chatRoutes = new Hono()
 
@@ -50,13 +55,6 @@ const updateBodySchema = z.object({
   status: z.string().min(1).optional(),
   agentId: z.string().uuid().nullable().optional(),
   flowId: z.string().max(200).nullable().optional(),
-})
-
-const createMessageBodySchema = z.object({
-  role: z.enum(['user', 'assistant', 'system', 'tool']).default('user'),
-  content: z.string().min(1).refine((s) => !s.includes('\x00'), 'content must not contain null bytes'),
-  runId: z.string().uuid().optional(),
-  metadata: z.record(z.string(), z.unknown()).optional(),
 })
 
 const createMessageWithExecBodySchema = z.object({
@@ -605,6 +603,17 @@ chatRoutes.post('/:id/messages', async (c) => {
     return ok(c, { message: normalizeMsg(msgRow) })
   }
 
+  // A pending HumanInput node consumes the user's message as its answer —
+  // the parked flow continues on its still-open SSE stream instead of this
+  // message starting a new run.
+  if (resolvePendingHumanInput(id, data.content)) {
+    return ok(c, {
+      message: normalizeMsg(msgRow),
+      mode: 'json',
+      payload: { type: 'human_input_ack', content: data.content },
+    })
+  }
+
   // User role: route the message.
   const route = await routeMessage(id, data.content, {
     agentIdOverride: data.agentIdOverride,
@@ -731,7 +740,7 @@ async function streamAgentExecution(
               : typeof p.output === 'string' ? p.output
               : typeof p.status === 'string' ? p.status
               : JSON.stringify(p)
-            controller.enqueue(encoder.encode(`event: token\ndata: ${text}\n\n`))
+            controller.enqueue(encoder.encode(`event: token\ndata: ${JSON.stringify({ event: 'token', data: text })}\n\n`))
           }
         } catch (err) {
           log.warn('agent event poll error', { taskId, error: String(err) })
@@ -743,7 +752,7 @@ async function streamAgentExecution(
       }
 
       // Send end event
-      controller.enqueue(encoder.encode('event: end\ndata: [DONE]\n\n'))
+      controller.enqueue(encoder.encode(`event: end\ndata: ${JSON.stringify({ event: 'end', data: '[DONE]' })}\n\n`))
       controller.close()
 
       // Update chat status
@@ -843,22 +852,98 @@ chatRoutes.get('/:id/stream', async (c) => {
   c.header('cache-control', 'no-cache')
   c.header('x-run-id', runId)
 
+  // The streamer buffers until `toReadableStream()` attaches the live
+  // controller, so this metadata event is delivered even though it fires
+  // before the response body starts.
+  streamer.streamMetadataEvent(id, { chatId: id, runId, sessionId: runId })
+
+  const prompt = lastUserMsg ?? ''
   ;(async () => {
+    resetProviderCache()
+    let finalText = ''
     try {
-      await executor.execute(flowData, {}, {
+      const llmClient = createLlmClient()
+      const agentFetcher = createAgentFetcher()
+      const toolRegistry = createBuiltInToolRegistry()
+      const historyRetriever = createHistoryRetriever(id)
+      // HumanInput nodes park on the user's next message in this chat
+      // (see human-input.ts); ExecuteFlow nodes run subflows with the same
+      // clients — subflows never stream into this stream.
+      const humanInputResolver = createChatHumanInputResolver({ chatId: id, runId, streamer })
+      const result = await executor.execute(flowData, prompt, {
         chatId: id,
         runId,
         state: {},
         isLastNode: true,
         sseStreamer: streamer,
+        startInput: prompt,
+        llmClient,
+        agentFetcher,
+        toolRegistry,
+        historyRetriever,
+        humanInputResolver,
+        flowExecutor: createFlowExecutor({
+          chatId: id,
+          runId,
+          llmClient,
+          agentFetcher,
+          toolRegistry,
+          historyRetriever,
+          humanInputResolver,
+        }),
       })
+      finalText = extractReplyText(result.finalOutput)
+      if (result.status !== 'success') {
+        streamer.streamErrorEvent(id, result.error ?? 'workflow execution failed')
+      }
     } catch (err) {
       log.error('chat stream execution failed', { id, error: String(err) })
+      streamer.streamErrorEvent(id, String(err))
+    } finally {
+      // Persist the assistant reply so the conversation history survives a
+      // page reload (best-effort — the stream already delivered the text).
+      if (finalText.length > 0) {
+        try {
+          await runQuery(
+            `INSERT INTO chat_messages (chat_id, role, content, run_id, metadata)
+             VALUES ($1::uuid, 'assistant', $2, $3, $4)`,
+            [id, finalText, runId, JSON.stringify({ source: 'workflow' })],
+          )
+          await runQuery(
+            `UPDATE chats
+                SET last_message = $2, message_count = message_count + 1, status = 'idle', updated_at = NOW()
+              WHERE id = $1::uuid`,
+            [id, finalText.slice(0, 200)],
+          )
+        } catch (err) {
+          log.warn('persist assistant reply failed', { id, runId, error: String(err) })
+        }
+      } else {
+        try {
+          await runQuery(
+            `UPDATE chats SET status = 'idle', updated_at = NOW() WHERE id = $1::uuid`,
+            [id],
+          )
+        } catch {
+          // best-effort status reset — ignore errors once the stream closed
+        }
+      }
+      streamer.streamEndEvent(id)
     }
   })()
 
   return c.body(streamer.toReadableStream())
 })
+
+/** Pull a printable reply string out of a flow's final output record. */
+function extractReplyText(finalOutput: Record<string, unknown> | null): string {
+  if (!finalOutput) return ''
+  const content = finalOutput.content
+  if (typeof content === 'string') return content
+  const text = finalOutput.text
+  if (typeof text === 'string') return text
+  return ''
+}
 
 interface RunRow {
   id: string

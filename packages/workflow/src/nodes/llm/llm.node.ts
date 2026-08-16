@@ -6,6 +6,11 @@ import { resolveVariables } from '../../utils/variables.js'
  *
  * Resolves template variables in prompts from runtime state before sending
  * to the LLM client.
+ *
+ * Streaming: when the node is the flow's last node, an SSE streamer is
+ * present, and the LLM client implements `chatStream`, the response is
+ * streamed token-by-token to the client as it generates (falling back to a
+ * single `chat` call otherwise).
  */
 export class LLMNode implements INode {
   label = 'LLM'
@@ -73,14 +78,35 @@ export class LLMNode implements INode {
     }
     messages.push({ role: 'user', content: resolvedPrompt })
 
-    const result = await options.llmClient.chat({ model, messages, temperature })
+    const streamable =
+      options.isLastNode && options.sseStreamer !== undefined && options.llmClient.chatStream !== undefined
+
+    let text: string
+    let usage: import('../../types/index.js').ITokenUsage | undefined
+    if (streamable) {
+      let accumulated = ''
+      for await (const chunk of options.llmClient.chatStream!({ model, messages, temperature })) {
+        if (chunk.delta && chunk.delta.length > 0) {
+          accumulated += chunk.delta
+          options.sseStreamer!.streamTokenEvent(options.chatId, chunk.delta)
+        }
+        if (chunk.usage) {
+          usage = chunk.usage
+        }
+      }
+      text = accumulated
+    } else {
+      const result = await options.llmClient.chat({ model, messages, temperature })
+      text = result.text
+      usage = result.usage
+    }
 
     return {
       id: nodeData.id,
       name: this.name,
       input: { model, systemPrompt: resolvedSystemPrompt, prompt: resolvedPrompt, temperature },
-      output: { text: result.text, content: result.text },
-      usage: result.usage,
+      output: { text, content: text },
+      usage,
     }
   }
 }

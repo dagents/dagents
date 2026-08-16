@@ -1,8 +1,8 @@
 import { describe, it, expectTypeOf } from 'vitest'
 import type { INode, INodeData, INodeOutput, INodeParams } from '../types/node.js'
 import type { FlowNode, FlowEdge, FlowData } from '../types/flow.js'
-import type { ExecutionStatus, IExecutedNode, IExecutionContext } from '../types/execution.js'
-import type { IServerSideEventStreamer, StreamEvent } from '../types/stream.js'
+import type { ExecutionStatus, IExecutionContext } from '../types/execution.js'
+import type { IServerSideEventStreamer } from '../types/stream.js'
 
 describe('type contracts', () => {
   it('INode has required fields', () => {

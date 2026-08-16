@@ -1,12 +1,14 @@
 import type { INode, INodeData, INodeOutput, IExecutionContext } from '../../types/index.js'
 
 /**
- * Iteration node — parse an array input for the engine to iterate over.
+ * Iteration node — parse an array input for the executor to iterate over.
  *
- * Migrated from vendor/flowise/packages/components/nodes/agentflow/Iteration/Iteration.ts
- * (75 lines). In Plan A, this node only parses + passes through the array.
- * The actual iteration logic (repeating downstream nodes N times) is in
- * Plan B's executor branch/loop handling.
+ * Migrated from vendor/flowise/packages/components/nodes/agentflow/Iteration/Iteration.ts.
+ * The node parses + validates the array; the DagExecutor (see `planLoopBody` /
+ * `runLoopBody`) detects the controller output and executes the sub-DAG
+ * reachable from the node's `iteration` output anchor once per item, seeding
+ * each iteration with the item (available downstream as `iterationItem` /
+ `iterationIndex` in runtime state and as the incoming input string).
  *
  * Flowise dependencies removed:
  *   - `parseJsonBody` from `../../../src/utils` → inline `safeParseJson`
@@ -21,17 +23,26 @@ export class IterationNode implements INode {
   color = '#ec4899'
   inputs = [
     {
+      label: 'Items',
+      name: 'items',
+      type: 'string' as const,
+      description: 'The JSON array to iterate over (one body execution per item)',
+      acceptVariable: true,
+      rows: 4,
+    },
+    {
       label: 'Array Input',
       name: 'iterationInput',
       type: 'string' as const,
-      description: 'The input array to iterate over',
+      description: 'Legacy alias for Items',
       acceptVariable: true,
       rows: 4,
+      hide: true,
     },
   ]
 
   async run(nodeData: INodeData, _input: unknown, options: IExecutionContext): Promise<INodeOutput> {
-    const iterationInput = nodeData.inputs?.iterationInput
+    const iterationInput = nodeData.inputs?.items ?? nodeData.inputs?.iterationInput
 
     const safeParseJson = (str: string): unknown => {
       try {

@@ -23,19 +23,20 @@
  * local dev free of any external collector dependency. This mirrors the plan's
  * "无 endpoint 时 noop 保证测试零外部依赖" requirement.
  *
- * ## Trace backend — Langfuse persistence is deferred
+ * ## Trace backend — Langfuse
  *
- * M6.1 delivers propagation + a spec-correct OTLP exporter; it does NOT wire a
- * trace *backend*. The dev stack's Langfuse is pinned to v2.95.11
- * (`infra/docker-compose.yml`), and v2 does NOT expose an OTLP ingestion
- * endpoint — `/api/public/otel*` returns 404 (verified against the pinned
- * image); OTLP ingestion is a Langfuse v3 feature that requires ClickHouse,
- * which is exactly why this stack pins v2. So pointing
- * `OTEL_EXPORTER_OTLP_ENDPOINT` at Langfuse v2 will NOT land traces there.
- * M6.3+ ("读 runs + Langfuse") decides the backend path (Langfuse v3 upgrade,
- * an OTel Collector translating OTLP→Langfuse's ingestion API, or another
- * collector) — until then, set `OTEL_EXPORTER_OTLP_ENDPOINT` to a real OTLP
- * collector (e.g. a local Jaeger/Tempo) to observe traces.
+ * OTLP cannot land traces in this stack's Langfuse directly: the dev stack
+ * pins Langfuse to v2.95.11 (`infra/docker-compose.yml`), and v2 does NOT
+ * expose an OTLP ingestion endpoint — `/api/public/otel*` returns 404
+ * (verified against the pinned image); OTLP ingestion is a Langfuse v3
+ * feature that requires ClickHouse, which is exactly why this stack pins v2.
+ *
+ * Workflow-run traces therefore go through the v2-native ingestion REST API
+ * instead: `@dagents/shared/langfuse` (`exportRunTraceToLangfuse`) batches
+ * each run's executed nodes into trace + generation/span events and POSTs
+ * them to `/api/public/ingestion` when `LANGFUSE_*` env keys are set. For
+ * service-level OTel traces, set `OTEL_EXPORTER_OTLP_ENDPOINT` to a real
+ * OTLP collector (e.g. a local Jaeger/Tempo).
  *
  * ## Propagation
  *

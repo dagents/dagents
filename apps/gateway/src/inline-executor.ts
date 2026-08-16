@@ -23,7 +23,7 @@
 import { createBackend } from '@dagents/agent-adapters'
 import { runQuery } from '@dagents/db'
 import { createLogger } from '@dagents/shared'
-import type { AgentEvent, AgentResult, TokenUsage } from '@dagents/contracts'
+import type { AgentEvent, AgentResult, TokenUsage, AgentType } from '@dagents/contracts'
 import { randomUUID } from 'node:crypto'
 import { wsHub, type ChatEvent } from './ws-hub.js'
 import { persistComplete } from './routes/internal-runs-helpers.js'
@@ -220,7 +220,7 @@ export async function executeInline(
   }
 
   // spawn agent via factory (supports claude/codex/qwen/copilot/opencode)
-  const backend = createBackend(agentKind as any, { executablePath: execPath, logger: log })
+  const backend = createBackend(agentKind as AgentType, { executablePath: execPath, logger: log })
 
   // Auto-retry: when the agent process exits with a non-zero code (or the
   // stream / spawn throws), re-spawn up to 2 more times with backoff before

@@ -13,6 +13,8 @@ export type StreamEvent =
   | { event: 'metadata'; data: Record<string, unknown> }
   | { event: 'end'; data: '[DONE]' }
   | { event: 'error'; data: string }
+  /** Host-specific events (e.g. `custom:human_input`) — ignored by the basic chat view. */
+  | { event: `custom:${string}`; data: unknown }
 
 /** Interface every SSE streamer implements. Nodes call these methods. */
 export interface IServerSideEventStreamer {
@@ -24,4 +26,10 @@ export interface IServerSideEventStreamer {
   streamErrorEvent(chatId: string, error: string): void
   /** Send a metadata event (run id, node info, etc.). */
   streamMetadataEvent?(chatId: string, metadata: Record<string, unknown>): void
+  /**
+   * Send a host-specific event. The wire event name is prefixed `custom:`
+   * so standard consumers (which only understand the core events) ignore it
+   * instead of misparsing it.
+   */
+  streamCustomEvent?(chatId: string, event: string, data: unknown): void
 }

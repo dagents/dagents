@@ -83,6 +83,14 @@ export interface IExecutedNode {
   cost?: number | null
 }
 
+/** One chunk of a streamed LLM response. */
+export interface IChatStreamChunk {
+  /** Incremental text delta (absent on the final usage-only chunk). */
+  delta?: string
+  /** Token usage, reported on the final chunk when the provider sends it. */
+  usage?: ITokenUsage
+}
+
 /**
  * Runtime context passed to every `INode.run`.
  *
@@ -119,9 +127,27 @@ export interface IExecutionContext {
       /** Function tools the model may call (OpenAI tool format). */
       tools?: IToolSchema[]
     }): Promise<{ text: string; tool_calls?: IToolCall[]; usage?: ITokenUsage }>
+    /**
+     * Streamed variant of `chat` — yields incremental deltas. Optional: when
+     * absent (or when the node isn't streamable) nodes fall back to `chat`.
+     */
+    chatStream?(params: {
+      model: string
+      messages: IChatMessage[]
+      temperature?: number
+    }): AsyncIterable<IChatStreamChunk>
   }
   /** Tool registry for Agent / Platform Agent nodes' tool-calling loop. */
   toolRegistry?: Record<string, IAgentTool>
+  /**
+   * History retriever for the Retriever node — keyword search over persisted
+   * conversation history (or any document source the host wires in). Keeps
+   * the workflow package storage-free.
+   */
+  historyRetriever?: (
+    query: string,
+    topK: number,
+  ) => Promise<Array<{ role: string; content: string; createdAt?: string }>>
   /** Platform agent fetcher — resolves an agentId to its config (instructions, model, etc.). */
   agentFetcher?: (agentId: string) => Promise<PlatformAgentConfig | null>
   /** Human input resolver for HumanInputNode. */

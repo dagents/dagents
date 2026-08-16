@@ -350,17 +350,19 @@ export const CANVAS_NODES: CanvasNodeMeta[] = [
     category: 'flow',
     color: '#ec4899',
     icon: 'Repeat',
-    description: 'Iterate over a list of items',
+    description: 'Run the loop body once per item of a JSON array',
     inputs: [
       {
         label: 'Items',
         name: 'items',
         type: 'string',
         acceptVariable: true,
+        description: 'JSON array — the body connected to the Iteration anchor runs once per item',
       },
     ],
     outputs: [
-      { name: 'item', label: 'Item' },
+      { name: 'iteration', label: 'Iteration Body' },
+      { name: 'result', label: 'Result' },
     ],
     defaultData: {
       items: '',
@@ -372,7 +374,7 @@ export const CANVAS_NODES: CanvasNodeMeta[] = [
     category: 'flow',
     color: '#ec4899',
     icon: 'RefreshCw',
-    description: 'Loop until condition is met',
+    description: 'Repeat the loop body N times (or until the break condition holds)',
     inputs: [
       {
         label: 'Max Iterations',
@@ -381,14 +383,16 @@ export const CANVAS_NODES: CanvasNodeMeta[] = [
         default: 10,
       },
       {
-        label: 'Condition',
+        label: 'Break Condition',
         name: 'condition',
         type: 'string',
         acceptVariable: true,
+        description: 'JS expression over $flow.state — truthy breaks before the next iteration',
       },
     ],
     outputs: [
-      { name: 'output', label: 'Output' },
+      { name: 'loop', label: 'Loop Body' },
+      { name: 'result', label: 'Result' },
     ],
     defaultData: {
       maxIterations: 10,
@@ -401,7 +405,7 @@ export const CANVAS_NODES: CanvasNodeMeta[] = [
     category: 'flow',
     color: '#ec4899',
     icon: 'User',
-    description: 'Pause and wait for human input',
+    description: 'Pause the flow and wait for the user to answer in the chat',
     inputs: [
       {
         label: 'Prompt',
@@ -420,6 +424,12 @@ export const CANVAS_NODES: CanvasNodeMeta[] = [
         ],
         default: 'text',
       },
+      {
+        label: 'Options',
+        name: 'options',
+        type: 'json',
+        description: 'Choices for inputType=select',
+      },
     ],
     outputs: [
       { name: 'response', label: 'Response' },
@@ -427,6 +437,7 @@ export const CANVAS_NODES: CanvasNodeMeta[] = [
     defaultData: {
       prompt: '',
       inputType: 'text',
+      options: [],
     },
   },
   {

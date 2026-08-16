@@ -41,3 +41,30 @@ describe('resolveVariables', () => {
     expect(resolveVariables('user={{$webhook.body.user}}', state)).toBe('user=alice')
   })
 })
+
+describe('resolveVariables (node outputs + $flow scope)', () => {
+  it('resolves {{nodeId}} to the node output as JSON', () => {
+    const state = { cf1: { content: 'hi', output: { content: 'hi' } } }
+    expect(resolveVariables('{{cf1}}', state)).toBe('{"content":"hi","output":{"content":"hi"}}')
+  })
+
+  it('resolves {{nodeId.field}} and {{nodeId.output.field}}', () => {
+    const state = { cf1: { content: 'hi', output: { content: 'hi' } } }
+    expect(resolveVariables('x={{cf1.content}} y={{cf1.output.content}}', state)).toBe('x=hi y=hi')
+  })
+
+  it('resolves $flow.chatId from the run metadata scope', () => {
+    const state = { flow: { chatId: 'c-42', sessionId: 's-1' } }
+    expect(resolveVariables('chat={{$flow.chatId}}', state)).toBe('chat=c-42')
+  })
+
+  it('resolves $flow.state.<key> onto the flat runtime state', () => {
+    const state = { flow: { chatId: 'c' }, done: true }
+    expect(resolveVariables('{{$flow.state.done}}', state)).toBe('true')
+  })
+
+  it('resolves $iteration to the current iteration item', () => {
+    const state = { iteration: { name: 'ada' }, iterationItem: { name: 'ada' } }
+    expect(resolveVariables('item={{$iteration.name}}', state)).toBe('item=ada')
+  })
+})

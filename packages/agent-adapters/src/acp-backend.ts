@@ -422,7 +422,7 @@ export function spawnAcpAgent(config: AcpSpawnConfig): AgentSession {
 
     // Cleanup
     if (timer) clearTimeout(timer)
-    try { proc.stdin!.end() } catch {}
+    try { proc.stdin!.end() } catch { /* stdin may already be closed */ }
     client.failAllPending(new Error('session ended'))
 
     const code = await exitCode

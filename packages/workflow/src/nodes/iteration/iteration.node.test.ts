@@ -48,6 +48,16 @@ describe('IterationNode', () => {
     const node = new IterationNode()
     expect(node.name).toBe('iterationAgentflow')
     expect(node.type).toBe('Iteration')
-    expect(node.inputs[0].name).toBe('iterationInput')
+    expect(node.inputs[0].name).toBe('items')
+  })
+
+  it('accepts the canvas "items" field name', async () => {
+    const node = new IterationNode()
+    const result = await node.run(
+      { id: 'n1', name: 'iterationAgentflow', inputs: { items: '["x", "y"]' } },
+      '',
+      makeContext(),
+    )
+    expect(result.output.iterationInput).toEqual(['x', 'y'])
   })
 })
