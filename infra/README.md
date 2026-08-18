@@ -1,4 +1,4 @@
-# Mil-Agents Local Infrastructure
+# Dagents Local Infrastructure
 
 One-command local stack: **Postgres + Langfuse**, the two services the
 platform runs on for development and integration testing.

@@ -1,9 +1,9 @@
 ---
 name: dagents-patterns
 description: Conventions and workflow patterns for the dagents repo (Dagents 平台). Use when working in this repo — committing, adding docs/specs/plans, or making architecture decisions.
-version: 2.0.0
+version: 2.1.0
 source: local-git-analysis
-last_updated: 2026-08-01
+last_updated: 2026-08-18
 ---
 
 # dagents Repo Patterns
@@ -41,6 +41,10 @@ Reviewer roles: `code-reviewer` (对抗式评审), `product-team`, `project-arch
 
 ```
 docs/
+├── README.md                    # 文档索引（文档地图 + 维护规则）
+├── workflow-engine.md           # 工作流引擎主题文档（执行模型/流式/限制）
+├── skills-registry.md           # 技能注册表主题文档（发现/API/注入）
+├── test-cases.md                # 测试用例目录（活文档，随用例增改更新）
 ├── superpowers/                 # 当前活跃 spec/plan（brainstorm → spec → plan 流水线产出）
 │   ├── specs/
 │   │   ├── 2026-07-25-system-architecture-redesign.md   # 架构真相源 (Chat-First 双维度模型)
@@ -55,6 +59,7 @@ docs/
     ├── design-audit/            # 设计保真审计
     ├── plans/                   # 已完成的 plans
     ├── specs/                   # 历史 specs
+    ├── testing/                 # 历史测试报告（按日期归档）
     └── verification/            # Gate-1/2、M0/M1/M2/M6.7 验证证据
 CLAUDE.md                        # Claude Code 工作指南（保持与代码同步）
 infra/README.md                  # 本地基础设施（Postgres/Langfuse）
@@ -99,8 +104,8 @@ Historical Gates (both resolved):
 - **TDD strictly**: write failing test → run (red) → minimal impl → run (green) → commit. Every task.
 - **Vitest** for TS packages (contracts/shared/db/agent-adapters/daemon/workflow/gateway).
 - **Type tests** (`expectTypeOf`) for pure-type packages like `contracts`.
-- **Playwright E2E** in `apps/console/tests/e2e/`：36+ active tests 覆盖 Chat-First 用户旅程（UC-CHAT / UC-TRG / UC-DAE / UC-WF 系列）。
-- **Full-chain trace E2E** in `packages/e2e/`：boots real Hono apps + stub LLM provider + real `runDaemon` + fake claude backend，验证 W3C traceparent + business run_id 跨进程透传。
+- **Playwright E2E** in `apps/console/tests/e2e/`：11 个 spec 覆盖 Chat-First 用户旅程（chat home/detail、directories、agents、agentflows、daemons、settings、sidebar、trigger、workflow engine、viewport matrix）。
+- 原 `packages/e2e`（跨进程 trace 透传验证）已于 2026-08-16 审计删除（空壳无断言）；跨进程传播验证如需恢复须重新引入。
 - Test file location: `src/__tests__/` 或 `*.test.ts` co-located。
 
 ## Architecture Conventions

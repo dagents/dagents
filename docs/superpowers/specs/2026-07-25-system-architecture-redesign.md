@@ -5,7 +5,7 @@
 > **基于**: `docs/archive/design/v0.3-9screen/` (v0.2/v0.3 平台控制台原型) + `docs/archive/design/chat-first/` (Chat-First 原型)
 > **决策模式**: 共存 (B) — Chat-First 升级为 home，9 屏精简保留
 
-## 实现状态总览（2026-07-26 起，更新于 2026-08-08）
+## 实现状态总览（2026-07-26 起，更新于 2026-08-18）
 
 | 章节 | 内容 | 状态 |
 |------|------|------|
@@ -16,6 +16,7 @@
 | §9 | 工作流引擎内聚（packages/workflow） | ✅ Plan A/B/C 全部完成（14 节点 + DAG 执行器 + SSE 流式 + 变量解析） |
 | — | new-api 移除 + 自定义 LLM Provider | ✅ 已实现（spec 见 `docs/archive/specs/2026-07-26-remove-new-api-llm-config.md`） |
 | — | Flowise vendored fork | ✅ `vendor/flowise/` 已移除；画布编辑器改用 `vendor/agentflow/`（从 Flowise Agentflow 抽取的纯前端 React Flow 组件） |
+| — | CLI 第一性 | ✅ 已实现（2026-08-18）：`@workflow` 生成默认走 CLI spawn（prompt 注入真实 agent 清单），工作流 llmClient 无 provider 时用 CLI 兜底；HTTP LLM Provider 降级为可选加速（详见 `AGENTS.md`） |
 
 > **里程碑**：工作流引擎内聚（Plan A/B/C）与 Flowise 解耦已全部落地。后续工作以 `docs/superpowers/plans/` 为准。
 

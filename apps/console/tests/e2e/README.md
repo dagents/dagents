@@ -6,7 +6,7 @@
 
 This directory holds the **user-case e2e suite** — true end-to-end tests that drive a real browser through the Chat-First UI. They assert what the user sees and what the HTTP contract returns, not internal code behavior. Each test maps to a numbered user case (UC-ID) in the gap analysis.
 
-For the in-process backend e2e (gateway → dispatch → scheduler → daemon → LLM closed loop), see `packages/e2e/` instead — that suite uses vitest + `app.request()` and does not render the UI.
+Backend integration is covered by gateway route tests (`apps/gateway/src/__tests__/`, vitest + `app.request()`) — no separate in-process backend e2e suite exists today (原 `packages/e2e` 闭链套件已于 2026-08-16 审计中删除).
 
 ---
 
@@ -27,11 +27,9 @@ For the in-process backend e2e (gateway → dispatch → scheduler → daemon �
 ## Quick Start
 
 ```bash
-# 1. Bring up the dev stack (Postgres, Redis, gateway, dispatch, workflow engine)
-docker compose up -d
+# 1. Bring up the dev stack (Postgres via infra; gateway 含 dispatch/scheduler/workflow 引擎)
+cd infra && docker compose up -d && cd ..
 pnpm --filter @dagents/gateway dev &
-pnpm --filter @dagents/dispatch dev &
-# (workflow engine — only needed for /flows and prediction paths)
 
 # 2. Run the full e2e suite (boots Next dev on :3000 automatically)
 pnpm --filter @dagents/console test:e2e
@@ -44,16 +42,12 @@ pnpm --filter @dagents/console exec playwright test tests/e2e/03-directories.spe
 
 ## Prerequisites
 
-The e2e suite needs the **full dagents dev stack** up:
+The e2e suite needs the dev stack up（dispatch/scheduler 已并入 gateway，无独立服务；Redis 依赖已废弃）:
 
 | Service | Port | Why |
 |---------|------|-----|
-| Postgres | `:15432` | directories / chats / chat_messages / runs / agent_daemons tables |
-| Redis | `:16479` | dispatch task queue, WS hub |
-| Gateway | `:8080` | `/api/v1/chats/*`, `/api/v1/directories/*`, `/api/v1/dispatch/*` |
-| Dispatch | `:8081` | `/daemons/register` (seed helper registers a daemon host) |
-| Scheduler | (optional) | Only needed for `@flow` fanout tests (currently all `fixme`) |
-| Workflow Engine | — | `/flows` browse + `/workflows/:id/canvas` canvas + prediction SSE (current proxy paths) |
+| Postgres | `:15432` | directories / chats / chat_messages / runs / agents tables |
+| Gateway | `:8080` | `/api/v1/chats/*`, `/api/v1/directories/*`, `/api/v1/agents/*`, `/api/v1/workflows/*` + dispatch 协议路由 |
 | Console (Next) | `:3000` | Auto-booted by Playwright's `webServer` config — no need to start manually |
 
 ### Environment variables
@@ -292,11 +286,11 @@ pnpm --filter @dagents/console exec playwright test --headed --workers=1
 
 | Symptom | Likely cause | Fix |
 |---------|--------------|-----|
-| `net::ERR_CONNECTION_REFUSED` on `/api/*` | Gateway (:8080) or dispatch (:8081) not running | `pnpm --filter @dagents/gateway dev &` etc. |
-| `ECONNREFUSED 127.0.0.1:15432` | Postgres not up | `docker compose up -d postgres` |
-| `agent_daemons insert did not RETURNING an id` | Dispatch API down (daemon register failed silently) | Check dispatch logs, restart |
+| `net::ERR_CONNECTION_REFUSED` on `/api/*` | Gateway (:8080) not running | `pnpm --filter @dagents/gateway dev &` |
+| `ECONNREFUSED 127.0.0.1:15432` | Postgres not up | `cd infra && docker compose up -d postgres` |
+| `agent_daemons insert did not RETURNING an id` | Dispatch 路由（gateway 内）挂了，daemon 注册静默失败 | Check gateway logs, restart |
 | 401 on `/api/*` | SSO gated on dev stack | Run against an SSO-gated-off stack |
-| 502/503 on `/api/flows/*` | Workflow engine not running | Start the workflow engine — only needed for `/flows` specs |
+| 502/503 on `/api/flows/*` | Gateway 的 workflow 执行入口异常 | Check gateway logs（引擎已内聚在 gateway，无独立服务） |
 | Timeout on `goto('/')` | Console dev server failed to boot | Check `next dev` logs; try `E2E_PORT=3001` to avoid :3000 conflicts |
 
 ---
@@ -341,7 +335,6 @@ If the docker-compose port mappings change (e.g. Postgres moves from :15432 to :
 | Suite | Location | Scope | When to use |
 |-------|----------|-------|-------------|
 | **Playwright user-case e2e** (this) | `apps/console/tests/e2e/` | Browser-driven UI + HTTP contract | Verifying user-visible behavior per UC |
-| Backend closed-loop e2e | `packages/e2e/` | vitest + `app.request()`, full gateway→dispatch→scheduler→daemon chain | Verifying backend integration without UI |
 | Console unit tests | `apps/console/src/**/__tests__/` | vitest, isolated component/lib tests | Verifying component logic in isolation |
 | Gateway route tests | `apps/gateway/src/__tests__/` | vitest + `app.request()` | Verifying gateway HTTP contract |
 

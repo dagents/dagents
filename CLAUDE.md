@@ -71,7 +71,8 @@ console (Next) → gateway (Hono) → @dagents/workflow engine (in-repo)
    → [dispatch routes inline] → local daemon → claude/codex CLI → LLM Provider (用户自定义配置)
 ```
 - Every hop carries a business `run_id` (via `x-run-id` header) **and** a W3C `traceparent` (via OTel auto-instrumentation of `fetch`/`http`). These are different: `run_id` is the platform's; `traceId` is OTel's. Both must thread end-to-end.
-- **Workflow engine** lives in `packages/workflow/` (Plan A/B/C 完成)。14 节点 + DAG 执行器 + SSE 流式 + 变量解析。Canvas 编辑器在 `vendor/agentflow/`（前端组件），数据持久化在 `flows` 表，通过 gateway `/api/v1/workflows/*` 路由 CRUD。
+- **Workflow engine** lives in `packages/workflow/` (Plan A/B/C 完成)。14 节点 + DAG 执行器 + SSE 流式 + 变量解析。Canvas 编辑器在 `vendor/agentflow/`（前端组件），数据持久化在 `flows` 表，通过 gateway `/api/v1/workflows/*` 路由 CRUD。架构与执行模型详见 `docs/workflow-engine.md`。
+- **CLI 第一性（2026-08-18）**：本地 CLI agent 是基线执行引擎，HTTP LLM Provider 只是可选加速 —— `@workflow` 生成默认走 CLI spawn（失败才降级 HTTP）；工作流执行的 llmClient 无 provider 时用 CLI 兜底（`createDefaultLlmClient`），LLM/Agent 节点零配置可跑。
 
 ### Monorepo & dependency direction (enforced, no cycles)
 
@@ -94,7 +95,7 @@ vendor/agentflow  ← console (canvas editor, not an npm dep)
 - `packages/contracts/src/agent.ts` — `AgentBackend.execute()`, `ExecOptions` (cwd/model/timeoutMs/inactivityTimeoutMs/resumeSessionId/extraArgs/customArgs/mcpConfig/thinkingLevel), `AgentEvent` (discriminated union incl. `log`), `AgentResult`, `TokenUsage`. Translated from multica `server/pkg/agent/agent.go`.
 - `packages/contracts/src/protocol.ts` — dispatch↔daemon DTOs: `RegisterRequest`/`Response`, `HeartbeatPayload`, `DispatchTask`, `ClaimTaskResponse`, `TaskMessageBatch`, `TaskComplete`, `TaskFail`. The daemon is **pull-based**: it POSTs `/tasks/claim`.
 - `packages/daemon/src/main.ts` — `runDaemon()` loop: `register → heartbeat → poll/claim → execute → reportMessages (best-effort) → completeTask/failTask (authoritative)`. A 409 from a terminal endpoint is the expected "already done" signal — swallow it. SIGINT/SIGTERM → graceful drain (finish in-flight, stop claiming). Only `register` failing is fatal.
-- `packages/agent-adapters/src/claude.ts` — the **only** adapter implemented today (MVP). A daemon started for any non-claude `AgentType` fails loudly at execute time, not silently. New adapters land as their own files (`codex.ts`, …).
+- `packages/agent-adapters/src/factory.ts` — `AgentType` → 具体适配器映射。17 种 CLI 适配器已实现（claude / codex / qwen / copilot / opencode / codebuddy / cursor / deveco / antigravity / openclaw / pi / hermes / kimi / kiro / grok / qoder / traecli），每种一个文件。注意：codex / codebuddy / copilot / qwen 本机未安装，适配器按官方文档格式实现、未经真实 CLI 回归。
 
 ### Apps
 
@@ -142,9 +143,9 @@ Reviewer roles seen: `code-reviewer` (adversarial review / 对抗式评审), `pr
 
 ### Testing
 
-- Vitest, per-package. `*.test.ts` colocated with source (or in `__tests__/`).
-- E2E in `packages/e2e`: **boots real Hono apps on ephemeral ports** with a stub LLM provider as a real `node:http` server + a real `runDaemon` with a fake claude backend. Why real `serve()` and not `app.request()`: the W3C `traceparent` that undici auto-instrumentation injects is only extracted on the receiving hop by the `http` server instrumentation — in-process `app.request()` calls cannot exercise cross-process propagation.
-- E2E requires the Postgres dev stack up (PG :15432); `setup.ts` runs pending migrations before tests. `fileParallelism: false`, 60s timeouts.
+- Vitest, per-package. `*.test.ts` colocated with source (or in `__tests__/`). Gateway tests drive the Hono app via `app.request()`（`app.ts` 与 `index.ts` 分离导出即为此设计）；集成测试需要 Postgres dev 栈（PG :15432）在线。
+- Playwright E2E in `apps/console/tests/e2e/`: 11 个 spec 文件覆盖 Chat-First 用户旅程（chat home/detail、directories、agents、agentflows 等），需 console + gateway 运行中。
+- 原 `packages/e2e`（跨进程 traceparent 透传验证）已于 2026-08-16 审计删除——空壳无断言；如需跨进程传播验证需重新引入。
 
 ## CodeGraph
 
