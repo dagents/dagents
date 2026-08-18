@@ -479,15 +479,17 @@ export function ChatDetail({ chatId }: ChatDetailProps): React.ReactElement {
         prev.map((m) => (m.id === optimisticId ? persisted : m)),
       )
 
-      // @-commands (@flow / @daemon / @agent) get a system ack written to the
-      // DB by the gateway's routeCommand, but no WS frame carries it (WS only
-      // streams assistant tokens). Refetch so the ack surfaces in-chat in the
-      // same session instead of waiting for the next navigation. Preserve any
-      // in-flight streaming assistant bubble that may have arrived via WS.
+      // @-commands (@flow / @daemon / @agent / @workflow) get a system ack
+      // written to the DB by the gateway's routeCommand, but no WS frame
+      // carries it (WS only streams assistant tokens). Refetch so the ack
+      // surfaces in-chat in the same session instead of waiting for the next
+      // navigation. Preserve any in-flight streaming assistant bubble that
+      // may have arrived via WS.
       if (
         text.startsWith('@flow ') ||
         text.startsWith('@daemon ') ||
-        text.startsWith('@agent ')
+        text.startsWith('@agent ') ||
+        text.startsWith('@workflow ')
       ) {
         try {
           const fresh = await fetchMessages(chatId)
@@ -846,13 +848,22 @@ export function ChatDetail({ chatId }: ChatDetailProps): React.ReactElement {
             {/* Turn status row (deepseek TurnStatus): shimmer from send to
                 done — "正在思考…" before the first chunk, "正在执行…" for the
                 rest of the run. Elapsed clock appears after 15s so long
-                silent tool work still reads as alive. */}
+                silent tool work still reads as alive. The avatar renders only
+                while NO streaming bubble exists — once one lands, the bubble
+                row already carries the assistant avatar, and a second icon
+                here read as two simultaneous AI messages. A same-width spacer
+                keeps the status text aligned with the bubble's content
+                column. */}
             {!loading && runInProgress && messages.length > 0 ? (
               <div className="chat-msg chat-msg-flat assistant-pending-row" role="status" aria-live="polite">
                 <div className="chat-msg-assistant-wrapper">
-                  <div className="chat-msg-avatar" aria-hidden="true">
-                    <Icon name="agents" style={{ width: 16, height: 16 }} />
-                  </div>
+                  {hasStreamBubble ? (
+                    <span className="assistant-pending-spacer" aria-hidden="true" />
+                  ) : (
+                    <div className="chat-msg-avatar" aria-hidden="true">
+                      <Icon name="agents" style={{ width: 16, height: 16 }} />
+                    </div>
+                  )}
                   <div className="assistant-pending">
                     <span className="assistant-pending-text">
                       {hasStreamBubble ? '正在执行…' : '正在思考…'}

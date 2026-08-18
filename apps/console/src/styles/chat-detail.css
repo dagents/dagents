@@ -292,6 +292,20 @@
   max-width: 90%;
 }
 
+/* 系统提示行的小闪电图标。Icon 渲染的 span 是行内元素，style 的
+   width/height 不生效，svg 又无固有尺寸 → 曾被 max-width:100% 撑到
+   整行宽（630px 巨图）。必须显式钳制 svg 尺寸。 */
+.chat-msg-system-icon {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  flex-shrink: 0;
+}
+.chat-msg-system-icon svg {
+  width: 12px;
+  height: 12px;
+}
+
 .chat-msg-tool {
   align-self: flex-start;
   background: var(--info-soft);
@@ -418,6 +432,13 @@
    chunk. Falls back to a static muted label under reduced motion. */
 .assistant-pending-row {
   padding: 0;
+}
+
+/* Streaming 阶段状态行不再画第二个头像（气泡行已有一个），等宽占位
+   （28px 头像宽 + wrapper 8px gap 由 flex 提供）保持文字与内容列对齐。 */
+.assistant-pending-spacer {
+  flex-shrink: 0;
+  width: 28px;
 }
 
 .assistant-pending {

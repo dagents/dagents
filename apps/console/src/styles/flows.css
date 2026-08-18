@@ -7,15 +7,10 @@
 
    Note: .scope-tabs / .filter-chip / .result-count / .card-actions are now
    defined once in shell.css's unified list-controls section. This file only
-   owns flow-specific layout (.flow-toolbar, .flow-search, .flow-card, runs). */
+   owns flow-specific layout (.flow-toolbar, .flow-card, runs). */
 
 .flow-toolbar { display: flex; align-items: center; gap: var(--space-3); margin-bottom: var(--space-4); flex-wrap: wrap; }
-/* .flow-search kept as a thin alias of .list-search for the flow page; new
-   code should use .list-search directly. */
-.flow-search { position: relative; flex: 1; min-width: 200px; max-width: 320px; }
-.flow-search input { width: 100%; height: 34px; padding: 0 var(--space-3) 0 30px; background: var(--bg); border: 1px solid var(--border); border-radius: var(--radius-sm); font-size: var(--text-sm); color: var(--fg); }
-.flow-search input:focus { border-color: var(--accent); box-shadow: var(--focus-ring); outline: none; }
-.flow-search svg { position: absolute; left: 9px; top: 9px; width: 14px; height: 14px; color: var(--meta); }
+/* 搜索框复用 shell.css 统一的 .list-search（原 .flow-search 已删除）。 */
 
 .flow-card { background: var(--bg); border: 1px solid var(--border-soft); border-radius: var(--radius-md); overflow: hidden; margin-bottom: var(--space-3); transition: box-shadow var(--motion-fast); }
 .flow-card:hover { box-shadow: var(--elev-raised); }

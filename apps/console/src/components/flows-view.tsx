@@ -531,8 +531,8 @@ export function FlowsView(): React.ReactElement {
         </div>
 
         <div className="flow-toolbar">
-          <div className="flow-search">
-            <Icon name="search" style={{ width: 14, height: 14, color: 'var(--meta)' }} />
+          <div className="list-search">
+            <Icon name="search" />
             <input
               type="search"
               placeholder="搜索 flow 名称或 ID…"

@@ -141,27 +141,42 @@ export function ChatNavSidebar({ collapsed, onToggle }: ChatNavSidebarProps): Re
   }, [])
 
   // Fetch chats for all directories (lightweight — directories are few)
-  useEffect(() => {
+  const refreshChats = useCallback(async (): Promise<void> => {
     if (directories.length === 0) return
-    let cancelled = false
-    void (async () => {
-      const entries = await Promise.all(
-        directories.map(async (dir) => {
-          try {
-            const chats = await fetchChats(dir.id)
-            return [dir.id, chats] as const
-          } catch {
-            return [dir.id, [] as Chat[]] as const
-          }
-        }),
-      )
-      if (cancelled) return
-      const map: Record<string, Chat[]> = {}
-      for (const [id, chats] of entries) map[id] = chats
-      setChatsByDir(map)
-    })()
-    return () => { cancelled = true }
+    const entries = await Promise.all(
+      directories.map(async (dir) => {
+        try {
+          const chats = await fetchChats(dir.id)
+          return [dir.id, chats] as const
+        } catch {
+          return [dir.id, [] as Chat[]] as const
+        }
+      }),
+    )
+    const map: Record<string, Chat[]> = {}
+    for (const [id, chats] of entries) map[id] = chats
+    setChatsByDir(map)
   }, [directories])
+
+  useEffect(() => {
+    void refreshChats()
+  }, [refreshChats])
+
+  // Navigating to a chat that isn't in the loaded list means it was created
+  // after mount (home composer → createChat → router.push keeps this layout
+  // mounted, so the [directories] effect above never re-ran). Refetch once
+  // per unknown id so new sessions appear in the history immediately.
+  const refetchedIdsRef = useRef<Set<string>>(new Set())
+  useEffect(() => {
+    if (!activeChatId || refetchedIdsRef.current.has(activeChatId)) return
+    const known = Object.values(chatsByDir).some((chats) =>
+      chats.some((c) => c.id === activeChatId),
+    )
+    if (!known) {
+      refetchedIdsRef.current.add(activeChatId)
+      void refreshChats()
+    }
+  }, [activeChatId, chatsByDir, refreshChats])
 
   // Auto-expand the directory containing the active chat — once per
   // navigation (deepseek: clicking a session expands its group; a manual

@@ -221,8 +221,8 @@ export function AgentsView(): React.ReactElement {
 
       {/* toolbar — search + filter chips */}
       <div className="agents-toolbar">
-        <div className="agents-search">
-          <Icon name="search" style={{ width: 14, height: 14, color: 'var(--meta)' }} />
+        <div className="list-search">
+          <Icon name="search" />
           <input
             type="search"
             placeholder="搜索名称 / ID / 类型…"

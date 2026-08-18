@@ -2,9 +2,9 @@
    Design principles: 克制即高级, 层次靠灰度, 字号纪律 (text-sm primary),
    间距 > 分割线, hover vs active distinction.
 
-   Note: .scope-tabs / .filter-chip / .result-count are now defined once in
+   Note: .scope-tabs / .filter-chip / .result-count / .list-search are now defined once in
    shell.css's unified list-controls section. This file only owns agents-specific
-   layout (.agents-toolbar, .filter-group, .agents-search, list rows, drawer). */
+   layout (.agents-toolbar, .filter-group, list rows, drawer). */
 
 /* ─── scope tabs + actions row ─── */
 .scope-tabs-row {
@@ -21,35 +21,7 @@
   margin-bottom: var(--space-4);
   flex-wrap: wrap;
 }
-.agents-search {
-  position: relative;
-  flex: 1;
-  min-width: 200px;
-  max-width: 320px;
-}
-.agents-search input {
-  width: 100%;
-  height: 34px;
-  padding: 0 var(--space-3) 0 30px;
-  background: var(--bg);
-  border: 1px solid var(--border);
-  border-radius: var(--radius-sm);
-  font-size: var(--text-sm);
-  color: var(--fg);
-}
-.agents-search input:focus {
-  border-color: var(--accent);
-  box-shadow: var(--focus-ring);
-  outline: none;
-}
-.agents-search svg {
-  position: absolute;
-  left: 9px;
-  top: 9px;
-  width: 14px;
-  height: 14px;
-  color: var(--meta);
-}
+/* 搜索框复用 shell.css 统一的 .list-search（原 .agents-search 已删除）。 */
 
 /* ─── error ─── */
 .agents-error {

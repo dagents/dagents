@@ -21,6 +21,7 @@
 import { Fragment, useCallback, useEffect, useMemo, useState } from 'react'
 import { createPortal } from 'react-dom'
 import { PageShell } from '@/components/page-shell'
+import { Icon } from '@/components/icon'
 import { NotificationSettings } from '@/components/notification-settings'
 import { AuditLog } from '@/components/audit-log'
 import { AGENT_KINDS } from '@/lib/agents-catalog'
@@ -320,7 +321,8 @@ function LlmProvidersTab(): React.ReactElement {
       </div>
 
       <div className="tokens-toolbar">
-        <div className="search-mini">
+        <div className="list-search">
+          <Icon name="search" />
           <input
             type="search"
             placeholder="搜索 Provider 名称、类型、Base URL、默认模型…"
