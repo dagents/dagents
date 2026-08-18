@@ -650,6 +650,17 @@ agentsRoutes.patch('/:id', async (c) => {
     }
   }
 
+  // skills 是 jsonb 字符串数组（本地技能注册表里的 kebab-case 名称）。
+  // 单独处理：需要校验元素类型 + 去重 + ::jsonb cast。
+  if ('skills' in body) {
+    const skills = body.skills
+    if (!Array.isArray(skills) || !skills.every((s) => typeof s === 'string' && s.length > 0)) {
+      return fail(c, 400, 'skills must be a non-empty array of strings')
+    }
+    params.push(JSON.stringify([...new Set(skills as string[])]))
+    sets.push(`skills = $${params.length}::jsonb`)
+  }
+
   if (sets.length === 0) {
     return fail(c, 400, 'no updatable fields provided')
   }

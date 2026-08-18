@@ -27,6 +27,7 @@ import type { AgentEvent, AgentResult, TokenUsage, AgentType } from '@dagents/co
 import { randomUUID } from 'node:crypto'
 import { wsHub, type ChatEvent } from './ws-hub.js'
 import { persistComplete } from './routes/internal-runs-helpers.js'
+import { composeSystemPrompt } from './skill-injection.js'
 
 const log = createLogger({ svc: 'gateway:inline-executor' })
 
@@ -152,10 +153,17 @@ export async function executeInline(
   let execPath = ''
   let agentName = 'agent'
   let agentKind = 'claude'
+  let systemPrompt: string | undefined
   try {
-    // 先查 agents 表（前端创建的 agent 在此表中）
-    const { records: agentRows } = await runQuery<{ name: string; kind: string }>(
-      `SELECT name, kind FROM agents WHERE id = $1::uuid`,
+    // 先查 agents 表（前端创建的 agent 在此表中）。instructions + skills
+    // 组装为 system prompt —— 技能正文由 skill-injection 从注册表解析。
+    const { records: agentRows } = await runQuery<{
+      name: string
+      kind: string
+      instructions: string | null
+      skills: unknown
+    }>(
+      `SELECT name, kind, instructions, skills FROM agents WHERE id = $1::uuid`,
       [agentId],
     )
     const agentRow = agentRows[0]
@@ -163,6 +171,7 @@ export async function executeInline(
     if (agentRow) {
       agentName = agentRow.name
       agentKind = agentRow.kind
+      systemPrompt = composeSystemPrompt(agentRow.instructions, agentRow.skills)
     } else {
       // fallback: agent_daemons 表（旧模型，可能包含额外的 executable_path）
       const { records: daemonRows } = await runQuery<{ name: string; executable_path: string | null; kind: string }>(
@@ -247,7 +256,7 @@ export async function executeInline(
       // Re-spawn the process for each attempt (not a resume).
       let session: ReturnType<typeof backend.execute> | null = null
       try {
-        session = backend.execute(prompt, { cwd: opts.cwd, model: opts.model })
+        session = backend.execute(prompt, { cwd: opts.cwd, model: opts.model, systemPrompt })
       } catch (err) {
         lastError = `spawn failed: ${String(err)}`
         log.warn('inline execute spawn threw', { chatId, runId, attempt, error: lastError })

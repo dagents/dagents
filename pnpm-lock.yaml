@@ -101,13 +101,13 @@ importers:
         version: 19.2.3(@types/react@19.2.17)
       jsdom:
         specifier: ^25.0.1
-        version: 25.0.1(canvas@2.11.2(encoding@0.1.13))
+        version: 25.0.1(canvas@2.11.2)
       typescript:
         specifier: ^5.5.0
         version: 5.9.3
       vitest:
         specifier: ^2.1.9
-        version: 2.1.9(@types/node@20.19.43)(jsdom@25.0.1(canvas@2.11.2(encoding@0.1.13)))(sass@1.101.0)(terser@5.48.0)
+        version: 2.1.9(@types/node@20.19.43)(jsdom@25.0.1(canvas@2.11.2))(sass@1.101.0)(terser@5.48.0)
 
   apps/gateway:
     dependencies:
@@ -135,6 +135,9 @@ importers:
       ws:
         specifier: ^8.18.0
         version: 8.21.0
+      yaml:
+        specifier: ^2.9.0
+        version: 2.9.0
       zod:
         specifier: ^4.4.3
         version: 4.4.3
@@ -156,7 +159,7 @@ importers:
         version: 5.9.3
       vitest:
         specifier: ^2.0.0
-        version: 2.1.9(@types/node@20.19.43)(jsdom@25.0.1(canvas@2.11.2(encoding@0.1.13)))(sass@1.101.0)(terser@5.48.0)
+        version: 2.1.9(@types/node@20.19.43)(jsdom@25.0.1(canvas@2.11.2))(sass@1.101.0)(terser@5.48.0)
 
   packages/agent-adapters:
     dependencies:
@@ -178,7 +181,7 @@ importers:
         version: 5.9.3
       vitest:
         specifier: ^2.0.0
-        version: 2.1.9(@types/node@20.19.43)(jsdom@25.0.1(canvas@2.11.2(encoding@0.1.13)))(sass@1.101.0)(terser@5.48.0)
+        version: 2.1.9(@types/node@20.19.43)(jsdom@25.0.1(canvas@2.11.2))(sass@1.101.0)(terser@5.48.0)
 
   packages/contracts:
     devDependencies:
@@ -190,7 +193,7 @@ importers:
         version: 5.9.3
       vitest:
         specifier: ^2.0.0
-        version: 2.1.9(@types/node@26.1.1)(jsdom@25.0.1(canvas@2.11.2(encoding@0.1.13)))(sass@1.101.0)(terser@5.48.0)
+        version: 2.1.9(@types/node@26.1.1)(jsdom@25.0.1(canvas@2.11.2))(sass@1.101.0)(terser@5.48.0)
 
   packages/daemon:
     dependencies:
@@ -218,7 +221,7 @@ importers:
         version: 5.9.3
       vitest:
         specifier: ^2.0.0
-        version: 2.1.9(@types/node@20.19.43)(jsdom@25.0.1(canvas@2.11.2(encoding@0.1.13)))(sass@1.101.0)(terser@5.48.0)
+        version: 2.1.9(@types/node@20.19.43)(jsdom@25.0.1(canvas@2.11.2))(sass@1.101.0)(terser@5.48.0)
 
   packages/db:
     dependencies:
@@ -246,7 +249,7 @@ importers:
         version: 5.9.3
       vitest:
         specifier: ^2.0.0
-        version: 2.1.9(@types/node@26.1.1)(jsdom@25.0.1(canvas@2.11.2(encoding@0.1.13)))(sass@1.101.0)(terser@5.48.0)
+        version: 2.1.9(@types/node@26.1.1)(jsdom@25.0.1(canvas@2.11.2))(sass@1.101.0)(terser@5.48.0)
 
   packages/shared:
     dependencies:
@@ -286,7 +289,7 @@ importers:
         version: 5.9.3
       vitest:
         specifier: ^2.0.0
-        version: 2.1.9(@types/node@26.1.1)(jsdom@25.0.1(canvas@2.11.2(encoding@0.1.13)))(sass@1.101.0)(terser@5.48.0)
+        version: 2.1.9(@types/node@26.1.1)(jsdom@25.0.1(canvas@2.11.2))(sass@1.101.0)(terser@5.48.0)
 
   packages/workflow:
     dependencies:
@@ -302,7 +305,7 @@ importers:
         version: 5.9.3
       vitest:
         specifier: ^2.0.0
-        version: 2.1.9(@types/node@26.1.1)(jsdom@25.0.1(canvas@2.11.2(encoding@0.1.13)))(sass@1.101.0)(terser@5.48.0)
+        version: 2.1.9(@types/node@26.1.1)(jsdom@25.0.1(canvas@2.11.2))(sass@1.101.0)(terser@5.48.0)
 
   vendor/agentflow:
     dependencies:
@@ -12352,7 +12355,7 @@ snapshots:
       - supports-color
       - utf-8-validate
 
-  jsdom@25.0.1(canvas@2.11.2(encoding@0.1.13)):
+  jsdom@25.0.1(canvas@2.11.2):
     dependencies:
       cssstyle: 4.6.0
       data-urls: 5.0.0
@@ -14159,7 +14162,7 @@ snapshots:
       sass: 1.101.0
       terser: 5.48.0
 
-  vitest@2.1.9(@types/node@20.19.43)(jsdom@25.0.1(canvas@2.11.2(encoding@0.1.13)))(sass@1.101.0)(terser@5.48.0):
+  vitest@2.1.9(@types/node@20.19.43)(jsdom@25.0.1(canvas@2.11.2))(sass@1.101.0)(terser@5.48.0):
     dependencies:
       '@vitest/expect': 2.1.9
       '@vitest/mocker': 2.1.9(vite@5.4.21(@types/node@20.19.43)(sass@1.101.0)(terser@5.48.0))
@@ -14183,7 +14186,7 @@ snapshots:
       why-is-node-running: 2.3.0
     optionalDependencies:
       '@types/node': 20.19.43
-      jsdom: 25.0.1(canvas@2.11.2(encoding@0.1.13))
+      jsdom: 25.0.1(canvas@2.11.2)
     transitivePeerDependencies:
       - less
       - lightningcss
@@ -14195,7 +14198,7 @@ snapshots:
       - supports-color
       - terser
 
-  vitest@2.1.9(@types/node@26.1.1)(jsdom@25.0.1(canvas@2.11.2(encoding@0.1.13)))(sass@1.101.0)(terser@5.48.0):
+  vitest@2.1.9(@types/node@26.1.1)(jsdom@25.0.1(canvas@2.11.2))(sass@1.101.0)(terser@5.48.0):
     dependencies:
       '@vitest/expect': 2.1.9
       '@vitest/mocker': 2.1.9(vite@5.4.21(@types/node@26.1.1)(sass@1.101.0)(terser@5.48.0))
@@ -14219,7 +14222,7 @@ snapshots:
       why-is-node-running: 2.3.0
     optionalDependencies:
       '@types/node': 26.1.1
-      jsdom: 25.0.1(canvas@2.11.2(encoding@0.1.13))
+      jsdom: 25.0.1(canvas@2.11.2)
     transitivePeerDependencies:
       - less
       - lightningcss

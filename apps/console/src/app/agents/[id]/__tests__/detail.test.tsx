@@ -269,11 +269,37 @@ describe('AgentActivitySparkline (30-bar SVG, ok/fail 双色)', () => {
 
 describe('AgentDetailView — inspector + tabs (M4.1 fidelity)', () => {
   let originalFetch: typeof globalThis.fetch
+  /** PATCH 调用记录（Skills 导入保存断言用）。 */
+  let patchCalls: Array<{ url: string; body: unknown }>
 
   beforeEach(() => {
     originalFetch = globalThis.fetch
-    globalThis.fetch = (async (input: RequestInfo | URL) => {
+    patchCalls = []
+    globalThis.fetch = (async (input: RequestInfo | URL, init?: RequestInit) => {
       const url = typeof input === 'string' ? input : input.toString()
+      if (init?.method === 'PATCH') {
+        patchCalls.push({ url, body: JSON.parse(String(init.body)) })
+        return new Response(JSON.stringify({ success: true, data: { id: 'agent_01HFK', updated: true } }), {
+          status: 200,
+          headers: { 'content-type': 'application/json' },
+        })
+      }
+      if (url.includes('/api/skills')) {
+        // Skills tab 的本地技能目录（gateway 注册表摘要）
+        return new Response(
+          JSON.stringify({
+            success: true,
+            data: {
+              skills: [
+                { name: 'agent-reach', description: '全网信息检索', source: 'user-agents' },
+                { name: 'gstack', description: '无头浏览器 QA', source: 'user-agents' },
+              ],
+              roots: [],
+            },
+          }),
+          { status: 200, headers: { 'content-type': 'application/json' } },
+        )
+      }
       if (url.endsWith('/logs')) {
         return new Response(
           JSON.stringify({ success: true, data: { logs: LOGS } }),
@@ -404,7 +430,39 @@ describe('AgentDetailView — inspector + tabs (M4.1 fidelity)', () => {
     expect(await screen.findByText('找不到这个 Agent')).toBeInTheDocument()
     expect(screen.getByText(/不存在，可能已被归档或删除/)).toBeInTheDocument()
   })
+
+  it('Skills tab 可以从本地技能库导入并 PATCH 保存到 agent.skills', async () => {
+    const user = userEvent.setup()
+    render(<AgentDetailView id="agent_01HFK" nowMs={NOW_MS} />)
+    await screen.findByText('论文阅读 · reader-04')
+
+    // 切到 Skills tab（role=tab name=Skills）
+    await user.click(screen.getByRole('tab', { name: 'Skills' }))
+
+    // 本地技能库目录渲染（来自 /api/skills stub）
+    expect(await screen.findByText('agent-reach')).toBeInTheDocument()
+    expect(screen.getByText('gstack')).toBeInTheDocument()
+
+    // 未修改时保存按钮禁用
+    const saveBtn = screen.getByRole('button', { name: '保存挂载' })
+    expect(saveBtn).toBeDisabled()
+
+    // 勾选 agent-reach → 按钮启用 → 保存
+    await user.click(screen.getByRole('button', { name: /agent-reach/ }))
+    expect(saveBtn).toBeEnabled()
+    await user.click(saveBtn)
+
+    // PATCH /api/agents/:id — 在既有挂载（reader/analysis，来自 tags 回退）之上追加
+    await screen.findByText('已保存')
+    expect(patchCalls).toHaveLength(1)
+    expect(patchCalls[0]!.url).toContain('/api/agents/agent_01HFK')
+    expect(patchCalls[0]!.body).toEqual({ skills: ['reader', 'analysis', 'agent-reach'] })
+
+    // 已挂载列表同步更新（卡片里出现技能名 + 目录描述）
+    expect(screen.getByText('全网信息检索')).toBeInTheDocument()
+  })
 })
+
 
 describe('derivePageModel (live payload → render model)', () => {
   it('derives availability from daemonStatus and runtime from kind+daemon', () => {
@@ -436,4 +494,5 @@ describe('derivePageModel (live payload → render model)', () => {
     )
     expect(noDaemon.availability).toBe('offline')
   })
+
 })

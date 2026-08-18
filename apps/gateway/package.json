@@ -12,22 +12,23 @@
     "lint": "eslint src --ext .ts"
   },
   "dependencies": {
-    "@hono/node-server": "^1.12.0",
-    "hono": "^4.5.0",
+    "@dagents/agent-adapters": "workspace:*",
+    "@dagents/contracts": "workspace:*",
     "@dagents/db": "workspace:*",
     "@dagents/shared": "workspace:*",
     "@dagents/workflow": "workspace:*",
-    "@dagents/contracts": "workspace:*",
-    "@dagents/agent-adapters": "workspace:*",
+    "@hono/node-server": "^1.12.0",
+    "hono": "^4.5.0",
     "ws": "^8.18.0",
+    "yaml": "^2.9.0",
     "zod": "^4.4.3"
   },
   "devDependencies": {
-    "tsx": "^4.0.0",
-    "tsup": "^8.0.0",
-    "typescript": "^5.5.0",
     "@types/node": "^20.0.0",
     "@types/ws": "^8.5.0",
+    "tsup": "^8.0.0",
+    "tsx": "^4.0.0",
+    "typescript": "^5.5.0",
     "vitest": "^2.0.0"
   }
 }

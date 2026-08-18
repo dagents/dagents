@@ -288,3 +288,50 @@ describe('GET /api/v1/agents — list (design-aligned shape)', () => {
     expect(seeded!.owner).toBe('林敏')
   })
 })
+
+describe('PATCH /api/v1/agents/:id — skills（本地技能导入）', () => {
+  afterEach(async () => {
+    await cleanupSeeded()
+  })
+
+  it('replaces + dedupes skills and persists to the row', async () => {
+    const { agentId } = await seedAgent()
+    const res = await app.request(`/api/v1/agents/${agentId}`, {
+      method: 'PATCH',
+      headers: { 'content-type': 'application/json' },
+      body: JSON.stringify({ skills: ['agent-reach', 'gstack', 'agent-reach'] }),
+    })
+    expect(res.status).toBe(200)
+
+    // GET 回读确认落库
+    const get = await app.request(`/api/v1/agents/${agentId}`)
+    expect(get.status).toBe(200)
+    const body = (await get.json()) as { data: { agent: { skills: string[] } } }
+    expect(body.data.agent.skills).toEqual(['agent-reach', 'gstack'])
+  })
+
+  it('400 when skills is not a string array', async () => {
+    const { agentId } = await seedAgent()
+    const res = await app.request(`/api/v1/agents/${agentId}`, {
+      method: 'PATCH',
+      headers: { 'content-type': 'application/json' },
+      body: JSON.stringify({ skills: 'agent-reach' }),
+    })
+    expect(res.status).toBe(400)
+    const body = (await res.json()) as { error: string }
+    expect(body.error).toMatch(/skills must be/)
+  })
+
+  it('empty skills array clears the mounts', async () => {
+    const { agentId } = await seedAgent()
+    const res = await app.request(`/api/v1/agents/${agentId}`, {
+      method: 'PATCH',
+      headers: { 'content-type': 'application/json' },
+      body: JSON.stringify({ skills: [] }),
+    })
+    expect(res.status).toBe(200)
+    const get = await app.request(`/api/v1/agents/${agentId}`)
+    const body = (await get.json()) as { data: { agent: { skills: string[] } } }
+    expect(body.data.agent.skills).toEqual([])
+  })
+})

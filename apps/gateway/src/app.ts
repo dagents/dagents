@@ -9,6 +9,7 @@ import { agentTemplateRoutes } from './routes/agent-templates.js'
 import { llmProviderRoutes } from './routes/llm-providers.js'
 import { workflowsRoutes } from './routes/workflows.js'
 import { cliRuntimeRoutes } from './routes/cli-runtimes.js'
+import { skillsRoutes } from './routes/skills.js'
 import { internalRunsRoutes } from './routes/internal-runs.js'
 import { dispatchRoutes } from './routes/dispatch/index.js'
 import { runQuery } from '@dagents/db'
@@ -173,6 +174,14 @@ app.route('/api/v1/workflows', workflowsRoutes)
  * a hardcoded "未配置" for every row.
  */
 app.route('/api/v1/cli-runtimes', cliRuntimeRoutes)
+
+/**
+ * Skills catalog (registry-not-database): runtime discovery of local agent
+ * skills (`~/.agents/skills` + `DAGENTS_SKILL_DIRS`), the cross-client
+ * convention shared by Cursor / Gemini CLI / Copilot CLI. Read-only — the
+ * filesystem is the source of truth, nothing is persisted.
+ */
+app.route('/api/v1/skills', skillsRoutes)
 
 /**
  * Dispatch protocol routes (spec §1.5), merged into gateway (Plan A, 2026-08-01).

@@ -1,0 +1,288 @@
+/* skills.css — 技能库页 (registry-not-database: ~/.agents/skills 运行时目录的只读视图)
+ *
+ * Visual language follows agents.css: 克制即高级 — spacing carries separation,
+ * grayscale carries hierarchy, text-sm is the primary size. */
+
+.skills-toolbar {
+  display: flex;
+  align-items: center;
+  gap: var(--space-3);
+  margin-bottom: var(--space-4);
+  flex-wrap: wrap;
+}
+
+/* 搜索框/筛选 chips 复用 shell.css 的统一控件（.list-search / .filter-chip），
+ * 与 Agents / Flows / Settings 列表页保持同一套度量。 */
+
+.skills-list {
+  display: flex;
+  flex-direction: column;
+}
+
+.skill-row {
+  display: flex;
+  flex-direction: column;
+  border-bottom: 1px solid var(--border-soft);
+}
+
+.skill-row:last-child {
+  border-bottom: none;
+}
+
+.skill-row-head {
+  display: flex;
+  align-items: baseline;
+  gap: 12px;
+  width: 100%;
+  padding: 12px 4px;
+  border: none;
+  background: none;
+  text-align: left;
+  cursor: pointer;
+  color: inherit;
+  font: inherit;
+}
+
+.skill-row-head:hover {
+  background: color-mix(in srgb, var(--fg) 3%, transparent);
+}
+
+.skill-row-head:focus-visible {
+  outline: none;
+  box-shadow: inset var(--focus-ring);
+  border-radius: var(--radius-sm);
+}
+
+.skill-chev {
+  flex-shrink: 0;
+  align-self: center;
+  color: var(--meta);
+  transition: transform var(--motion-fast) var(--ease-standard);
+}
+
+.skill-chev svg {
+  display: block;
+  width: 14px;
+  height: 14px;
+}
+
+.skill-row-head[aria-expanded="true"] .skill-chev {
+  transform: rotate(90deg);
+  color: var(--muted);
+}
+
+.skill-name {
+  font-family: var(--font-mono);
+  font-size: 13px;
+  color: var(--fg);
+  flex-shrink: 0;
+}
+
+.skill-desc {
+  font-size: 12px;
+  color: var(--muted);
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+  min-width: 0;
+}
+
+.skill-source {
+  flex-shrink: 0;
+  font-size: 11px;
+  color: var(--meta);
+  border: 1px solid var(--border);
+  border-radius: var(--radius-pill, 999px);
+  padding: 1px 8px;
+  white-space: nowrap;
+}
+
+.skill-detail {
+  padding: 0 4px 16px;
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+}
+
+.skill-detail-meta {
+  font-size: 11px;
+  color: var(--meta);
+  font-family: var(--font-mono);
+  word-break: break-all;
+}
+
+.skill-detail-hint {
+  display: block;
+  margin-top: 2px;
+  font-family: var(--font-body);
+  color: var(--meta);
+  opacity: 0.85;
+}
+
+.skill-detail-body {
+  margin: 0;
+  padding: 12px 14px;
+  max-height: 360px;
+  overflow: auto;
+  border: 1px solid var(--border);
+  border-radius: var(--radius-md);
+  background: color-mix(in srgb, var(--fg) 2%, var(--bg));
+  font-family: var(--font-mono);
+  font-size: 12px;
+  line-height: 1.6;
+  color: var(--fg);
+  white-space: pre-wrap;
+  word-break: break-word;
+}
+
+.skill-detail-error {
+  font-size: 12px;
+  color: var(--danger);
+}
+
+.skills-footer {
+  margin-top: var(--space-6);
+  padding-top: var(--space-4);
+  border-top: 1px solid var(--border-soft);
+  display: flex;
+  flex-direction: column;
+  gap: 4px;
+  font-size: 11px;
+  color: var(--meta);
+}
+
+.skills-footer .dir {
+  font-family: var(--font-mono);
+}
+
+.skills-error {
+  padding: 12px 16px;
+  border: 1px solid var(--danger);
+  border-radius: var(--radius-md);
+  color: var(--danger);
+  font-size: 13px;
+  margin-bottom: var(--space-4);
+}
+
+.skills-empty {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  gap: 8px;
+  padding: var(--space-8) var(--space-4);
+  text-align: center;
+}
+
+.skills-empty .h {
+  font-size: 14px;
+  font-weight: 600;
+  color: var(--fg);
+}
+
+/* ─── 自定义目录：直接输入加载 ────────────────────────────────
+   空状态与页脚共用的「输入目录 → 立即加载」控件。 */
+.skills-add-state .d {
+  max-width: 560px;
+}
+
+.skills-add-dir {
+  display: flex;
+  align-items: center;
+  gap: var(--space-2);
+  width: 100%;
+  max-width: 480px;
+}
+
+.skills-add-dir input {
+  flex: 1;
+  min-width: 0;
+  height: 32px;
+  padding: 0 var(--space-3);
+  background: var(--bg);
+  border: 1px solid var(--border);
+  border-radius: var(--radius-sm);
+  font-size: var(--text-sm);
+  font-family: var(--font-mono);
+  color: var(--fg);
+}
+
+.skills-add-dir input:focus {
+  border-color: var(--accent);
+  box-shadow: var(--focus-ring);
+  outline: none;
+}
+
+.skills-add-dir input:disabled {
+  opacity: 0.6;
+}
+
+.skills-add-error {
+  width: 100%;
+  font-size: 12px;
+  color: var(--danger);
+  text-align: left;
+}
+
+/* footer root 行：路径 + 移除按钮 */
+.skills-footer-root {
+  display: flex;
+  align-items: center;
+  gap: var(--space-2);
+}
+
+.skills-root-remove {
+  display: grid;
+  place-items: center;
+  width: 18px;
+  height: 18px;
+  border: 0;
+  border-radius: 5px;
+  background: transparent;
+  color: var(--meta);
+  cursor: pointer;
+  transition: background var(--motion-fast), color var(--motion-fast);
+}
+
+.skills-root-remove:hover {
+  background: var(--danger-soft);
+  color: var(--danger);
+}
+
+.skills-root-remove svg {
+  width: 11px;
+  height: 11px;
+}
+
+.skills-add-trigger {
+  align-self: flex-start;
+  border: 0;
+  background: transparent;
+  padding: 0;
+  font-size: 11px;
+  color: var(--meta);
+  cursor: pointer;
+  transition: color var(--motion-fast);
+}
+
+.skills-add-trigger:hover {
+  color: var(--accent-hover);
+}
+
+.skills-footer .skills-add-dir {
+  max-width: 420px;
+}
+
+.skills-empty .d {
+  font-size: 12px;
+  color: var(--muted);
+  max-width: 480px;
+  line-height: 1.7;
+}
+
+.skills-empty code {
+  font-family: var(--font-mono);
+  font-size: 11px;
+  background: color-mix(in srgb, var(--fg) 5%, transparent);
+  padding: 1px 5px;
+  border-radius: 4px;
+}

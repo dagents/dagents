@@ -59,6 +59,7 @@ import {
 import { AgentActivitySparkline } from '@/components/agent-activity-sparkline'
 import { useWsFrame } from '@/lib/ws-client'
 import { kindLabel, kindGlyph } from '@/lib/agents-catalog'
+import { fetchSkills, type SkillSummary } from '@/lib/skills'
 import { Icon } from '@/components/icon'
 import '@/styles/agent-detail.css'
 
@@ -257,6 +258,13 @@ export function AgentDetailView({ id, nowMs }: AgentDetailViewProps): React.Reac
               activeTab={activeTab}
               onSelectTab={setActiveTab}
               logsError={logsError}
+              agentId={id}
+              onSkillsSaved={(skills) => {
+                setDetail((prev) => {
+                  if (!prev) return prev
+                  return { ...prev, agent: { ...prev.agent, skills } }
+                })
+              }}
               onRetryLogs={() => {
                 setLogsError(null)
                 void fetchAgentLogs(id)
@@ -474,9 +482,19 @@ interface OverviewProps {
   onSelectTab: (tab: TabKey) => void
   logsError?: string | null
   onRetryLogs?: () => void
+  agentId: string
+  onSkillsSaved: (skills: string[]) => void
 }
 
-function Overview({ model, activeTab, onSelectTab, logsError, onRetryLogs }: OverviewProps): React.ReactElement {
+function Overview({
+  model,
+  activeTab,
+  onSelectTab,
+  logsError,
+  onRetryLogs,
+  agentId,
+  onSkillsSaved,
+}: OverviewProps): React.ReactElement {
   // Fixed-length ref array for the tab buttons — one slot per tab so the
   // keyboard handler can focus the next/prev/Home/End tab. Roving tabindex:
   // the active tab is in the tab sequence (tabindex=0), the rest are -1
@@ -507,7 +525,9 @@ function Overview({ model, activeTab, onSelectTab, logsError, onRetryLogs }: Ove
       <div className="tab-body">
         {activeTab === 'activity' ? <ActivityPanel model={model} /> : null}
         {activeTab === 'instructions' ? <InstructionsPanel model={model} /> : null}
-        {activeTab === 'skills' ? <SkillsPanel model={model} /> : null}
+        {activeTab === 'skills' ? (
+          <SkillsPanel model={model} agentId={agentId} onSkillsSaved={onSkillsSaved} />
+        ) : null}
         {activeTab === 'logs' ? (
           <LogsPanel model={model} error={logsError} onRetry={onRetryLogs} />
         ) : null}
@@ -604,24 +624,169 @@ function InstructionsPanel({ model }: { model: AgentDetailPageModel }): React.Re
   )
 }
 
-function SkillsPanel({ model }: { model: AgentDetailPageModel }): React.ReactElement {
+/**
+ * Skills tab — 已挂载列表 + 本地技能库导入。
+ *
+ * 本地目录来自 gateway 的运行时注册表（`~/.agents/skills` +
+ * `DAGENTS_SKILL_DIRS`，跨客户端约定）。勾选后 PATCH 保存到 agent.skills
+ * （仅存名称引用；技能本体始终以文件系统为真相源，目录里删掉即失效）。
+ */
+function SkillsPanel({
+  model,
+  agentId,
+  onSkillsSaved,
+}: {
+  model: AgentDetailPageModel
+  agentId: string
+  onSkillsSaved: (skills: string[]) => void
+}): React.ReactElement {
+  const [catalog, setCatalog] = useState<SkillSummary[] | null>(null)
+  const [catalogError, setCatalogError] = useState<string | null>(null)
+  const [selected, setSelected] = useState<string[]>(model.skills)
+  const [saving, setSaving] = useState(false)
+  const [saveError, setSaveError] = useState<string | null>(null)
+  const [savedAt, setSavedAt] = useState(0)
+
+  // 面板随 tab 挂载/卸载，目录在挂载时拉一次（gateway 侧有 60s TTL 缓存）。
+  useEffect(() => {
+    let cancelled = false
+    fetchSkills()
+      .then(({ skills }) => {
+        if (!cancelled) setCatalog(Array.isArray(skills) ? skills : [])
+      })
+      .catch((err: unknown) => {
+        if (!cancelled) setCatalogError(err instanceof Error ? err.message : String(err))
+      })
+    return () => {
+      cancelled = true
+    }
+  }, [])
+
+  const catalogByName = useMemo(() => {
+    const m = new Map<string, SkillSummary>()
+    for (const s of catalog ?? []) m.set(s.name, s)
+    return m
+  }, [catalog])
+
+  const dirty = useMemo(() => {
+    const a = [...selected].sort()
+    const b = [...model.skills].sort()
+    return a.length !== b.length || a.some((v, i) => v !== b[i])
+  }, [selected, model.skills])
+
+  const toggle = (name: string): void => {
+    setSelected((prev) => (prev.includes(name) ? prev.filter((n) => n !== name) : [...prev, name]))
+  }
+
+  const save = async (): Promise<void> => {
+    setSaving(true)
+    setSaveError(null)
+    try {
+      const res = await fetch(`/api/agents/${encodeURIComponent(agentId)}`, {
+        method: 'PATCH',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ skills: selected }),
+      })
+      if (!res.ok) throw new Error(`保存失败（HTTP ${res.status}）`)
+      onSkillsSaved(selected)
+      setSavedAt(Date.now())
+    } catch (err) {
+      setSaveError(err instanceof Error ? err.message : String(err))
+    } finally {
+      setSaving(false)
+    }
+  }
+
   return (
     <>
-      <div className="ins-section-label">已挂载 Skills（{model.skills.length}）</div>
+      <div className="row-between">
+        <div className="ins-section-label">已挂载 Skills（{selected.length}）</div>
+        <div style={{ display: 'flex', gap: 'var(--space-2)', alignItems: 'center' }}>
+          {savedAt ? (
+            <span className="meta" style={{ fontSize: 11, color: 'var(--success, #16a34a)' }}>
+              已保存
+            </span>
+          ) : null}
+          <button
+            type="button"
+            className="btn btn-primary"
+            style={{ padding: '4px 12px', fontSize: 12 }}
+            onClick={() => void save()}
+            disabled={!dirty || saving}
+          >
+            {saving ? '保存中…' : '保存挂载'}
+          </button>
+        </div>
+      </div>
+      {saveError ? (
+        <div className="meta" style={{ fontSize: 12, color: 'var(--danger)', margin: '4px 0' }} role="alert">
+          {saveError}
+        </div>
+      ) : null}
       <div className="skills-grid">
-        {model.skills.length > 0 ? (
-          model.skills.map((s) => (
-            <div className="skill-card" key={s}>
-              <div className="nm">{s}</div>
-              <div className="ds">—</div>
-            </div>
-          ))
+        {selected.length > 0 ? (
+          selected.map((s) => {
+            const meta = catalogByName.get(s)
+            return (
+              <div className="skill-card" key={s}>
+                <div className="skill-card-head">
+                  <div className="nm">{s}</div>
+                  <button
+                    type="button"
+                    className="skill-remove"
+                    aria-label={`移除技能 ${s}`}
+                    title="移除挂载"
+                    onClick={() => toggle(s)}
+                  >
+                    <Icon name="close" style={{ width: 12, height: 12 }} />
+                  </button>
+                </div>
+                <div className="ds">{meta ? meta.description : '（本地目录中未找到 — 可能已被删除）'}</div>
+              </div>
+            )
+          })
         ) : (
           <div className="muted" style={{ fontSize: 12 }}>
-            无挂载 Skills
+            无挂载 Skills — 从下方本地技能库选择导入
           </div>
         )}
       </div>
+
+      <div className="ins-section-label mt-6">本地技能库</div>
+      {catalogError ? (
+        <div className="meta" style={{ fontSize: 12, color: 'var(--danger)' }} role="alert">
+          本地技能目录加载失败：{catalogError}
+        </div>
+      ) : catalog === null ? (
+        <div className="muted" style={{ fontSize: 12 }}>
+          加载本地技能目录…
+        </div>
+      ) : catalog.length === 0 ? (
+        <div className="muted" style={{ fontSize: 12 }}>
+          本地没有可用技能（~/.agents/skills 为空）。放入 &lt;name&gt;/SKILL.md 即可被发现。
+        </div>
+      ) : (
+        <div className="skill-import-grid">
+          {catalog.map((s) => {
+            const on = selected.includes(s.name)
+            return (
+              <button
+                key={s.name}
+                type="button"
+                className={`skill-chip${on ? ' on' : ''}`}
+                aria-pressed={on}
+                title={s.description}
+                onClick={() => toggle(s.name)}
+              >
+                <span className="skill-chip-check" aria-hidden="true">
+                  {on ? '✓' : '+'}
+                </span>
+                <span className="skill-chip-name">{s.name}</span>
+              </button>
+            )
+          })}
+        </div>
+      )}
     </>
   )
 }
