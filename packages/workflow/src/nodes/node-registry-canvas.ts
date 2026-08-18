@@ -132,6 +132,14 @@ export const CANVAS_NODES: CanvasNodeMeta[] = [
         description: '平台 Agent ID（UUID）',
       },
       {
+        label: '任务指令',
+        name: 'systemPrompt',
+        type: 'code',
+        rows: 4,
+        acceptVariable: true,
+        description: '节点级任务指令，追加在 Agent 自身 instructions 之后',
+      },
+      {
         label: 'Max Iterations',
         name: 'maxIterations',
         type: 'number',
@@ -140,6 +148,7 @@ export const CANVAS_NODES: CanvasNodeMeta[] = [
     ],
     defaultData: {
       agentId: '',
+      systemPrompt: '',
       maxIterations: 10,
     },
   },

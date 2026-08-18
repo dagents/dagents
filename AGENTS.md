@@ -53,14 +53,17 @@ console (Next) → gateway (Hono) → @dagents/workflow engine
    → [dispatch routes inline] → local daemon → claude/codex CLI
 ```
 
+- **CLI 第一性（2026-08-18）**：本地 CLI agent 是基线执行引擎，HTTP LLM Provider 只是可选加速 —— ①`@workflow` 生成默认走 CLI spawn（prompt 注入真实 agent 清单 + 技能清单，"claude a 做规划"可映射到真实 agentId 的 platformAgentAgentflow 节点），CLI 失败才降级 HTTP；②工作流执行的 llmClient 无 provider 时用 CLI 兜底（`createDefaultLlmClient`），LLM/Agent 节点零配置可跑。配置了 provider 则自动用 HTTP。
 - Chat-First UX：聊天主页 `/` + 聊天详情 `/chats/{id}`
 - `inline-executor` 是默认执行路径（不需要 daemon）
 - Workflow 画布编辑器：`/workflows/[id]/canvas`（vendor/agentflow/）
 - Workflow 引擎文档：`docs/workflow-engine.md`（架构 / 执行模型 / Langfuse 开启方式 / 已知限制）
 - LLM Provider CRUD + 动态代理转发
+- 技能库（registry-not-database）：`~/.agents/skills` + `DAGENTS_SKILL_DIRS` + console 界面直接添加目录（持久化 `~/.agents/skill-dirs.json`，`POST/DELETE /api/v1/skills/roots`），`GET /api/v1/skills`，console `/skills` 页；不落库、正文不缓存。Agent 挂载的技能在执行时注入 system prompt（inline chat + workflow PlatformAgent，见 `skill-injection.ts`）。详见 `docs/skills-registry.md`
 
 ## 已知问题
 
+- **dev server 运行期间勿跑 `pnpm build` / `pnpm --filter @dagents/console build`**：生产构建会覆盖 `apps/console/.next`，导致 dev server 全站 500（`build-manifest.json` ENOENT）。误跑后用一键重启脚本恢复（脚本会清理 `.next` 缓存）。全仓 `pnpm test` 经 turbo 也会触发 console build，同样有此风险。
 - **旧 mil-agents 僵尸进程**：`mil-agents-main` 项目可能有残留 tsx watch 进程（PID 61329），不占端口但耗内存，定期清理。
 - **remote 类型 Agent 需 Daemon 在线**：`auto` 路由已优先选择 CLI 类型 Agent（2026-08-15 修复）；库里残留的 remote Agent（如 "test"）手动选中时会收到引导性报错，建议清理或为其启动 Daemon。
 - ~~openclaw agent 需 Node ≥22.22.3~~：已解决 — 系统 node 已升级至 v22.23.1，openclaw 2026.7.1 正常运行（2026-08-15 验证）。

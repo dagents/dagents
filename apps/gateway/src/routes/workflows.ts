@@ -7,7 +7,7 @@ import { createLogger } from '@dagents/shared'
 import { exportRunTraceToLangfuse, isLangfuseConfigured } from '@dagents/shared/langfuse'
 import { DagExecutor, NodeRegistry, allNodes, CANVAS_NODES, type FlowData, type IExecutedNode } from '@dagents/workflow'
 import {
-  createLlmClient,
+  createDefaultLlmClient,
   createAgentFetcher,
   createBuiltInToolRegistry,
   createHistoryRetriever,
@@ -412,7 +412,9 @@ workflowsRoutes.post('/:id/run', async (c) => {
   const startedAt = new Date()
   // Reset the LLM provider cache so each run picks up the latest config.
   resetProviderCache()
-  const llmClient = createLlmClient()
+  // CLI-first：配了 provider 走 HTTP（加速），否则 LLM/Agent 节点全部
+  // 跑本地 CLI —— 工作流与聊天一样零配置可用。
+  const llmClient = createDefaultLlmClient()
   const agentFetcher = createAgentFetcher()
   const toolRegistry = createBuiltInToolRegistry()
   const historyRetriever = createHistoryRetriever(chatId)

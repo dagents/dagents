@@ -45,6 +45,13 @@ export class PlatformAgentNode implements INode {
       description: '平台 Agent ID（UUID）',
     },
     {
+      label: '任务指令',
+      name: 'systemPrompt',
+      type: 'string' as const,
+      description:
+        '节点级任务指令（这一步要做什么、产出什么）。追加在 Agent 自身 instructions 之后 —— 同一个 Agent 在不同节点可承担不同职责。',
+    },
+    {
       label: 'Max Iterations',
       name: 'maxIterations',
       type: 'number' as const,
@@ -70,7 +77,13 @@ export class PlatformAgentNode implements INode {
 
     const model = agentConfig.model || ''
     const baseInstructions = resolveVariables(agentConfig.instructions, options.state) as string
-    const systemPrompt = this.buildSystemPrompt(baseInstructions, agentConfig.skills ?? [])
+    // 节点级任务指令：这一步的职责，追加在 Agent 自身 instructions 之后。
+    // 没有它，流程里多个节点绑同一个 Agent 时只能靠上游接龙隐式分工。
+    const nodeTask = resolveVariables((nodeData.inputs?.systemPrompt as string) ?? '', options.state) as string
+    const combinedInstructions = [baseInstructions, nodeTask]
+      .filter((s) => typeof s === 'string' && s.trim().length > 0)
+      .join('\n\n')
+    const systemPrompt = this.buildSystemPrompt(combinedInstructions, agentConfig.skills ?? [])
 
     // Extract user message from upstream input
     let userMessage = ''

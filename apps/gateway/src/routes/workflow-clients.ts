@@ -11,7 +11,10 @@
 
 import { runQuery } from '@dagents/db'
 import { createLogger } from '@dagents/shared'
+import { createBackend } from '@dagents/agent-adapters'
+import type { AgentEvent, AgentType } from '@dagents/contracts'
 import { decryptSecret } from '../crypto.js'
+import { composeSystemPrompt } from '../skill-injection.js'
 import {
   DagExecutor,
   NodeRegistry,
@@ -71,6 +74,87 @@ async function getActiveProvider(): Promise<LlmProviderRow | null> {
   })()
 
   return providerFetchPromise
+}
+
+/** CLI-backed chat params (mirrors the workflow engine's llmClient seam). */
+export interface CliChatParams {
+  model: string
+  messages: { role: string; content: string }[]
+  temperature?: number
+  tools?: IToolSchema[]
+}
+
+/**
+ * Collapse engine chat messages into the two fields a CLI agent accepts:
+ * system messages merge into the system prompt, the rest become a
+ * role-prefixed conversation. Pure — unit-tested.
+ */
+export function buildCliMessages(messages: { role: string; content: string }[]): {
+  systemPrompt: string | undefined
+  prompt: string
+} {
+  const system = messages
+    .filter((m) => m.role === 'system')
+    .map((m) => m.content)
+    .join('\n\n')
+    .trim()
+  const rest = messages.filter((m) => m.role !== 'system')
+  const prompt = rest.length
+    ? rest.map((m) => `${m.role === 'assistant' ? 'assistant' : 'user'}: ${m.content}`).join('\n\n')
+    : '(no input)'
+  return { systemPrompt: system || undefined, prompt }
+}
+
+/** Hard wall-clock budget for one CLI-backed chat call. */
+export const CLI_LLM_TIMEOUT_MS = 180_000
+
+/**
+ * CLI-backed llmClient — the CLI-first baseline for workflow execution.
+ *
+ * First-class-CLI principle: local CLI agents (claude by default) are the
+ * zero-config execution engine; an HTTP provider is optional acceleration.
+ * Spawns the CLI with the conversation as one prompt and returns the final
+ * text. tool_calls are never returned — the PlatformAgent tool loop
+ * degenerates to a single call (the CLI brings its own tools anyway).
+ */
+export function createCliLlmClient(kind: AgentType = 'claude') {
+  return {
+    async chat(params: CliChatParams): Promise<{ text: string; usage?: ITokenUsage }> {
+      const { systemPrompt, prompt } = buildCliMessages(params.messages)
+      const backend = createBackend(kind, { executablePath: '', logger: log })
+      const session = backend.execute(prompt, {
+        systemPrompt,
+        timeoutMs: CLI_LLM_TIMEOUT_MS,
+      })
+      let text = ''
+      for await (const evt of session.events as AsyncIterable<AgentEvent>) {
+        if (evt.type === 'text') text += evt.content
+      }
+      const result = await session.result
+      if (result.status === 'failed') {
+        throw new Error(`CLI llm backend failed: ${result.error ?? 'unknown'}`)
+      }
+      return { text: text || result.output || '' }
+    },
+  }
+}
+
+/**
+ * Default llmClient for workflow execution. CLI-first: an explicitly
+ * configured HTTP provider wins (opt-in acceleration), otherwise every
+ * LLM/Agent node runs on the local CLI — workflows work with zero setup,
+ * same as chat. No chatStream — nodes fall back to chat().
+ */
+export function createDefaultLlmClient(kind: AgentType = 'claude') {
+  const http = createLlmClient()
+  const cli = createCliLlmClient(kind)
+  return {
+    async chat(params: CliChatParams): Promise<{ text: string; tool_calls?: IToolCall[]; usage?: ITokenUsage }> {
+      const provider = await getActiveProvider()
+      if (provider) return http.chat(params)
+      return cli.chat(params)
+    },
+  }
 }
 
 /** Reset the provider cache — call before each workflow run. */
@@ -268,6 +352,10 @@ async function prepareRequest(
 /**
  * Create an agentFetcher that reads agent config from the `agents` table.
  * Used by PlatformAgentNode to resolve an agentId to its instructions/model.
+ *
+ * `skills` 在网关侧预先解析为 SKILL.md 正文并组装进 instructions（见
+ * skill-injection.ts），因此传给节点的是空数组 —— 节点层的技能名清单
+ * 只作为未预解析 fetcher 的兜底，避免同一技能被声明两遍。
  */
 export function createAgentFetcher(): NonNullable<IExecutionContext['agentFetcher']> {
   return async (agentId: string): Promise<PlatformAgentConfig | null> => {
@@ -290,10 +378,10 @@ export function createAgentFetcher(): NonNullable<IExecutionContext['agentFetche
       return {
         id: row.id,
         name: row.name,
-        instructions: row.instructions,
+        instructions: composeSystemPrompt(row.instructions, row.skills) ?? '',
         model: row.model,
         kind: row.kind,
-        skills: Array.isArray(row.skills) ? row.skills : [],
+        skills: [],
       }
     } catch (err) {
       log.error('agentFetcher query failed', { agentId, error: String(err) })

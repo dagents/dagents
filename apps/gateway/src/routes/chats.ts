@@ -8,7 +8,7 @@ import { DagExecutor, NodeRegistry, allNodes, SseStreamer, type FlowData } from 
 import { routeMessage } from './chat-execute.js'
 import { enqueueTask, getTask, getTaskEvents } from './dispatch/service.js'
 import {
-  createLlmClient,
+  createDefaultLlmClient,
   createAgentFetcher,
   createBuiltInToolRegistry,
   createHistoryRetriever,
@@ -862,7 +862,8 @@ chatRoutes.get('/:id/stream', async (c) => {
     resetProviderCache()
     let finalText = ''
     try {
-      const llmClient = createLlmClient()
+      // CLI-first：无 provider 时 LLM/Agent 节点跑本地 CLI（零配置基线）。
+      const llmClient = createDefaultLlmClient()
       const agentFetcher = createAgentFetcher()
       const toolRegistry = createBuiltInToolRegistry()
       const historyRetriever = createHistoryRetriever(id)
