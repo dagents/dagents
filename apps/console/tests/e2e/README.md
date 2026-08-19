@@ -1,8 +1,8 @@
 # Chat-First E2E Test Harness
 
 > **Scope:** Playwright browser e2e for the Chat-First user-facing surface.
-> **Coverage:** 67 user cases from `docs/superpowers/specs/2026-07-25-user-cases-gap-analysis.md`, organized into 10 modules.
-> **Status:** 36 active tests + 43 `test.fixme` placeholders for unimplemented features.
+> **Coverage:** 67 user cases from `docs/superpowers/specs/2026-07-25-user-cases-gap-analysis.md`, organized into 10 modules; **plus** the workflow-execution / multi-Agent suite from `docs/e2e-test-plan.md`（spec 11~15，2026-08-19 落地）.
+> **Status:** 36 active + 43 fixme（UC 套件）+ **50 active（执行态套件 11~15，含多 Agent 协作专项）**.
 
 This directory holds the **user-case e2e suite** — true end-to-end tests that drive a real browser through the Chat-First UI. They assert what the user sees and what the HTTP contract returns, not internal code behavior. Each test maps to a numbered user case (UC-ID) in the gap analysis.
 
@@ -57,6 +57,40 @@ The e2e suite needs the dev stack up（dispatch/scheduler 已并入 gateway，�
 | `POSTGRES_URL` | `postgresql://dagents:dagents_dev@localhost:15432/dagents` | Pointing at a non-default stack |
 | `E2E_GATEWAY_URL` | `http://localhost:8080` | Gateway on a different port |
 | `E2E_PORT` | `3000` | Console on a different port (avoids conflicts with another Next app on :3000) |
+| `E2E_MOCK_LLM_PORT` | `4010` | Mock LLM Provider 端口（执行态套件 11~15 的确定性地基，见下） |
+
+### Mock LLM Provider（执行态套件的确定性地基）
+
+`fixtures/mock-llm-server/server.mjs` 是一个零依赖的 OpenAI 兼容 mock（node:http，
+由 playwright `webServer` 数组与 console 一起拉起）。执行态 spec 在 `beforeAll`
+里 `seedMockLlmProvider(ctx)` 把 active provider 指到它 —— 此后所有 LLM/Agent/
+PlatformAgent 节点的响应都可脚本化、可在 `/__control/calls` 断言（「谁收到什么
+prompt / 工具是否回灌 / 循环了几轮」的协作证据），不再依赖真实 CLI/模型。
+
+- `POST /__control/script` 设置规则（`match.systemContains/userContains/…` +
+  `respond.text/toolCalls/delayMs/mode:error|malformed|hang|toolLoop`）；
+- `GET /__control/calls` 调用记录、`POST /__control/reset` 清空。
+- ⚠️ 套件跑完 `dispose()` 会删掉插入的 provider 行并恢复原状；**若中途强杀
+  测试，dev 库可能残留 `e2e-mock-%` active 行**（此时真实 LLM 调用会指向死
+  mock）—— 清理：`DELETE FROM llm_providers WHERE name LIKE 'e2e-mock-%'`。
+
+### 专用测试库（可选，全栈隔离）
+
+`docs/e2e-test-plan.md` §4.4 的专用库 `dagents_e2e` 已建好（本机 :15432）。
+完全隔离需要 gateway 也指向它（seed.ts 只控制测试进程的直连读写）：
+
+```bash
+# 1. gateway 指向专用库重启（GATEWAY_PORT 可换端口并行跑）
+POSTGRES_URL=postgresql://dagents:dagents_dev@localhost:15432/dagents_e2e \
+  GATEWAY_PORT=8081 pnpm --filter @dagents/gateway dev &
+
+# 2. 套件指向该 gateway + 专用库
+POSTGRES_URL=postgresql://dagents:dagents_dev@localhost:15432/dagents_e2e \
+  E2E_GATEWAY_URL=http://127.0.0.1:8081 pnpm --filter @dagents/console test:e2e
+```
+
+不重启 gateway 时套件退化为 dev 库 + 全套 seed/cleanup（默认路径，已稳定）。
+CI（`.github/workflows/e2e.yml`）用 fresh Postgres 服务容器直建 `dagents_e2e`。
 
 ### Auth posture
 
@@ -109,7 +143,12 @@ The config is at [`../playwright.config.ts`](../playwright.config.ts):
 | [`08-sidebar-nav.spec.ts`](08-sidebar-nav.spec.ts) | Sidebar navigation | UC-NAV-01~08 | 7 | 2 | 9 |
 | [`09-chat-trigger.spec.ts`](09-chat-trigger.spec.ts) | Chat trigger (@ commands, SSE) | UC-TRG-01~06 | 1 | 6 | 7 |
 | [`10-workflow-engine.spec.ts`](10-workflow-engine.spec.ts) | Workflow engine (arch §9) | UC-WF-01~12 | 0 | 12 | 12 |
-| **Total** | | | **36** | **43** | **79** |
+| [`11-workflow-execution.spec.ts`](11-workflow-execution.spec.ts) | 工作流执行契约（Tier A：WF/OB） | WF-01~08, OB-01~06 | 14 | 0 | 14 |
+| [`12-multi-agent.spec.ts`](12-multi-agent.spec.ts) | 多 Agent 协作专项（核心） | MA-01~18 + 冒烟锚 | 19 | 0 | 19 |
+| [`13-chat-flow-trigger.spec.ts`](13-chat-flow-trigger.spec.ts) | 聊天触发 / SSE（Tier B） | TR-01~08 | 8 | 0 | 8 |
+| [`14-workflow-edge.spec.ts`](14-workflow-edge.spec.ts) | 失败与边界（Tier D） | ED-01~07 + CLI-SMOKE | 7 | 2 | 9 |
+| [`15-flows-ui-journey.spec.ts`](15-flows-ui-journey.spec.ts) | 浏览器 UI 旅程（Tier C） | UI-01/02/04/05/08 | 5 | 0 | 5 |
+| **Total** | | | **~92 active** | ~45 | ~137 |
 
 > **Note:** Two pre-existing specs (`v0.3-design.spec.ts`, `viewport-matrix.spec.ts`) cover the older v0.3 design-fidelity scenarios and are not part of the 67-UC matrix. They remain in this directory for continuity.
 
@@ -189,7 +228,9 @@ pnpm --filter @dagents/console exec playwright test tests/e2e/your-file.spec.ts
 
 ## Seed/Cleanup Helpers
 
-All shared seed/cleanup logic lives in [`helpers/seed.ts`](helpers/seed.ts).
+All shared seed/cleanup logic lives in [`helpers/seed.ts`](helpers/seed.ts);
+DAG 构造辅助（`node`/`edge`/`linearFlow`/`parallelFlow` + 各节点类型快捷构造，
+平铺 `data.<field>` 形态）在 [`helpers/flow-builder.ts`](helpers/flow-builder.ts)。
 
 ### API
 
@@ -200,6 +241,11 @@ All shared seed/cleanup logic lives in [`helpers/seed.ts`](helpers/seed.ts).
 | `seedChat(ctx, opts)` | `chatId: string` | Insert a `chats` row (bind `agentId`/`flowId` to exercise routing) |
 | `seedMessage(ctx, opts)` | `messageId: string` | Insert a `chat_messages` row (any role) |
 | `seedAgent(ctx, request, opts?)` | `{ agentId, daemonId }` | Register a daemon via dispatch API + insert `agent_daemons` row |
+| `seedMockLlmProvider(ctx)` | `providerId` | 把 active LLM provider 切到本地 mock（4010），dispose 恢复 |
+| `seedFlow(ctx, request, opts)` | `flowId` | 经 `POST /api/workflows` 建 flow（真实创建路径） |
+| `seedPlatformAgent(ctx, opts)` | `agentId` | 直接插 `agents` 行（PlatformAgent 节点的 fetcher 数据源） |
+| `seedChatBoundToFlow(ctx, opts)` | `chatId` | 建 chat 并绑定 flow_id（聊天触发 SSE 用） |
+| `setMockLlmScript(script)` / `resetMockLlm()` / `mockLlmCalls()` | — | Mock LLM 的编排/取证三件套 |
 | `ctx.dispose()` | `Promise<void>` | Delete all seeded rows in FK-safe order |
 
 ### Design notes

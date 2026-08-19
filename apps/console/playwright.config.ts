@@ -55,17 +55,32 @@ export default defineConfig({
       use: { ...devices['Desktop Chrome'] },
     },
   ],
-  webServer: {
-    // Boot the console's `next dev` if it isn't already up. reuseExistingServer
-    // lets a developer keep their own console dev running and have Playwright
-    // attach to it instead of spawning a second instance. Point at a different
-    // port (e.g. another Next app occupies :3000) via `E2E_PORT`.
-    command: 'pnpm --filter @dagents/console exec next dev -p ' + (process.env.E2E_PORT ?? '3000'),
-    url: `http://127.0.0.1:${process.env.E2E_PORT ?? '3000'}`,
-    reuseExistingServer: true,
-    timeout: 180_000,
-    stdout: 'ignore',
-    stderr: 'pipe',
-    cwd: __dirname,
-  },
+  // 两个进程：console dev server + Mock LLM Provider（docs/e2e-test-plan.md §4.4）。
+  // mock 是零依赖 node:http 进程（端口 4010，E2E_MOCK_LLM_PORT 可覆盖），
+  // 供执行态用例把 LLM/Agent/PlatformAgent 节点钉在确定响应上。
+  webServer: [
+    {
+      command: 'node tests/e2e/fixtures/mock-llm-server/server.mjs',
+      url: `http://127.0.0.1:${process.env.E2E_MOCK_LLM_PORT ?? '4010'}/__control/health`,
+      reuseExistingServer: true,
+      timeout: 15_000,
+      stdout: 'ignore',
+      stderr: 'pipe',
+      cwd: __dirname,
+      env: { ...process.env, E2E_MOCK_LLM_PORT: process.env.E2E_MOCK_LLM_PORT ?? '4010' },
+    },
+    {
+      // Boot the console's `next dev` if it isn't already up. reuseExistingServer
+      // lets a developer keep their own console dev running and have Playwright
+      // attach to it instead of spawning a second instance. Point at a different
+      // port (e.g. another Next app occupies :3000) via `E2E_PORT`.
+      command: 'pnpm --filter @dagents/console exec next dev -p ' + (process.env.E2E_PORT ?? '3000'),
+      url: `http://127.0.0.1:${process.env.E2E_PORT ?? '3000'}`,
+      reuseExistingServer: true,
+      timeout: 180_000,
+      stdout: 'ignore',
+      stderr: 'pipe',
+      cwd: __dirname,
+    },
+  ],
 })

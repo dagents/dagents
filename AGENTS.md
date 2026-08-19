@@ -61,6 +61,7 @@ console (Next) → gateway (Hono) → @dagents/workflow engine
 - LLM Provider CRUD + 动态代理转发
 - **中英双语（2026-08-16）**：自然键 i18n（`apps/console/src/i18n/`）——中文文案即 key，`en/` 词典分模块维护（common/agents/flows/daemons/settings/chat），缺译自动回退中文；`useI18n()` 无 Provider 也能用（默认 zh）。语言切换在侧栏底部（`dagents.locale` 持久化）。新增界面文案直接写中文并用 `t('中文')` 包裹，英文词条加到对应 `en/*.ts`。
 - 技能库（registry-not-database）：`~/.agents/skills` + `DAGENTS_SKILL_DIRS` + console 界面直接添加目录（持久化 `~/.agents/skill-dirs.json`，`POST/DELETE /api/v1/skills/roots`），`GET /api/v1/skills`，console `/skills` 页；不落库、正文不缓存。Agent 挂载的技能在执行时注入 system prompt（inline chat + workflow PlatformAgent，见 `skill-injection.ts`）。详见 `docs/skills-registry.md`
+- **执行态 e2e（2026-08-19）**：`apps/console/tests/e2e/` spec 11~15（55 用例：工作流执行契约 / 多 Agent 协作 MA-01~18 / 聊天触发 SSE / 边界 / UI 旅程），地基是 **Mock LLM Provider**（`tests/e2e/fixtures/mock-llm-server/`，OpenAI 兼容 + `/__control/*` 控制面，端口 4010，playwright webServer 自动拉起）。`seedMockLlmProvider` 会临时切换 dev 库的 active provider —— **测试中途强杀可能残留 `e2e-mock-%` 行，导致真实 LLM 调用指向死 mock；清理：`DELETE FROM llm_providers WHERE name LIKE 'e2e-mock-%'`**。DAG 构造用 `tests/e2e/helpers/flow-builder.ts`（平铺 `data.<field>`）。专用测试库 `dagents_e2e` 已建（全栈隔离需 gateway 以 `POSTGRES_URL=…dagents_e2e` 启动，见 `tests/e2e/README.md`）；CI 在 `.github/workflows/e2e.yml`。详见 `docs/e2e-test-plan.md` §12 执行记录。
 
 ## 已知问题
 

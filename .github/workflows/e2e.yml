@@ -1,0 +1,108 @@
+# E2E CI — Playwright 全栈执行态套件（docs/e2e-test-plan.md §9）。
+#
+# 拓扑：fresh Postgres 服务容器 + 专用测试库 dagents_e2e（POSTGRES_DB 直建）
+#   → 迁移（pnpm --filter @dagents/db migration:run，POSTGRES_URL 指向 e2e 库）
+#   → 构建 workspace 包（gateway dev 走 tsx，@dagents/* 依赖其 dist）
+#   → 后台起 gateway（POSTGRES_URL=e2e 库）等 /health
+#   → playwright install chromium → pnpm --filter @dagents/console test:e2e
+#     （console dev server 由 playwright webServer 自启，GATEWAY_URL 指向上面的 gateway；
+#      Mock LLM Provider :4010 同样由 webServer 数组拉起）
+# 失败时上传 test-results/（trace + screenshot）。
+#
+# 与 ci.yml 的关系：ci.yml 管单元/契约（gateway vitest + console vitest），
+# 本文件只管浏览器 e2e——较重（约 15~20 分钟），所以挂在 PR + main 上但
+# 不阻塞在 ci 的同一路径里。
+
+name: E2E
+
+on:
+  push:
+    branches: [main]
+  pull_request:
+    paths:
+      - 'apps/console/**'
+      - 'apps/gateway/**'
+      - 'packages/**'
+      - 'infra/**'
+      - '.github/workflows/e2e.yml'
+
+concurrency:
+  group: e2e-${{ github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  e2e:
+    name: playwright e2e（执行态 + 多 Agent）
+    runs-on: ubuntu-latest
+    timeout-minutes: 40
+
+    services:
+      postgres:
+        image: postgres:16
+        env:
+          POSTGRES_USER: dagents
+          POSTGRES_PASSWORD: dagents_dev
+          # 专用测试库：与本地 dev 库隔离（计划 §4.4），CI 每次都是 fresh 库
+          POSTGRES_DB: dagents_e2e
+        ports:
+          - 5432:5432
+        options: >-
+          --health-cmd "pg_isready -U dagents"
+          --health-interval 5s
+          --health-timeout 5s
+          --health-retries 10
+
+    env:
+      # seed.ts 读 POSTGRES_URL（缺省 dev 库）；gateway 与测试进程共用此库
+      POSTGRES_URL: postgresql://dagents:dagents_dev@localhost:5432/dagents_e2e
+      GATEWAY_URL: http://127.0.0.1:8080
+      E2E_GATEWAY_URL: http://127.0.0.1:8080
+
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Setup pnpm
+        uses: pnpm/action-setup@v4
+
+      - name: Setup Node
+        uses: actions/setup-node@v4
+        with:
+          node-version: 20
+          cache: pnpm
+
+      - name: Install dependencies
+        run: pnpm install --frozen-lockfile
+
+      # gateway dev（tsx）import 的 @dagents/* 走各自 dist —— 先构建包；
+      # console 本身由 playwright webServer 的 next dev 现编译，无需预构建。
+      - name: Build workspace packages
+        run: pnpm exec turbo run build --filter='@dagents/shared' --filter='@dagents/contracts' --filter='@dagents/db' --filter='@dagents/agent-adapters' --filter='@dagents/workflow' --filter='@dagents/agentflow'
+
+      - name: Apply DB migrations（专用库从零建表）
+        run: pnpm --filter @dagents/db migration:run
+
+      - name: Install Playwright chromium
+        run: pnpm --filter @dagents/console exec playwright install --with-deps chromium
+
+      - name: Start gateway（指向专用库）
+        run: |
+          nohup pnpm --filter @dagents/gateway dev > /tmp/gateway.log 2>&1 &
+          for i in $(seq 1 60); do
+            if curl -sf http://127.0.0.1:8080/health > /dev/null; then
+              echo "gateway up after ${i}s"; exit 0
+            fi
+            sleep 1
+          done
+          echo "gateway failed to boot"; tail -50 /tmp/gateway.log; exit 1
+
+      - name: Run e2e suite
+        run: pnpm --filter @dagents/console test:e2e
+
+      - name: Upload test results（失败时）
+        if: failure()
+        uses: actions/upload-artifact@v4
+        with:
+          name: playwright-results
+          path: apps/console/test-results/
+          retention-days: 7

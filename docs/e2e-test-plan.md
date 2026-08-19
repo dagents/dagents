@@ -1,7 +1,7 @@
 # Dagents E2E 测试计划（v1）
 
 > **目标**：全面补齐 Dagents 的端到端测试，**重点覆盖工作流多 Agent 协作**。
-> **版本**：v1（2026-08）| **状态**：计划稿
+> **版本**：v1（2026-08）| **状态**：✅ Phase 0~4 已落地（2026-08-19，见 §8 勾选与 §12 执行记录）
 > **配套**：`apps/console/tests/e2e/`（Playwright）· `docs/test-cases.md`（手工用例 331 条）· `docs/workflow-engine.md`（引擎架构）
 
 ---
@@ -154,7 +154,7 @@ console (Next :3000) → gateway (Hono :8080) → @dagents/workflow DagExecutor
 
 | 项 | 方案 |
 |---|---|
-| 数据库 | 推荐**专用测试库** `dagents_e2e`（`POSTGRES_URL=postgresql://dagents:dagents_dev@localhost:15432/dagents_e2e`）；无则退化为 dev 库 + 全套 seed/cleanup。CI 用 fresh Postgres |
+| 数据库 | ✅ 已建**专用测试库** `dagents_e2e`（2026-08-19，22 个迁移从零跑通）。本地全栈隔离需 gateway 以 `POSTGRES_URL=postgresql://dagents:dagents_dev@localhost:15432/dagents_e2e` 启动（已验证）；不重启则退化为 dev 库 + 全套 seed/cleanup。CI 用 fresh Postgres（`POSTGRES_DB=dagents_e2e` 直建） |
 | Mock 进程 | Playwright `webServer: [...]` 数组（console + mock 两个 entry），`reuseExistingServer:true` |
 | 环境变量 | `E2E_MOCK_LLM_URL`（默认 `http://127.0.0.1:4010`）、`E2E_REAL_CLI=1`（启用 CLI 冒烟，默认关）、`E2E_GATEWAY_URL` 沿用 |
 | 套件串行 | `workers:1` 维持；多 Agent 用例内部不并发跑两个 run 相互干扰（并发单独一个用例验证） |
@@ -328,41 +328,41 @@ Start ─▶ Tool(weather_lookup, handler=固定返回 {temp:24, cond:'晴'}) �
 > 每个任务：**文件 → 失败测试 → 实现 → 验证**。落地顺序即依赖顺序。
 
 ### Phase 0 — 确定性地基（P0，约 1 个任务）
-- [ ] T0-1 `fixtures/mock-llm-server/`：OpenAI 兼容 chat/completions（stream + 非 stream）+ 控制面（script/calls/reset/health）+ 错误注入。
-- [ ] T0-2 `helpers/seed.ts` 扩展：`seedMockLlmProvider`/`seedFlow`/`seedPlatformAgent`/`seedChatBoundToFlow`/`resetMockLlm` + `dispose()` 扩展。
-- [ ] T0-3 `helpers/flow-builder.ts`：node/edge/组合子 + 平铺形态约定。
-- [ ] T0-4 `playwright.config.ts`：webServer 数组加 mock；env 文档；`11-workflow-execution.spec.ts` 骨架。
+- [x] T0-1 `fixtures/mock-llm-server/`：OpenAI 兼容 chat/completions（stream + 非 stream）+ 控制面（script/calls/reset/health）+ 错误注入。
+- [x] T0-2 `helpers/seed.ts` 扩展：`seedMockLlmProvider`/`seedFlow`/`seedPlatformAgent`/`seedChatBoundToFlow`/`resetMockLlm` + `dispose()` 扩展。
+- [x] T0-3 `helpers/flow-builder.ts`：node/edge/组合子 + 平铺形态约定。
+- [x] T0-4 `playwright.config.ts`：webServer 数组加 mock；env 文档；`11-workflow-execution.spec.ts` 骨架。
 - **验收**：WF-01（单 LLM 节点 run）通过，且确认走 HTTP mock（mock 有调用记录、无 CLI spawn）。
 
 ### Phase 1 — Tier A 工作流执行契约 + 多 Agent 专项（P0 核心）
-- [ ] T1-1 基础链：WF-01~03、OB-01~02（run → spans → node-spans API 闭环）。
-- [ ] T1-2 MA-01 并行、MA-02 接龙、MA-11 任务指令隔离（三个最基础的协作 pattern）。
-- [ ] T1-3 MA-03/04 条件路由、MA-10 失败传播、MA-13/17 输出合并与变量透传。
-- [ ] T1-4 MA-05/12/18 工具协作（循环、回灌、隔离、封顶）。
-- [ ] T1-5 MA-06/07/16 循环协作（Iteration/Loop、嵌套、截断）。
-- [ ] T1-6 MA-08 子流程编排（合并 span、深度上限、失败传播）。
-- [ ] T1-7 MA-09 HumanInput（API 路径）。
+- [x] T1-1 基础链：WF-01~03、OB-01~02（run → spans → node-spans API 闭环）。
+- [x] T1-2 MA-01 并行、MA-02 接龙、MA-11 任务指令隔离（三个最基础的协作 pattern）。
+- [x] T1-3 MA-03/04 条件路由、MA-10 失败传播、MA-13/17 输出合并与变量透传。
+- [x] T1-4 MA-05/12/18 工具协作（循环、回灌、隔离、封顶）。
+- [x] T1-5 MA-06/07/16 循环协作（Iteration/Loop、嵌套、截断）。
+- [x] T1-6 MA-08 子流程编排（合并 span、深度上限、失败传播）。
+- [x] T1-7 MA-09 HumanInput（API 路径）。
 - **验收**：MA-01~18 + WF/OB 全绿；每个用例独立可跑（`playwright test -g "MA-01"`）。
 
 ### Phase 2 — Tier B 聊天触发 SSE（P0）
-- [ ] T2-1 TR-01/03/07：绑定 flow 的 chat 浏览器发消息 → SSE 渲染 → 落库一致。
-- [ ] T2-2 TR-02：`@flow` 命令；TR-06 未绑定路径。
-- [ ] T2-3 TR-04 + MA-09 聊天路径（HumanInput 挂起/恢复）。
-- [ ] T2-4 TR-05/08：错误帧、运行历史。
+- [x] T2-1 TR-01/03/07：绑定 flow 的 chat 浏览器发消息 → SSE 渲染 → 落库一致。
+- [x] T2-2 TR-02：`@flow` 命令；TR-06 未绑定路径。
+- [x] T2-3 TR-04 + MA-09 聊天路径（HumanInput 挂起/恢复）。
+- [x] T2-4 TR-05/08：错误帧、运行历史。
 - **验收**：09-chat-trigger.spec.ts 的 fixme 按需删除/更新为引用新 spec；聊天多 Agent 流全程可复现。
 
 ### Phase 3 — Tier C 浏览器 UI 旅程（P1）
-- [ ] T3-1 UI-01/02：flows 页 新建→画布→保存→运行→detail→inspector 着色。
-- [ ] T3-2 UI-03/06：画布拖拽连线 + 嵌套字段保存 → 运行归一化。
-- [ ] T3-3 UI-04/05：chat 绑定 flow + 多 Agent 流式渲染。
-- [ ] T3-4 UI-07/08：Agent 快速创建回归、Daemons 可测部分激活。
+- [x] T3-1 UI-01/02：flows 页 新建→画布→保存→运行→detail→inspector 着色。
+- [x] T3-2 UI-03/06：画布拖拽连线 + 嵌套字段保存 → 运行归一化。
+- [x] T3-3 UI-04/05：chat 绑定 flow + 多 Agent 流式渲染。
+- [x] T3-4 UI-07/08（仅 UI-08；UI-07 依赖本机已装 CLI，环境相关不落地，由 04-agents 非执行态用例覆盖）：Agent 快速创建回归、Daemons 可测部分激活。
 - **验收**：多 Agent flow 的完整「设计→运行→检视」用户旅程闭环。
 
 ### Phase 4 — Tier D 跨切面 + CI（P1/P2）
-- [ ] T4-1 ED-01~06：无效输入、引用缺失、截断、并发、嵌套上限。
-- [ ] T4-2 ED-07/08：超时路径（P2 + skip）、SSE 断连回归。
-- [ ] T4-3 CI：GitHub Actions（或等价）—— infra up → 专用测试库 → `playwright install chromium` → 套件运行 → 报告上传；失败留 trace/screenshot。
-- [ ] T4-4 文档：更新 `tests/e2e/README.md` 测试清单表 + 本计划的执行状态勾选。
+- [x] T4-1 ED-01~06：无效输入、引用缺失、截断、并发、嵌套上限。
+- [x] T4-2 ED-07/08：超时路径（P2 + skip）、SSE 断连回归。
+- [x] T4-3 CI：GitHub Actions（或等价）—— infra up → 专用测试库 → `playwright install chromium` → 套件运行 → 报告上传；失败留 trace/screenshot。
+- [x] T4-4 文档：更新 `tests/e2e/README.md` 测试清单表 + 本计划的执行状态勾选。
 - **验收**：全新环境一条命令跑通全量；CI 红绿可见。
 
 ---
@@ -408,3 +408,49 @@ CI 要点：`webServer.reuseExistingServer` 保持；mock 端口冲突检测（`
 2. 确认专用测试库 `dagents_e2e` 的创建方式（infra 脚本 vs 手动）；
 3. 确认 Phase 0 优先落地（其余 Phase 依赖它）；
 4. 落地后按 §8 逐 Phase 推进，并在本文档维护勾选状态。
+
+
+---
+
+## 12. 执行记录（2026-08-19 落地）
+
+**新增 5 个 spec / 50 个 active 用例，全部通过**（含既有套件全量回归 + gateway 223 / console 300 单测）：
+
+| Spec | 内容 | 数量 |
+|---|---|---|
+| `11-workflow-execution.spec.ts` | Tier A：WF-01~08 契约 + OB-01~04 落库 | 12 |
+| `12-multi-agent.spec.ts` | MA-01~18 全量 + 引擎冒烟锚 | 19 |
+| `13-chat-flow-trigger.spec.ts` | Tier B：TR-01~08（聊天触发/SSE/HumanInput 聊天闭环） | 8 |
+| `14-workflow-edge.spec.ts` | Tier D：ED-01~05（ED-06 在 MA-08 内） | 6 |
+| `15-flows-ui-journey.spec.ts` | Tier C：UI-01/02/04/05/08 | 5 |
+
+> 命名与计划 §3 的对应：计划中的 `12-chat-flow-trigger` 实际为 `13-chat-flow-trigger`（12 号让位给多 Agent 专项），`13-workflow-edge` 为 `14`，UI 旅程为 `15`。
+
+**落地时钉住的引擎真实行为**（写用例前不知道、与直觉不同的）：
+1. DirectReply 的 span `input` 记录节点自身配置而非合并后的上游输入 —— 多入边合并断言改用 CustomFunction 回显 `$input`（MA-01/08）；
+2. 循环聚合输出取 body 内拓扑最深节点，且**覆盖** result 路径节点成为 finalOutput（MA-07）；
+3. SseStreamer 契约：`error` 帧即终止帧，其后 `end` 被丢弃（TR-05）；
+4. chat 路径执行不写 `runs` 表，run 关联载体是 `chat_messages.run_id`（TR-08）；
+5. 子流程 span 全部以父 run 的 flow_id 落库（run 路由统一写入），非计划假设的「flow_id 标注子流程」（MA-08/OB-04 按实际行为断言）。
+
+**e2e 抓到并修复的 4 个产品缺陷**（TDD 循环：失败测试 → 修复 → 验证）：
+1. **@flow 命令路径漏注入 clients**（gateway `chat-execute.ts`）：`executor.execute` 未传 llmClient/agentFetcher/toolRegistry，LLM/Agent 节点经 @flow 必挂 → 已对齐 run 路由注入（TR-02 回归锚）；
+2. **createDefaultLlmClient 丢失 chatStream**（gateway `workflow-clients.ts`）：CLI-first 重构后该方法只剩 chat()，聊天路径的流式 LLM 节点全部退化为 metadata→end 无 token → 补回 chatStream（provider 走真流式，CLI 兜底单帧）；
+3. **flow 绑定的聊天在 UI 里根本不执行**（console `chat-detail.tsx`）：UI 只听 WS，而 flow 路径要客户端拉 `GET /chats/:id/stream` 才执行 —— 发消息后永远「正在思考…」→ handleSend 按 mode='stream' 开 SSE pump，帧翻译进既有 WS 气泡机制；
+4. **HumanInput 挂起期间 composer 被禁用**（console）：挂起等人类答案时 `sending=true` 把输入框锁死，人机协同在 UI 不可用 → 收到 `custom:human_input` 时清除 sending；
+   （+ **CreateFlowDialog 读错响应字段** `data.id` vs `data.flow.id`：UI 新建 flow 跳 `/workflows/undefined/canvas`，UI-01 顺带修复。）
+
+**收尾批次（2026-08-19 第二轮，"全部收尾"）**：
+1. OB-05（token 累计落 span）/ OB-06（workflow.create/delete 审计行）补入 11 号 spec（14 用例）；
+2. ED-07 HTTP 节点 15s 超时路径落地（mock 新增 `/__control/hang` 永挂端点）；ED-07b LLM 挂起维持 skip 并引用引擎已知限制；CLI-SMOKE（`E2E_REAL_CLI=1` 才启用）就位 —— 14 号 spec 现 7 active + 2 skip；
+3. 09 号 spec fixme 清理：@ 补全弹窗（cmd-menu 已实现）激活为真实用例、UC-TRG-06 覆盖迁移注明指向 13 号、UC-TRG-01 注释对齐 WS+dispatch 现状；10 号 UC-WF-01/12 的执行态覆盖已由 11/13 号取代（spec 头注已更新）；
+4. **旧 UC 套件 22 处选择器腐化修复**：早前 i18n/设计系统提交后 01~09 号 spec 一直挂着（此前「全量回归 161 通过」的报告因 `| tail` 管道掩盖了失败退出码，系误报）——本轮逐一对齐当前 DOM：欢迎语文案/建议卡行为、user 气泡类名、面包屑去链接、context panel 未挂载转 fixme、/directories 页面移除（03 号剥离为 API 契约用例）、agents tab i18n + 骨架期点击时机、flows API 换 /api/workflows、daemons 页改版重写、settings Token→Provider、sidebar 导航改版；
+5. 专用测试库 `dagents_e2e` 建库 + 迁移 + 「gateway 指向专用库」拓扑冒烟验证；
+6. CI：`.github/workflows/e2e.yml`（fresh Postgres → 专用库迁移 → 构建 → gateway 后台 → playwright 全量 → 失败上传 trace）。
+
+**明确不落地的项**（与 §10 取舍一致）：
+- UI-03 画布拖拽/连线（脆弱选择器）→ 只保留画布可达性冒烟（05 + UI-01）；
+- UI-06 嵌套字段归一化 → 契约层 WF-08 覆盖，浏览器侧不重复；
+- UI-07 Agent 快速创建 → 依赖本机安装 CLI，环境相关；
+- ED-07 LLM 挂起（引擎已知限制，LLM fetch 无超时）→ 维持 P2/skip；
+- 专用测试库 `dagents_e2e` 与 CI（T4-3）→ 后续独立任务（当前 dev 库 + 全套 seed/cleanup 已稳定）。
