@@ -48,6 +48,7 @@ import { FlowDag } from '@/components/flow-dag'
 import { CreateFlowDialog } from '@/components/create-flow-dialog'
 import { fetchRunNodeSpans, type RunNodeSpan } from '@/lib/node-spans'
 import { parseFlowData, type FlowSummary, type FlowDetailView, type NodeRunStatus } from '@/lib/flows'
+import { useI18n } from '@/i18n'
 import '@/styles/flows.css'
 
 const STATUS_CN: Record<NodeRunStatus, string> = {
@@ -216,6 +217,7 @@ function mapFlowDetail(data: FlowDetailResponse['data']): FlowDetailView | null 
 
 export function FlowsView(): React.ReactElement {
   const router = useRouter()
+  const { t } = useI18n()
   const [flows, setFlows] = useState<FlowSummary[]>([])
   // ── list-page state (M2.1) ──────────────────────────────────────────────
   const [scope, setScope] = useState<Scope>('all')
@@ -258,7 +260,7 @@ export function FlowsView(): React.ReactElement {
       const runId = res.headers.get('x-run-id')
       const json = (await res.json()) as { success: boolean; error?: string }
       if (!res.ok || !json.success) {
-        setListError(json.error ?? `运行失败 (${res.status})`)
+        setListError(json.error ?? t('运行失败 ({status})', { status: res.status }))
         return
       }
       if (runId) {
@@ -269,7 +271,7 @@ export function FlowsView(): React.ReactElement {
     } finally {
       setRunningId(null)
     }
-  }, [showDetail])
+  }, [showDetail, t])
 
   /** 返回 AgentFlows — mirrors design `hideDetail` (L464-469): clears both. */
   const hideDetail = useCallback(() => {
@@ -497,7 +499,7 @@ export function FlowsView(): React.ReactElement {
           click (or the card's [data-action=run] button) calls showDetail(flowId,
           runId) to swap to the detail page. */}
       <div className={`flow-list-page${inDetail ? '' : ' active'}`}>
-        <div className="scope-tabs mb-6" role="tablist" aria-label="flow 范围">
+        <div className="scope-tabs mb-6" role="tablist" aria-label={t('flow 范围')}>
           <button
             type="button"
             role="tab"
@@ -506,7 +508,7 @@ export function FlowsView(): React.ReactElement {
             data-zero={scopeCounts.mine === 0 ? 'true' : undefined}
             onClick={() => setScope('mine')}
           >
-            我的 <span className="cnt">{scopeCounts.mine}</span>
+            {t('我的')} <span className="cnt">{scopeCounts.mine}</span>
           </button>
           <button
             type="button"
@@ -516,7 +518,7 @@ export function FlowsView(): React.ReactElement {
             data-zero={scopeCounts.all === 0 ? 'true' : undefined}
             onClick={() => setScope('all')}
           >
-            全部 <span className="cnt">{scopeCounts.all}</span>
+            {t('全部')} <span className="cnt">{scopeCounts.all}</span>
           </button>
           <button
             type="button"
@@ -526,7 +528,7 @@ export function FlowsView(): React.ReactElement {
             data-zero={scopeCounts.archived === 0 ? 'true' : undefined}
             onClick={() => setScope('archived')}
           >
-            已归档 <span className="cnt">{scopeCounts.archived}</span>
+            {t('已归档')} <span className="cnt">{scopeCounts.archived}</span>
           </button>
         </div>
 
@@ -535,15 +537,15 @@ export function FlowsView(): React.ReactElement {
             <Icon name="search" />
             <input
               type="search"
-              placeholder="搜索 flow 名称或 ID…"
-              aria-label="搜索 flow"
+              placeholder={t('搜索 flow 名称或 ID…')}
+              aria-label={t('搜索 flow')}
               value={query}
               onChange={(e) => setQuery(e.target.value)}
             />
           </div>
           <div className="grow" />
           <span className="result-count">
-            {visibleFlows.length} / {flows.length} 个 flow
+            {t('{n} / {total} 个 flow', { n: visibleFlows.length, total: flows.length })}
           </span>
           <button
             type="button"
@@ -551,14 +553,14 @@ export function FlowsView(): React.ReactElement {
             onClick={() => setCreateOpen(true)}
           >
             <Icon name="plus" style={{ width: 14, height: 14 }} />
-            新建 Flow
+            {t('新建 Flow')}
           </button>
         </div>
 
         <div className="flow-cards">
           {loadingList ? (
             <div className="muted" style={{ padding: 'var(--space-4)', fontSize: 12 }}>
-              加载 flow 列表…
+              {t('加载 flow 列表…')}
             </div>
           ) : listError ? (
             <div className="muted" style={{ padding: 'var(--space-4)', fontSize: 12, color: 'var(--danger)' }}>
@@ -567,11 +569,11 @@ export function FlowsView(): React.ReactElement {
           ) : visibleFlows.length === 0 ? (
             <div className="empty-state">
               <div className="empty-state-icon" aria-hidden="true">⚡</div>
-              <div className="h">{flows.length === 0 ? '还没有 Flow' : '没有匹配的 Flow'}</div>
+              <div className="h">{flows.length === 0 ? t('还没有 Flow') : t('没有匹配的 Flow')}</div>
               <div className="d">
                 {flows.length === 0
-                  ? '创建你的第一个 Flow，编排 Agent 协作流程。'
-                  : '试试调整筛选条件或清除搜索。'}
+                  ? t('创建你的第一个 Flow，编排 Agent 协作流程。')
+                  : t('试试调整筛选条件或清除搜索。')}
               </div>
               {flows.length === 0 ? (
                 <button
@@ -580,7 +582,7 @@ export function FlowsView(): React.ReactElement {
                   onClick={() => setCreateOpen(true)}
                 >
                   <Icon name="plus" style={{ width: 14, height: 14 }} />
-                  新建 Flow
+                  {t('新建 Flow')}
                 </button>
               ) : (
                 <button
@@ -591,7 +593,7 @@ export function FlowsView(): React.ReactElement {
                     setScope('all')
                   }}
                 >
-                  清除过滤器
+                  {t('清除过滤器')}
                 </button>
               )}
             </div>
@@ -605,7 +607,7 @@ export function FlowsView(): React.ReactElement {
                     role="button"
                     tabIndex={0}
                     aria-expanded={expanded}
-                    aria-label={`展开 flow ${f.name} 的运行记录`}
+                    aria-label={t('展开 flow {name} 的运行记录', { name: f.name })}
                     data-toggle={f.id}
                     onClick={() => setExpandedId(expanded ? null : f.id)}
                     onKeyDown={(e) => {
@@ -626,15 +628,15 @@ export function FlowsView(): React.ReactElement {
                       <div className="sub">
                         <span className="mono">{f.id}</span>
                         {f.versionHash ? <span>{`sha ${f.versionHash.slice(0, 7)}`}</span> : null}
-                        <span>{`${f.nodeCount} 节点`}</span>
-                        <span>{`${f.runCount} 次运行`}</span>
+                        <span>{t('{n} 节点', { n: f.nodeCount })}</span>
+                        <span>{t('{n} 次运行', { n: f.runCount })}</span>
                       </div>
                     </div>
                     <div className="flow-card-meta">
                       {/* workflows 列表不携带运行状态 — 渲染中性的「未触发」，
                           不伪造带状态点的 idle 指示灯 */}
-                      <span className="muted" style={{ fontSize: 12 }} title="尚无运行状态数据">
-                        未触发
+                      <span className="muted" style={{ fontSize: 12 }} title={t('尚无运行状态数据')}>
+                        {t('未触发')}
                       </span>
                       {f.latestRunId ? (
                         <span className="chip chip-outline mono" style={{ fontSize: 10 }}>
@@ -648,44 +650,44 @@ export function FlowsView(): React.ReactElement {
                         className="btn btn-secondary btn-sm"
                         data-action="edit"
                         data-flow-id={f.id}
-                        title="在画布中编辑"
+                        title={t('在画布中编辑')}
                         onClick={(e) => {
                           e.stopPropagation()
                           router.push(`/workflows/${encodeURIComponent(f.id)}/canvas`)
                         }}
                       >
-                        编辑画布
+                        {t('编辑画布')}
                       </button>
                       <button
                         type="button"
                         className="btn btn-accent btn-sm"
                         data-action="run"
                         data-flow-id={f.id}
-                        title="运行此 flow"
+                        title={t('运行此 flow')}
                         disabled={runningId === f.id}
                         onClick={(e) => {
                           e.stopPropagation()
                           void runFlow(f.id)
                         }}
                       >
-                        {runningId === f.id ? '运行中…' : '▶ 运行'}
+                        {runningId === f.id ? t('运行中…') : t('▶ 运行')}
                       </button>
                     </div>
                   </div>
                   <div className="flow-runs">
                     <div className="run-list-head">
                       <span>Run ID</span>
-                      <span>触发</span>
-                      <span>状态</span>
-                      <span>耗时</span>
-                      <span>成本</span>
-                      <span>时间</span>
+                      <span>{t('触发')}</span>
+                      <span>{t('状态')}</span>
+                      <span>{t('耗时')}</span>
+                      <span>{t('成本')}</span>
+                      <span>{t('时间')}</span>
                       <span />
                     </div>
                     {/* 列表页没有真实的 run 历史数据（不伪造「手动触发」行）—
                         运行请从卡片「▶ 运行」按钮、Flow 详情页或画布触发 */}
                     <div className="muted" style={{ padding: 'var(--space-4)', fontSize: 12 }}>
-                      暂无运行记录 — 从 Flow 详情页或画布触发运行
+                      {t('暂无运行记录 — 从 Flow 详情页或画布触发运行')}
                     </div>
                   </div>
                 </div>
@@ -706,17 +708,17 @@ export function FlowsView(): React.ReactElement {
           type="button"
           className="flow-back"
           onClick={hideDetail}
-          aria-label="返回 AgentFlows 列表"
+          aria-label={t('返回 AgentFlows 列表')}
         >
           <Icon name="arrow" style={{ width: 14, height: 14, transform: 'rotate(180deg)' }} />
-          返回 Flow 列表
+          {t('返回 Flow 列表')}
         </button>
 
         <div className="flow-layout">
           <div className="flow-canvas-wrap">
             <div className="flow-canvas-head">
               <div className="title">
-                {detail ? `${detail.name} — ${selectedRunId ?? detail.latestExecutionId ?? '—'}` : loadingDetail ? '加载中…' : '—'}
+                {detail ? `${detail.name} — ${selectedRunId ?? detail.latestExecutionId ?? '—'}` : loadingDetail ? t('加载中…') : '—'}
               </div>
               {detail ? (
                 <>
@@ -726,7 +728,7 @@ export function FlowsView(): React.ReactElement {
                   </span>
                   <span className={`status ${detail.status}`}>
                     <span className="dot" />
-                    {STATUS_CN[detail.status]}
+                    {t(STATUS_CN[detail.status])}
                   </span>
                 </>
               ) : null}
@@ -739,23 +741,23 @@ export function FlowsView(): React.ReactElement {
               <FlowDag flow={mergedFlow} selectedNodeId={selectedNodeId} onSelectNode={onSelectNode} />
             ) : (
               <div className="muted" style={{ padding: 'var(--space-6)' }}>
-                {loadingDetail ? '加载 DAG…' : '—'}
+                {loadingDetail ? t('加载 DAG…') : '—'}
               </div>
             )}
             <div className="legend-flow">
-              <span className="li"><span className="sw running" />运行</span>
-              <span className="li"><span className="sw done" />完成</span>
-              <span className="li"><span className="sw queued" />排队</span>
-              <span className="li"><span className="sw failed" />失败</span>
-              <span className="li"><span className="sw paused" />人工暂停</span>
-              <span className="li"><span className="sw idle" />未触发</span>
-              <span className="li" style={{ marginLeft: 'auto', color: 'var(--meta)' }}>滚轮缩放 · 拖拽平移</span>
+              <span className="li"><span className="sw running" />{t('运行')}</span>
+              <span className="li"><span className="sw done" />{t('完成')}</span>
+              <span className="li"><span className="sw queued" />{t('排队')}</span>
+              <span className="li"><span className="sw failed" />{t('失败')}</span>
+              <span className="li"><span className="sw paused" />{t('人工暂停')}</span>
+              <span className="li"><span className="sw idle" />{t('未触发')}</span>
+              <span className="li" style={{ marginLeft: 'auto', color: 'var(--meta)' }}>{t('滚轮缩放 · 拖拽平移')}</span>
             </div>
           </div>
 
           <div className="flow-inspector">
             <div className="flow-insp-head">
-              <div className="type">{selectedNode ? `${selectedNode.type} 节点` : 'Flow 概览'}</div>
+              <div className="type">{selectedNode ? t('{type} 节点', { type: selectedNode.type }) : t('Flow 概览')}</div>
               <div className="nm">{selectedNode ? selectedNode.label : (detail?.name ?? '—')}</div>
             </div>
             <div className="flow-insp-body">
@@ -803,18 +805,18 @@ function NodeInspector({
   detail: FlowDetailView | null
   span?: RunNodeSpan
 }): React.ReactElement {
+  const { t } = useI18n()
   const node = detail?.nodes.find((n) => n.id === nodeId) ?? null
   const metrics = detail?.nodeMetrics[nodeId]
 
   if (!node) {
     return (
       <div className="flow-insp-section">
-        <p className="muted" style={{ fontSize: 12 }}>节点不存在。</p>
+        <p className="muted" style={{ fontSize: 12 }}>{t('节点不存在。')}</p>
       </div>
     )
   }
 
-  const spanStatus = span ? SPAN_STATUS_CN[span.status] ?? span.status : null
   const tokenTotal = sumTokens(span?.tokens)
   // Best-effort input/output text from the span's opaque `data` blob
   // (for Agent/LLM nodes that's `{ input, output: { content, … } }`).
@@ -825,31 +827,31 @@ function NodeInspector({
   return (
     <>
       <div className="flow-insp-section">
-        <div className="lbl">状态</div>
+        <div className="lbl">{t('状态')}</div>
         <dl className="run-meta">
-          <dt>节点状态</dt>
+          <dt>{t('节点状态')}</dt>
           <dd>
             <span className={`status ${node.status}`}>
               <span className="dot" />
-              {STATUS_CN[node.status]}
+              {t(STATUS_CN[node.status])}
             </span>
           </dd>
           {span ? (
             <>
-              <dt>落库状态</dt>
+              <dt>{t('落库状态')}</dt>
               <dd>
                 <span className={`status ${span.status}`}>
                   <span className="dot" />
-                  {spanStatus}
+                  {t(SPAN_STATUS_CN[span.status] ?? span.status)}
                 </span>
               </dd>
             </>
           ) : null}
-          <dt>所属 run</dt>
+          <dt>{t('所属 run')}</dt>
           <dd>{runId ? runId.slice(0, 16) : (metrics?.executionId?.slice(0, 8) ?? '—')}{runId ? '…' : (metrics?.executionId ? '…' : '')}</dd>
-          <dt>所属 flow</dt>
+          <dt>{t('所属 flow')}</dt>
           <dd>{detail?.id.slice(0, 8) ?? '—'}…</dd>
-          <dt>节点类型</dt>
+          <dt>{t('节点类型')}</dt>
           <dd>{node.nodeType ?? node.type ?? '—'}</dd>
           {span?.traceId ? (
             <>
@@ -861,51 +863,51 @@ function NodeInspector({
       </div>
       {node.description ? (
         <div className="flow-insp-section">
-          <div className="lbl">节点说明</div>
-          <p className="muted" style={{ fontSize: 12 }}>{node.description}</p>
+          <div className="lbl">{t('节点说明')}</div>
+          <p className="muted" style={{ fontSize: 12 }}>{t(node.description)}</p>
         </div>
       ) : null}
       {node.config && Object.keys(node.config).length > 0 ? (
         <div className="flow-insp-section">
-          <div className="lbl">节点配置</div>
+          <div className="lbl">{t('节点配置')}</div>
           <div className="io-box">{formatJson(node.config)}</div>
         </div>
       ) : null}
       <div className="flow-insp-section">
-        <div className="lbl">输入</div>
+        <div className="lbl">{t('输入')}</div>
         <div className="io-box">{input}</div>
       </div>
       <div className="flow-insp-section">
-        <div className="lbl">输出</div>
+        <div className="lbl">{t('输出')}</div>
         <div className="io-box">{output}</div>
       </div>
       <div className="flow-insp-section">
-        <div className="lbl">预算与计量</div>
+        <div className="lbl">{t('预算与计量')}</div>
         <dl className="run-meta">
-          <dt>预算上限</dt>
+          <dt>{t('预算上限')}</dt>
           <dd>—</dd>
-          <dt>已用 tokens</dt>
+          <dt>{t('已用 tokens')}</dt>
           <dd>{tokenTotal != null ? formatTokens(tokenTotal) : '—'}</dd>
-          <dt>已用成本</dt>
+          <dt>{t('已用成本')}</dt>
           <dd>{span?.cost != null ? `$${span.cost.toFixed(4)}` : '—'}</dd>
-          <dt>耗时</dt>
+          <dt>{t('耗时')}</dt>
           <dd>{span?.durationMs != null ? formatDuration(span.durationMs) : '—'}</dd>
-          <dt>超时</dt>
+          <dt>{t('超时')}</dt>
           <dd>—</dd>
         </dl>
         {span?.error ? (
           <p className="muted" style={{ fontSize: 11, marginTop: 'var(--space-2)', color: 'var(--danger)' }}>
-            节点错误：{span.error.slice(0, 200)}
+            {t('节点错误：{msg}', { msg: span.error.slice(0, 200) })}
           </p>
         ) : null}
         {!span ? (
           <p className="muted" style={{ fontSize: 11, marginTop: 'var(--space-2)' }}>
-            节点级 token/成本/耗时来自 M6.4 节点级 trace 落库；该 run 暂无落库 span。
+            {t('节点级 token/成本/耗时来自 M6.4 节点级 trace 落库；该 run 暂无落库 span。')}
           </p>
         ) : null}
       </div>
       <div className="flow-insp-section">
-        <div className="lbl">日志</div>
+        <div className="lbl">{t('日志')}</div>
         {metrics && metrics.logs.length > 0 ? (
           <div className="log" style={{ maxHeight: 220 }}>
             {metrics.logs.map((l, i) => (
@@ -917,7 +919,7 @@ function NodeInspector({
             ))}
           </div>
         ) : (
-          <div className="muted" style={{ fontSize: 12 }}>暂无日志</div>
+          <div className="muted" style={{ fontSize: 12 }}>{t('暂无日志')}</div>
         )}
       </div>
     </>
@@ -926,10 +928,11 @@ function NodeInspector({
 
 /** Right-column inspector when no node is selected — the flow's overall state. */
 function FlowOverview({ detail }: { detail: FlowDetailView | null }): React.ReactElement {
+  const { t } = useI18n()
   if (!detail) {
     return (
       <div className="flow-insp-section">
-        <p className="muted" style={{ fontSize: 12 }}>选择一个 flow 查看概览。</p>
+        <p className="muted" style={{ fontSize: 12 }}>{t('选择一个 flow 查看概览。')}</p>
       </div>
     )
   }
@@ -940,39 +943,40 @@ function FlowOverview({ detail }: { detail: FlowDetailView | null }): React.Reac
   return (
     <>
       <div className="flow-insp-section">
-        <div className="lbl">Flow 状态</div>
+        <div className="lbl">{t('Flow 状态')}</div>
         <dl className="run-meta">
-          <dt>整体状态</dt>
+          <dt>{t('整体状态')}</dt>
           <dd>
             <span className={`status ${detail.status}`}>
               <span className="dot" />
-              {STATUS_CN[detail.status]}
+              {t(STATUS_CN[detail.status])}
             </span>
           </dd>
-          <dt>节点数</dt>
+          <dt>{t('节点数')}</dt>
           <dd>{detail.nodes.length}</dd>
-          <dt>最近 run</dt>
+          <dt>{t('最近 run')}</dt>
           <dd>{detail.latestExecutionId?.slice(0, 8) ?? '—'}{detail.latestExecutionId ? '…' : ''}</dd>
-          <dt>更新时间</dt>
+          <dt>{t('更新时间')}</dt>
           <dd>{detail.updatedAt.slice(11, 19)}</dd>
         </dl>
       </div>
       <div className="flow-insp-section">
-        <div className="lbl">节点状态分布</div>
+        <div className="lbl">{t('节点状态分布')}</div>
         <dl className="run-meta">
           {(Object.keys(STATUS_CN) as NodeRunStatus[]).map((s) => (
             <span key={s} style={{ display: 'contents' }}>
-              <dt>{STATUS_CN[s]}</dt>
+              <dt>{t(STATUS_CN[s])}</dt>
               <dd>{byStatus[s] ?? 0}</dd>
             </span>
           ))}
         </dl>
       </div>
       <div className="flow-insp-section">
-        <div className="lbl">提示</div>
+        <div className="lbl">{t('提示')}</div>
         <p className="muted" style={{ fontSize: 11, lineHeight: 1.6 }}>
-          点击 DAG 中的节点查看其状态与日志。画布只读浏览；编排请在
-          <code className="mono"> Workflow </code>画布完成。
+          {t('点击 DAG 中的节点查看其状态与日志。画布只读浏览；编排请在')}
+          <code className="mono"> Workflow </code>
+          {t('画布完成。')}
         </p>
       </div>
     </>

@@ -21,6 +21,7 @@ import { Icon } from '@/components/icon'
 import { CreateAgentDialog } from '@/components/create-agent-dialog'
 import { AgentTemplateGallery } from '@/components/agent-template-gallery'
 import { SkeletonList } from '@/components/skeleton'
+import { useI18n } from '@/i18n'
 import '@/styles/agents.css'
 import {
   type AgentFilters,
@@ -89,6 +90,7 @@ function glyphClass(kind: AgentKind): string {
 
 export function AgentsView(): React.ReactElement {
   const router = useRouter()
+  const { t } = useI18n()
   const [agents, setAgents] = useState<CatalogAgent[]>([])
   const [loading, setLoading] = useState(true)
   const [error, setError] = useState<string | null>(null)
@@ -174,32 +176,32 @@ export function AgentsView(): React.ReactElement {
     <PageShell fullBleed>
       {/* scope tabs + actions on the same row */}
       <div className="scope-tabs-row mb-6">
-        <div className="scope-tabs" role="tablist" aria-label="agent 范围">
-          {SCOPE_TABS.map((t) => (
+        <div className="scope-tabs" role="tablist" aria-label={t('agent 范围')}>
+          {SCOPE_TABS.map((tab) => (
             <button
-              key={t.key}
+              key={tab.key}
               type="button"
               role="tab"
-              aria-selected={scope === t.key}
-              data-scope={t.key}
-              data-zero={scopeCounts[t.key] === 0 ? 'true' : undefined}
-              onClick={() => setScope(t.key)}
+              aria-selected={scope === tab.key}
+              data-scope={tab.key}
+              data-zero={scopeCounts[tab.key] === 0 ? 'true' : undefined}
+              onClick={() => setScope(tab.key)}
             >
-              {t.label}
-              <span className="cnt">{scopeCounts[t.key]}</span>
+              {t(tab.label)}
+              <span className="cnt">{scopeCounts[tab.key]}</span>
             </button>
           ))}
         </div>
         <div className="grow" />
         <span className="result-count">
-          {visibleSorted.length} / {scoped.length} 个 agent
+          {t('{n} / {total} 个 agent', { n: visibleSorted.length, total: scoped.length })}
         </span>
         <button
           type="button"
           className="btn btn-secondary btn-sm"
           onClick={() => void load()}
         >
-          刷新
+          {t('刷新')}
         </button>
         <button
           type="button"
@@ -207,7 +209,7 @@ export function AgentsView(): React.ReactElement {
           onClick={() => setTemplateOpen(true)}
         >
           <Icon name="zap" style={{ width: 14, height: 14 }} />
-          从模板创建
+          {t('从模板创建')}
         </button>
         <button
           type="button"
@@ -215,7 +217,7 @@ export function AgentsView(): React.ReactElement {
           onClick={() => setCreateOpen(true)}
         >
           <Icon name="plus" style={{ width: 14, height: 14 }} />
-          新建 Agent
+          {t('新建 Agent')}
         </button>
       </div>
 
@@ -225,8 +227,8 @@ export function AgentsView(): React.ReactElement {
           <Icon name="search" />
           <input
             type="search"
-            placeholder="搜索名称 / ID / 类型…"
-            aria-label="搜索 agents"
+            placeholder={t('搜索名称 / ID / 类型…')}
+            aria-label={t('搜索 agents')}
             value={filters.q}
             onChange={(e) => setFilters((p) => ({ ...p, q: e.target.value }))}
           />
@@ -239,7 +241,7 @@ export function AgentsView(): React.ReactElement {
             aria-pressed={filters.kind === k}
             onClick={() => toggleFilter('kind', k)}
           >
-            {kindLabel(k)}
+            {t(kindLabel(k))}
           </button>
         ))}
         {STATUS_FILTERS.map((s) => (
@@ -250,7 +252,7 @@ export function AgentsView(): React.ReactElement {
             aria-pressed={filters.status === s}
             onClick={() => toggleFilter('status', s)}
           >
-            {STATUS_LABEL[s]}
+            {t(STATUS_LABEL[s])}
           </button>
         ))}
         <div className="grow" />
@@ -258,9 +260,9 @@ export function AgentsView(): React.ReactElement {
 
       {error ? (
         <div className="agents-error">
-          加载失败：{error}
+          {t('加载失败：{error}', { error })}
           <button type="button" className="btn btn-ghost btn-sm" onClick={() => void load()}>
-            重试
+            {t('重试')}
           </button>
         </div>
       ) : null}
@@ -272,11 +274,11 @@ export function AgentsView(): React.ReactElement {
         ) : visibleSorted.length === 0 && !error ? (
           <div className="empty-state">
             <div className="empty-state-icon" aria-hidden="true">🤖</div>
-            <div className="h">{agents.length === 0 ? '还没有 Agent' : '没有匹配的 Agent'}</div>
+            <div className="h">{agents.length === 0 ? t('还没有 Agent') : t('没有匹配的 Agent')}</div>
             <div className="d">
               {agents.length === 0
-                ? '创建你的第一个 Agent，定义它的提示词、工具和模型。'
-                : '试试调整筛选条件或清除搜索。'}
+                ? t('创建你的第一个 Agent，定义它的提示词、工具和模型。')
+                : t('试试调整筛选条件或清除搜索。')}
             </div>
             {agents.length === 0 ? (
               <button
@@ -285,7 +287,7 @@ export function AgentsView(): React.ReactElement {
                 onClick={() => setCreateOpen(true)}
               >
                 <Icon name="plus" style={{ width: 14, height: 14 }} />
-                新建 Agent
+                {t('新建 Agent')}
               </button>
             ) : (
               <button
@@ -293,7 +295,7 @@ export function AgentsView(): React.ReactElement {
                 className="btn btn-ghost btn-sm"
                 onClick={() => setFilters(NO_FILTERS)}
               >
-                清除过滤器
+                {t('清除过滤器')}
               </button>
             )}
           </div>
@@ -305,7 +307,7 @@ export function AgentsView(): React.ReactElement {
               style={{ '--enter-i': i } as React.CSSProperties}
               role="button"
               tabIndex={0}
-              aria-label={`查看 agent ${a.name} 详情`}
+              aria-label={t('查看 agent {name} 详情', { name: a.name })}
               onClick={() => onRowClick(a.id)}
               onKeyDown={(e) => {
                 if (e.key === 'Enter' || e.key === ' ') {
@@ -320,32 +322,32 @@ export function AgentsView(): React.ReactElement {
                   <div className="nm">{a.name}</div>
                   <div className="sub">
                     <span className="mono">{a.id.slice(0, 8)}</span>
-                    <span>{kindLabel(a.kind)}</span>
+                    <span>{t(kindLabel(a.kind))}</span>
                     {a.run ? <span className="mono">{a.run}</span> : null}
                   </div>
                 </div>
                 <div className="agent-card-meta">
                   <span className={`agent-status ${a.status}`}>
                     <span className={`status-dot ${STATUS_DOT_CLASS[a.status]}`} />
-                    {STATUS_LABEL[a.status]}
+                    {t(STATUS_LABEL[a.status])}
                   </span>
                   {/* load/cost 均为前端估算（非网关下发的真实数据）— 带「估」标记 */}
-                  <div className="agent-load" title="按运行时长推算的负载估计，非实时监控">
+                  <div className="agent-load" title={t('按运行时长推算的负载估计，非实时监控')}>
                     <div className="load-bar">
                       <span
                         className={`load-fill${a.load > 85 ? ' danger' : a.load > 70 ? ' warn' : ''}`}
                         style={{ width: `${a.load}%` }}
                       />
                     </div>
-                    <span className="load-val mono">{a.load}% 估</span>
+                    <span className="load-val mono">{t('{n}% 估', { n: a.load })}</span>
                   </div>
                   {a.cost !== '—' ? (
                     <span
                       className="chip chip-outline mono"
                       style={{ fontSize: 10 }}
-                      title="按 $0.01/1k tokens 估算，非真实账单"
+                      title={t('按 $0.01/1k tokens 估算，非真实账单')}
                     >
-                      估 · {a.cost}
+                      {t('估 · {cost}', { cost: a.cost })}
                     </span>
                   ) : null}
                 </div>
@@ -353,13 +355,13 @@ export function AgentsView(): React.ReactElement {
                   <button
                     type="button"
                     className="btn btn-secondary btn-sm"
-                    title="查看详情"
+                    title={t('查看详情')}
                     onClick={(e) => {
                       e.stopPropagation()
                       onRowClick(a.id)
                     }}
                   >
-                    查看详情
+                    {t('查看详情')}
                   </button>
                 </div>
               </div>

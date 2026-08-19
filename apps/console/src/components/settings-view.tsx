@@ -38,6 +38,7 @@ import {
   type LlmProviderFormInput,
   type LlmProviderStatus,
 } from '@/lib/llm-providers'
+import { useI18n } from '@/i18n'
 
 /** The settings tabs, grouped as the design's sub-nav renders them. */
 type TabId = 'keys' | 'runtimes' | 'models' | 'quota' | 'notify' | 'audit' | 'account' | 'danger'
@@ -120,15 +121,16 @@ const EMPTY_FORM: LlmProviderFormInput = {
 }
 
 export function SettingsView(): React.ReactElement {
+  const { t } = useI18n()
   const [tab, setTab] = useState<TabId>('keys')
 
   return (
     <PageShell>
       <div className="settings-layout">
-        <nav className="settings-nav" aria-label="设置分组" role="tablist">
+        <nav className="settings-nav" aria-label={t('设置分组')} role="tablist">
           {TAB_GROUPS.map((g) => (
             <div key={g.label}>
-              <div className="settings-grp">{g.label}</div>
+              <div className="settings-grp">{t(g.label)}</div>
               {g.tabs.map((it) => (
                 <button
                   key={it.id}
@@ -137,10 +139,10 @@ export function SettingsView(): React.ReactElement {
                   className="settings-tab"
                   aria-selected={tab === it.id}
                   aria-current={tab === it.id ? 'true' : undefined}
-                  aria-label={TAB_A11Y[it.id]}
+                  aria-label={t(TAB_A11Y[it.id])}
                   onClick={() => setTab(it.id)}
                 >
-                  {it.label}
+                  {t(it.label)}
                 </button>
               ))}
             </div>
@@ -165,6 +167,7 @@ export function SettingsView(): React.ReactElement {
 // ─── LLM Provider tab ───────────────────────────────────────────────
 
 function LlmProvidersTab(): React.ReactElement {
+  const { t } = useI18n()
   const [providers, setProviders] = useState<LlmProvider[]>([])
   const [loading, setLoading] = useState(true)
   const [error, setError] = useState<string | null>(null)
@@ -250,14 +253,14 @@ function LlmProvidersTab(): React.ReactElement {
       }
       if (editing.id === null) {
         await createLlmProvider(form)
-        setToast({ msg: `Provider「${name}」已创建`, kind: 'ok' })
+        setToast({ msg: t('Provider「{name}」已创建', { name }), kind: 'ok' })
       } else {
         const updatePayload: Partial<LlmProviderFormInput> = { ...form }
         if (!form.apiKey) {
           delete updatePayload.apiKey
         }
         await updateLlmProvider(editing.id, updatePayload)
-        setToast({ msg: `Provider「${name}」已更新`, kind: 'ok' })
+        setToast({ msg: t('Provider「{name}」已更新', { name }), kind: 'ok' })
       }
       setEditing(null)
       await load()
@@ -274,7 +277,7 @@ function LlmProvidersTab(): React.ReactElement {
     try {
       await updateLlmProvider(p.id, { status: nextStatus })
       await load()
-      setToast({ msg: `Provider「${p.name}」已${nextStatus === 'disabled' ? '禁用' : '启用'}`, kind: 'ok' })
+      setToast({ msg: t(nextStatus === 'disabled' ? 'Provider「{name}」已禁用' : 'Provider「{name}」已启用', { name: p.name }), kind: 'ok' })
     } catch (err) {
       setToast({ msg: err instanceof Error ? err.message : String(err), kind: 'err' })
     } finally {
@@ -286,7 +289,7 @@ function LlmProvidersTab(): React.ReactElement {
     setTestingId(p.id)
     try {
       const result = await testLlmProvider(p.id)
-      setToast({ msg: `连接成功，发现 ${result.models.length} 个模型`, kind: 'ok' })
+      setToast({ msg: t('连接成功，发现 {n} 个模型', { n: result.models.length }), kind: 'ok' })
     } catch (err) {
       setToast({ msg: err instanceof Error ? err.message : String(err), kind: 'err' })
     } finally {
@@ -299,7 +302,7 @@ function LlmProvidersTab(): React.ReactElement {
     setBusy(true)
     try {
       await deleteLlmProvider(pendingDelete.id)
-      setToast({ msg: `Provider「${pendingDelete.name}」已删除`, kind: 'ok' })
+      setToast({ msg: t('Provider「{name}」已删除', { name: pendingDelete.name }), kind: 'ok' })
       setPendingDelete(null)
       await load()
     } catch (err) {
@@ -310,12 +313,12 @@ function LlmProvidersTab(): React.ReactElement {
   }
 
   return (
-    <section className="settings-section active" aria-label={TAB_LABEL.keys}>
+    <section className="settings-section active" aria-label={t(TAB_LABEL.keys)}>
       <div className="row-between mb-4">
         <div>
-          <div className="card-title" style={{ fontSize: 'var(--text-lg)' }}>{TAB_LABEL.keys}</div>
+          <div className="card-title" style={{ fontSize: 'var(--text-lg)' }}>{t(TAB_LABEL.keys)}</div>
           <div className="muted mt-2" style={{ fontSize: 13 }}>
-            管理 LLM 服务商配置，支持多 Provider 接入与统一鉴权
+            {t('管理 LLM 服务商配置，支持多 Provider 接入与统一鉴权')}
           </div>
         </div>
       </div>
@@ -325,8 +328,8 @@ function LlmProvidersTab(): React.ReactElement {
           <Icon name="search" />
           <input
             type="search"
-            placeholder="搜索 Provider 名称、类型、Base URL、默认模型…"
-            aria-label="搜索 Provider"
+            placeholder={t('搜索 Provider 名称、类型、Base URL、默认模型…')}
+            aria-label={t('搜索 Provider')}
             value={query}
             onChange={(e) => setQuery(e.target.value)}
           />
@@ -339,15 +342,15 @@ function LlmProvidersTab(): React.ReactElement {
             aria-pressed={statusFilter === s}
             onClick={() => setStatusFilter((prev) => (prev === s ? null : s))}
           >
-            {llmProviderStatusText(s)}
+            {t(llmProviderStatusText(s))}
           </button>
         ))}
         <span className="tk-count">
-          {filtered.length} / {providers.length} 个 Provider
+          {t('{n} / {total} 个 Provider', { n: filtered.length, total: providers.length })}
         </span>
         <div className="grow" />
         <button type="button" className="btn btn-accent btn-sm" onClick={openCreate}>
-          + 新建 Provider
+          {t('+ 新建 Provider')}
         </button>
       </div>
 
@@ -355,28 +358,28 @@ function LlmProvidersTab(): React.ReactElement {
         <table className="data" style={{ width: '100%' }}>
           <thead>
             <tr>
-              <th style={{ width: '20%' }}>名称</th>
-              <th style={{ width: '14%' }}>类型</th>
+              <th style={{ width: '20%' }}>{t('名称')}</th>
+              <th style={{ width: '14%' }}>{t('类型')}</th>
               <th style={{ width: '22%' }}>Base URL</th>
-              <th style={{ width: '16%' }}>默认模型</th>
-              <th style={{ width: '12%' }}>状态</th>
-              <th style={{ textAlign: 'right' }}>操作</th>
+              <th style={{ width: '16%' }}>{t('默认模型')}</th>
+              <th style={{ width: '12%' }}>{t('状态')}</th>
+              <th style={{ textAlign: 'right' }}>{t('操作')}</th>
             </tr>
           </thead>
           <tbody>
             {loading ? (
               <tr>
                 <td colSpan={6} className="tc muted" style={{ padding: 'var(--space-12)' }}>
-                  加载中…
+                  {t('加载中…')}
                 </td>
               </tr>
             ) : error ? (
               <tr>
                 <td colSpan={6} className="tc" style={{ padding: 'var(--space-12)', color: 'var(--danger)' }}>
-                  加载失败：{error}
+                  {t('加载失败：{error}', { error })}
                   <div className="mt-2">
                     <button type="button" className="btn btn-secondary btn-sm" onClick={() => void load()}>
-                      重试
+                      {t('重试')}
                     </button>
                   </div>
                 </td>
@@ -384,7 +387,7 @@ function LlmProvidersTab(): React.ReactElement {
             ) : filtered.length === 0 ? (
               <tr>
                 <td colSpan={6} className="tc muted" style={{ padding: 'var(--space-12)' }}>
-                  {query || statusFilter ? '没有匹配的 Provider。' : '还没有 Provider。Flow 工作流节点（LLM / Agent / PlatformAgent）需要在此配置 Provider 才能调用大模型。对话功能不受影响——CLI 自带 LLM 配置。点击「+ 新建 Provider」开始配置。'}
+                  {query || statusFilter ? t('没有匹配的 Provider。') : t('还没有 Provider。Flow 工作流节点（LLM / Agent / PlatformAgent）需要在此配置 Provider 才能调用大模型。对话功能不受影响——CLI 自带 LLM 配置。点击「+ 新建 Provider」开始配置。')}
                 </td>
               </tr>
             ) : (
@@ -410,7 +413,7 @@ function LlmProvidersTab(): React.ReactElement {
                   <td>
                     <span className={`status ${p.status === 'active' ? 'running' : 'idle'}`}>
                       <span className="dot" />
-                      {llmProviderStatusText(p.status)}
+                      {t(llmProviderStatusText(p.status))}
                     </span>
                   </td>
                   <td>
@@ -418,8 +421,8 @@ function LlmProvidersTab(): React.ReactElement {
                       <button
                         type="button"
                         className="mini-btn"
-                        aria-label={p.status === 'active' ? '禁用' : '启用'}
-                        title={p.status === 'active' ? '禁用' : '启用'}
+                        aria-label={t(p.status === 'active' ? '禁用' : '启用')}
+                        title={t(p.status === 'active' ? '禁用' : '启用')}
                         disabled={busy}
                         onClick={() => void toggleStatus(p)}
                       >
@@ -428,8 +431,8 @@ function LlmProvidersTab(): React.ReactElement {
                       <button
                         type="button"
                         className="mini-btn"
-                        aria-label="测试连接"
-                        title="测试连接"
+                        aria-label={t('测试连接')}
+                        title={t('测试连接')}
                         disabled={busy || testingId === p.id}
                         onClick={() => void testConnection(p)}
                       >
@@ -438,8 +441,8 @@ function LlmProvidersTab(): React.ReactElement {
                       <button
                         type="button"
                         className="mini-btn"
-                        aria-label="编辑"
-                        title="编辑"
+                        aria-label={t('编辑')}
+                        title={t('编辑')}
                         disabled={busy}
                         onClick={() => openEdit(p)}
                       >
@@ -448,8 +451,8 @@ function LlmProvidersTab(): React.ReactElement {
                       <button
                         type="button"
                         className="mini-btn danger"
-                        aria-label="删除"
-                        title="删除"
+                        aria-label={t('删除')}
+                        title={t('删除')}
                         disabled={busy}
                         onClick={() => setPendingDelete(p)}
                       >
@@ -465,7 +468,7 @@ function LlmProvidersTab(): React.ReactElement {
       </div>
 
       <p className="muted mt-3" style={{ fontSize: 12, lineHeight: 1.6 }}>
-        Provider 配置由网关统一管理，API Key 以掩码形式显示，原文不返回前端。所有 LLM 调用经网关统一鉴权与路由。
+        {t('Provider 配置由网关统一管理，API Key 以掩码形式显示，原文不返回前端。所有 LLM 调用经网关统一鉴权与路由。')}
       </p>
 
       {editing ? (
@@ -520,6 +523,7 @@ interface RuntimeDetection {
 }
 
 function RuntimesTab(): React.ReactElement {
+  const { t } = useI18n()
   const [detections, setDetections] = useState<Record<string, RuntimeDetection>>({})
   const [loading, setLoading] = useState(true)
 
@@ -548,19 +552,21 @@ function RuntimesTab(): React.ReactElement {
   const installedCount = Object.values(detections).filter((d) => d.available).length
 
   return (
-    <section className="settings-section active" aria-label={TAB_LABEL.runtimes}>
+    <section className="settings-section active" aria-label={t(TAB_LABEL.runtimes)}>
       <div className="row-between mb-4">
         <div>
-          <div className="card-title" style={{ fontSize: 'var(--text-lg)' }}>{TAB_LABEL.runtimes}</div>
+          <div className="card-title" style={{ fontSize: 'var(--text-lg)' }}>{t(TAB_LABEL.runtimes)}</div>
           <div className="muted mt-2" style={{ fontSize: 13 }}>
-            平台支持的全部 CLI agent 运行时。Gateway 自动检测本机 <code className="mono">PATH</code>，已安装的可直接在对话中使用。
+            {t('平台支持的全部 CLI agent 运行时。Gateway 自动检测本机 ')}
+            <code className="mono">PATH</code>
+            {t('，已安装的可直接在对话中使用。')}
           </div>
         </div>
         <div className="row-between" style={{ gap: 'var(--space-3)' }}>
           {!loading && (
             <span className={`status ${installedCount > 0 ? 'running' : 'idle'}`}>
               <span className="dot" />
-              {installedCount} 个已安装
+              {t('{n} 个已安装', { n: installedCount })}
             </span>
           )}
           <button
@@ -568,7 +574,7 @@ function RuntimesTab(): React.ReactElement {
             className="btn btn-secondary btn-sm"
             onClick={() => { setLoading(true); window.location.reload() }}
           >
-            ↻ 重新检测
+            {t('↻ 重新检测')}
           </button>
         </div>
       </div>
@@ -577,12 +583,12 @@ function RuntimesTab(): React.ReactElement {
         <table className="data" style={{ width: '100%' }}>
           <thead>
             <tr>
-              <th style={{ width: '18%' }}>名称</th>
-              <th style={{ width: '16%' }}>二进制</th>
-              <th style={{ width: '12%' }}>协议</th>
-              <th style={{ width: '10%' }}>分组</th>
-              <th style={{ width: '12%' }}>状态</th>
-              <th>说明</th>
+              <th style={{ width: '18%' }}>{t('名称')}</th>
+              <th style={{ width: '16%' }}>{t('二进制')}</th>
+              <th style={{ width: '12%' }}>{t('协议')}</th>
+              <th style={{ width: '10%' }}>{t('分组')}</th>
+              <th style={{ width: '12%' }}>{t('状态')}</th>
+              <th>{t('说明')}</th>
             </tr>
           </thead>
           <tbody>
@@ -593,7 +599,7 @@ function RuntimesTab(): React.ReactElement {
                 <tr key={r.kind}>
                   <td>
                     <div className="tk-name">
-                      <div className="nm">{r.label}</div>
+                      <div className="nm">{t(r.label)}</div>
                       <div className="meta">
                         <span className="mono" style={{ fontSize: 11 }}>{r.kind}</span>
                       </div>
@@ -611,28 +617,28 @@ function RuntimesTab(): React.ReactElement {
                     <span className="tk-group">{PROTOCOL_LABEL[r.protocol] ?? r.protocol}</span>
                   </td>
                   <td>
-                    <span className="chip chip-outline" style={{ fontSize: 11 }}>{r.group}</span>
+                    <span className="chip chip-outline" style={{ fontSize: 11 }}>{t(r.group)}</span>
                   </td>
                   <td>
                     {loading ? (
                       <span className="status idle">
                         <span className="dot" />
-                        检测中…
+                        {t('检测中…')}
                       </span>
                     ) : available ? (
                       <span className="status running">
                         <span className="dot" />
-                        已安装
+                        {t('已安装')}
                       </span>
                     ) : (
                       <span className="status idle">
                         <span className="dot" />
-                        未安装
+                        {t('未安装')}
                       </span>
                     )}
                   </td>
                   <td>
-                    <span className="muted" style={{ fontSize: 12 }}>{r.hint}</span>
+                    <span className="muted" style={{ fontSize: 12 }}>{t(r.hint)}</span>
                   </td>
                 </tr>
               )
@@ -642,7 +648,9 @@ function RuntimesTab(): React.ReactElement {
       </div>
 
       <p className="muted mt-3" style={{ fontSize: 12, lineHeight: 1.6 }}>
-        状态由 Gateway 实时检测（<code className="mono">which &lt;binary&gt;</code>）。已安装的 CLI 可直接在对话中选择对应 Agent 使用——无需手动启动 daemon。未安装的请参考各 CLI 官方文档安装。
+        {t('状态由 Gateway 实时检测（')}
+        <code className="mono">which &lt;binary&gt;</code>
+        {t('）。已安装的 CLI 可直接在对话中选择对应 Agent 使用——无需手动启动 daemon。未安装的请参考各 CLI 官方文档安装。')}
       </p>
     </section>
   )
@@ -656,6 +664,7 @@ function LlmProviderModal(props: {
   onCancel: () => void
   onSave: () => void
 }): React.ReactElement {
+  const { t } = useI18n()
   const { form, isEdit, busy, onChange, onCancel, onSave } = props
   const [touched, setTouched] = useState(false)
   const nameInvalid = form.name.trim().length === 0
@@ -671,8 +680,8 @@ function LlmProviderModal(props: {
     <div className="modal-backdrop open" onClick={(e) => e.target === e.currentTarget && onCancel()}>
       <div className="modal" role="dialog" aria-modal="true" aria-labelledby="lp-title">
         <div className="modal-head">
-          <div className="title" id="lp-title">{isEdit ? '编辑 Provider' : '新建 Provider'}</div>
-          <button type="button" className="icon-btn" aria-label="关闭" onClick={onCancel}>
+          <div className="title" id="lp-title">{isEdit ? t('编辑 Provider') : t('新建 Provider')}</div>
+          <button type="button" className="icon-btn" aria-label={t('关闭')} onClick={onCancel}>
             ✕
           </button>
         </div>
@@ -686,22 +695,22 @@ function LlmProviderModal(props: {
           >
             <div className="modal-grid">
               <div className={`field full ${touched && nameInvalid ? 'invalid' : ''}`}>
-                <label htmlFor="f-name">名称 *</label>
+                <label htmlFor="f-name">{t('名称 *')}</label>
                 <input
                   id="f-name"
                   className="input"
                   required
                   maxLength={60}
-                  placeholder="如：OpenAI 官方"
+                  placeholder={t('如：OpenAI 官方')}
                   value={form.name}
                   onChange={(e) => set('name', e.target.value)}
                   onBlur={() => setTouched(true)}
                   aria-invalid={touched && nameInvalid}
                 />
-                <span className="field-error">名称不能为空。</span>
+                <span className="field-error">{t('名称不能为空。')}</span>
               </div>
               <div className="field">
-                <label htmlFor="f-provider-type">Provider 类型</label>
+                <label htmlFor="f-provider-type">{t('Provider 类型')}</label>
                 <select
                   id="f-provider-type"
                   className="select"
@@ -714,7 +723,7 @@ function LlmProviderModal(props: {
                 </select>
               </div>
               <div className={`field ${touched && baseUrlInvalid ? 'invalid' : ''}`}>
-                <label htmlFor="f-base-url">Base URL *</label>
+                <label htmlFor="f-base-url">{t('Base URL *')}</label>
                 <input
                   id="f-base-url"
                   className="input"
@@ -725,26 +734,26 @@ function LlmProviderModal(props: {
                   onBlur={() => setTouched(true)}
                   aria-invalid={touched && baseUrlInvalid}
                 />
-                <span className="field-error">Base URL 不能为空。</span>
+                <span className="field-error">{t('Base URL 不能为空。')}</span>
               </div>
               <div className={`field full ${touched && apiKeyRequired ? 'invalid' : ''}`}>
                 <label htmlFor="f-api-key">
-                  API Key {isEdit ? <span className="hint">（留空表示不修改）</span> : ' *'}
+                  API Key {isEdit ? <span className="hint">{t('（留空表示不修改）')}</span> : t(' *')}
                 </label>
                 <input
                   id="f-api-key"
                   className="input"
                   type="password"
-                  placeholder={isEdit ? '••••••••（留空不修改）' : 'sk-...'}
+                  placeholder={isEdit ? t('••••••••（留空不修改）') : 'sk-...'}
                   value={form.apiKey ?? ''}
                   onChange={(e) => set('apiKey', e.target.value)}
                   onBlur={() => setTouched(true)}
                   aria-invalid={touched && apiKeyRequired}
                 />
-                {touched && apiKeyRequired && <span className="field-error">API Key 不能为空。</span>}
+                {touched && apiKeyRequired && <span className="field-error">{t('API Key 不能为空。')}</span>}
               </div>
               <div className={`field ${touched && defaultModelInvalid ? 'invalid' : ''}`}>
-                <label htmlFor="f-default-model">默认模型 *</label>
+                <label htmlFor="f-default-model">{t('默认模型 *')}</label>
                 <input
                   id="f-default-model"
                   className="input"
@@ -755,27 +764,27 @@ function LlmProviderModal(props: {
                   onBlur={() => setTouched(true)}
                   aria-invalid={touched && defaultModelInvalid}
                 />
-                <span className="field-error">默认模型不能为空。</span>
+                <span className="field-error">{t('默认模型不能为空。')}</span>
               </div>
               <div className="field">
-                <label htmlFor="f-status">状态</label>
+                <label htmlFor="f-status">{t('状态')}</label>
                 <select
                   id="f-status"
                   className="select"
                   value={form.status ?? 'active'}
                   onChange={(e) => set('status', e.target.value as LlmProviderStatus)}
                 >
-                  <option value="active">启用</option>
-                  <option value="disabled">禁用</option>
+                  <option value="active">{t('启用')}</option>
+                  <option value="disabled">{t('禁用')}</option>
                 </select>
               </div>
               <div className="field full">
-                <label htmlFor="f-models">模型列表</label>
+                <label htmlFor="f-models">{t('模型列表')}</label>
                 <textarea
                   id="f-models"
                   className="textarea"
                   rows={2}
-                  placeholder="可选，逗号分隔，如：gpt-4o, gpt-4o-mini, claude-3-opus"
+                  placeholder={t('可选，逗号分隔，如：gpt-4o, gpt-4o-mini, claude-3-opus')}
                   value={Array.isArray(form.models) ? form.models.join(', ') : ''}
                   onChange={(e) => {
                     const models = e.target.value
@@ -785,16 +794,16 @@ function LlmProviderModal(props: {
                     set('models', models)
                   }}
                 />
-                <span className="hint">留空则使用测试连接返回的模型列表</span>
+                <span className="hint">{t('留空则使用测试连接返回的模型列表')}</span>
               </div>
               <div className="field full">
-                <label htmlFor="f-remark">备注</label>
+                <label htmlFor="f-remark">{t('备注')}</label>
                 <textarea
                   id="f-remark"
                   className="textarea"
                   maxLength={200}
                   rows={2}
-                  placeholder="可选，便于团队识别用途"
+                  placeholder={t('可选，便于团队识别用途')}
                   value={form.remark ?? ''}
                   onChange={(e) => set('remark', e.target.value)}
                 />
@@ -804,7 +813,7 @@ function LlmProviderModal(props: {
         </div>
         <div className="modal-foot">
           <button type="button" className="btn btn-ghost btn-sm" onClick={onCancel} disabled={busy}>
-            取消
+            {t('取消')}
           </button>
           <button
             type="button"
@@ -812,7 +821,7 @@ function LlmProviderModal(props: {
             onClick={onSave}
             disabled={busy || nameInvalid || baseUrlInvalid || defaultModelInvalid || apiKeyRequired}
           >
-            {busy ? '保存中…' : '保存'}
+            {busy ? t('保存中…') : t('保存')}
           </button>
         </div>
       </div>
@@ -827,27 +836,28 @@ function DeleteModal(props: {
   onCancel: () => void
   onConfirm: () => void
 }): React.ReactElement {
+  const { t } = useI18n()
   const { provider, busy, onCancel, onConfirm } = props
   return createPortal(
     <div className="modal-backdrop open" onClick={(e) => e.target === e.currentTarget && onCancel()}>
       <div className="modal" style={{ width: 420 }} role="alertdialog" aria-modal="true" aria-labelledby="del-title">
         <div className="modal-head">
-          <div className="title" id="del-title">删除 Provider</div>
+          <div className="title" id="del-title">{t('删除 Provider')}</div>
         </div>
         <div className="modal-body">
           <p style={{ fontSize: 'var(--text-sm)', color: 'var(--fg-2)', lineHeight: 1.6 }}>
-            即将删除 Provider <span className="mono" style={{ fontWeight: 600 }}>{provider.name}</span>。
+            {t('即将删除 Provider ')}<span className="mono" style={{ fontWeight: 600 }}>{provider.name}</span>{t('。')}
           </p>
           <p className="muted mt-3" style={{ fontSize: 12, lineHeight: 1.6 }}>
-            删除后该 Provider 配置立即失效，关联的调用会失败。此操作不可撤销。
+            {t('删除后该 Provider 配置立即失效，关联的调用会失败。此操作不可撤销。')}
           </p>
         </div>
         <div className="modal-foot">
           <button type="button" className="btn btn-ghost btn-sm" onClick={onCancel} disabled={busy}>
-            取消
+            {t('取消')}
           </button>
           <button type="button" className="btn btn-danger btn-sm" onClick={onConfirm} disabled={busy}>
-            {busy ? '删除中…' : '确认删除'}
+            {busy ? t('删除中…') : t('确认删除')}
           </button>
         </div>
       </div>
@@ -871,6 +881,7 @@ function DeleteModal(props: {
  * 回填（保留作设计参考），数据未接线，展示的数字/名单/开关均为占位。
  */
 function StubNotice({ note }: { note: string }): React.ReactElement {
+  const { t } = useI18n()
   return (
     <div
       className="muted"
@@ -884,7 +895,7 @@ function StubNotice({ note }: { note: string }): React.ReactElement {
         borderRadius: 8,
       }}
     >
-      ⚠️ 未接入后端 — {note}
+      {t('⚠️ 未接入后端 — ')}{t(note)}
     </div>
   )
 }
@@ -905,41 +916,42 @@ const MODEL_FALLBACK = [
 ] as const
 
 function DefaultModelsTab(): React.ReactElement {
+  const { t } = useI18n()
   return (
-    <section className="settings-section active" aria-label={TAB_LABEL.models}>
-      <div className="card-title mb-4" style={{ fontSize: 'var(--text-lg)' }}>{TAB_LABEL.models}</div>
+    <section className="settings-section active" aria-label={t(TAB_LABEL.models)}>
+      <div className="card-title mb-4" style={{ fontSize: 'var(--text-lg)' }}>{t(TAB_LABEL.models)}</div>
       <StubNotice note="本页为设计占位数据，不反映真实配置" />
       <div className="card mb-6">
         <div className="card-head">
-          <div className="card-title">按角色分派</div>
-          <span className="chip chip-outline">编排器使用</span>
+          <div className="card-title">{t('按角色分派')}</div>
+          <span className="chip chip-outline">{t('编排器使用')}</span>
         </div>
         {MODEL_ROWS.map((r) => (
           <div className="model-row" key={r.role}>
             <div>
-              <div className="nm">{r.role}</div>
-              <div className="p">{r.p}</div>
+              <div className="nm">{t(r.role)}</div>
+              <div className="p">{t(r.p)}</div>
             </div>
             <div className="pr">{r.model}</div>
             <div className="pr">{r.price}</div>
             <div>
-              <span className="chip chip-teal">默认</span>
+              <span className="chip chip-teal">{t('默认')}</span>
             </div>
           </div>
         ))}
       </div>
       <div className="card">
         <div className="card-head">
-          <div className="card-title">回退链</div>
-          <span className="hint">主模型失败时按序回退（待接入）</span>
+          <div className="card-title">{t('回退链')}</div>
+          <span className="hint">{t('主模型失败时按序回退（待接入）')}</span>
         </div>
         {MODEL_FALLBACK.map((f) => (
           <div className="toggle-row" key={f.t}>
             <div className="info">
-              <div className="t">{f.t}</div>
-              <div className="d">{f.d}</div>
+              <div className="t">{t(f.t)}</div>
+              <div className="d">{t(f.d)}</div>
             </div>
-            <span className="chip chip-outline">{f.chip}</span>
+            <span className="chip chip-outline">{t(f.chip)}</span>
           </div>
         ))}
       </div>
@@ -956,36 +968,37 @@ const QUOTA_FALLBACK = [
 ] as const
 
 function QuotaTab(): React.ReactElement {
+  const { t } = useI18n()
   return (
-    <section className="settings-section active" aria-label={TAB_LABEL.quota}>
-      <div className="card-title mb-4" style={{ fontSize: 'var(--text-lg)' }}>{TAB_LABEL.quota}</div>
+    <section className="settings-section active" aria-label={t(TAB_LABEL.quota)}>
+      <div className="card-title mb-4" style={{ fontSize: 'var(--text-lg)' }}>{t(TAB_LABEL.quota)}</div>
       <StubNotice note="本页为设计占位数据，不反映真实配置" />
       <div className="card mb-4">
         <div className="card-head">
-          <div className="card-title">全平台预算</div>
-          <span className="chip chip-outline">月度</span>
+          <div className="card-title">{t('全平台预算')}</div>
+          <span className="chip chip-outline">{t('月度')}</span>
         </div>
         <div className="row-between mb-3">
-          <span className="muted" style={{ fontSize: 13 }}>月预算</span>
+          <span className="muted" style={{ fontSize: 13 }}>{t('月预算')}</span>
           <span className="mono" style={{ fontSize: 14 }}>$135,000</span>
         </div>
         <div className="bar mb-2">
           <span style={{ width: '31%' }} />
         </div>
         <div className="row-between">
-          <span className="meta" style={{ fontSize: 11 }}>已用 $41,820 (31%)</span>
-          <span className="meta" style={{ fontSize: 11 }}>熔断阈值 90%</span>
+          <span className="meta" style={{ fontSize: 11 }}>{t('已用 $41,820 (31%)')}</span>
+          <span className="meta" style={{ fontSize: 11 }}>{t('熔断阈值 90%')}</span>
         </div>
       </div>
       <div className="card mb-4">
         <div className="card-head">
-          <div className="card-title">熔断规则</div>
+          <div className="card-title">{t('熔断规则')}</div>
         </div>
         {QUOTA_FALLBACK.map((r) => (
           <div className="toggle-row" key={r.t}>
             <div className="info">
-              <div className="t">{r.t}</div>
-              <div className="d">{r.d}</div>
+              <div className="t">{t(r.t)}</div>
+              <div className="d">{t(r.d)}</div>
             </div>
             <label className="switch">
               <input type="checkbox" checked disabled readOnly aria-disabled="true" />
@@ -994,7 +1007,7 @@ function QuotaTab(): React.ReactElement {
           </div>
         ))}
         <p className="muted mt-3" style={{ fontSize: 12 }}>
-          熔断由 scheduler 实现并下发策略（spec P1.7.T6，coverage analysis §2.1 ✅）。本 tab 待资源面板聚合 API（P1.11.T6）接入后回填实时数据与策略开关。
+          {t('熔断由 scheduler 实现并下发策略（spec P1.7.T6，coverage analysis §2.1 ✅）。本 tab 待资源面板聚合 API（P1.11.T6）接入后回填实时数据与策略开关。')}
         </p>
       </div>
     </section>
@@ -1018,9 +1031,10 @@ const NOTIFY_CHANNELS: ReadonlyArray<{ t: string; d: string; off: boolean }> = [
 ]
 
 function NotifyTab(): React.ReactElement {
+  const { t } = useI18n()
   return (
-    <section className="settings-section active" aria-label={TAB_LABEL.notify}>
-      <div className="card-title mb-4" style={{ fontSize: 'var(--text-lg)' }}>{TAB_LABEL.notify}</div>
+    <section className="settings-section active" aria-label={t(TAB_LABEL.notify)}>
+      <div className="card-title mb-4" style={{ fontSize: 'var(--text-lg)' }}>{t(TAB_LABEL.notify)}</div>
 
       {/* Live task-completion notifications — desktop + sound. Fully wired
           (localStorage persistence + Web Audio + Notifications API). */}
@@ -1031,13 +1045,13 @@ function NotifyTab(): React.ReactElement {
       <StubNotice note="下方通知事件 / 渠道列表为设计占位数据，开关未接线（上方的任务通知已生效）" />
       <div className="card mt-4">
         <div className="card-head">
-          <div className="card-title">通知事件</div>
+          <div className="card-title">{t('通知事件')}</div>
         </div>
         {NOTIFY_EVENTS.map((r) => (
           <div className="toggle-row" key={r.t}>
             <div className="info">
-              <div className="t">{r.t}</div>
-              <div className="d">{r.d}</div>
+              <div className="t">{t(r.t)}</div>
+              <div className="d">{t(r.d)}</div>
             </div>
             <label className="switch">
               <input type="checkbox" checked={!r.off} disabled readOnly aria-disabled="true" />
@@ -1048,13 +1062,13 @@ function NotifyTab(): React.ReactElement {
       </div>
       <div className="card mt-4">
         <div className="card-head">
-          <div className="card-title">通知渠道</div>
+          <div className="card-title">{t('通知渠道')}</div>
         </div>
         {NOTIFY_CHANNELS.map((r) => (
           <div className="toggle-row" key={r.t}>
             <div className="info">
-              <div className="t">{r.t}</div>
-              <div className="d">{r.d}</div>
+              <div className="t">{t(r.t)}</div>
+              <div className="d">{t(r.d)}</div>
             </div>
             <label className="switch">
               <input type="checkbox" checked={!r.off} disabled readOnly aria-disabled="true" />
@@ -1063,7 +1077,7 @@ function NotifyTab(): React.ReactElement {
           </div>
         ))}
         <p className="muted mt-3" style={{ fontSize: 12 }}>
-          平台级通知事件与多渠道（邮件 / Webhook）由网关统一调度，`notifications` 表落地后接入；上方的桌面通知与提示音已即时生效。
+          {t('平台级通知事件与多渠道（邮件 / Webhook）由网关统一调度，`notifications` 表落地后接入；上方的桌面通知与提示音已即时生效。')}
         </p>
       </div>
     </section>
@@ -1085,18 +1099,19 @@ const TEAM_MEMBERS: ReadonlyArray<{ nm: string; p: string; role: string; scope: 
 ]
 
 function AccountTab(): React.ReactElement {
+  const { t } = useI18n()
   return (
-    <section className="settings-section active" aria-label={TAB_LABEL.account}>
-      <div className="card-title mb-4" style={{ fontSize: 'var(--text-lg)' }}>{TAB_LABEL.account}</div>
+    <section className="settings-section active" aria-label={t(TAB_LABEL.account)}>
+      <div className="card-title mb-4" style={{ fontSize: 'var(--text-lg)' }}>{t(TAB_LABEL.account)}</div>
       <StubNotice note="本页为设计占位数据（成员名单非真实），不反映真实配置" />
       <div className="card mb-4">
         <div className="card-head">
-          <div className="card-title">个人</div>
+          <div className="card-title">{t('个人')}</div>
         </div>
         <dl className="kv">
           {ACCOUNT_KV.map(([k, v]) => (
             <Fragment key={k}>
-              <dt>{k}</dt>
+              <dt>{t(k)}</dt>
               <dd>{v}</dd>
             </Fragment>
           ))}
@@ -1104,8 +1119,8 @@ function AccountTab(): React.ReactElement {
       </div>
       <div className="card">
         <div className="card-head">
-          <div className="card-title">团队 · 38 成员</div>
-          <button type="button" className="btn btn-secondary btn-sm" disabled>邀请</button>
+          <div className="card-title">{t('团队 · 38 成员')}</div>
+          <button type="button" className="btn btn-secondary btn-sm" disabled>{t('邀请')}</button>
         </div>
         {TEAM_MEMBERS.map((m) => (
           <div className="model-row" key={m.nm}>
@@ -1116,12 +1131,12 @@ function AccountTab(): React.ReactElement {
             <div className="pr">{m.role}</div>
             <div className="pr">{m.scope}</div>
             <div>
-              {m.tag ? <span className="chip chip-outline">{m.tag}</span> : null}
+              {m.tag ? <span className="chip chip-outline">{t(m.tag)}</span> : null}
             </div>
           </div>
         ))}
         <p className="muted mt-3" style={{ fontSize: 12 }}>
-          MVP 用 workspace 软隔离 + 最小 RBAC（spec P1.2.T6）。强多租户账户/团队管理推迟（coverage analysis §2.3）；成员管理待 workspace_members 表（M5b.1）接入后回填。
+          {t('MVP 用 workspace 软隔离 + 最小 RBAC（spec P1.2.T6）。强多租户账户/团队管理推迟（coverage analysis §2.3）；成员管理待 workspace_members 表（M5b.1）接入后回填。')}
         </p>
       </div>
     </section>
@@ -1151,19 +1166,20 @@ const DANGER_ROWS = [
 ]
 
 function DangerTab(): React.ReactElement {
+  const { t } = useI18n()
   return (
-    <section className="settings-section active" aria-label={TAB_LABEL.danger}>
+    <section className="settings-section active" aria-label={t(TAB_LABEL.danger)}>
       <StubNotice note="本页为设计占位，功能未实现（按钮均不可用）" />
       <div className="danger-zone">
-        <div className="card-title mb-2" style={{ color: 'var(--danger)' }}>{TAB_LABEL.danger}</div>
+        <div className="card-title mb-2" style={{ color: 'var(--danger)' }}>{t(TAB_LABEL.danger)}</div>
         {DANGER_ROWS.map((r) => (
           <div className="toggle-row" key={r.t}>
             <div className="info">
-              <div className="t">{r.t}</div>
-              <div className="d">{r.d}</div>
+              <div className="t">{t(r.t)}</div>
+              <div className="d">{t(r.d)}</div>
             </div>
             {r.variant === 'danger' ? (
-              <button type="button" className="btn btn-danger btn-sm" disabled>{r.cta}</button>
+              <button type="button" className="btn btn-danger btn-sm" disabled>{t(r.cta)}</button>
             ) : (
               <button
                 type="button"
@@ -1171,7 +1187,7 @@ function DangerTab(): React.ReactElement {
                 style={{ color: 'var(--danger)', borderColor: 'var(--danger-soft)' }}
                 disabled
               >
-                {r.cta}
+                {t(r.cta)}
               </button>
             )}
           </div>

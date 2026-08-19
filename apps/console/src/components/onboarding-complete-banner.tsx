@@ -15,6 +15,7 @@
  */
 import { useCallback, useEffect, useState } from 'react'
 import { Icon } from '@/components/icon'
+import { useI18n } from '@/i18n'
 import '@/styles/onboarding-flow.css'
 
 const ONBOARDING_DONE_DISMISS_KEY = 'dagents_onboarding_dismissed'
@@ -42,6 +43,7 @@ function focusComposer(): void {
 export function OnboardingCompleteBanner({
   complete,
 }: OnboardingCompleteBannerProps): React.ReactElement | null {
+  const { t } = useI18n()
   const [dismissed, setDismissed] = useState(true)
 
   // Read the dismiss flag once on mount (avoids SSR/hydration mismatch —
@@ -74,7 +76,7 @@ export function OnboardingCompleteBanner({
         type="button"
         className="onboarding-done-banner-dismiss"
         onClick={handleDismiss}
-        aria-label="关闭"
+        aria-label={t('关闭')}
       >
         ×
       </button>
@@ -82,10 +84,10 @@ export function OnboardingCompleteBanner({
         <div className="onboarding-done-banner-emoji" aria-hidden="true">🎉</div>
         <div className="onboarding-done-banner-text">
           <span className="onboarding-done-banner-title">
-            一切就绪！试试发送你的第一条消息吧
+            {t('一切就绪！试试发送你的第一条消息吧')}
           </span>
           <span className="onboarding-done-banner-sub">
-            Agent 已就绪，输入指令即可开始对话。
+            {t('Agent 已就绪，输入指令即可开始对话。')}
           </span>
         </div>
       </div>
@@ -95,7 +97,7 @@ export function OnboardingCompleteBanner({
         onClick={handleStart}
       >
         <Icon name="chat" style={{ width: 14, height: 14 }} />
-        <span>开始对话</span>
+        <span>{t('开始对话')}</span>
       </button>
     </div>
   )

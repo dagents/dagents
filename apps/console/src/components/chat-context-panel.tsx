@@ -6,6 +6,7 @@ import { fetchChatRuns, updateChat } from '@/lib/chats'
 import type { Directory } from '@/lib/directories'
 import { AgentSelector } from '@/components/agent-selector'
 import { Icon } from '@/components/icon'
+import { useI18n } from '@/i18n'
 import '@/styles/chat-context-panel.css'
 
 const STATUS_LABEL: Record<string, string> = {
@@ -21,6 +22,7 @@ interface ChatContextPanelProps {
 }
 
 export function ChatContextPanel({ chat, directory }: ChatContextPanelProps): React.ReactElement {
+  const { t } = useI18n()
   const [runs, setRuns] = useState<ChatRun[]>([])
   const [editingAgent, setEditingAgent] = useState(false)
   const [editingFlow, setEditingFlow] = useState(false)
@@ -67,7 +69,7 @@ export function ChatContextPanel({ chat, directory }: ChatContextPanelProps): Re
     <div className="chat-context-panel">
       {/* Directory */}
       <div className="chat-context-section">
-        <div className="chat-context-section-title">所属目录</div>
+        <div className="chat-context-section-title">{t('所属目录')}</div>
         {directory ? (
           <div className="chat-context-item" title={directory.path}>
             <Icon name="folder" style={{ width: 14, height: 14 }} />
@@ -84,15 +86,15 @@ export function ChatContextPanel({ chat, directory }: ChatContextPanelProps): Re
       {/* Agent — editable */}
       <div className="chat-context-section">
         <div className="chat-context-section-title">
-          绑定 Agent
+          {t('绑定 Agent')}
           {!editingAgent && (
-            <button className="chat-context-edit" onClick={() => setEditingAgent(true)}>编辑</button>
+            <button className="chat-context-edit" onClick={() => setEditingAgent(true)}>{t('编辑')}</button>
           )}
         </div>
         {editingAgent ? (
           <AgentSelector value={chat?.agentId ?? null} onChange={handleAgentChange} />
         ) : (
-          <div className="chat-context-item" title={chat?.agentId ?? '自动选择'}>
+          <div className="chat-context-item" title={chat?.agentId ?? t('自动选择')}>
             <Icon name="bot" style={{ width: 14, height: 14, flexShrink: 0 }} />
             <span className="chat-context-mono-truncate">
               {chat?.agentId ? chat.agentId.slice(0, 8) : 'auto'}
@@ -104,9 +106,9 @@ export function ChatContextPanel({ chat, directory }: ChatContextPanelProps): Re
       {/* Flow — editable */}
       <div className="chat-context-section">
         <div className="chat-context-section-title">
-          绑定 Flow
+          {t('绑定 Flow')}
           {!editingFlow && (
-            <button className="chat-context-edit" onClick={() => { setFlowInput(chat?.flowId ?? ''); setEditingFlow(true) }}>编辑</button>
+            <button className="chat-context-edit" onClick={() => { setFlowInput(chat?.flowId ?? ''); setEditingFlow(true) }}>{t('编辑')}</button>
           )}
         </div>
         {editingFlow ? (
@@ -118,11 +120,11 @@ export function ChatContextPanel({ chat, directory }: ChatContextPanelProps): Re
               placeholder="Flow ID"
               className="chat-context-flow-input"
             />
-            <button className="chat-context-flow-save" onClick={handleFlowSave}>保存</button>
-            <button className="chat-context-flow-cancel" onClick={() => setEditingFlow(false)}>取消</button>
+            <button className="chat-context-flow-save" onClick={handleFlowSave}>{t('保存')}</button>
+            <button className="chat-context-flow-cancel" onClick={() => setEditingFlow(false)}>{t('取消')}</button>
           </div>
         ) : (
-          <div className="chat-context-item" title={chat?.flowId ?? '未绑定'}>
+          <div className="chat-context-item" title={chat?.flowId ?? t('未绑定')}>
             <Icon name="flows" style={{ width: 14, height: 14, flexShrink: 0 }} />
             <span className="chat-context-mono-truncate">
               {chat?.flowId ? chat.flowId.slice(0, 8) : '—'}
@@ -133,16 +135,16 @@ export function ChatContextPanel({ chat, directory }: ChatContextPanelProps): Re
 
       {/* Stats */}
       <div className="chat-context-section">
-        <div className="chat-context-section-title">统计</div>
+        <div className="chat-context-section-title">{t('统计')}</div>
         <div className="chat-context-stats">
           <div className="chat-context-stat">
-            <span className="chat-context-stat-label">消息数</span>
+            <span className="chat-context-stat-label">{t('消息数')}</span>
             <span className="chat-context-stat-value">{chat?.messageCount ?? 0}</span>
           </div>
           <div className="chat-context-stat">
-            <span className="chat-context-stat-label">状态</span>
+            <span className="chat-context-stat-label">{t('状态')}</span>
             <span className={`chat-context-stat-value status-${chat?.status ?? 'idle'}`}>
-              {STATUS_LABEL[chat?.status ?? 'idle'] ?? chat?.status ?? '空闲'}
+              {t(STATUS_LABEL[chat?.status ?? 'idle'] ?? chat?.status ?? '空闲')}
             </span>
           </div>
         </div>
@@ -150,9 +152,9 @@ export function ChatContextPanel({ chat, directory }: ChatContextPanelProps): Re
 
       {/* Real runs */}
       <div className="chat-context-section">
-        <div className="chat-context-section-title">执行记录</div>
+        <div className="chat-context-section-title">{t('执行记录')}</div>
         {runs.length === 0 ? (
-          <div className="muted" style={{ fontSize: 'var(--text-sm)' }}>暂无执行记录</div>
+          <div className="muted" style={{ fontSize: 'var(--text-sm)' }}>{t('暂无执行记录')}</div>
         ) : (
           <div className="chat-context-runs">
             {runs.slice(0, 10).map((r) => (
@@ -160,7 +162,7 @@ export function ChatContextPanel({ chat, directory }: ChatContextPanelProps): Re
                 <span className="mono" style={{ fontSize: 'var(--text-xs)', color: 'var(--meta)' }}>
                   {r.id.slice(0, 8)}
                 </span>
-                <span className={`chat-context-run-status status-${r.status}`}>{STATUS_LABEL[r.status] ?? r.status}</span>
+                <span className={`chat-context-run-status status-${r.status}`}>{t(STATUS_LABEL[r.status] ?? r.status)}</span>
               </div>
             ))}
           </div>

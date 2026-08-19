@@ -1243,3 +1243,20 @@ table.data .muted { color: var(--muted); }
 .prose hr { border: 0; border-top: 1px solid var(--border); margin: 1em 0; }
 .prose img { max-width: 100%; border-radius: var(--radius-sm); }
 
+
+/* ─── 语言切换（侧栏底部，与 theme-toggle 同规格） ─── */
+.chat-nav-locale-btn {
+  width: 36px; height: 36px;
+  display: grid; place-items: center;
+  background: transparent;
+  border: 0;
+  border-radius: var(--radius-sm);
+  cursor: pointer;
+  transition: background var(--motion-fast) var(--ease-standard);
+  font-size: 12px;
+  font-weight: 600;
+  line-height: 1;
+  color: var(--muted);
+  font-family: var(--font-mono);
+}
+.chat-nav-locale-btn:hover { background: var(--surface); color: var(--fg); }

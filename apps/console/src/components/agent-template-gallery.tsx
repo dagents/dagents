@@ -17,6 +17,7 @@ import { useCallback, useEffect, useMemo, useState } from 'react'
 import { useRouter } from 'next/navigation'
 import { Icon } from '@/components/icon'
 import { useToast } from '@/components/toast'
+import { useI18n } from '@/i18n'
 import {
   type AgentTemplate,
   type AgentTemplateCategory,
@@ -46,6 +47,7 @@ export function AgentTemplateGallery({
 }: AgentTemplateGalleryProps): React.ReactElement | null {
   const router = useRouter()
   const toast = useToast()
+  const { t } = useI18n()
 
   const [templates, setTemplates] = useState<AgentTemplate[]>([])
   const [loading, setLoading] = useState(false)
@@ -107,7 +109,7 @@ export function AgentTemplateGallery({
     setSubmitting(true)
     try {
       const { id } = await instantiateAgentTemplate(confirming.id)
-      toast.success(`已从模板创建「${confirming.name}」`)
+      toast.success(t('已从模板创建「{name}」', { name: confirming.name }))
       onClose()
       router.push(`/agents/${id}`)
     } catch (err) {
@@ -124,14 +126,14 @@ export function AgentTemplateGallery({
         className="modal-dialog open atg-dialog"
         role="dialog"
         aria-modal="true"
-        aria-label="从模板创建 Agent"
+        aria-label={t('从模板创建 Agent')}
       >
         <div className="modal-head">
-          <h2 className="modal-title">从模板创建</h2>
+          <h2 className="modal-title">{t('从模板创建')}</h2>
           <button
             type="button"
             className="icon-btn"
-            aria-label="关闭"
+            aria-label={t('关闭')}
             onClick={onClose}
             disabled={submitting}
           >
@@ -150,15 +152,15 @@ export function AgentTemplateGallery({
                 <div className="atg-confirm-desc">{confirming.description}</div>
                 <dl className="atg-confirm-meta">
                   <div>
-                    <dt>类型</dt>
+                    <dt>{t('类型')}</dt>
                     <dd>{confirming.kind}</dd>
                   </div>
                   <div>
-                    <dt>模型</dt>
-                    <dd>{confirming.model || '默认'}</dd>
+                    <dt>{t('模型')}</dt>
+                    <dd>{confirming.model || t('默认')}</dd>
                   </div>
                   <div>
-                    <dt>角色</dt>
+                    <dt>{t('角色')}</dt>
                     <dd>{confirming.roles.join('、') || '—'}</dd>
                   </div>
                 </dl>
@@ -167,17 +169,17 @@ export function AgentTemplateGallery({
           ) : (
             <>
               {/* category filter tabs */}
-              <div className="atg-tabs" role="tablist" aria-label="模板分类">
-                {CATEGORY_TABS.map((t) => (
+              <div className="atg-tabs" role="tablist" aria-label={t('模板分类')}>
+                {CATEGORY_TABS.map((tab) => (
                   <button
-                    key={t.key}
+                    key={tab.key}
                     type="button"
                     role="tab"
-                    aria-selected={category === t.key}
-                    className={`atg-tab${category === t.key ? ' active' : ''}`}
-                    onClick={() => setCategory(t.key)}
+                    aria-selected={category === tab.key}
+                    className={`atg-tab${category === tab.key ? ' active' : ''}`}
+                    onClick={() => setCategory(tab.key)}
                   >
-                    {t.label}
+                    {t(tab.label)}
                   </button>
                 ))}
               </div>
@@ -198,35 +200,35 @@ export function AgentTemplateGallery({
                 </div>
               ) : error ? (
                 <div className="atg-error">
-                  <div>加载模板失败：{error}</div>
+                  <div>{t('加载模板失败：{error}', { error })}</div>
                   <button
                     type="button"
                     className="btn btn-secondary btn-sm"
                     onClick={() => void load()}
                   >
-                    重试
+                    {t('重试')}
                   </button>
                 </div>
               ) : visible.length === 0 ? (
-                <div className="atg-empty">该分类暂无模板。</div>
+                <div className="atg-empty">{t('该分类暂无模板。')}</div>
               ) : (
                 <div className="atg-grid">
-                  {visible.map((t) => (
+                  {visible.map((tpl) => (
                     <button
-                      key={t.id}
+                      key={tpl.id}
                       type="button"
                       className="atg-card"
-                      onClick={() => setConfirming(t)}
-                      aria-label={`从模板 ${t.name} 创建`}
+                      onClick={() => setConfirming(tpl)}
+                      aria-label={t('从模板 {name} 创建', { name: tpl.name })}
                     >
                       <div className="atg-card-icon" aria-hidden="true">
-                        {t.icon}
+                        {tpl.icon}
                       </div>
                       <div className="atg-card-body">
-                        <div className="atg-card-name">{t.name}</div>
-                        <div className="atg-card-desc">{t.description}</div>
+                        <div className="atg-card-name">{tpl.name}</div>
+                        <div className="atg-card-desc">{tpl.description}</div>
                       </div>
-                      <div className="atg-card-kind">{t.kind}</div>
+                      <div className="atg-card-kind">{tpl.kind}</div>
                     </button>
                   ))}
                 </div>
@@ -244,7 +246,7 @@ export function AgentTemplateGallery({
                 onClick={() => setConfirming(null)}
                 disabled={submitting}
               >
-                返回
+                {t('返回')}
               </button>
               <button
                 type="button"
@@ -252,7 +254,7 @@ export function AgentTemplateGallery({
                 onClick={() => void handleConfirm()}
                 disabled={submitting}
               >
-                {submitting ? '创建中…' : '创建'}
+                {submitting ? t('创建中…') : t('创建')}
               </button>
             </>
           ) : (
@@ -261,7 +263,7 @@ export function AgentTemplateGallery({
               className="btn btn-secondary btn-sm"
               onClick={onClose}
             >
-              取消
+              {t('取消')}
             </button>
           )}
         </div>

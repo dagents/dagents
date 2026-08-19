@@ -17,6 +17,7 @@
 import { useEffect, useId, useRef, useState } from 'react'
 import Link from 'next/link'
 import { Icon } from '@/components/icon'
+import { useI18n } from '@/i18n'
 import '@/styles/flow-selector.css'
 
 export interface FlowOption {
@@ -34,6 +35,7 @@ interface FlowSelectorProps {
 }
 
 export function FlowSelector({ value, onChange, disabled }: FlowSelectorProps): React.ReactElement {
+  const { t } = useI18n()
   const [flows, setFlows] = useState<FlowOption[]>([])
   const [loaded, setLoaded] = useState(false)
   const [open, setOpen] = useState(false)
@@ -89,7 +91,7 @@ export function FlowSelector({ value, onChange, disabled }: FlowSelectorProps): 
   }, [open, value, flows])
 
   const selected = flows.find((f) => f.id === value)
-  const label = value ? (selected?.name ?? value.slice(0, 8)) : '无 Flow'
+  const label = value ? (selected?.name ?? value.slice(0, 8)) : t('无 Flow')
 
   const optionCount = 1 + flows.length
 
@@ -156,7 +158,7 @@ export function FlowSelector({ value, onChange, disabled }: FlowSelectorProps): 
         aria-haspopup="listbox"
         aria-expanded={open}
         aria-controls={open ? listboxId : undefined}
-        title="选择 Flow"
+        title={t('选择 Flow')}
       >
         <Icon name="flows" style={{ width: 14, height: 14, color: 'var(--accent)' }} />
         <span>{label}</span>
@@ -179,8 +181,8 @@ export function FlowSelector({ value, onChange, disabled }: FlowSelectorProps): 
             onMouseEnter={() => setHighlighted(0)}
           >
             <Icon name="flows" style={{ width: 14, height: 14 }} />
-            <span>无 Flow</span>
-            <span className="flow-selector-option-hint">不绑定工作流</span>
+            <span>{t('无 Flow')}</span>
+            <span className="flow-selector-option-hint">{t('不绑定工作流')}</span>
           </button>
           {flows.map((f, i) => {
             const idx = i + 1
@@ -207,7 +209,7 @@ export function FlowSelector({ value, onChange, disabled }: FlowSelectorProps): 
               onClick={() => setOpen(false)}
             >
               <Icon name="plus" style={{ width: 12, height: 12 }} />
-              <span>还没有 Flow · 去创建</span>
+              <span>{t('还没有 Flow · 去创建')}</span>
             </Link>
           ) : null}
         </div>

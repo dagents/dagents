@@ -22,10 +22,12 @@ import { DirectorySelector } from '@/components/directory-selector'
 import { useDirectories } from './use-directories'
 import { createChat, createMessage } from '@/lib/chats'
 import { pickDirectory, createDirectory } from '@/lib/directories'
+import { useI18n } from '@/i18n'
 import '@/styles/chat-home.css'
 
 export function ChatHome(): React.ReactElement {
   const router = useRouter()
+  const { t } = useI18n()
   const { directories, loading, error, reload } = useDirectories()
   const { complete: onboardingComplete } = useOnboarding()
   const [selectedDirId, setSelectedDirId] = useState<string | null>(null)
@@ -42,7 +44,7 @@ export function ChatHome(): React.ReactElement {
   const handleSend = useCallback(async (text: string) => {
     const directoryId = selectedDirId ?? directories[0]?.id
     if (!directoryId) {
-      setSendError('请先添加项目目录')
+      setSendError(t('请先添加项目目录'))
       return
     }
     setSending(true)
@@ -59,7 +61,7 @@ export function ChatHome(): React.ReactElement {
       setSendError(err instanceof Error ? err.message : String(err))
       setSending(false)
     }
-  }, [selectedDirId, directories, selectedAgentId, router])
+  }, [selectedDirId, directories, selectedAgentId, router, t])
 
   const handleAddDirectory = useCallback(async (): Promise<void> => {
     setAddError(null)
@@ -89,9 +91,9 @@ export function ChatHome(): React.ReactElement {
           <div className="chat-home-empty-icon">
             <Icon name="folder" style={{ width: 48, height: 48, color: 'var(--accent)' }} />
           </div>
-          <h2 className="chat-home-empty-title">开始前，请先添加一个项目目录</h2>
+          <h2 className="chat-home-empty-title">{t('开始前，请先添加一个项目目录')}</h2>
           <p className="chat-home-empty-desc">
-            DAgent 需要知道在哪里运行 Agent。添加一个本地目录即可开始对话。
+            {t('DAgent 需要知道在哪里运行 Agent。添加一个本地目录即可开始对话。')}
           </p>
           <button
             type="button"
@@ -100,7 +102,7 @@ export function ChatHome(): React.ReactElement {
             disabled={addingDir}
           >
             <Icon name="plus" style={{ width: 14, height: 14 }} />
-            <span>{addingDir ? '等待选择…' : '浏览本地目录…'}</span>
+            <span>{addingDir ? t('等待选择…') : t('浏览本地目录…')}</span>
           </button>
           {addError ? (
             <div className="chat-home-empty-error">{addError}</div>
@@ -108,15 +110,15 @@ export function ChatHome(): React.ReactElement {
           <div className="chat-home-empty-steps">
             <div className="chat-home-empty-step">
               <div className="chat-home-empty-step-num">1</div>
-              <span className="chat-home-empty-step-text">添加项目目录</span>
+              <span className="chat-home-empty-step-text">{t('添加项目目录')}</span>
             </div>
             <div className="chat-home-empty-step">
               <div className="chat-home-empty-step-num">2</div>
-              <span className="chat-home-empty-step-text">创建 Agent</span>
+              <span className="chat-home-empty-step-text">{t('创建 Agent')}</span>
             </div>
             <div className="chat-home-empty-step">
               <div className="chat-home-empty-step-num">3</div>
-              <span className="chat-home-empty-step-text">开始对话</span>
+              <span className="chat-home-empty-step-text">{t('开始对话')}</span>
             </div>
           </div>
         </div>
@@ -126,9 +128,9 @@ export function ChatHome(): React.ReactElement {
             <div className="chat-home-bot-avatar">
               <Icon name="bot" style={{ width: 20, height: 20, color: 'var(--accent)' }} />
             </div>
-            <h1 className="chat-home-welcome-title">开始对话</h1>
+            <h1 className="chat-home-welcome-title">{t('开始对话')}</h1>
             <p className="chat-home-welcome-desc">
-              选择项目目录，输入指令，Agent 会理解你的意图并执行。
+              {t('选择项目目录，输入指令，Agent 会理解你的意图并执行。')}
             </p>
             <OnboardingChecklist />
             <OnboardingCompleteBanner complete={onboardingComplete} />

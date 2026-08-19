@@ -36,6 +36,7 @@ import {
 } from '@/lib/chats'
 import { fetchDirectory, type Directory } from '@/lib/directories'
 import { useWsChat } from '@/lib/use-ws-chat'
+import { useI18n } from '@/i18n'
 import { useTaskNotification } from '@/lib/use-task-notification'
 import type { ChatWsFrame } from '@dagents/contracts'
 import '@/styles/chat-detail.css'
@@ -57,6 +58,7 @@ const STATUS_LABEL: Record<string, string> = {
 }
 
 export function ChatDetail({ chatId }: ChatDetailProps): React.ReactElement {
+  const { t } = useI18n()
   const [chat, setChat] = useState<Chat | null>(null)
   const [directory, setDirectory] = useState<Directory | null>(null)
   const [messages, setMessages] = useState<ChatMessage[]>([])
@@ -530,7 +532,7 @@ export function ChatDetail({ chatId }: ChatDetailProps): React.ReactElement {
     setMessages((prev) =>
       prev.map((m) =>
         m.id.startsWith('stream-')
-          ? { ...m, content: m.content + '\n\n_(已停止)_' }
+          ? { ...m, content: m.content + '\n\n' + t('_(已停止)_') }
           : m,
       ),
     )
@@ -542,7 +544,7 @@ export function ChatDetail({ chatId }: ChatDetailProps): React.ReactElement {
         m.id.startsWith('stream-') ? { ...m, id: `stopped-${Date.now()}` } : m,
       ),
     )
-  }, [])
+  }, [t])
 
   // Retry the last user message after an error — clears ALL error/failure
   // state (chat status, error bubbles, optimistic stream bubbles), resets
@@ -559,7 +561,7 @@ export function ChatDetail({ chatId }: ChatDetailProps): React.ReactElement {
     const attempt = retryCountRef.current
     if (attempt > MAX_UI_RETRIES) {
       setRetryExhausted(true)
-      toast.error(`多次失败，请检查 Agent 配置（已重试 ${MAX_UI_RETRIES} 次）`)
+      toast.error(t('多次失败，请检查 Agent 配置（已重试 {n} 次）', { n: MAX_UI_RETRIES }))
       return
     }
 
@@ -597,7 +599,7 @@ export function ChatDetail({ chatId }: ChatDetailProps): React.ReactElement {
     // Re-send the stored text via the normal send path. handleSend clears
     // the remaining state and re-spawns the run.
     void handleSend(text)
-  }, [chatId, handleSend, toast])
+  }, [chatId, handleSend, toast, t])
 
   // Copy an assistant message's raw content to the clipboard. Shows a
   // transient check mark for 1.5s so the user knows it landed.
@@ -642,11 +644,11 @@ export function ChatDetail({ chatId }: ChatDetailProps): React.ReactElement {
           className="chat-detail-breadcrumb-title"
           title={loading ? undefined : chat?.title}
         >
-          {loading ? '加载中…' : (chat?.title && chat.title.length > 60 ? chat.title.slice(0, 60) + '…' : chat?.title ?? '对话')}
+          {loading ? t('加载中…') : (chat?.title && chat.title.length > 60 ? chat.title.slice(0, 60) + '…' : chat?.title ?? t('对话'))}
         </span>
         {chat && (
           <span className={`chat-detail-breadcrumb-status status-${chat.status}`}>
-            {STATUS_LABEL[chat.status]}
+            {t(STATUS_LABEL[chat.status] ?? chat.status)}
           </span>
         )}
       </div>
@@ -656,7 +658,7 @@ export function ChatDetail({ chatId }: ChatDetailProps): React.ReactElement {
       {!connected ? (
         <div className="chat-detail-ws-warning" role="status">
           <Icon name="alertTriangle" style={{ width: 14, height: 14 }} />
-          <span>实时连接断开 — 助手回复可能无法实时收到，正在尝试重连…</span>
+          <span>{t('实时连接断开 — 助手回复可能无法实时收到，正在尝试重连…')}</span>
         </div>
       ) : null}
 
@@ -667,7 +669,7 @@ export function ChatDetail({ chatId }: ChatDetailProps): React.ReactElement {
       {reconnecting ? (
         <div className="chat-detail-reconnecting" role="status">
           <Icon name="refresh" style={{ width: 14, height: 14 }} />
-          <span>重新连接中…</span>
+          <span>{t('重新连接中…')}</span>
         </div>
       ) : null}
 
@@ -683,15 +685,15 @@ export function ChatDetail({ chatId }: ChatDetailProps): React.ReactElement {
               <ChatDetailSkeleton />
             ) : error && messages.length === 0 ? (
               <div className="chat-detail-empty" style={{ color: 'var(--danger)' }}>
-                加载失败：{error}
+                {t('加载失败：{error}', { error })}
               </div>
             ) : messages.length === 0 ? (
               <div className="chat-detail-empty">
-                <div className="chat-detail-empty-title">开始对话</div>
+                <div className="chat-detail-empty-title">{t('开始对话')}</div>
                 <div className="chat-detail-empty-desc">
-                  发送消息，或试试以下建议：
+                  {t('发送消息，或试试以下建议：')}
                 </div>
-                <div className="chat-detail-suggestions" role="group" aria-label="建议提示">
+                <div className="chat-detail-suggestions" role="group" aria-label={t('建议提示')}>
                   {(directory
                     ? [
                         '列出这个目录的文件结构',
@@ -713,7 +715,7 @@ export function ChatDetail({ chatId }: ChatDetailProps): React.ReactElement {
                       onClick={() => void handleSend(s)}
                       disabled={sending}
                     >
-                      {s}
+                      {t(s)}
                     </button>
                   ))}
                 </div>
@@ -730,7 +732,7 @@ export function ChatDetail({ chatId }: ChatDetailProps): React.ReactElement {
                   ? {
                       message: (m.metadata?.errorMessage as string | undefined) ??
                         m.content ??
-                        '未知错误',
+                        t('未知错误'),
                       at: (m.metadata?.errorAt as string | undefined) ?? m.createdAt,
                     }
                   : null
@@ -748,7 +750,7 @@ export function ChatDetail({ chatId }: ChatDetailProps): React.ReactElement {
                       <div className="chat-error-card" role="alert">
                         <div className="chat-error-card-header">
                           <Icon name="alertTriangle" style={{ width: 16, height: 16 }} />
-                          <span className="chat-error-card-title">执行失败</span>
+                          <span className="chat-error-card-title">{t('执行失败')}</span>
                           <span className="chat-error-card-time">{formatTime(errorMeta.at)}</span>
                         </div>
                         <div className="chat-error-card-message">{errorMeta.message}</div>
@@ -756,7 +758,7 @@ export function ChatDetail({ chatId }: ChatDetailProps): React.ReactElement {
                           {retryExhausted ? (
                             <Link href="/agents" className="chat-error-link chat-error-link-primary">
                               <Icon name="agents" style={{ width: 12, height: 12 }} />
-                              <span>检查 Agent 配置</span>
+                              <span>{t('检查 Agent 配置')}</span>
                             </Link>
                           ) : lastSentTextRef.current ? (
                             <button
@@ -766,7 +768,7 @@ export function ChatDetail({ chatId }: ChatDetailProps): React.ReactElement {
                               disabled={sending}
                             >
                               <Icon name="refresh" style={{ width: 12, height: 12 }} />
-                              <span>重试</span>
+                              <span>{t('重试')}</span>
                             </button>
                           ) : null}
                           <button
@@ -775,7 +777,7 @@ export function ChatDetail({ chatId }: ChatDetailProps): React.ReactElement {
                             onClick={() => void handleCopy(`err-copy-${m.id}`, errorMeta.message)}
                           >
                             <Icon name={copiedId === `err-copy-${m.id}` ? 'check' : 'copy'} style={{ width: 12, height: 12 }} />
-                            <span>{copiedId === `err-copy-${m.id}` ? '已复制' : '复制错误信息'}</span>
+                            <span>{copiedId === `err-copy-${m.id}` ? t('已复制') : t('复制错误信息')}</span>
                           </button>
                         </div>
                       </div>
@@ -806,11 +808,11 @@ export function ChatDetail({ chatId }: ChatDetailProps): React.ReactElement {
                                     type="button"
                                     className="chat-msg-copy"
                                     onClick={() => void handleCopy(m.id, m.content)}
-                                    title="复制"
-                                    aria-label="复制回复内容"
+                                    title={t('复制')}
+                                    aria-label={t('复制回复内容')}
                                   >
                                     <Icon name={copiedId === m.id ? 'check' : 'copy'} style={{ width: 12, height: 12 }} />
-                                    <span>{copiedId === m.id ? '已复制' : '复制'}</span>
+                                    <span>{copiedId === m.id ? t('已复制') : t('复制')}</span>
                                   </button>
                                 </div>
                               ) : null}
@@ -828,8 +830,8 @@ export function ChatDetail({ chatId }: ChatDetailProps): React.ReactElement {
                                 type="button"
                                 className="chat-msg-copy chat-msg-copy-icon"
                                 onClick={() => void handleCopy(m.id, m.content)}
-                                title="复制"
-                                aria-label="复制消息"
+                                title={t('复制')}
+                                aria-label={t('复制消息')}
                               >
                                 <Icon name={copiedId === m.id ? 'check' : 'copy'} style={{ width: 12, height: 12 }} />
                               </button>
@@ -866,7 +868,7 @@ export function ChatDetail({ chatId }: ChatDetailProps): React.ReactElement {
                   )}
                   <div className="assistant-pending">
                     <span className="assistant-pending-text">
-                      {hasStreamBubble ? '正在执行…' : '正在思考…'}
+                      {hasStreamBubble ? t('正在执行…') : t('正在思考…')}
                     </span>
                     {elapsedSec >= 15 ? (
                       <span className="assistant-pending-clock">{elapsedSec}s</span>
@@ -886,8 +888,8 @@ export function ChatDetail({ chatId }: ChatDetailProps): React.ReactElement {
                   type="button"
                   className="chat-detail-scroll-btn"
                   onClick={scrollToBottom}
-                  aria-label="滚动到最新消息"
-                  title="滚动到最新消息"
+                  aria-label={t('滚动到最新消息')}
+                  title={t('滚动到最新消息')}
                 >
                   <Icon name="arrowDown" style={{ width: 16, height: 16 }} />
                 </button>

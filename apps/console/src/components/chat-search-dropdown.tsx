@@ -25,6 +25,7 @@ import { useRouter } from 'next/navigation'
 import { searchChats, type ChatSearchResult } from '@/lib/chats'
 import { Icon } from '@/components/icon'
 import '@/styles/chat-search.css'
+import { useI18n } from '@/i18n'
 
 interface ChatSearchResultsProps {
   /** Current search query (controlled by the sidebar's input). */
@@ -51,6 +52,7 @@ export const ChatSearchDropdown = forwardRef<ChatSearchDropdownHandle, ChatSearc
     { query, onClose, directoryId },
     ref,
   ): React.ReactElement | null {
+    const { t } = useI18n()
     const router = useRouter()
     const [results, setResults] = useState<ChatSearchResult[]>([])
     const [loading, setLoading] = useState(false)
@@ -88,7 +90,7 @@ export const ChatSearchDropdown = forwardRef<ChatSearchDropdownHandle, ChatSearc
             if (reqIdRef.current !== myId) return
             // AbortError happens when a newer query supersedes this one — not an error.
             if (err instanceof DOMException && err.name === 'AbortError') return
-            setError('搜索失败，请重试')
+            setError(t('搜索失败，请重试'))
             setResults([])
           })
           .finally(() => {
@@ -151,11 +153,11 @@ export const ChatSearchDropdown = forwardRef<ChatSearchDropdownHandle, ChatSearc
     const showEmpty = !loading && !error && results.length === 0
 
     return (
-      <div className="chat-search-results" role="listbox" aria-label="搜索结果">
+      <div className="chat-search-results" role="listbox" aria-label={t('搜索结果')}>
         {loading && (
           <div className="chat-search-status" role="status">
             <Icon name="loader" className="chat-search-spinner" style={{ width: 13, height: 13 }} />
-            <span>搜索中…</span>
+            <span>{t('搜索中…')}</span>
           </div>
         )}
 
@@ -164,7 +166,7 @@ export const ChatSearchDropdown = forwardRef<ChatSearchDropdownHandle, ChatSearc
         )}
 
         {showEmpty && (
-          <div className="chat-search-status">无匹配结果</div>
+          <div className="chat-search-status">{t('无匹配结果')}</div>
         )}
 
         {results.length > 0 && (
@@ -185,7 +187,7 @@ export const ChatSearchDropdown = forwardRef<ChatSearchDropdownHandle, ChatSearc
                   {/* Heading: title (deepseek .searchResultHeading — we have no
                       per-result status from the search endpoint, so no slot). */}
                   <span className="chat-search-item-heading">
-                    <span className="chat-search-item-title">{r.chatTitle || '新对话'}</span>
+                    <span className="chat-search-item-title">{r.chatTitle || t('新对话')}</span>
                   </span>
                   {/* Meta line: directory label + content snippet, one line. */}
                   <span className="chat-search-item-meta">
@@ -204,7 +206,7 @@ export const ChatSearchDropdown = forwardRef<ChatSearchDropdownHandle, ChatSearc
         )}
 
         {!loading && !error && results.length >= RESULT_CAP_HINT && (
-          <div className="chat-search-status">仅显示前 {RESULT_CAP_HINT} 条，输入更精确的关键词可缩小范围</div>
+          <div className="chat-search-status">{t('仅显示前 {n} 条，输入更精确的关键词可缩小范围', { n: RESULT_CAP_HINT })}</div>
         )}
       </div>
     )

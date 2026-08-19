@@ -19,6 +19,7 @@ import { useEffect, useRef, useState } from 'react'
 import { Icon } from '@/components/icon'
 import { createDirectory, pickDirectory } from '@/lib/directories'
 import { useDirectories } from './use-directories'
+import { useI18n } from '@/i18n'
 import '@/styles/directory-selector.css'
 
 interface DirectorySelectorProps {
@@ -30,6 +31,7 @@ export function DirectorySelector({
   value,
   onChange,
 }: DirectorySelectorProps): React.ReactElement {
+  const { t } = useI18n()
   const { directories, reload } = useDirectories()
   const [open, setOpen] = useState(false)
   const [picking, setPicking] = useState(false)
@@ -77,7 +79,7 @@ export function DirectorySelector({
         onClick={() => setOpen((v) => !v)}
       >
         <Icon name="folder" style={{ width: 14, height: 14 }} />
-        <span>{selected?.name ?? '选择目录'}</span>
+        <span>{selected?.name ?? t('选择目录')}</span>
         <Icon name="chevronDown" style={{ width: 12, height: 12 }} />
       </button>
       {open && (
@@ -89,10 +91,10 @@ export function DirectorySelector({
             disabled={picking}
           >
             <Icon name="plus" style={{ width: 14, height: 14 }} />
-            <span>{picking ? '等待选择…' : '浏览本地目录…'}</span>
+            <span>{picking ? t('等待选择…') : t('浏览本地目录…')}</span>
           </button>
           {directories.length === 0 && !picking ? (
-            <div className="directory-selector-empty">还没有项目目录，点击上方按钮添加</div>
+            <div className="directory-selector-empty">{t('还没有项目目录，点击上方按钮添加')}</div>
           ) : null}
           {directories.length > 0 ? (
             <div className="directory-selector-list">

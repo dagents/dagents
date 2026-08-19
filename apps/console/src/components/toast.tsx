@@ -18,6 +18,7 @@
 import { createContext, useCallback, useContext, useState, type ReactNode } from 'react'
 import { Icon } from '@/components/icon'
 import '@/styles/toast.css'
+import { useI18n } from '@/i18n'
 
 type ToastKind = 'success' | 'error' | 'info' | 'warning'
 
@@ -56,6 +57,7 @@ export function useToast(): ToastAPI {
 const MAX_VISIBLE = 5
 
 export function ToastProvider({ children }: { children: ReactNode }): React.ReactElement {
+  const { t } = useI18n()
   const [toasts, setToasts] = useState<ToastItem[]>([])
 
   const dismiss = useCallback((id: string) => {
@@ -93,18 +95,18 @@ export function ToastProvider({ children }: { children: ReactNode }): React.Reac
     <ToastContext.Provider value={api}>
       {children}
       {/* Toast container — fixed bottom-right, above all other content */}
-      <div className="toast-container" role="region" aria-label="通知" aria-live="polite">
-        {toasts.map((t) => (
-          <div key={t.id} className={`toast-item toast-${t.kind} toast-enter`}>
+      <div className="toast-container" role="region" aria-label={t('通知')} aria-live="polite">
+        {toasts.map((item) => (
+          <div key={item.id} className={`toast-item toast-${item.kind} toast-enter`}>
             <div className="toast-icon">
-              <Icon name={iconMap[t.kind]} style={{ width: 14, height: 14 }} />
+              <Icon name={iconMap[item.kind]} style={{ width: 14, height: 14 }} />
             </div>
-            <span className="toast-message">{t.message}</span>
+            <span className="toast-message">{item.message}</span>
             <button
               type="button"
               className="toast-dismiss"
-              onClick={() => dismiss(t.id)}
-              aria-label="关闭通知"
+              onClick={() => dismiss(item.id)}
+              aria-label={t('关闭通知')}
             >
               ×
             </button>

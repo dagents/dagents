@@ -2,6 +2,7 @@
 
 import { useEffect, useState } from 'react'
 import { Icon, type IconName } from '@/components/icon'
+import { useI18n } from '@/i18n'
 import '@/styles/suggestion-cards.css'
 
 interface SuggestionCardsProps {
@@ -39,6 +40,7 @@ const DEFAULT_SUGGESTIONS: readonly Suggestion[] = [
 ] as const
 
 export function SuggestionCards({ onPick }: SuggestionCardsProps): React.ReactElement {
+  const { t } = useI18n()
   const [suggestions, setSuggestions] = useState<readonly Suggestion[]>(DEFAULT_SUGGESTIONS)
 
   // Dynamically pick suggestions based on user's resource state.
@@ -125,12 +127,12 @@ export function SuggestionCards({ onPick }: SuggestionCardsProps): React.ReactEl
           type="button"
           className="suggestion-card enter-rise"
           style={{ '--enter-i': i } as React.CSSProperties}
-          onClick={() => onPick?.(s.text)}
+          onClick={() => onPick?.(t(s.text))}
         >
           <div className="suggestion-card-icon">
             <Icon name={s.icon} style={{ width: 14, height: 14 }} />
           </div>
-          <span className="suggestion-card-text">{s.text}</span>
+          <span className="suggestion-card-text">{t(s.text)}</span>
         </button>
       ))}
     </div>

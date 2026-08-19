@@ -19,6 +19,7 @@ import { useEffect, useId, useRef, useState } from 'react'
 import Link from 'next/link'
 import { Icon } from '@/components/icon'
 import { fetchAgents, AGENT_KINDS } from '@/lib/agents-catalog'
+import { useI18n } from '@/i18n'
 import '@/styles/agent-selector.css'
 
 export interface AgentOption {
@@ -44,6 +45,7 @@ interface AgentSelectorProps {
 }
 
 export function AgentSelector({ value, onChange, disabled }: AgentSelectorProps): React.ReactElement {
+  const { t } = useI18n()
   const [agents, setAgents] = useState<AgentOption[]>([])
   const [loaded, setLoaded] = useState(false)
   const [open, setOpen] = useState(false)
@@ -260,7 +262,7 @@ export function AgentSelector({ value, onChange, disabled }: AgentSelectorProps)
         aria-haspopup="listbox"
         aria-expanded={open}
         aria-controls={open ? listboxId : undefined}
-        title="选择 Agent"
+        title={t('选择 Agent')}
       >
         <Icon name="bot" style={{ width: 14, height: 14, color: 'var(--accent)' }} />
         <span>{label}</span>
@@ -285,7 +287,7 @@ export function AgentSelector({ value, onChange, disabled }: AgentSelectorProps)
           >
             <Icon name="bot" style={{ width: 14, height: 14 }} />
             <span>auto</span>
-            <span className="agent-selector-option-hint">让 chat 自动选择</span>
+            <span className="agent-selector-option-hint">{t('让 chat 自动选择')}</span>
           </button>
 
           {/* DB agents */}
@@ -312,7 +314,7 @@ export function AgentSelector({ value, onChange, disabled }: AgentSelectorProps)
           {installedNotInDb.length > 0 && (
             <div className="agent-selector-section-label">
               <Icon name="terminal" style={{ width: 12, height: 12 }} />
-              <span>已安装的 CLI · 选中即自动创建</span>
+              <span>{t('已安装的 CLI · 选中即自动创建')}</span>
             </div>
           )}
           {createError && (
@@ -337,7 +339,7 @@ export function AgentSelector({ value, onChange, disabled }: AgentSelectorProps)
                 <span className="agent-selector-glyph">{glyph}</span>
                 <span>{lbl}</span>
                 <span className="agent-selector-option-hint">
-                  {creating === cli.kind ? '创建中…' : '点击创建'}
+                  {creating === cli.kind ? t('创建中…') : t('点击创建')}
                 </span>
               </button>
             )
@@ -347,7 +349,7 @@ export function AgentSelector({ value, onChange, disabled }: AgentSelectorProps)
           {runtimes.filter((r) => !r.available).length > 0 && (
             <div className="agent-selector-section-label">
               <Icon name="terminal" style={{ width: 12, height: 12 }} />
-              <span>未安装</span>
+              <span>{t('未安装')}</span>
             </div>
           )}
           {runtimes.filter((r) => !r.available).map((cli) => {
@@ -358,7 +360,7 @@ export function AgentSelector({ value, onChange, disabled }: AgentSelectorProps)
               <div key={cli.kind} className="agent-selector-option unavailable">
                 <span className="agent-selector-glyph dim">{glyph}</span>
                 <span>{lbl}</span>
-                <span className="agent-selector-option-hint">未安装</span>
+                <span className="agent-selector-option-hint">{t('未安装')}</span>
               </div>
             )
           })}
@@ -371,7 +373,7 @@ export function AgentSelector({ value, onChange, disabled }: AgentSelectorProps)
               onClick={() => setOpen(false)}
             >
               <Icon name="plus" style={{ width: 12, height: 12 }} />
-              <span>还没有 Agent · 去创建</span>
+              <span>{t('还没有 Agent · 去创建')}</span>
             </Link>
           )}
         </div>

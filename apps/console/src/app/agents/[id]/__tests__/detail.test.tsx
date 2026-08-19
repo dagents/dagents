@@ -398,7 +398,7 @@ describe('AgentDetailView — inspector + tabs (M4.1 fidelity)', () => {
     await userEvent.keyboard('{ArrowRight}')
     expect(screen.getByRole('tab', { name: '指令' })).toHaveAttribute('aria-selected', 'true')
     await userEvent.keyboard('{ArrowRight}')
-    expect(screen.getByRole('tab', { name: 'Skills' })).toHaveAttribute('aria-selected', 'true')
+    expect(screen.getByRole('tab', { name: '技能' })).toHaveAttribute('aria-selected', 'true')
     await userEvent.keyboard('{ArrowRight}')
     expect(screen.getByRole('tab', { name: '日志' })).toHaveAttribute('aria-selected', 'true')
     // wrap-around: Logs → Activity
@@ -437,7 +437,7 @@ describe('AgentDetailView — inspector + tabs (M4.1 fidelity)', () => {
     await screen.findByText('论文阅读 · reader-04')
 
     // 切到 Skills tab（role=tab name=Skills）
-    await user.click(screen.getByRole('tab', { name: 'Skills' }))
+    await user.click(screen.getByRole('tab', { name: '技能' }))
 
     // 本地技能库目录渲染（来自 /api/skills stub）
     expect(await screen.findByText('agent-reach')).toBeInTheDocument()

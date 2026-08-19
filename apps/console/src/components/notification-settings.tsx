@@ -21,6 +21,7 @@
  */
 
 import { useCallback, useEffect, useState } from 'react'
+import { useI18n } from '@/i18n'
 import {
   readNotificationSettings,
   writeNotificationSettings,
@@ -48,6 +49,7 @@ const PERMISSION_LABEL: Record<PermissionState, string> = {
 }
 
 export function NotificationSettings(): React.ReactElement {
+  const { t } = useI18n()
   const [settings, setSettings] = useState<NotificationSettingsState>(() =>
     readNotificationSettings(),
   )
@@ -100,8 +102,8 @@ export function NotificationSettings(): React.ReactElement {
       Notification.permission === 'granted'
     ) {
       try {
-        const n = new Notification('🔔 Dagents 测试通知', {
-          body: '如果你看到这条消息，说明桌面通知已正确配置。',
+        const n = new Notification(t('🔔 Dagents 测试通知'), {
+          body: t('如果你看到这条消息，说明桌面通知已正确配置。'),
           icon: '/favicon.ico',
           tag: 'dagents-test',
         })
@@ -120,7 +122,7 @@ export function NotificationSettings(): React.ReactElement {
       // Follow with a soft beep 200ms later for a recognisable two-stage cue.
       setTimeout(() => playSoftBeep(), 200)
     }
-  }, [settings.desktopEnabled, settings.soundEnabled])
+  }, [settings.desktopEnabled, settings.soundEnabled, t])
 
   const permissionVariant =
     permission === 'granted'
@@ -132,19 +134,19 @@ export function NotificationSettings(): React.ReactElement {
   return (
     <div className="notif-settings-card">
       <div className="notif-settings-head">
-        <div className="notif-settings-title">桌面通知与提示音</div>
+        <div className="notif-settings-title">{t('桌面通知与提示音')}</div>
         <div className="notif-settings-desc">
-          当长时间运行的 Agent 任务完成或失败时，即使你切换了浏览器标签页也会收到通知。
+          {t('当长时间运行的 Agent 任务完成或失败时，即使你切换了浏览器标签页也会收到通知。')}
         </div>
       </div>
 
       <div className="notif-settings-permission">
-        <span className="notif-settings-permission-label">通知权限状态</span>
+        <span className="notif-settings-permission-label">{t('通知权限状态')}</span>
         <span
           className={`notif-perm-badge notif-perm-${permissionVariant}`}
           role="status"
         >
-          {PERMISSION_LABEL[permission]}
+          {t(PERMISSION_LABEL[permission])}
         </span>
         {permission === 'default' ? (
           <button
@@ -152,35 +154,35 @@ export function NotificationSettings(): React.ReactElement {
             className="btn btn-accent btn-sm notif-perm-request"
             onClick={() => void handleRequestPermission()}
           >
-            请求通知权限
+            {t('请求通知权限')}
           </button>
         ) : null}
         {permission === 'denied' ? (
           <span className="notif-perm-hint">
-            浏览器已拒绝。请在站点设置中重新允许通知。
+            {t('浏览器已拒绝。请在站点设置中重新允许通知。')}
           </span>
         ) : null}
         {permission === 'unsupported' ? (
-          <span className="notif-perm-hint">当前浏览器不支持桌面通知。</span>
+          <span className="notif-perm-hint">{t('当前浏览器不支持桌面通知。')}</span>
         ) : null}
       </div>
 
       <div className="notif-settings-toggles">
         <NotifToggle
-          title="桌面通知"
-          desc="任务完成或失败时弹出系统级桌面通知"
+          title={t('桌面通知')}
+          desc={t('任务完成或失败时弹出系统级桌面通知')}
           checked={settings.desktopEnabled}
           onChange={(v) => update({ desktopEnabled: v })}
         />
         <NotifToggle
-          title="通知声音"
-          desc="任务完成或失败时播放一声轻柔提示音（音量已限制在较低水平）"
+          title={t('通知声音')}
+          desc={t('任务完成或失败时播放一声轻柔提示音（音量已限制在较低水平）')}
           checked={settings.soundEnabled}
           onChange={(v) => update({ soundEnabled: v })}
         />
         <NotifToggle
-          title="仅标签页失焦时通知"
-          desc="开启后仅在你切走当前标签页时通知；关闭则在切换到其他对话时也通知"
+          title={t('仅标签页失焦时通知')}
+          desc={t('开启后仅在你切走当前标签页时通知；关闭则在切换到其他对话时也通知')}
           checked={settings.onlyWhenHidden}
           onChange={(v) => update({ onlyWhenHidden: v })}
         />
@@ -192,7 +194,7 @@ export function NotificationSettings(): React.ReactElement {
           className="btn btn-secondary btn-sm notif-test-btn"
           onClick={handleTest}
         >
-          测试通知
+          {t('测试通知')}
         </button>
       </div>
     </div>

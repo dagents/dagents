@@ -61,6 +61,7 @@ import { useWsFrame } from '@/lib/ws-client'
 import { kindLabel, kindGlyph } from '@/lib/agents-catalog'
 import { fetchSkills, type SkillSummary } from '@/lib/skills'
 import { Icon } from '@/components/icon'
+import { useI18n } from '@/i18n'
 import '@/styles/agent-detail.css'
 
 type TabKey = 'activity' | 'instructions' | 'skills' | 'logs'
@@ -86,6 +87,7 @@ export interface AgentDetailViewProps {
 const POLL_INTERVAL_MS = 5_000
 
 export function AgentDetailView({ id, nowMs }: AgentDetailViewProps): React.ReactElement {
+  const { t } = useI18n()
   const [detail, setDetail] = useState<AgentDetail | null>(null)
   const [logs, setLogs] = useState<AgentLogLine[]>([])
   const [logsError, setLogsError] = useState<string | null>(null)
@@ -223,7 +225,7 @@ export function AgentDetailView({ id, nowMs }: AgentDetailViewProps): React.Reac
           <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth={2} strokeLinecap="round" strokeLinejoin="round" aria-hidden="true">
             <path d="m15 18-6-6 6-6" />
           </svg>
-          返回 Agent 列表
+          {t('返回 Agent 列表')}
         </Link>
       </div>
 
@@ -234,7 +236,7 @@ export function AgentDetailView({ id, nowMs }: AgentDetailViewProps): React.Reac
           <NotFound id={id} />
         ) : error ? (
           <div className="detail-error card-flat" style={{ padding: 'var(--space-4)', color: 'var(--danger)', gridColumn: '1 / -1' }}>
-            加载失败：{error}
+            {t('加载失败：{error}', { error })}
           </div>
         ) : model ? (
           <>
@@ -277,12 +279,12 @@ export function AgentDetailView({ id, nowMs }: AgentDetailViewProps): React.Reac
             {showDeleteConfirm && (
               <div className="agent-delete-overlay" onClick={() => setShowDeleteConfirm(false)}>
                 <div className="agent-delete-dialog" onClick={(e) => e.stopPropagation()}>
-                  <div className="agent-delete-title">删除 Agent</div>
+                  <div className="agent-delete-title">{t('删除 Agent')}</div>
                   <div className="agent-delete-desc">
-                    确定要删除「{model.name}」吗？此操作不可撤销。
+                    {t('确定要删除「{name}」吗？此操作不可撤销。', { name: model.name })}
                   </div>
                   <div className="agent-delete-actions">
-                    <button type="button" className="btn btn-ghost btn-sm" onClick={() => setShowDeleteConfirm(false)}>取消</button>
+                    <button type="button" className="btn btn-ghost btn-sm" onClick={() => setShowDeleteConfirm(false)}>{t('取消')}</button>
                     <button
                       type="button"
                       className="btn btn-danger btn-sm"
@@ -291,11 +293,11 @@ export function AgentDetailView({ id, nowMs }: AgentDetailViewProps): React.Reac
                           const resp = await fetch(`/api/agents/${encodeURIComponent(id)}`, { method: 'DELETE' })
                           if (resp.ok) router.push('/agents')
                         } catch { /* silent */ }
-                        setShowDeleteConfirm(false)
-                      }}
-                    >
-                      确认删除
-                    </button>
+                      setShowDeleteConfirm(false)
+                    }}
+                  >
+                    {t('确认删除')}
+                  </button>
                   </div>
                 </div>
               </div>
@@ -310,6 +312,7 @@ export function AgentDetailView({ id, nowMs }: AgentDetailViewProps): React.Reac
 /** Loading skeleton — the shimmer `.sk` blocks the design shows for 200ms
  *  before `render(a)`. Ported 1:1 so the loading state matches the design. */
 function DetailSkeleton(): React.ReactElement {
+  const { t } = useI18n()
   return (
     <>
       <aside className="inspector" aria-busy="true">
@@ -322,10 +325,10 @@ function DetailSkeleton(): React.ReactElement {
         <div className="sk" style={{ width: '100%', height: 120 }} />
       </aside>
       <section className="overview">
-        <div className="tabs" role="tablist" aria-label="agent 详情标签页">
-          {TABS.map((t) => (
-            <span key={t.key} className="tab" role="tab">
-              {t.label}
+        <div className="tabs" role="tablist" aria-label={t('agent 详情标签页')}>
+          {TABS.map((tab) => (
+            <span key={tab.key} className="tab" role="tab">
+              {t(tab.label)}
             </span>
           ))}
         </div>
@@ -340,14 +343,15 @@ function DetailSkeleton(): React.ReactElement {
 
 /** Not-found state — design agent-detail.html:172-179 renderNotFound(). */
 function NotFound({ id }: { id: string }): React.ReactElement {
+  const { t } = useI18n()
   return (
     <div className="not-found" style={{ gridColumn: '1 / -1' }}>
-      <div className="h">找不到这个 Agent</div>
+      <div className="h">{t('找不到这个 Agent')}</div>
       <div className="d">
-        id &ldquo;{id}&rdquo; 不存在，可能已被归档或删除。
+        {t('id “{id}” 不存在，可能已被归档或删除。', { id })}
       </div>
       <Link className="btn btn-secondary btn-sm" href="/agents">
-        返回 Agent 列表
+        {t('返回 Agent 列表')}
       </Link>
     </div>
   )
@@ -361,6 +365,7 @@ interface InspectorProps {
 }
 
 function Inspector({ model, onEdit, onArchive, onDelete }: InspectorProps): React.ReactElement {
+  const { t } = useI18n()
   return (
     <aside className="inspector" id="inspector" data-od-id="inspector">
       <div className="ins-head">
@@ -373,7 +378,7 @@ function Inspector({ model, onEdit, onArchive, onDelete }: InspectorProps): Reac
           <div className="ins-presence">
             <span className={`status ${availabilityClass(model.availability)}`}>
               <span className="dot" />
-              {availabilityLabel(model.availability)}
+              {t(availabilityLabel(model.availability))}
             </span>
           </div>
         </div>
@@ -384,36 +389,36 @@ function Inspector({ model, onEdit, onArchive, onDelete }: InspectorProps): Reac
           {onEdit && (
             <button type="button" className="btn btn-ghost btn-sm" onClick={onEdit}>
               <Icon name="pencil" style={{ width: 12, height: 12 }} />
-              <span>编辑</span>
+              <span>{t('编辑')}</span>
             </button>
           )}
           {onArchive && (
             <button type="button" className="btn btn-ghost btn-sm" onClick={onArchive}>
               <Icon name="folder" style={{ width: 12, height: 12 }} />
-              <span>归档</span>
+              <span>{t('归档')}</span>
             </button>
           )}
           {onDelete && (
             <button type="button" className="btn btn-ghost btn-sm ins-action-danger" onClick={onDelete}>
               <Icon name="close" style={{ width: 12, height: 12 }} />
-              <span>删除</span>
+              <span>{t('删除')}</span>
             </button>
           )}
         </div>
       )}
       <div>
-        <div className="ins-section-label">属性</div>
+        <div className="ins-section-label">{t('属性')}</div>
         <PropRow label="Agent ID" mono value={model.id} />
-        <PropRow label="类型" value={kindLabel(model.kind)} pick />
-        <PropRow label="模型" value={model.model} pick />
-        <PropRow label="运行时" mono value={model.runtime} />
-        <PropRow label="并发" value={model.concurrency} />
+        <PropRow label={t('类型')} value={t(kindLabel(model.kind))} pick />
+        <PropRow label={t('模型')} value={model.model} pick />
+        <PropRow label={t('运行时')} mono value={model.runtime} />
+        <PropRow label={t('并发')} value={model.concurrency} />
         <PropRow
-          label="可见性"
-          value={model.visibility === 'public' ? '公开' : '工作区'}
+          label={t('可见性')}
+          value={model.visibility === 'public' ? t('公开') : t('工作区')}
         />
-        <PropRow label="负责人" value={model.owner} />
-        <PropRow label="创建于" mono value={model.createdAt.slice(0, 10)} />
+        <PropRow label={t('负责人')} value={model.owner} />
+        <PropRow label={t('创建于')} mono value={model.createdAt.slice(0, 10)} />
       </div>
       <div>
         <div className="ins-section-label">Skills</div>
@@ -426,14 +431,14 @@ function Inspector({ model, onEdit, onArchive, onDelete }: InspectorProps): Reac
             ))
           ) : (
             <span className="muted" style={{ fontSize: 12 }}>
-              无
+              {t('无')}
             </span>
           )}
         </div>
       </div>
       <div>
-        <div className="ins-section-label">当前任务</div>
-        <PropRow mono value={model.currentRun ?? '无活跃 Run'} fullWidth />
+        <div className="ins-section-label">{t('当前任务')}</div>
+        <PropRow mono value={model.currentRun ?? t('无活跃 Run')} fullWidth />
         {model.currentRun ? (
           <>
             <div className="bar mb-2">
@@ -441,7 +446,7 @@ function Inspector({ model, onEdit, onArchive, onDelete }: InspectorProps): Reac
             </div>
             <div className="row-between">
               <span className="meta" style={{ fontSize: 11 }}>
-                已用 {model.elapsed}
+                {t('已用 {elapsed}', { elapsed: model.elapsed })}
               </span>
               <span className="mono" style={{ fontSize: 11, color: 'var(--accent-hover)' }}>
                 {model.progress}%
@@ -495,6 +500,7 @@ function Overview({
   agentId,
   onSkillsSaved,
 }: OverviewProps): React.ReactElement {
+  const { t } = useI18n()
   // Fixed-length ref array for the tab buttons — one slot per tab so the
   // keyboard handler can focus the next/prev/Home/End tab. Roving tabindex:
   // the active tab is in the tab sequence (tabindex=0), the rest are -1
@@ -502,23 +508,23 @@ function Overview({
   const tabRefs = useRef<(HTMLButtonElement | null)[]>(Array.from({ length: TABS.length }, () => null))
   return (
     <section className="overview" data-od-id="overview">
-      <div className="tabs" role="tablist" aria-label="agent 详情标签页">
-        {TABS.map((t, i) => (
+      <div className="tabs" role="tablist" aria-label={t('agent 详情标签页')}>
+        {TABS.map((tab, i) => (
           <button
-            key={t.key}
+            key={tab.key}
             ref={(el) => {
               tabRefs.current[i] = el
             }}
             type="button"
             className="tab"
             role="tab"
-            aria-selected={activeTab === t.key}
-            tabIndex={activeTab === t.key ? 0 : -1}
-            data-tab={t.key}
-            onClick={() => onSelectTab(t.key)}
+            aria-selected={activeTab === tab.key}
+            tabIndex={activeTab === tab.key ? 0 : -1}
+            data-tab={tab.key}
+            onClick={() => onSelectTab(tab.key)}
             onKeyDown={(e) => onTabKeyDown(e, i, onSelectTab, tabRefs)}
           >
-            {t.label}
+            {t(tab.label)}
           </button>
         ))}
       </div>
@@ -558,36 +564,37 @@ function onTabKeyDown(
 }
 
 function ActivityPanel({ model }: { model: AgentDetailPageModel }): React.ReactElement {
+  const { t } = useI18n()
   const { total, fail, successRate } = sumBuckets(model.activity)
   return (
     <>
       <div className="act-kpi-row">
         <div className="act-kpi">
           <div className="v">{total}</div>
-          <div className="l">30 天总运行</div>
+          <div className="l">{t('30 天总运行')}</div>
         </div>
         <div className="act-kpi">
           <div className="v" style={{ color: 'var(--accent-hover)' }}>
             {successRate}
             {successRate === '—' ? '' : '%'}
           </div>
-          <div className="l">成功率</div>
+          <div className="l">{t('成功率')}</div>
         </div>
         <div className="act-kpi">
           <div className="v" style={{ color: 'var(--danger)' }}>
             {fail}
           </div>
-          <div className="l">失败次数</div>
+          <div className="l">{t('失败次数')}</div>
         </div>
       </div>
-      <div className="ins-section-label">运行趋势（30 天）</div>
+      <div className="ins-section-label">{t('运行趋势（30 天）')}</div>
       <AgentActivitySparkline buckets={model.activity} />
       <div className="act-axis-row">
-        <span>30 天前</span>
-        <span>今天</span>
+        <span>{t('30 天前')}</span>
+        <span>{t('今天')}</span>
       </div>
       <div className="act-recent">
-        <div className="ins-section-label">最近活动</div>
+        <div className="ins-section-label">{t('最近活动')}</div>
         {model.logs.length > 0 ? (
           [...model.logs].reverse().map((l, i) => (
             <div className="act-recent-item" key={`${l.ts}-${i}`}>
@@ -602,7 +609,7 @@ function ActivityPanel({ model }: { model: AgentDetailPageModel }): React.ReactE
           ))
         ) : (
           <div className="muted" style={{ fontSize: 12, padding: 'var(--space-2) 0' }}>
-            暂无活动
+            {t('暂无活动')}
           </div>
         )}
       </div>
@@ -611,14 +618,15 @@ function ActivityPanel({ model }: { model: AgentDetailPageModel }): React.ReactE
 }
 
 function InstructionsPanel({ model }: { model: AgentDetailPageModel }): React.ReactElement {
+  const { t } = useI18n()
   return (
     <>
-      <div className="ins-section-label">系统提示词</div>
+      <div className="ins-section-label">{t('系统提示词')}</div>
       <div className="instr">{model.instructions}</div>
-      <div className="ins-section-label mt-6">能力描述符</div>
+      <div className="ins-section-label mt-6">{t('能力描述符')}</div>
       <div className="card-flat" style={{ padding: 'var(--space-4)' }}>
-        <PropRow label="输入 schema" mono value={model.inputSchema} />
-        <PropRow label="输出 schema" mono value={model.outputSchema} />
+        <PropRow label={t('输入 schema')} mono value={model.inputSchema} />
+        <PropRow label={t('输出 schema')} mono value={model.outputSchema} />
       </div>
     </>
   )
@@ -640,6 +648,7 @@ function SkillsPanel({
   agentId: string
   onSkillsSaved: (skills: string[]) => void
 }): React.ReactElement {
+  const { t } = useI18n()
   const [catalog, setCatalog] = useState<SkillSummary[] | null>(null)
   const [catalogError, setCatalogError] = useState<string | null>(null)
   const [selected, setSelected] = useState<string[]>(model.skills)
@@ -687,7 +696,7 @@ function SkillsPanel({
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({ skills: selected }),
       })
-      if (!res.ok) throw new Error(`保存失败（HTTP ${res.status}）`)
+      if (!res.ok) throw new Error(t('保存失败（HTTP {status}）', { status: res.status }))
       onSkillsSaved(selected)
       setSavedAt(Date.now())
     } catch (err) {
@@ -700,11 +709,11 @@ function SkillsPanel({
   return (
     <>
       <div className="row-between">
-        <div className="ins-section-label">已挂载 Skills（{selected.length}）</div>
+        <div className="ins-section-label">{t('已挂载 Skills（{n}）', { n: selected.length })}</div>
         <div style={{ display: 'flex', gap: 'var(--space-2)', alignItems: 'center' }}>
           {savedAt ? (
             <span className="meta" style={{ fontSize: 11, color: 'var(--success, #16a34a)' }}>
-              已保存
+              {t('已保存')}
             </span>
           ) : null}
           <button
@@ -714,7 +723,7 @@ function SkillsPanel({
             onClick={() => void save()}
             disabled={!dirty || saving}
           >
-            {saving ? '保存中…' : '保存挂载'}
+            {saving ? t('保存中…') : t('保存挂载')}
           </button>
         </div>
       </div>
@@ -734,36 +743,36 @@ function SkillsPanel({
                   <button
                     type="button"
                     className="skill-remove"
-                    aria-label={`移除技能 ${s}`}
-                    title="移除挂载"
+                    aria-label={t('移除技能 {name}', { name: s })}
+                    title={t('移除挂载')}
                     onClick={() => toggle(s)}
                   >
                     <Icon name="close" style={{ width: 12, height: 12 }} />
                   </button>
                 </div>
-                <div className="ds">{meta ? meta.description : '（本地目录中未找到 — 可能已被删除）'}</div>
+                <div className="ds">{meta ? meta.description : t('（本地目录中未找到 — 可能已被删除）')}</div>
               </div>
             )
           })
         ) : (
           <div className="muted" style={{ fontSize: 12 }}>
-            无挂载 Skills — 从下方本地技能库选择导入
+            {t('无挂载 Skills — 从下方本地技能库选择导入')}
           </div>
         )}
       </div>
 
-      <div className="ins-section-label mt-6">本地技能库</div>
+      <div className="ins-section-label mt-6">{t('本地技能库')}</div>
       {catalogError ? (
         <div className="meta" style={{ fontSize: 12, color: 'var(--danger)' }} role="alert">
-          本地技能目录加载失败：{catalogError}
+          {t('本地技能目录加载失败：{error}', { error: catalogError })}
         </div>
       ) : catalog === null ? (
         <div className="muted" style={{ fontSize: 12 }}>
-          加载本地技能目录…
+          {t('加载本地技能目录…')}
         </div>
       ) : catalog.length === 0 ? (
         <div className="muted" style={{ fontSize: 12 }}>
-          本地没有可用技能（~/.agents/skills 为空）。放入 &lt;name&gt;/SKILL.md 即可被发现。
+          {t('本地没有可用技能（~/.agents/skills 为空）。放入 <name>/SKILL.md 即可被发现。')}
         </div>
       ) : (
         <div className="skill-import-grid">
@@ -800,9 +809,10 @@ function LogsPanel({
   error?: string | null
   onRetry?: () => void
 }): React.ReactElement {
+  const { t } = useI18n()
   return (
     <>
-      <div className="ins-section-label">最近日志</div>
+      <div className="ins-section-label">{t('最近日志')}</div>
       {error ? (
         <div
           className="card-flat"
@@ -817,7 +827,7 @@ function LogsPanel({
           }}
           role="alert"
         >
-          <span>日志加载失败：{error}</span>
+          <span>{t('日志加载失败：{error}', { error })}</span>
           {onRetry ? (
             <button
               type="button"
@@ -825,7 +835,7 @@ function LogsPanel({
               style={{ padding: '4px 12px', fontSize: 12 }}
               onClick={onRetry}
             >
-              重试
+              {t('重试')}
             </button>
           ) : null}
         </div>
@@ -841,16 +851,16 @@ function LogsPanel({
           ))
         ) : (
           <div className="log-line">
-            <span className="log-msg muted">{error ? '等待重试…' : '暂无日志'}</span>
+            <span className="log-msg muted">{error ? t('等待重试…') : t('暂无日志')}</span>
           </div>
         )}
       </div>
-      <div className="ins-section-label mt-6">区域与资源</div>
+      <div className="ins-section-label mt-6">{t('区域与资源')}</div>
       <div className="card-flat" style={{ padding: 'var(--space-4)' }}>
-        <PropRow label="区域" value={model.region} />
-        <PropRow label="所属 daemon" mono value={model.daemon} />
-        <PropRow label="负载" value={`${model.load}%`} />
-        <PropRow label="今日成本" mono value={model.cost} />
+        <PropRow label={t('区域')} value={model.region} />
+        <PropRow label={t('所属 daemon')} mono value={model.daemon} />
+        <PropRow label={t('负载')} value={`${model.load}%`} />
+        <PropRow label={t('今日成本')} mono value={model.cost} />
       </div>
     </>
   )

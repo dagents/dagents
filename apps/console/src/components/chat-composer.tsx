@@ -4,6 +4,7 @@ import { useRef, useState, useCallback, useEffect } from 'react'
 import { Icon } from '@/components/icon'
 import { AgentSelector } from '@/components/agent-selector'
 import { FlowSelector } from '@/components/flow-selector'
+import { useI18n } from '@/i18n'
 import '@/styles/chat-composer.css'
 
 interface ChatComposerProps {
@@ -48,7 +49,7 @@ export function ChatComposer({
   onStop,
   stopping = false,
   disabled,
-  placeholder = '发送消息…（输入 @ 触发命令）',
+  placeholder,
   agentSelector = true,
   agentId = null,
   onAgentChange,
@@ -56,6 +57,7 @@ export function ChatComposer({
   onFlowChange,
   autoFocus = false,
 }: ChatComposerProps): React.ReactElement {
+  const { t } = useI18n()
   const [input, setInput] = useState('')
   const textareaRef = useRef<HTMLTextAreaElement>(null)
   const [showCmdMenu, setShowCmdMenu] = useState(false)
@@ -193,7 +195,7 @@ export function ChatComposer({
       <div className="chat-composer-card">
         {/* @ Command Menu */}
         {showCmdMenu && filteredCmds.length > 0 && (
-          <div className="cmd-menu" role="listbox" aria-label="命令选择">
+          <div className="cmd-menu" role="listbox" aria-label={t('命令选择')}>
             {filteredCmds.map((cmd, i) => (
               <button
                 key={cmd.trigger}
@@ -210,9 +212,9 @@ export function ChatComposer({
                 <div className="cmd-menu-body">
                   <div className="cmd-menu-label">
                     <strong>{cmd.label}</strong>
-                    <span className="cmd-menu-hint">{cmd.hint}</span>
+                    <span className="cmd-menu-hint">{t(cmd.hint)}</span>
                   </div>
-                  <div className="cmd-menu-desc">{cmd.desc}</div>
+                  <div className="cmd-menu-desc">{t(cmd.desc)}</div>
                 </div>
               </button>
             ))}
@@ -235,7 +237,7 @@ export function ChatComposer({
             className="chat-composer-textarea"
             rows={1}
             disabled={disabled}
-            aria-label="消息输入框"
+            aria-label={t('消息输入框')}
           />
         </div>
         <div className="chat-composer-bottom">
@@ -268,8 +270,8 @@ export function ChatComposer({
                 className="chat-composer-stop"
                 onMouseDown={(e) => e.preventDefault()}
                 onClick={onStop}
-                title="停止生成"
-                aria-label="停止生成"
+                title={t('停止生成')}
+                aria-label={t('停止生成')}
               >
                 <Icon name="stop" style={{ width: 14, height: 14 }} />
               </button>
@@ -280,8 +282,8 @@ export function ChatComposer({
                 onMouseDown={(e) => e.preventDefault()}
                 onClick={handleSend}
                 disabled={!canSend}
-                title="发送消息"
-                aria-label="发送消息"
+                title={t('发送消息')}
+                aria-label={t('发送消息')}
               >
                 <Icon name="arrowUp" style={{ width: 16, height: 16 }} />
               </button>

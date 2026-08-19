@@ -41,6 +41,7 @@ import { fetchDirectories, type Directory } from '@/lib/directories'
 import { useWsChat } from '@/lib/use-ws-chat'
 import '@/styles/floating-chat.css'
 import '@/styles/assistant-content.css'
+import { useI18n } from '@/i18n'
 
 /** Rendered message row (optimistic + persisted + streaming-assistant). */
 interface DisplayMessage {
@@ -61,6 +62,7 @@ function formatTime(dateStr: string): string {
 }
 
 export function FloatingChat(): React.ReactElement {
+  const { t } = useI18n()
   const pathname = usePathname() ?? '/'
 
   // ─── Window open/close state ───
@@ -104,13 +106,14 @@ export function FloatingChat(): React.ReactElement {
 
 /** Floating action button — round, bottom-right, opens the chat window. */
 function ChatFab({ onClick }: { onClick: () => void }): React.ReactElement {
+  const { t } = useI18n()
   return (
     <button
       type="button"
       className="floating-chat-fab"
       onClick={onClick}
-      aria-label="打开聊天"
-      title="打开聊天"
+      aria-label={t('打开聊天')}
+      title={t('打开聊天')}
     >
       <Icon name="chat" style={{ width: 22, height: 22 }} />
     </button>
@@ -122,6 +125,7 @@ interface FloatingChatWindowProps {
 }
 
 function FloatingChatWindow({ onClose }: FloatingChatWindowProps): React.ReactElement {
+  const { t } = useI18n()
   const [directories, setDirectories] = useState<Directory[]>([])
   const [selectedDirId, setSelectedDirId] = useState<string | null>(null)
   const [selectedAgentId, setSelectedAgentId] = useState<string | null>(null)
@@ -278,7 +282,7 @@ function FloatingChatWindow({ onClose }: FloatingChatWindowProps): React.ReactEl
     if (sending) return
     const directoryId = selectedDirId ?? directories[0]?.id
     if (!directoryId) {
-      setError('请先选择项目目录')
+      setError(t('请先选择项目目录'))
       return
     }
     setSending(true)
@@ -397,7 +401,7 @@ function FloatingChatWindow({ onClose }: FloatingChatWindowProps): React.ReactEl
   }, [activeChatId])
 
   return (
-    <div className="floating-chat-window" role="dialog" aria-label="聊天">
+    <div className="floating-chat-window" role="dialog" aria-label={t('聊天')}>
       {/* Header — directory selector + new chat + close */}
       <div className="floating-chat-header">
         <div className="floating-chat-header-left">
@@ -408,8 +412,8 @@ function FloatingChatWindow({ onClose }: FloatingChatWindowProps): React.ReactEl
             type="button"
             className="floating-chat-header-btn"
             onClick={handleNewChat}
-            aria-label="新对话"
-            title="新对话"
+            aria-label={t('新对话')}
+            title={t('新对话')}
           >
             <Icon name="plus" style={{ width: 16, height: 16 }} />
           </button>
@@ -417,8 +421,8 @@ function FloatingChatWindow({ onClose }: FloatingChatWindowProps): React.ReactEl
             type="button"
             className="floating-chat-header-btn"
             onClick={onClose}
-            aria-label="关闭"
-            title="关闭"
+            aria-label={t('关闭')}
+            title={t('关闭')}
           >
             <Icon name="close" style={{ width: 16, height: 16 }} />
           </button>
@@ -427,8 +431,8 @@ function FloatingChatWindow({ onClose }: FloatingChatWindowProps): React.ReactEl
 
       {/* Connection indicator — dimmed pill when WS is down. */}
       {!connected ? (
-        <div className="floating-chat-conn-warning" title="实时连接断开，回退到轮询">
-          实时连接断开
+        <div className="floating-chat-conn-warning" title={t('实时连接断开，回退到轮询')}>
+          {t('实时连接断开')}
         </div>
       ) : null}
 
@@ -439,9 +443,9 @@ function FloatingChatWindow({ onClose }: FloatingChatWindowProps): React.ReactEl
             <div className="floating-chat-empty-icon">
               <Icon name="bot" style={{ width: 28, height: 28, color: 'var(--accent)' }} />
             </div>
-            <div className="floating-chat-empty-title">开始一段对话</div>
+            <div className="floating-chat-empty-title">{t('开始一段对话')}</div>
             <div className="floating-chat-empty-desc">
-              选择目录与 Agent，发送消息即可触发任务
+              {t('选择目录与 Agent，发送消息即可触发任务')}
             </div>
           </div>
         ) : (
@@ -465,7 +469,7 @@ function FloatingChatWindow({ onClose }: FloatingChatWindowProps): React.ReactEl
           ))
         )}
         {loadingMessages ? (
-          <div className="floating-chat-empty">加载历史消息…</div>
+          <div className="floating-chat-empty">{t('加载历史消息…')}</div>
         ) : null}
         <div ref={messagesEndRef} />
       </div>
@@ -479,7 +483,7 @@ function FloatingChatWindow({ onClose }: FloatingChatWindowProps): React.ReactEl
         disabled={sending}
         agentId={selectedAgentId}
         onAgentChange={setSelectedAgentId}
-        placeholder={sending ? 'Agent 执行中…' : '发送消息给 Agent…'}
+        placeholder={sending ? t('Agent 执行中…') : t('发送消息给 Agent…')}
       />
     </div>
   )

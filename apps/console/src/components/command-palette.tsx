@@ -18,6 +18,7 @@ import { useCallback, useEffect, useMemo, useRef, useState } from 'react'
 import { useRouter } from 'next/navigation'
 import { Icon } from '@/components/icon'
 import { NAV } from '@/components/nav'
+import { useI18n } from '@/i18n'
 import '@/styles/command-palette.css'
 
 interface ChatItem {
@@ -42,6 +43,7 @@ export interface CommandPaletteProps {
 
 export function CommandPalette({ open, onClose }: CommandPaletteProps) {
   const router = useRouter()
+  const { t } = useI18n()
   const [query, setQuery] = useState('')
   const [active, setActive] = useState(0)
   const [chats, setChats] = useState<ChatItem[]>([])
@@ -247,7 +249,7 @@ export function CommandPalette({ open, onClose }: CommandPaletteProps) {
       className="cmdk-overlay"
       role="dialog"
       aria-modal="true"
-      aria-label="命令面板"
+      aria-label={t('命令面板')}
       onClick={onClose}
     >
       <div className="cmdk" onClick={(e) => e.stopPropagation()} onKeyDown={onKeyDown}>
@@ -257,22 +259,22 @@ export function CommandPalette({ open, onClose }: CommandPaletteProps) {
             ref={inputRef}
             type="text"
             className="cmdk-input"
-            placeholder="搜索页面、对话或操作…"
+            placeholder={t('搜索页面、对话或操作…')}
             value={query}
             onChange={(e) => setQuery(e.target.value)}
-            aria-label="搜索命令"
+            aria-label={t('搜索命令')}
             autoComplete="off"
             spellCheck={false}
           />
           <kbd className="cmdk-esc">ESC</kbd>
         </div>
         {commands.length === 0 ? (
-          <div className="cmdk-empty">没有匹配的命令</div>
+          <div className="cmdk-empty">{t('没有匹配的命令')}</div>
         ) : (
           <div className="cmdk-list" ref={listRef}>
             {grouped.map((bucket) => (
               <div className="cmdk-group" key={bucket.group}>
-                <div className="cmdk-group-label">{bucket.group}</div>
+                <div className="cmdk-group-label">{t(bucket.group)}</div>
                 {bucket.items.map(({ cmd, idx }) => (
                   <button
                     key={cmd.id}
@@ -285,8 +287,8 @@ export function CommandPalette({ open, onClose }: CommandPaletteProps) {
                     <span className="cmdk-item-icon">
                       <Icon name={cmd.icon} />
                     </span>
-                    <span className="cmdk-item-label">{cmd.label}</span>
-                    {cmd.hint ? <span className="cmdk-item-hint">{cmd.hint}</span> : null}
+                    <span className="cmdk-item-label">{t(cmd.label)}</span>
+                    {cmd.hint ? <span className="cmdk-item-hint">{t(cmd.hint)}</span> : null}
                   </button>
                 ))}
               </div>
@@ -297,13 +299,13 @@ export function CommandPalette({ open, onClose }: CommandPaletteProps) {
           <span className="cmdk-footer-hint">
             <kbd>↑</kbd>
             <kbd>↓</kbd>
-            导航
+            {t('导航')}
           </span>
           <span className="cmdk-footer-hint">
             <kbd>↵</kbd>
-            选择
+            {t('选择')}
           </span>
-          <span className="cmdk-footer-hint cmdk-footer-brand">DAgent</span>
+          <span className="cmdk-footer-brand">DAgent</span>
         </div>
       </div>
     </div>

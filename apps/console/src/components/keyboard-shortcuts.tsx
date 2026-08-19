@@ -18,6 +18,7 @@
  */
 
 import { useEffect, useState } from 'react'
+import { useI18n } from '@/i18n'
 import '@/styles/shortcuts.css'
 
 interface ShortcutDef {
@@ -44,6 +45,7 @@ const SHORTCUTS: readonly ShortcutDef[] = [
 const GROUPS = ['全局', '操作', '对话', '导航'] as const
 
 export function KeyboardShortcuts(): React.ReactElement | null {
+  const { t } = useI18n()
   const [open, setOpen] = useState(false)
 
   useEffect(() => {
@@ -69,20 +71,20 @@ export function KeyboardShortcuts(): React.ReactElement | null {
       className="shortcuts-overlay"
       onClick={() => setOpen(false)}
       role="dialog"
-      aria-label="键盘快捷键"
+      aria-label={t('键盘快捷键')}
     >
       <div className="shortcuts-modal" onClick={(e) => e.stopPropagation()}>
         <div className="shortcuts-head">
-          <span className="shortcuts-title">键盘快捷键</span>
-          <button type="button" className="shortcuts-close" onClick={() => setOpen(false)} aria-label="关闭">×</button>
+          <span className="shortcuts-title">{t('键盘快捷键')}</span>
+          <button type="button" className="shortcuts-close" onClick={() => setOpen(false)} aria-label={t('关闭')}>×</button>
         </div>
         <div className="shortcuts-body">
           {GROUPS.map((group) => (
             <div key={group} className="shortcuts-group">
-              <div className="shortcuts-group-title">{group}</div>
+              <div className="shortcuts-group-title">{t(group)}</div>
               {SHORTCUTS.filter((s) => s.group === group).map((s) => (
                 <div key={s.keys} className="shortcuts-row">
-                  <span className="shortcuts-action">{s.action}</span>
+                  <span className="shortcuts-action">{t(s.action)}</span>
                   <kbd className="shortcuts-key">{s.keys}</kbd>
                 </div>
               ))}
@@ -90,7 +92,7 @@ export function KeyboardShortcuts(): React.ReactElement | null {
           ))}
         </div>
         <div className="shortcuts-footer">
-          按 <kbd className="shortcuts-key">?</kbd> 随时打开此面板
+          {t('按')} <kbd className="shortcuts-key">?</kbd> {t('随时打开此面板')}
         </div>
       </div>
     </div>

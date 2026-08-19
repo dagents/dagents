@@ -33,6 +33,7 @@ import {
   extractSummary,
 } from '@/lib/tool-call-parser'
 import '@/styles/tool-call.css'
+import { useI18n } from '@/i18n'
 
 export interface Segment {
   kind: 'text' | 'thinking' | 'status' | 'tool-use' | 'tool-result' | 'error' | 'log'
@@ -257,6 +258,7 @@ interface AssistantContentProps {
 }
 
 export function AssistantContent({ content, streaming, meta }: AssistantContentProps): React.ReactElement {
+  const { t } = useI18n()
   const segments = parseAssistantContent(content)
 
   // No segments parsed (e.g. empty content or only whitespace) → render
@@ -536,6 +538,7 @@ function ProcessFold({
   streaming?: boolean
   cursorOnTail?: boolean
 }): React.ReactNode {
+  const { t } = useI18n()
   // Open while the task streams (so the user watches progress), collapsed
   // once it settles. Mirrors multica's OuterProcessFold behaviour.
   const [open, setOpen] = useState(!!streaming)
@@ -559,7 +562,7 @@ function ProcessFold({
           name={open ? 'chevronDown' : 'chevronRight'}
           style={{ width: 12, height: 12 }}
         />
-        <span>{stepCount} 步骤</span>
+        <span>{t('{n} 步骤', { n: stepCount })}</span>
       </button>
       {open ? (
         <div className="assistant-process-body">
@@ -653,6 +656,7 @@ function ThinkingRow({
   content: string
   streaming?: boolean
 }): React.ReactNode {
+  const { t } = useI18n()
   const [open, setOpen] = useState(false)
   const summaryRef = useRef<HTMLSpanElement>(null)
 
@@ -677,7 +681,7 @@ function ThinkingRow({
       >
         <Icon name={open ? 'chevronDown' : 'chevronRight'} className="thinking-trigger-icon" style={{ width: 12, height: 12 }} />
         <Icon name="brain" className="thinking-trigger-icon" style={{ width: 12, height: 12 }} />
-        <span className="thinking-trigger-label">{streaming ? '思考中' : '思考'}</span>
+        <span className="thinking-trigger-label">{streaming ? t('思考中') : t('思考')}</span>
         {!open ? (
           <>
             <span className="thinking-sep" aria-hidden="true" />

@@ -1,6 +1,7 @@
 'use client'
 
 import { useEffect, useState, useCallback } from 'react'
+import { useI18n } from '@/i18n'
 
 type Theme = 'light' | 'dark' | 'auto'
 
@@ -23,6 +24,7 @@ function applyTheme(theme: Theme) {
 }
 
 export function ThemeToggle(): React.ReactElement {
+  const { t } = useI18n()
   const [theme, setTheme] = useState<Theme>('auto')
   const [mounted, setMounted] = useState(false)
 
@@ -65,15 +67,15 @@ export function ThemeToggle(): React.ReactElement {
   const systemDark = typeof window !== 'undefined' && window.matchMedia('(prefers-color-scheme: dark)').matches
   const resolved: 'light' | 'dark' = theme === 'auto' ? (systemDark ? 'dark' : 'light') : theme
   const icon = resolved === 'light' ? '☀️' : '🌙'
-  const label = theme === 'auto' ? '跟随系统' : resolved === 'light' ? '浅色' : '深色'
+  const label = theme === 'auto' ? t('跟随系统') : resolved === 'light' ? t('浅色') : t('深色')
 
   return (
     <button
       type="button"
       className="theme-toggle"
       onClick={(e) => cycle(e.shiftKey)}
-      title={`主题：${label}（点击切换 · Shift+点击跟随系统）`}
-      aria-label={`切换主题，当前：${label}`}
+      title={t('主题：{label}（点击切换 · Shift+点击跟随系统）', { label })}
+      aria-label={t('切换主题，当前：{label}', { label })}
       suppressHydrationWarning
     >
       <span className="theme-toggle-icon">{mounted ? icon : '🖥️'}</span>

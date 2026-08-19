@@ -19,6 +19,7 @@
 import { useCallback, useEffect, useRef, useState } from 'react'
 import { Icon, type IconName } from '@/components/icon'
 import { fetchAudit, type AuditEntry } from '@/lib/audit'
+import { useI18n } from '@/i18n'
 import '@/styles/audit-log.css'
 
 /** 页大小 —— 审计浏览偏大页（gateway cap 200，我们用 50 平衡首屏与翻页）。 */
@@ -72,13 +73,15 @@ function actorVisual(actorType: string): { icon: IconName; label: string } {
   }
 }
 
-/** 相对时间 —— "刚刚 / 3分钟前 / 2小时前 / 3天前 / 绝对日期"。 */
-function timeAgo(iso: string): string {
+/** 相对时间 —— "刚刚 / 3分钟前 / 2小时前 / 3天前 / 绝对日期"。
+ *  `t` 来自调用方 useI18n()，单位随语言切换。 */
+type TFn = (key: string, params?: Record<string, string | number>) => string
+function timeAgo(iso: string, t: TFn): string {
   const diff = Date.now() - new Date(iso).getTime()
-  if (diff < 60_000) return '刚刚'
-  if (diff < 3_600_000) return `${Math.floor(diff / 60_000)} 分钟前`
-  if (diff < 86_400_000) return `${Math.floor(diff / 3_600_000)} 小时前`
-  if (diff < 7 * 86_400_000) return `${Math.floor(diff / 86_400_000)} 天前`
+  if (diff < 60_000) return t('刚刚')
+  if (diff < 3_600_000) return t('{n} 分钟前', { n: Math.floor(diff / 60_000) })
+  if (diff < 86_400_000) return t('{n} 小时前', { n: Math.floor(diff / 3_600_000) })
+  if (diff < 7 * 86_400_000) return t('{n} 天前', { n: Math.floor(diff / 86_400_000) })
   // 老于一周回退到绝对日期，避免"30 天前"这种没信息量的表达
   return new Date(iso).toLocaleString([], {
     month: '2-digit',
@@ -100,6 +103,7 @@ function shortId(id: string): string {
 }
 
 export function AuditLog(): React.ReactElement {
+  const { t } = useI18n()
   // ─── 筛选状态 ──────────────────────────────────────────────
   const [targetFilter, setTargetFilter] = useState<TargetFilter>('all')
   const [actorFilter, setActorFilter] = useState<ActorFilter>('all')
@@ -188,12 +192,12 @@ export function AuditLog(): React.ReactElement {
   const hasMore = nextCursor !== null
 
   return (
-    <section className="settings-section active audit-log" aria-label="审计日志">
+    <section className="settings-section active audit-log" aria-label={t('审计日志')}>
       <div className="row-between mb-4 audit-log-head">
         <div>
-          <div className="card-title" style={{ fontSize: 'var(--text-lg)' }}>审计日志</div>
+          <div className="card-title" style={{ fontSize: 'var(--text-lg)' }}>{t('审计日志')}</div>
           <div className="muted mt-2" style={{ fontSize: 13 }}>
-            平台全部写操作的安全审计轨迹。记录操作者、动作、目标与来源 IP，便于追溯与合规排查。
+            {t('平台全部写操作的安全审计轨迹。记录操作者、动作、目标与来源 IP，便于追溯与合规排查。')}
           </div>
         </div>
       </div>
@@ -201,33 +205,33 @@ export function AuditLog(): React.ReactElement {
       {/* ─── 筛选条 ─── */}
       <div className="tokens-toolbar audit-filters">
         <label className="audit-filter-field">
-          <span className="audit-filter-label">目标类型</span>
+          <span className="audit-filter-label">{t('目标类型')}</span>
           <select
             className="select"
-            aria-label="按目标类型筛选"
+            aria-label={t('按目标类型筛选')}
             value={targetFilter}
             onChange={(e) => setTargetFilter(e.target.value as TargetFilter)}
           >
             {TARGET_OPTIONS.map((o) => (
-              <option key={o.value} value={o.value}>{o.label}</option>
+              <option key={o.value} value={o.value}>{t(o.label)}</option>
             ))}
           </select>
         </label>
 
         <label className="audit-filter-field">
-          <span className="audit-filter-label">操作动作</span>
+          <span className="audit-filter-label">{t('操作动作')}</span>
           <input
             type="search"
             className="input"
-            placeholder="如 token.create…"
-            aria-label="按动作筛选"
+            placeholder={t('如 token.create…')}
+            aria-label={t('按动作筛选')}
             value={actionInput}
             onChange={(e) => setActionInput(e.target.value)}
           />
         </label>
 
-        <div className="audit-filter-chips" role="group" aria-label="按操作者类型筛选">
-          <span className="audit-filter-label">操作者</span>
+        <div className="audit-filter-chips" role="group" aria-label={t('按操作者类型筛选')}>
+          <span className="audit-filter-label">{t('操作者')}</span>
           {ACTOR_OPTIONS.map((o) => (
             <button
               key={o.value}
@@ -236,22 +240,22 @@ export function AuditLog(): React.ReactElement {
               aria-pressed={actorFilter === o.value}
               onClick={() => setActorFilter(o.value)}
             >
-              {o.label}
+              {t(o.label)}
             </button>
           ))}
         </div>
 
-        <span className="tk-count">{hasEntries ? `${entries.length} 条记录` : ''}</span>
+        <span className="tk-count">{hasEntries ? t('{n} 条记录', { n: entries.length }) : ''}</span>
         <div className="grow" />
         <button
           type="button"
           className="btn btn-secondary btn-sm"
           onClick={() => void load()}
           disabled={loading}
-          aria-label="刷新审计日志"
+          aria-label={t('刷新审计日志')}
         >
           <Icon name="refresh" className="audit-refresh-icon" />
-          刷新
+          {t('刷新')}
         </button>
       </div>
 
@@ -262,20 +266,20 @@ export function AuditLog(): React.ReactElement {
         ) : error && !hasEntries ? (
           <div className="audit-empty audit-error" role="alert">
             <Icon name="alertCircle" className="audit-empty-icon audit-empty-icon-danger" />
-            <div className="audit-empty-title">加载失败</div>
+            <div className="audit-empty-title">{t('加载失败')}</div>
             <div className="audit-empty-desc">{error}</div>
             <button type="button" className="btn btn-secondary btn-sm mt-3" onClick={() => void load()}>
-              重试
+              {t('重试')}
             </button>
           </div>
         ) : !hasEntries ? (
           <div className="audit-empty">
             <Icon name="info" className="audit-empty-icon" />
-            <div className="audit-empty-title">暂无审计记录</div>
+            <div className="audit-empty-title">{t('暂无审计记录')}</div>
             <div className="audit-empty-desc">
               {targetFilter !== 'all' || actorFilter !== 'all' || debouncedAction
-                ? '当前筛选条件下没有匹配的审计记录。试试调整或清空筛选。'
-                : '还没有任何审计事件被记录。当平台发生写操作（令牌、Provider、版本等）时，事件会出现在这里。'}
+                ? t('当前筛选条件下没有匹配的审计记录。试试调整或清空筛选。')
+                : t('还没有任何审计事件被记录。当平台发生写操作（令牌、Provider、版本等）时，事件会出现在这里。')}
             </div>
           </div>
         ) : (
@@ -285,12 +289,12 @@ export function AuditLog(): React.ReactElement {
               <table className="data audit-table">
                 <thead>
                   <tr>
-                    <th style={{ width: '14%' }}>时间</th>
-                    <th style={{ width: '20%' }}>操作者</th>
-                    <th style={{ width: '14%' }}>动作</th>
-                    <th style={{ width: '20%' }}>目标</th>
-                    <th>详情</th>
-                    <th style={{ width: '12%' }}>来源 IP</th>
+                    <th style={{ width: '14%' }}>{t('时间')}</th>
+                    <th style={{ width: '20%' }}>{t('操作者')}</th>
+                    <th style={{ width: '14%' }}>{t('动作')}</th>
+                    <th style={{ width: '20%' }}>{t('目标')}</th>
+                    <th>{t('详情')}</th>
+                    <th style={{ width: '12%' }}>{t('来源 IP')}</th>
                   </tr>
                 </thead>
                 <tbody>
@@ -311,14 +315,14 @@ export function AuditLog(): React.ReactElement {
               <div className="audit-load-more">
                 {error ? (
                   <div className="audit-load-more-error" role="alert">
-                    加载更多失败：{error}
+                    {t('加载更多失败：{msg}', { msg: error })}
                     <button
                       type="button"
                       className="btn btn-secondary btn-sm ml-2"
                       onClick={() => void loadMore()}
                       disabled={loadingMore}
                     >
-                      重试
+                      {t('重试')}
                     </button>
                   </div>
                 ) : null}
@@ -328,11 +332,11 @@ export function AuditLog(): React.ReactElement {
                   onClick={() => void loadMore()}
                   disabled={loadingMore}
                 >
-                  {loadingMore ? '加载中…' : '加载更多'}
+                  {loadingMore ? t('加载中…') : t('加载更多')}
                 </button>
               </div>
             ) : (
-              <div className="audit-end-hint muted">已到达最旧记录</div>
+              <div className="audit-end-hint muted">{t('已到达最旧记录')}</div>
             )}
           </>
         )}
@@ -347,6 +351,7 @@ function AuditRow(props: {
   expanded: boolean
   onToggle: () => void
 }): React.ReactElement {
+  const { t } = useI18n()
   const { entry, expanded, onToggle } = props
   const tone = actionTone(entry.action)
   const actor = actorVisual(entry.actorType)
@@ -356,21 +361,21 @@ function AuditRow(props: {
     <tr className={`audit-row ${expanded ? 'audit-row-expanded' : ''}`}>
       <td className="audit-cell-time">
         <time dateTime={entry.createdAt} title={timeTitle(entry.createdAt)}>
-          {timeAgo(entry.createdAt)}
+          {timeAgo(entry.createdAt, t)}
         </time>
       </td>
       <td className="audit-cell-actor">
         <span className="audit-actor">
           <Icon name={actor.icon} className="audit-actor-icon" />
           <span className="audit-actor-meta">
-            <span className="audit-actor-type">{actor.label}</span>
+            <span className="audit-actor-type">{t(actor.label)}</span>
             <span className="audit-actor-id mono">{shortId(entry.actorId)}</span>
           </span>
         </span>
       </td>
       <td className="audit-cell-action">
         <span className={`audit-badge audit-badge-${tone}`} title={entry.action}>
-          {ACTION_TONE_LABEL[tone]}
+          {t(ACTION_TONE_LABEL[tone])}
         </span>
         <span className="audit-action-name mono">{entry.action}</span>
       </td>
@@ -384,11 +389,11 @@ function AuditRow(props: {
             type="button"
             className="audit-detail-toggle"
             aria-expanded={expanded}
-            aria-label={expanded ? '折叠详情' : '展开详情'}
+            aria-label={expanded ? t('折叠详情') : t('展开详情')}
             onClick={onToggle}
           >
             <Icon name={expanded ? 'chevronDown' : 'chevronRight'} className="audit-detail-chevron" />
-            {expanded ? '折叠' : '详情'}
+            {expanded ? t('折叠') : t('详情')}
           </button>
         ) : (
           <span className="muted audit-detail-none">—</span>
@@ -406,17 +411,18 @@ function AuditRow(props: {
 
 /** 加载骨架 —— 表格行的 shimmer 占位，复用全局 .skeleton / .skeleton-text。 */
 function AuditSkeleton(): React.ReactElement {
+  const { t } = useI18n()
   return (
     <div className="table-wrap audit-table-wrap">
       <table className="data audit-table">
         <thead>
           <tr>
-            <th style={{ width: '14%' }}>时间</th>
-            <th style={{ width: '20%' }}>操作者</th>
-            <th style={{ width: '14%' }}>动作</th>
-            <th style={{ width: '20%' }}>目标</th>
-            <th>详情</th>
-            <th style={{ width: '12%' }}>来源 IP</th>
+            <th style={{ width: '14%' }}>{t('时间')}</th>
+            <th style={{ width: '20%' }}>{t('操作者')}</th>
+            <th style={{ width: '14%' }}>{t('动作')}</th>
+            <th style={{ width: '20%' }}>{t('目标')}</th>
+            <th>{t('详情')}</th>
+            <th style={{ width: '12%' }}>{t('来源 IP')}</th>
           </tr>
         </thead>
         <tbody>

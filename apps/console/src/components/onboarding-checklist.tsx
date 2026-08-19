@@ -15,6 +15,7 @@
 import { useEffect, useState, useCallback } from 'react'
 import Link from 'next/link'
 import { Icon } from '@/components/icon'
+import { useI18n } from '@/i18n'
 import '@/styles/onboarding.css'
 
 interface StepState {
@@ -27,6 +28,7 @@ interface StepState {
 const DISMISS_KEY = 'dagents:onboarding-dismissed'
 
 export function OnboardingChecklist(): React.ReactElement | null {
+  const { t } = useI18n()
   const [steps, setSteps] = useState<StepState[]>([
     { id: 'dir', label: '项目目录', done: false, href: '/' },
     { id: 'cli', label: 'CLI 已安装', done: false, href: '/settings' },
@@ -89,7 +91,7 @@ export function OnboardingChecklist(): React.ReactElement | null {
   return (
     <div className="onboarding-inline">
       <div className="onboarding-inline-bar">
-        <span className="onboarding-inline-title">🚀 快速配置</span>
+        <span className="onboarding-inline-title">{t('🚀 快速配置')}</span>
         <div className="onboarding-inline-steps">
           {steps.map((step) => (
             <span key={step.id} className={`onboarding-inline-chip${step.done ? ' done' : ''}`}>
@@ -99,17 +101,17 @@ export function OnboardingChecklist(): React.ReactElement | null {
                 <span className="onboarding-inline-dot" />
               )}
               {step.done ? (
-                <span className="onboarding-inline-label">{step.label}</span>
+                <span className="onboarding-inline-label">{t(step.label)}</span>
               ) : step.href ? (
-                <Link href={step.href} className="onboarding-inline-label link">{step.label} →</Link>
+                <Link href={step.href} className="onboarding-inline-label link">{t(step.label)} →</Link>
               ) : (
-                <span className="onboarding-inline-label">{step.label}</span>
+                <span className="onboarding-inline-label">{t(step.label)}</span>
               )}
             </span>
           ))}
         </div>
         <span className="onboarding-inline-count">{doneCount}/{steps.length}</span>
-        <button type="button" className="onboarding-inline-dismiss" onClick={handleDismiss} aria-label="关闭">×</button>
+        <button type="button" className="onboarding-inline-dismiss" onClick={handleDismiss} aria-label={t('关闭')}>×</button>
       </div>
     </div>
   )

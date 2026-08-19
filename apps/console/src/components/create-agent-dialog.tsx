@@ -20,6 +20,7 @@
 
 import { useEffect, useMemo, useRef, useState } from 'react'
 import { Icon } from '@/components/icon'
+import { useI18n } from '@/i18n'
 import '@/styles/dialog.css'
 import {
   type AgentKind,
@@ -58,6 +59,7 @@ export function CreateAgentDialog({
   onClose,
   onCreated,
 }: CreateAgentDialogProps): React.ReactElement | null {
+  const { t } = useI18n()
   const [daemons, setDaemons] = useState<DaemonOption[]>([])
   const [loadingDaemons, setLoadingDaemons] = useState(false)
   const [submitting, setSubmitting] = useState(false)
@@ -187,14 +189,14 @@ export function CreateAgentDialog({
         className="modal-dialog open"
         role="dialog"
         aria-modal="true"
-        aria-label="新建 Agent"
+        aria-label={t('新建 Agent')}
       >
         <div className="modal-head">
-          <h2 className="modal-title">新建 Agent</h2>
+          <h2 className="modal-title">{t('新建 Agent')}</h2>
           <button
             type="button"
             className="icon-btn"
-            aria-label="关闭"
+            aria-label={t('关闭')}
             onClick={onClose}
             disabled={submitting}
           >
@@ -204,37 +206,37 @@ export function CreateAgentDialog({
 
         <div className="modal-body">
           {loadingDaemons ? (
-            <div className="modal-loading">加载 daemon 列表…</div>
+            <div className="modal-loading">{t('加载 daemon 列表…')}</div>
           ) : daemons.length === 0 ? (
             <div className="modal-empty">
-              暂无已注册的 daemon。请先注册一个 daemon，再创建 agent。
+              {t('暂无已注册的 daemon。请先注册一个 daemon，再创建 agent。')}
             </div>
           ) : (
             <>
               {/* Identity */}
               <div className="form-section">
-                <div className="form-section-label">身份</div>
+                <div className="form-section-label">{t('身份')}</div>
                 <div className="field">
-                  <label htmlFor="agent-name">名称 *</label>
+                  <label htmlFor="agent-name">{t('名称 *')}</label>
                   <input
                     id="agent-name"
                     type="text"
                     className={`input${name.length === 0 ? '' : nameValid ? '' : ' invalid'}`}
                     value={name}
                     onChange={(e) => setName(e.target.value)}
-                    placeholder="例如 claude-code"
+                    placeholder={t('例如 claude-code')}
                     maxLength={128}
                     autoFocus
                   />
                 </div>
                 <div className="field">
-                  <label htmlFor="agent-summary">描述</label>
+                  <label htmlFor="agent-summary">{t('描述')}</label>
                   <textarea
                     id="agent-summary"
                     className="textarea"
                     value={summary}
                     onChange={(e) => setSummary(e.target.value)}
-                    placeholder="一句话说明这个 agent 做什么"
+                    placeholder={t('一句话说明这个 agent 做什么')}
                     rows={2}
                     maxLength={2000}
                   />
@@ -243,13 +245,13 @@ export function CreateAgentDialog({
 
               {/* Execution */}
               <div className="form-section">
-                <div className="form-section-label">执行</div>
+                <div className="form-section-label">{t('执行')}</div>
                 <div className="field">
-                  <label htmlFor="agent-kind">类型</label>
+                  <label htmlFor="agent-kind">{t('类型')}</label>
                   <div className="kind-options-grouped">
                     {groupedOptions.map((g) => (
                       <div key={g.group} className="kind-group">
-                        <div className="kind-group-label">{g.group}</div>
+                        <div className="kind-group-label">{t(g.group)}</div>
                         <div className="kind-options">
                           {g.options.map((k) => (
                             <button
@@ -257,9 +259,9 @@ export function CreateAgentDialog({
                               type="button"
                               className={`kind-option${kind === k.kind ? ' active' : ''}`}
                               onClick={() => selectKind(k.kind)}
-                              title={k.hint}
+                              title={t(k.hint)}
                             >
-                              {k.label}
+                              {t(k.label)}
                             </button>
                           ))}
                         </div>
@@ -268,31 +270,31 @@ export function CreateAgentDialog({
                   </div>
                 </div>
                 <div className="field">
-                  <label htmlFor="agent-daemon">执行位置</label>
+                  <label htmlFor="agent-daemon">{t('执行位置')}</label>
                   <select
                     id="agent-daemon"
                     className="select"
                     value={daemonId}
                     onChange={(e) => setDaemonId(e.target.value)}
                   >
-                    <option value="">本机（inline 直接执行，无需 daemon）</option>
+                    <option value="">{t('本机（inline 直接执行，无需 daemon）')}</option>
                     {daemons.map((d) => (
                       <option key={d.id} value={d.id}>
-                        Daemon · {d.label}（{d.status}）
+                        {t('Daemon · {label}（{status}）', { label: d.label, status: d.status })}
                       </option>
                     ))}
                   </select>
                 </div>
                 {kind !== 'prompt' ? (
                   <div className="field">
-                    <label htmlFor="agent-exec">可执行路径</label>
+                    <label htmlFor="agent-exec">{t('可执行路径')}</label>
                     <input
                       id="agent-exec"
                       type="text"
                       className="input"
                       value={executablePath}
                       onChange={(e) => setExecutablePath(e.target.value)}
-                      placeholder="例如 claude"
+                      placeholder={t('例如 claude')}
                     />
                   </div>
                 ) : null}
@@ -300,9 +302,9 @@ export function CreateAgentDialog({
 
               {/* Access */}
               <div className="form-section">
-                <div className="form-section-label">访问</div>
+                <div className="form-section-label">{t('访问')}</div>
                 <div className="field">
-                  <label>可见性</label>
+                  <label>{t('可见性')}</label>
                   <div className="kind-options">
                     {VISIBILITY_OPTIONS.map((v) => (
                       <button
@@ -311,7 +313,7 @@ export function CreateAgentDialog({
                         className={`kind-option${visibility === v.value ? ' active' : ''}`}
                         onClick={() => setVisibility(v.value)}
                       >
-                        {v.label}
+                        {t(v.label)}
                       </button>
                     ))}
                   </div>
@@ -330,7 +332,7 @@ export function CreateAgentDialog({
             onClick={onClose}
             disabled={submitting}
           >
-            取消
+            {t('取消')}
           </button>
           <button
             type="button"
@@ -338,7 +340,7 @@ export function CreateAgentDialog({
             onClick={() => void handleSubmit()}
             disabled={!canSubmit}
           >
-            {submitting ? '创建中…' : '创建'}
+            {submitting ? t('创建中…') : t('创建')}
           </button>
         </div>
       </div>

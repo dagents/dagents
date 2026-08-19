@@ -59,6 +59,7 @@ console (Next) → gateway (Hono) → @dagents/workflow engine
 - Workflow 画布编辑器：`/workflows/[id]/canvas`（vendor/agentflow/）
 - Workflow 引擎文档：`docs/workflow-engine.md`（架构 / 执行模型 / Langfuse 开启方式 / 已知限制）
 - LLM Provider CRUD + 动态代理转发
+- **中英双语（2026-08-16）**：自然键 i18n（`apps/console/src/i18n/`）——中文文案即 key，`en/` 词典分模块维护（common/agents/flows/daemons/settings/chat），缺译自动回退中文；`useI18n()` 无 Provider 也能用（默认 zh）。语言切换在侧栏底部（`dagents.locale` 持久化）。新增界面文案直接写中文并用 `t('中文')` 包裹，英文词条加到对应 `en/*.ts`。
 - 技能库（registry-not-database）：`~/.agents/skills` + `DAGENTS_SKILL_DIRS` + console 界面直接添加目录（持久化 `~/.agents/skill-dirs.json`，`POST/DELETE /api/v1/skills/roots`），`GET /api/v1/skills`，console `/skills` 页；不落库、正文不缓存。Agent 挂载的技能在执行时注入 system prompt（inline chat + workflow PlatformAgent，见 `skill-injection.ts`）。详见 `docs/skills-registry.md`
 
 ## 已知问题

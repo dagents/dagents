@@ -24,6 +24,8 @@ import { NAV } from '@/components/nav'
 import { fetchDirectories, pickDirectory, createDirectory, updateDirectory, deleteDirectory, type Directory } from '@/lib/directories'
 import { fetchChats, createChat, updateChat, deleteChat, type Chat } from '@/lib/chats'
 import { ThemeToggle } from '@/components/theme-toggle'
+import { LocaleToggle } from '@/components/locale-toggle'
+import { useI18n } from '@/i18n'
 import { ChatSearchDropdown, type ChatSearchDropdownHandle } from '@/components/chat-search-dropdown'
 import '@/styles/chat-nav-sidebar.css'
 
@@ -39,7 +41,9 @@ interface ChatNavSidebarProps {
  *  COLLAPSED_SESSION_LIMIT). */
 const CHAT_LIMIT = 5
 
-const CHAT_STATUS_LABEL: Record<string, string> = {
+/** Render-time resolved labels — wrapped in t() at the call site so the
+ *  sidebar re-renders in the active locale (constant map can't call hooks). */
+const CHAT_STATUS_KEYS: Record<string, string> = {
   idle: '空闲',
   running: '运行中',
   done: '已完成',
@@ -52,20 +56,22 @@ function isActive(pathname: string, href: string): boolean {
 }
 
 /** Compact relative time (deepseek tree.ts relativeTime buckets) — single-
- *  char units fit the 32px row: 刚刚 / 5分 / 3时 / 2天 / 4月 / 1年. */
-function formatRelativeTime(dateStr: string): string {
+ *  char units fit the 32px row: 刚刚 / 5分 / 3时 / 2天 / 4月 / 1年.
+ *  `t` comes from the caller's useI18n() so units localize (now / 5m / 3h…). */
+type TFn = (key: string, params?: Record<string, string | number>) => string
+function formatRelativeTime(dateStr: string, t: TFn): string {
   const now = Date.now()
   const then = new Date(dateStr).getTime()
   const diff = Math.max(0, now - then)
   const MIN = 60_000
   const HOUR = 3_600_000
   const DAY = 86_400_000
-  if (diff < MIN) return '刚刚'
-  if (diff < HOUR) return `${Math.floor(diff / MIN)}分`
-  if (diff < DAY) return `${Math.floor(diff / HOUR)}时`
-  if (diff < 30 * DAY) return `${Math.floor(diff / DAY)}天`
-  if (diff < 365 * DAY) return `${Math.floor(diff / (30 * DAY))}月`
-  return `${Math.floor(diff / (365 * DAY))}年`
+  if (diff < MIN) return t('刚刚')
+  if (diff < HOUR) return t('{n}分', { n: Math.floor(diff / MIN) })
+  if (diff < DAY) return t('{n}时', { n: Math.floor(diff / HOUR) })
+  if (diff < 30 * DAY) return t('{n}天', { n: Math.floor(diff / DAY) })
+  if (diff < 365 * DAY) return t('{n}月', { n: Math.floor(diff / (30 * DAY)) })
+  return t('{n}年', { n: Math.floor(diff / (365 * DAY)) })
 }
 
 /**
@@ -85,6 +91,7 @@ function sanitizeChatTitle(raw: string, max = 80): string {
 export function ChatNavSidebar({ collapsed, onToggle }: ChatNavSidebarProps): React.ReactElement {
   const pathname = usePathname() ?? '/'
   const router = useRouter()
+  const { t } = useI18n()
   const [directories, setDirectories] = useState<Directory[]>([])
   const [chatsByDir, setChatsByDir] = useState<Record<string, Chat[]>>({})
   const [expandedDirs, setExpandedDirs] = useState<Set<string>>(new Set())
@@ -302,7 +309,7 @@ export function ChatNavSidebar({ collapsed, onToggle }: ChatNavSidebarProps): Re
       if (creatingInDir) return
       setCreatingInDir(dirId)
       try {
-        const chat = await createChat({ directoryId: dirId, title: '新对话' })
+        const chat = await createChat({ directoryId: dirId, title: t('新对话') })
         // Prepend into local state so it shows up instantly after navigation.
         setChatsByDir((prev) => ({
           ...prev,
@@ -420,8 +427,8 @@ export function ChatNavSidebar({ collapsed, onToggle }: ChatNavSidebarProps): Re
             type="button"
             className="chat-nav-brand-rail"
             onClick={onToggle}
-            aria-label="展开侧栏"
-            title="展开侧栏"
+            aria-label={t('展开侧栏')}
+            title={t('展开侧栏')}
           >
             <span className="chat-nav-brand-mark">
               <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth={2} strokeLinecap="round" strokeLinejoin="round" style={{ width: 16, height: 16 }}>
@@ -458,8 +465,8 @@ export function ChatNavSidebar({ collapsed, onToggle }: ChatNavSidebarProps): Re
               type="button"
               className="chat-nav-collapse-btn"
               onClick={onToggle}
-              aria-label="折叠侧栏"
-              title="折叠侧栏"
+              aria-label={t('折叠侧栏')}
+              title={t('折叠侧栏')}
             >
               <Icon name="panelLeft" style={{ width: 15, height: 15 }} />
             </button>
@@ -473,10 +480,10 @@ export function ChatNavSidebar({ collapsed, onToggle }: ChatNavSidebarProps): Re
           type="button"
           className="chat-nav-action-btn"
           onClick={handleNewChat}
-          title={collapsed ? '新建对话' : undefined}
+          title={collapsed ? t('新建对话') : undefined}
         >
           <Icon name="pencil" className="nav-icon" style={{ width: 14, height: 14 }} />
-          <span>新建对话</span>
+          <span>{t('新建对话')}</span>
         </button>
       </div>
 
@@ -488,10 +495,10 @@ export function ChatNavSidebar({ collapsed, onToggle }: ChatNavSidebarProps): Re
             href={item.href}
             className="chat-nav-link"
             aria-current={isActive(pathname, item.href) ? 'page' : undefined}
-            title={collapsed ? item.label : undefined}
+            title={collapsed ? t(item.label) : undefined}
           >
             <Icon name={item.icon} className="nav-icon" style={{ width: 16, height: 16, flexShrink: 0 }} />
-            <span>{item.label}</span>
+            <span>{t(item.label)}</span>
           </Link>
         ))}
       </nav>
@@ -501,7 +508,7 @@ export function ChatNavSidebar({ collapsed, onToggle }: ChatNavSidebarProps): Re
           While typing, the label collapses away so the field owns the row. */}
       <div className={`chat-nav-browser${searchExpanded || search ? ' searching' : ''}`}>
         <div className="chat-nav-browser-header">
-          <span className="chat-nav-browser-label">对话</span>
+          <span className="chat-nav-browser-label">{t('对话')}</span>
           <div className={`chat-nav-search-wrap${searchExpanded || search ? ' expanded' : ''}`}>
             <div className="chat-nav-search">
               {searchExpanded || search ? (
@@ -528,15 +535,15 @@ export function ChatNavSidebar({ collapsed, onToggle }: ChatNavSidebarProps): Re
                       }
                       searchDropdownRef.current?.handleKeyDown(e)
                     }}
-                    placeholder="搜索对话…"
+                    placeholder={t('搜索对话…')}
                     className="chat-nav-search-input"
-                    aria-label="搜索对话"
+                    aria-label={t('搜索对话')}
                   />
                   {search ? (
                     <button
                       type="button"
                       className="chat-nav-search-clear"
-                      aria-label="清空搜索"
+                      aria-label={t('清空搜索')}
                       onClick={() => {
                         setSearch('')
                         searchInputRef.current?.focus()
@@ -567,8 +574,8 @@ export function ChatNavSidebar({ collapsed, onToggle }: ChatNavSidebarProps): Re
             className="chat-nav-browser-add"
             onClick={() => void handleAddDirectory()}
             disabled={addingDir}
-            title="添加项目目录"
-            aria-label="添加项目目录"
+            title={t('添加项目目录')}
+            aria-label={t('添加项目目录')}
           >
             <Icon name={addingDir ? 'loader' : 'plus'} style={{ width: 13, height: 13 }} />
           </button>
@@ -588,10 +595,10 @@ export function ChatNavSidebar({ collapsed, onToggle }: ChatNavSidebarProps): Re
         ) : (
         <div className="chat-nav-history" role="tree">
         {loading ? (
-          <div className="chat-nav-history-status" role="status">加载中…</div>
+          <div className="chat-nav-history-status" role="status">{t('加载中…')}</div>
         ) : directories.length === 0 ? (
           <div className="chat-nav-history-empty">
-            暂无项目目录，点击上方按钮添加
+            {t('暂无项目目录，点击上方按钮添加')}
           </div>
         ) : (
           directories.map((dir) => {
@@ -624,7 +631,7 @@ export function ChatNavSidebar({ collapsed, onToggle }: ChatNavSidebarProps): Re
                       }}
                       onBlur={() => void confirmRenameDir(dir.id)}
                       autoFocus
-                      aria-label="目录名称"
+                      aria-label={t('目录名称')}
                     />
                   ) : (
                     <button
@@ -662,8 +669,8 @@ export function ChatNavSidebar({ collapsed, onToggle }: ChatNavSidebarProps): Re
                         if (dirMenu?.id === dir.id) setDirMenu(null)
                         else openDirMenu(dir.id, e.currentTarget)
                       }}
-                      title="目录操作"
-                      aria-label={`「${dir.name}」目录操作`}
+                      title={t('目录操作')}
+                      aria-label={t('「{name}」目录操作', { name: dir.name })}
                       aria-haspopup="menu"
                     >
                       <Icon name="ellipsis" style={{ width: 14, height: 14 }} />
@@ -679,8 +686,8 @@ export function ChatNavSidebar({ collapsed, onToggle }: ChatNavSidebarProps): Re
                       void handleNewChatInDir(dir.id)
                     }}
                     disabled={isCreating}
-                    title={`在「${dir.name}」中新建对话`}
-                    aria-label={`在「${dir.name}」中新建对话`}
+                    title={t('在「{name}」中新建对话', { name: dir.name })}
+                    aria-label={t('在「{name}」中新建对话', { name: dir.name })}
                   >
                     <Icon name={isCreating ? 'loader' : 'plus'} style={{ width: 12, height: 12 }} />
                   </button>
@@ -695,7 +702,7 @@ export function ChatNavSidebar({ collapsed, onToggle }: ChatNavSidebarProps): Re
                         content={
                           <ChatHoverContent
                             title={sanitizeChatTitle(chat.title, 120)}
-                            time={formatRelativeTime(chat.updatedAt)}
+                            time={formatRelativeTime(chat.updatedAt, t)}
                             dirName={dir.name}
                             dirPath={dir.path}
                             status={chat.status}
@@ -727,9 +734,9 @@ export function ChatNavSidebar({ collapsed, onToggle }: ChatNavSidebarProps): Re
                         ) : deletingId === chat.id ? (
                           // Delete confirmation
                           <div className="chat-nav-chat-delete-confirm">
-                            <span>删除此对话？</span>
-                            <button type="button" className="btn btn-danger btn-sm" onClick={() => void confirmDelete(chat.id)}>删除</button>
-                            <button type="button" className="btn btn-ghost btn-sm" onClick={() => setDeletingId(null)}>取消</button>
+                            <span>{t('删除此对话？')}</span>
+                            <button type="button" className="btn btn-danger btn-sm" onClick={() => void confirmDelete(chat.id)}>{t('删除')}</button>
+                            <button type="button" className="btn btn-ghost btn-sm" onClick={() => setDeletingId(null)}>{t('取消')}</button>
                           </div>
                         ) : (
                           <>
@@ -746,13 +753,13 @@ export function ChatNavSidebar({ collapsed, onToggle }: ChatNavSidebarProps): Re
                               <span className="chat-nav-chat-item-title">{sanitizeChatTitle(chat.title)}</span>
                               {/* Time yields its seat to the hover actions
                                   (deepseek .time swap). */}
-                              <span className="chat-nav-chat-item-time">{formatRelativeTime(chat.updatedAt)}</span>
+                              <span className="chat-nav-chat-item-time">{formatRelativeTime(chat.updatedAt, t)}</span>
                               <span className="chat-nav-chat-actions">
                                 <button
                                   type="button"
                                   className="chat-nav-chat-action-btn"
-                                  title="重命名"
-                                  aria-label={`重命名 ${sanitizeChatTitle(chat.title, 20)}`}
+                                  title={t('重命名')}
+                                  aria-label={t('重命名 {name}', { name: sanitizeChatTitle(chat.title, 20) })}
                                   onClick={(e) => { e.preventDefault(); e.stopPropagation(); startRename(chat) }}
                                 >
                                   <Icon name="pencil" style={{ width: 12, height: 12 }} />
@@ -760,8 +767,8 @@ export function ChatNavSidebar({ collapsed, onToggle }: ChatNavSidebarProps): Re
                                 <button
                                   type="button"
                                   className="chat-nav-chat-action-btn chat-nav-chat-action-danger"
-                                  title="删除"
-                                  aria-label={`删除 ${sanitizeChatTitle(chat.title, 20)}`}
+                                  title={t('删除')}
+                                  aria-label={t('删除 {name}', { name: sanitizeChatTitle(chat.title, 20) })}
                                   onClick={(e) => { e.preventDefault(); e.stopPropagation(); setDeletingId(chat.id) }}
                                 >
                                   <Icon name="close" style={{ width: 12, height: 12 }} />
@@ -779,7 +786,7 @@ export function ChatNavSidebar({ collapsed, onToggle }: ChatNavSidebarProps): Re
                         className="chat-nav-dir-overflow"
                         onClick={() => toggleFullDir(dir.id)}
                       >
-                        显示更多 {hiddenCount} 个对话
+                        {t('显示更多 {n} 个对话', { n: hiddenCount })}
                       </button>
                     ) : showAll && hiddenCount > 0 ? (
                       <button
@@ -787,7 +794,7 @@ export function ChatNavSidebar({ collapsed, onToggle }: ChatNavSidebarProps): Re
                         className="chat-nav-dir-overflow"
                         onClick={() => toggleFullDir(dir.id)}
                       >
-                        收起
+                        {t('收起')}
                       </button>
                     ) : null}
                   </div>
@@ -822,7 +829,7 @@ export function ChatNavSidebar({ collapsed, onToggle }: ChatNavSidebarProps): Re
                 }}
               >
                 <Icon name="pencil" style={{ width: 12, height: 12 }} />
-                <span>重命名目录</span>
+                <span>{t('重命名目录')}</span>
               </button>
               <button
                 type="button"
@@ -835,7 +842,7 @@ export function ChatNavSidebar({ collapsed, onToggle }: ChatNavSidebarProps): Re
                 }}
               >
                 <Icon name="close" style={{ width: 12, height: 12 }} />
-                <span>删除目录…</span>
+                <span>{t('删除目录…')}</span>
               </button>
             </div>,
             document.body,
@@ -852,12 +859,12 @@ export function ChatNavSidebar({ collapsed, onToggle }: ChatNavSidebarProps): Re
                 className="chat-nav-confirm"
                 role="alertdialog"
                 aria-modal="true"
-                aria-label="删除目录"
+                aria-label={t('删除目录')}
                 onClick={(e) => e.stopPropagation()}
               >
-                <div className="chat-nav-confirm-title">删除目录「{deletingDir.name}」？</div>
+                <div className="chat-nav-confirm-title">{t('删除目录「{name}」？', { name: deletingDir.name })}</div>
                 <div className="chat-nav-confirm-desc">
-                  将同时删除其中 {(chatsByDir[deletingDir.id] ?? []).length} 个对话，此操作不可撤销。
+                  {t('将同时删除其中 {n} 个对话，此操作不可撤销。', { n: (chatsByDir[deletingDir.id] ?? []).length })}
                 </div>
                 <div className="chat-nav-confirm-actions">
                   <button
@@ -866,7 +873,7 @@ export function ChatNavSidebar({ collapsed, onToggle }: ChatNavSidebarProps): Re
                     disabled={deletingDirPending}
                     onClick={() => setDeletingDir(null)}
                   >
-                    取消
+                    {t('取消')}
                   </button>
                   <button
                     type="button"
@@ -874,7 +881,7 @@ export function ChatNavSidebar({ collapsed, onToggle }: ChatNavSidebarProps): Re
                     disabled={deletingDirPending}
                     onClick={() => void confirmDeleteDir(deletingDir)}
                   >
-                    {deletingDirPending ? '删除中…' : '删除'}
+                    {deletingDirPending ? t('删除中…') : t('删除')}
                   </button>
                 </div>
               </div>
@@ -884,17 +891,18 @@ export function ChatNavSidebar({ collapsed, onToggle }: ChatNavSidebarProps): Re
         : null}
 
       {/* Footer seat (deepseek): just the controls — 本机模式 has no user.
-          Settings anchors the left end, theme toggle the right. */}
+          Settings anchors the left end, theme + locale toggle the right. */}
       <div className="chat-nav-footer">
         <Link
           href="/settings"
           className="chat-nav-settings-btn"
-          aria-label="设置"
-          title="设置"
+          aria-label={t('设置')}
+          title={t('设置')}
           aria-current={isActive(pathname, '/settings') ? 'page' : undefined}
         >
           <Icon name="settings" className="nav-icon" style={{ width: 15, height: 15 }} />
         </Link>
+        <LocaleToggle className="chat-nav-locale-btn" />
         <ThemeToggle />
       </div>
     </div>
@@ -917,6 +925,7 @@ function ChatHoverContent({
   dirPath?: string | null
   status: string
 }): React.ReactNode {
+  const { t } = useI18n()
   const [copied, setCopied] = useState(false)
   const timerRef = useRef<number | undefined>(undefined)
   useEffect(() => () => window.clearTimeout(timerRef.current), [])
@@ -937,7 +946,7 @@ function ChatHoverContent({
       {dirPath ? <div className="hover-card-path">{dirPath}</div> : null}
       <div className={`hover-card-status ${status}`}>
         <span className="dot" aria-hidden="true" />
-        {CHAT_STATUS_LABEL[status] ?? status}
+        {t(CHAT_STATUS_KEYS[status] ?? status)}
       </div>
       <button
         type="button"
@@ -945,7 +954,7 @@ function ChatHoverContent({
         onClick={onCopy}
       >
         <Icon name={copied ? 'check' : 'copy'} style={{ width: 10, height: 10 }} />
-        <span>{copied ? '已复制' : '复制标题'}</span>
+        <span>{copied ? t('已复制') : t('复制标题')}</span>
       </button>
     </>
   )

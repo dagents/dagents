@@ -1,6 +1,7 @@
 import type { Metadata } from 'next'
 import { ToastProvider } from '@/components/toast'
 import { ChatLayout } from '@/components/chat-layout'
+import { I18nProvider } from '@/i18n'
 import '@/styles/tokens.css'
 import '@/styles/shell.css'
 
@@ -13,13 +14,17 @@ export default function RootLayout({ children }: { children: React.ReactNode }) 
   return (
     <html lang="zh-CN" suppressHydrationWarning>
       <head>
-        {/* FOUC prevention: apply stored theme before first paint */}
+        {/* FOUC prevention: apply stored theme + locale before first paint */}
         <script dangerouslySetInnerHTML={{ __html: `
           (function() {
             try {
               var t = localStorage.getItem('dagents-theme');
               if (t === 'light' || t === 'dark') {
                 document.documentElement.setAttribute('data-theme', t);
+              }
+              var l = localStorage.getItem('dagents.locale');
+              if (l === 'en') {
+                document.documentElement.setAttribute('lang', 'en');
               }
             } catch (e) {}
           })();
@@ -29,9 +34,11 @@ export default function RootLayout({ children }: { children: React.ReactNode }) 
           from translate/select-to-search plugins) inject attributes onto
           <body> before React hydrates — harmless attribute-only mismatches. */}
       <body suppressHydrationWarning>
-        <ToastProvider>
-          <ChatLayout>{children}</ChatLayout>
-        </ToastProvider>
+        <I18nProvider>
+          <ToastProvider>
+            <ChatLayout>{children}</ChatLayout>
+          </ToastProvider>
+        </I18nProvider>
       </body>
     </html>
   )

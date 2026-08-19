@@ -18,6 +18,7 @@ import { useCallback, useEffect, useMemo, useState } from 'react'
 import { PageShell } from '@/components/page-shell'
 import { Icon } from '@/components/icon'
 import { SkeletonList } from '@/components/skeleton'
+import { useI18n } from '@/i18n'
 import '@/styles/skills.css'
 import {
   type SkillDefinition,
@@ -51,6 +52,7 @@ function AddDirInput({
   onCatalog: (catalog: SkillCatalog) => void
   busyLabel?: string
 }): React.ReactElement {
+  const { t } = useI18n()
   const [value, setValue] = useState('')
   const [busy, setBusy] = useState(false)
   const [error, setError] = useState<string | null>(null)
@@ -76,7 +78,7 @@ function AddDirInput({
       <input
         type="text"
         placeholder="~/Projects/my-skills"
-        aria-label="自定义技能目录路径"
+        aria-label={t('自定义技能目录路径')}
         value={value}
         disabled={busy}
         onChange={(e) => setValue(e.target.value)}
@@ -90,7 +92,7 @@ function AddDirInput({
         disabled={busy || !value.trim()}
         onClick={() => void submit()}
       >
-        {busy ? busyLabel : '加载技能'}
+        {busy ? t(busyLabel) : t('加载技能')}
       </button>
       {error ? <div className="skills-add-error">{error}</div> : null}
     </div>
@@ -98,6 +100,7 @@ function AddDirInput({
 }
 
 export function SkillsView(): React.ReactElement {
+  const { t } = useI18n()
   const [skills, setSkills] = useState<SkillSummary[]>([])
   const [roots, setRoots] = useState<SkillRootInfo[]>([])
   const [loading, setLoading] = useState(true)
@@ -153,15 +156,15 @@ export function SkillsView(): React.ReactElement {
           // 列表来自 60s TTL 缓存而详情每次现扫磁盘 —— 404 意味着这行是
           // 残影（技能已被删除）。自动刷新目录让残影消失，不甩原始错误。
           if (err.message.includes('404')) {
-            setDetailError('该技能已不存在（目录里可能已被删除），列表已自动刷新。')
+            setDetailError(t('该技能已不存在（目录里可能已被删除），列表已自动刷新。'))
             void load(true)
           } else {
-            setDetailError(`加载失败：${err.message}`)
+            setDetailError(t('加载失败：{msg}', { msg: err.message }))
           }
         })
         .finally(() => setDetailLoading(false))
     },
-    [expanded, load],
+    [expanded, load, t],
   )
 
   const customRoots = useMemo(() => roots.filter((r) => r.source === 'custom'), [roots])
@@ -177,10 +180,10 @@ export function SkillsView(): React.ReactElement {
       try {
         applyCatalog(await removeSkillRoot(dir))
       } catch (err) {
-        setError(`移除目录失败：${(err as Error).message}`)
+        setError(t('移除目录失败：{msg}', { msg: (err as Error).message }))
       }
     },
-    [applyCatalog],
+    [applyCatalog, t],
   )
 
   return (
@@ -190,8 +193,8 @@ export function SkillsView(): React.ReactElement {
           <Icon name="search" />
           <input
             type="search"
-            placeholder="搜索技能名 / 描述…"
-            aria-label="搜索技能"
+            placeholder={t('搜索技能名 / 描述…')}
+            aria-label={t('搜索技能')}
             value={query}
             onChange={(e) => setQuery(e.target.value)}
           />
@@ -204,24 +207,24 @@ export function SkillsView(): React.ReactElement {
             aria-pressed={sourceFilter === f.key}
             onClick={() => setSourceFilter(f.key)}
           >
-            {f.label}
+            {t(f.label)}
           </button>
         ))}
         <div style={{ flexGrow: 1 }} />
         <span className="result-count">
-          {visible.length} / {skills.length} 个技能
+          {t('{n} / {total} 个技能', { n: visible.length, total: skills.length })}
         </span>
         <button type="button" className="btn btn-secondary btn-sm" onClick={() => void load(true)}>
           <Icon name="refresh" style={{ width: 14, height: 14 }} />
-          刷新
+          {t('刷新')}
         </button>
       </div>
 
       {error ? (
         <div className="skills-error">
-          加载失败：{error}
+          {t('加载失败：{msg}', { msg: error })}
           <button type="button" className="btn btn-ghost btn-sm" onClick={() => void load()}>
-            重试
+            {t('重试')}
           </button>
         </div>
       ) : null}
@@ -231,24 +234,33 @@ export function SkillsView(): React.ReactElement {
       ) : visible.length === 0 && !error ? (
         sourceFilter === 'custom' && !hasCustomRoots ? (
           <div className="skills-empty skills-add-state">
-            <div className="h">添加自定义技能目录</div>
+            <div className="h">{t('添加自定义技能目录')}</div>
             <div className="d">
-              输入本机目录路径，立即加载其中的技能包（<code>&lt;名称&gt;/SKILL.md</code> 或{' '}
-              <code>&lt;名称&gt;.md</code>，frontmatter 含 <code>name</code> 与{' '}
-              <code>description</code>）。支持 <code>~/</code> 展开，保存后无需重启。
+              {t('输入本机目录路径，立即加载其中的技能包（')}
+              <code>&lt;名称&gt;/SKILL.md</code>
+              {t(' 或 ')}
+              <code>&lt;名称&gt;.md</code>
+              {t('，frontmatter 含 ')}
+              <code>name</code>
+              {t(' 与 ')}
+              <code>description</code>
+              {t('）。支持 ')}
+              <code>~/</code>
+              {t(' 展开，保存后无需重启。')}
             </div>
             <AddDirInput onCatalog={applyCatalog} />
           </div>
         ) : (
           <div className="skills-empty">
-            <div className="h">{skills.length === 0 ? '没有发现技能' : '没有匹配的技能'}</div>
+            <div className="h">{skills.length === 0 ? t('没有发现技能') : t('没有匹配的技能')}</div>
             <div className="d">
-              技能来自运行时目录（不落库）：在 <code>~/.agents/skills/&lt;name&gt;/SKILL.md</code> 或
-              自定义目录放置 Agent Skills 标准格式的技能包后刷新。
+              {t('技能来自运行时目录（不落库）：在 ')}
+              <code>~/.agents/skills/&lt;name&gt;/SKILL.md</code>
+              {t(' 或 自定义目录放置 Agent Skills 标准格式的技能包后刷新。')}
             </div>
             {sourceFilter === 'custom' && hasCustomRoots ? (
               <div className="d mono">
-                已配置的自定义目录（当前未扫出技能，请检查目录内容与格式）：
+                {t('已配置的自定义目录（当前未扫出技能，请检查目录内容与格式）：')}
                 {customRoots.map((r) => r.dir).join('、')}
               </div>
             ) : null}
@@ -267,18 +279,18 @@ export function SkillsView(): React.ReactElement {
                 <Icon name="chevronRight" className="skill-chev" />
                 <span className="skill-name">{s.name}</span>
                 <span className="skill-desc">{s.description}</span>
-                <span className="skill-source">{sourceLabel(s.source)}</span>
+                <span className="skill-source">{t(sourceLabel(s.source))}</span>
               </button>
               {expanded === s.name ? (
                 <div className="skill-detail">
-                  {detailLoading ? <div className="skill-detail-meta">加载中…</div> : null}
+                  {detailLoading ? <div className="skill-detail-meta">{t('加载中…')}</div> : null}
                   {detailError ? <div className="skill-detail-error">{detailError}</div> : null}
                   {detail ? (
                     <>
                       <div className="skill-detail-meta">
                         {detail.dir}
                         <span className="skill-detail-hint">
-                          删除此技能 = 删除磁盘上的该目录（技能不落库，文件即真相；删后点「刷新」）
+                          {t('删除此技能 = 删除磁盘上的该目录（技能不落库，文件即真相；删后点「刷新」）')}
                         </span>
                       </div>
                       <pre className="skill-detail-body">{detail.content}</pre>
@@ -295,14 +307,14 @@ export function SkillsView(): React.ReactElement {
         {roots.map((r) => (
           <div key={`${r.source}:${r.dir}`} className="skills-footer-root">
             <span>
-              发现根 · {sourceLabel(r.source)} → <span className="dir">{r.dir}</span>
+              {t('发现根 · ')}{t(sourceLabel(r.source))} → <span className="dir">{r.dir}</span>
             </span>
             {r.removable ? (
               <button
                 type="button"
                 className="skills-root-remove"
-                aria-label={`移除目录 ${r.dir}`}
-                title={r.removable ? '从列表移除（不删除磁盘文件）' : undefined}
+                aria-label={t('移除目录 {dir}', { dir: r.dir })}
+                title={r.removable ? t('从列表移除（不删除磁盘文件）') : undefined}
                 onClick={() => void removeRoot(r.dir)}
               >
                 <Icon name="close" />
@@ -323,7 +335,7 @@ export function SkillsView(): React.ReactElement {
             className="skills-add-trigger"
             onClick={() => setFooterAdding(true)}
           >
-            + 添加目录
+            {t('+ 添加目录')}
           </button>
         )}
       </div>
