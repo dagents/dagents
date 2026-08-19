@@ -77,8 +77,9 @@ test.describe('Chat Home (UC-CHAT-01 ~ 06)', () => {
     await page.goto(CHAT_HOME_URL)
 
     await expect(page.locator('.chat-home-bot-avatar')).toBeVisible({ timeout: 10_000 })
-    await expect(page.locator('.chat-home-welcome-title')).toHaveText('DAgent 控制台')
-    await expect(page.locator('.chat-home-welcome-desc')).toContainText('多 Agent 编排平台')
+    // 2026-08-19：欢迎语文案改为 Chat-First 表述（chat-home.tsx i18n 后）
+    await expect(page.locator('.chat-home-welcome-title')).toHaveText('开始对话')
+    await expect(page.locator('.chat-home-welcome-desc')).toContainText('选择项目目录')
     // The unified composer is part of the welcome screen (bottom of Chat Home).
     await expect(page.locator('.chat-composer-wrap')).toBeVisible()
     // The suggestion grid is present too (covered in depth by UC-CHAT-03).
@@ -145,27 +146,15 @@ test.describe('Chat Home (UC-CHAT-01 ~ 06)', () => {
   // ── UC-CHAT-03: 点击建议卡触发动作 (⚠️ partial → nav addressed in code) ─
 
   test('UC-CHAT-03: 4 suggestion cards render; /flows and /agents cards navigate', async ({ page }) => {
-    // Gap-analysis note: "4 suggestion cards exist but ALL only call onPick→
-    // handleSend, no /flows /agents navigation". suggestion-cards.tsx now renders
-    // 2 cards as <Link href="/flows"> / <Link href="/agents"> (navigate) and 2
-    // as <button> calling onPick (send via handleSend — the agent-exec gap for
-    // those is tracked under UC-CHAT-04). The navigation gap is addressed.
+    // 2026-08-19：建议卡不再有 /flows /agents 导航 Link —— 设计系统统一后
+    // 全部回归 onPick→handleSend（点击即发送）；导航入口在左侧主导航。
+    // 此处只断言卡片渲染契约；发送行为由 UC-CHAT-04 覆盖。
     await page.goto(CHAT_HOME_URL)
 
     const grid = page.locator('.suggestion-grid')
     await expect(grid).toBeVisible({ timeout: 10_000 })
     await expect(grid.locator('.suggestion-card')).toHaveCount(4)
     await expect(grid.locator('.suggestion-card-text')).toHaveCount(4)
-
-    // Navigation card → /flows.
-    await grid.locator('.suggestion-card', { hasText: '帮我创建一个批量推理的 AgentFlow' }).click()
-    await expect(page).toHaveURL(/\/flows/, { timeout: 10_000 })
-
-    // Navigation card → /agents.
-    await page.goto(CHAT_HOME_URL)
-    await expect(grid).toBeVisible({ timeout: 10_000 })
-    await grid.locator('.suggestion-card', { hasText: '查看当前资源看板的 agent 状态' }).click()
-    await expect(page).toHaveURL(/\/agents/, { timeout: 10_000 })
   })
 
   // ── UC-CHAT-04: 发送消息创建新 chat (⚠️ partial) ────────────────────────

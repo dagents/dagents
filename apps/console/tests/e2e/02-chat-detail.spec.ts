@@ -122,11 +122,11 @@ test.describe('Chat Detail (UC-CHAT-07 ~ 13)', () => {
   test('UC-CHAT-07: breadcrumb shows directory link, chat title, and status badge', async ({ page }) => {
     await page.goto(`/chats/${chatWithMessages}`)
 
-    // Directory segment: a Link to /directories rendering the directory name.
-    const dirLink = page.locator('.chat-detail-breadcrumb-dir')
-    await expect(dirLink).toBeVisible({ timeout: 10_000 })
-    await expect(dirLink).toHaveText(/E2E Chat Detail Dir/)
-    await expect(dirLink).toHaveAttribute('href', '/directories')
+    // 2026-08-19：目录段不再是 Link（/directories 页面已移除，目录管理并入
+    // 侧栏）—— 现为 span（icon + 名称，title=path）
+    const dirSeg = page.locator('.chat-detail-breadcrumb-dir')
+    await expect(dirSeg).toBeVisible({ timeout: 10_000 })
+    await expect(dirSeg).toContainText('E2E Chat Detail Dir')
 
     // Separator + chat title segment.
     await expect(page.locator('.chat-detail-breadcrumb-sep')).toHaveText('/')
@@ -147,11 +147,10 @@ test.describe('Chat Detail (UC-CHAT-07 ~ 13)', () => {
     // Wait for the stream (not the loading/empty state) before asserting roles.
     await expect(page.locator('.chat-msg-user').first()).toBeVisible({ timeout: 10_000 })
 
-    // Each role renders its own .chat-msg-* class with the seeded content.
-    // Assistant messages render via <AssistantContent> → .assistant-content,
-    // while user/system/tool render via .chat-msg-content.
+    // 2026-08-19：user 消息内容直接在 .chat-msg-user-bubble 里（气泡改版，
+    // 不再有内层 .chat-msg-content）；assistant/system/tool 不变。
     const user = page.locator('.chat-msg-user').first()
-    await expect(user.locator('.chat-msg-content')).toHaveText('你好,请列出当前目录')
+    await expect(user.locator('.chat-msg-user-bubble')).toHaveText('你好,请列出当前目录')
     const assistant = page.locator('.chat-msg-assistant').first()
     await expect(assistant.locator('.assistant-content')).toBeVisible()
     await expect(assistant).toContainText('当前目录为空。')
@@ -201,7 +200,10 @@ test.describe('Chat Detail (UC-CHAT-07 ~ 13)', () => {
 
   // ── UC-CHAT-10: 查看右栏上下文 (⚠️ partial) ──────────────────────────────
 
-  test('UC-CHAT-10: context panel renders 5 sections (directory/agent/flow/stats/runs)', async ({ page }) => {
+  // 2026-08-19 转回 fixme：ChatContextPanel 组件仍在源码里但已不在任何页面
+  // 挂载（Chat-First 改版后 chat 详情页不再渲染右栏上下文面板）。
+  // 激活条件：面板重新接入 chat 详情页布局。
+  test.fixme('UC-CHAT-10: context panel renders 5 sections (directory/agent/flow/stats/runs)', async ({ page }) => {
     await page.goto(`/chats/${chatWithAgent}`)
     await expect(page.locator('.chat-context-panel')).toBeVisible({ timeout: 10_000 })
 
@@ -291,7 +293,9 @@ test.describe('Chat Detail (UC-CHAT-07 ~ 13)', () => {
 
   // ── UC-CHAT-13: 实时查看 chat 状态变化 (⚠️ partial) ──────────────────────
 
-  test('UC-CHAT-13: status badge renders the current persisted status', async ({ page }) => {
+  // 2026-08-19 转回 fixme：同 UC-CHAT-10 —— 状态值渲染在已摘除的右栏
+  // 面板里；面包屑状态徽标的存在性已由 UC-CHAT-07 覆盖。
+  test.fixme('UC-CHAT-13: status badge renders the current persisted status', async ({ page }) => {
     await page.goto(`/chats/${chatWithMessages}`)
     const status = page.locator('.chat-detail-breadcrumb-status')
     await expect(status).toBeVisible({ timeout: 10_000 })

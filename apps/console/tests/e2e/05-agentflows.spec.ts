@@ -97,10 +97,9 @@ test.describe('AgentFlows module (UC-FLW-01 ~ 07)', () => {
     page,
     request,
   }) => {
-    // API contract: GET /api/flows exists (workflow proxy). Tolerate 502/503
-    // when the workflow engine is down — the route existing is what we assert;
-    // the page renders the shell regardless of upstream state.
-    const res = await request.get('/api/flows')
+    // API contract（2026-08-19 更新）：/api/flows 已随引擎内聚移除，
+    // flows 页现走 /api/workflows（console 代理 → gateway /api/v1/workflows）。
+    const res = await request.get('/api/workflows')
     expect([200, 502, 503]).toContain(res.status())
 
     await page.goto('/flows')
@@ -118,15 +117,11 @@ test.describe('AgentFlows module (UC-FLW-01 ~ 07)', () => {
     // aria-label="搜索 flow">.
     await expect(page.getByRole('searchbox', { name: '搜索 flow' })).toBeVisible()
 
-    // Status filter chips (运行中 / 已完成 / 已暂停 / 失败) —
-    // flows-view.tsx:376-388, the four STATUS_FILTERS rendered as buttons.
-    await expect(page.getByRole('button', { name: '运行中' })).toBeVisible()
-    await expect(page.getByRole('button', { name: '已完成' })).toBeVisible()
-    await expect(page.getByRole('button', { name: '已暂停' })).toBeVisible()
-    await expect(page.getByRole('button', { name: '失败' })).toBeVisible()
+    // 2026-08-19：状态筛选 chips（假筛选）已在全库审计中移除，不再断言。
 
-    // Result count — flows-view.tsx:390-392, "<n> / <m> 个 flow".
-    await expect(page.getByText(/个 flow/)).toBeVisible()
+    // Result count — "<n> / <m> 个 flow"（精确到 .result-count，避免
+    // 命中空状态文案「选择一个 flow 查看概览」的 strict violation）
+    await expect(page.locator('.result-count')).toContainText('个 flow')
 
     // The flow-cards container renders. When the workflow engine has AGENTFLOW
     // chatflows, .flow-card rows appear here; when empty, an empty-state
@@ -182,14 +177,10 @@ test.describe('AgentFlows module (UC-FLW-01 ~ 07)', () => {
   test('UC-FLW-03 (partial): /workflows/:id/canvas renders native workflow canvas', async ({ page }) => {
     await page.goto(`/workflows/${SYNTH_FLOW_ID}/canvas`)
 
-    // PageShell title → <h1>Workflow Canvas</h1> (canvas/page.tsx).
-    await expect(page.getByRole('heading', { name: /workflow/i, level: 1 })).toBeVisible()
-
-    // The canvas page renders a React Flow canvas container.
-    // The canvas element is present even when the workflow API is down —
-    // the UI renders first, then fetches data.
+    // 2026-08-19：画布页改为全幅 flowise 编辑器（无 PageShell h1），
+    // ssr:false 动态加载 —— 等待 React Flow 容器挂载即证明画布渲染成功。
     const canvasEl = page.locator('.react-flow')
-    await expect(canvasEl).toBeVisible({ timeout: 10_000 })
+    await expect(canvasEl).toBeVisible({ timeout: 20_000 })
   })
 
   test.fixme('UC-FLW-03 (workflow engine): PUT /api/v1/workflows/:id persists flow definition', async ({

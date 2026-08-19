@@ -105,19 +105,15 @@ test.describe('Sidebar navigation (UC-NAV-01 ~ 08)', () => {
 
   // ── UC-NAV-02: 切换主功能页面 ────────────────────────────────────────────
   test('UC-NAV-02: switch primary nav page (Chat → Agents)', async ({ page }) => {
-    const nav = page.locator('.chat-nav-nav')
-    const chatLink = nav.getByRole('link', { name: '对话', exact: true })
-    const agentsLink = nav.getByRole('link', { name: 'Agent', exact: true })
-
-    // On home, the Chat nav item is the current page.
-    await expect(chatLink).toBeVisible()
-    await expect(chatLink).toHaveAttribute('aria-current', 'page')
+    // 2026-08-19 重写：主导航已是 Chat-First 布局 ——「对话」不再是链接
+    // （首页即对话流），主导航链接为 智能体/技能/工作流/守护进程。
+    const agentsLink = page.getByRole('link', { name: '智能体', exact: true })
+    await expect(agentsLink).toBeVisible()
 
     // Clicking Agents navigates and flips aria-current.
     await agentsLink.click()
     await expect(page).toHaveURL(/\/agents\/?$/)
     await expect(agentsLink).toHaveAttribute('aria-current', 'page')
-    await expect(chatLink).not.toHaveAttribute('aria-current', 'page')
   })
 
   // ── UC-NAV-03: 折叠/展开目录分组 ─────────────────────────────────────────
@@ -204,14 +200,27 @@ test.describe('Sidebar navigation (UC-NAV-01 ~ 08)', () => {
   })
 
   // ── UC-NAV-06: 通过"+ 添加项目目录"跳转 ──────────────────────────────────
-  test('UC-NAV-06: "+ 添加项目目录" link navigates to /directories', async ({ page }) => {
-    // With a seeded directory present, the add-dir link renders after the dir
-    // list (it also renders in the empty-state branch when no dirs exist).
-    const addDirLink = page.getByRole('link', { name: '添加项目目录' })
-    await expect(addDirLink).toBeVisible()
+  test('UC-NAV-06: "+ 添加项目目录" opens the add-directory dialog', async ({ page }) => {
+    // 2026-08-19 重写：/directories 页面已移除 —— 添加目录改为侧栏按钮
+    // 直接弹对话框（不再有独立目录管理页）。
+    const addDirBtn = page.getByRole('button', { name: '添加项目目录' })
+    await expect(addDirBtn).toBeVisible()
 
-    await addDirLink.click()
-    await expect(page).toHaveURL(/\/directories\/?$/)
+    // 点击触发 GET /api/directories/pick（服务端目录选择）—— 无 DOM 弹窗，
+    // 断言请求已发出（拦截并返回取消，按钮回到可用态）。
+    let picked = false
+    await page.route(/\/api\/directories\/pick/, async (route) => {
+      picked = true
+      await route.fulfill({
+        status: 200,
+        contentType: 'application/json',
+        body: JSON.stringify({ success: true, data: { path: null } }),
+      })
+    })
+    await addDirBtn.click()
+    await expect
+      .poll(() => picked, { timeout: 5_000 })
+      .toBe(true)
   })
 
   // ── UC-NAV-07: 通过"New Chat"跳回 home ───────────────────────────────────

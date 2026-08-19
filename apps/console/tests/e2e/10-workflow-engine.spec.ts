@@ -10,9 +10,11 @@ import { test, expect } from '@playwright/test'
  * The user-facing CRUD surface is now exercised by real `test()`:
  *   - UC-WF-02 ~ 06: list / get / create / update / delete
  *
- * Still `test.fixme` (genuinely not coverable at this layer yet):
- *   - UC-WF-01 / 12: run + SSE token stream — needs an executable flow against
- *     a configured LLM provider; the empty flows provisioned here don't run.
+ * Still `test.fixme` (2026-08-19 更新):
+ *   - UC-WF-01 / 12: run + SSE token stream —— 执行态覆盖已由
+ *     `11-workflow-execution.spec.ts`（WF-01，Mock LLM 契约层）与
+ *     `13-chat-flow-trigger.spec.ts`（TR-01/03/07，SSE 帧序列/流式渲染）
+ *     以确定性 Mock LLM Provider 落地；此处 fixme 仅作 UC 编号占位。
  *   - UC-WF-07: GET /:id/executions — route not implemented (only
  *     /runs/:runId/node-spans exists today).
  *   - UC-WF-08 ~ 11: 14 node types / DAG / branch / loop — engine-internal,

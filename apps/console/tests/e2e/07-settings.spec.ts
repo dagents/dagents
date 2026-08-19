@@ -106,18 +106,19 @@ test.describe('Settings module (UC-SET-01 ~ 06)', () => {
     await expect(section).toBeVisible()
     await expect(section.getByText('LLM Provider 管理', { exact: true })).toBeVisible()
 
-    // new-api gateway card.
-    await expect(section.getByText('new-api 网关', { exact: true })).toBeVisible()
+    // 2026-08-19：不再断言具体 provider 名（dev 库内容随测试/使用变化），
+    // 表头 + 工具栏即结构契约。
 
-    // Toolbar: search input + three status filter chips + new-token button.
-    await expect(section.getByLabel('搜索令牌')).toBeVisible()
-    for (const chip of ['启用', '禁用', '已过期']) {
+    // Toolbar（2026-08-19：Token CRUD 已换为 LLM Provider 管理）：搜索框 +
+    // active/disabled 两个筛选 chip + 新建 Provider 按钮。
+    await expect(section.getByLabel('搜索 Provider')).toBeVisible()
+    for (const chip of ['启用', '禁用']) {
       await expect(section.getByRole('button', { name: chip, exact: true })).toBeVisible()
     }
-    await expect(section.getByRole('button', { name: '+ 新建令牌' })).toBeVisible()
+    await expect(section.getByRole('button', { name: '+ 新建 Provider' })).toBeVisible()
 
-    // Token table headers (always rendered regardless of load state).
-    for (const header of ['名称', '分组', '额度', '过期', '操作']) {
+    // Provider 表头（2026-08-19：Token 表已换为 Provider 表）
+    for (const header of ['名称', '类型', 'Base URL', '默认模型', '状态', '操作']) {
       await expect(section.locator('th').filter({ hasText: header })).toBeVisible()
     }
   })
@@ -181,7 +182,8 @@ test.describe('Settings module (UC-SET-01 ~ 06)', () => {
     await expect(notifyTab).toHaveAttribute('aria-selected', 'true')
     await expect(notifyTab).toHaveAttribute('aria-current', 'true')
 
-    const section = page.getByRole('region', { name: '通知' })
+    // 2026-08-19：隐藏 tab 的 section 也带同名 aria-label —— 取 active 的那个
+    const section = page.getByRole('region', { name: '通知' }).first()
     await expect(section).toBeVisible()
     await expect(section.getByText('通知', { exact: true })).toBeVisible()
 
@@ -218,8 +220,9 @@ test.describe('Settings module (UC-SET-01 ~ 06)', () => {
 
     // 团队 card — member rows (model-row primitive) + 邀请 button (disabled).
     await expect(section.getByText('团队 · 38 成员', { exact: true })).toBeVisible()
-    await expect(section.getByText('饶哲', { exact: true })).toBeVisible()
-    await expect(section.getByText('林敏', { exact: true })).toBeVisible()
+    // 2026-08-19：成员行文本在 dd + tooltip 双处出现 —— 用 .first() 去歧义
+    await expect(section.getByText('饶哲', { exact: true }).first()).toBeVisible()
+    await expect(section.getByText('林敏', { exact: true }).first()).toBeVisible()
     await expect(section.getByRole('button', { name: '邀请', exact: true })).toBeDisabled()
   })
 

@@ -1,4 +1,5 @@
 import { test, expect } from '@playwright/test'
+import { DISPATCH_BASE } from './helpers/seed'
 
 /**
  * Daemons module e2e — UC-DAE-01 ~ UC-DAE-06.
@@ -28,163 +29,50 @@ test.describe('Daemons module (UC-DAE-01 ~ 06)', () => {
     await page.goto('/daemons')
   })
 
-  test('UC-DAE-01: daemons page shows task queue list', async ({ page }) => {
-    // Activated: daemons-view renders .daemons-queue with .daemons-task-card
-    // items projected from /api/agents.
-    await page.route(/\/api\/agents(\?|$)/, async (route) => {
-      await route.fulfill({
-        status: 200,
-        contentType: 'application/json',
-        body: JSON.stringify({
-          success: true,
-          data: {
-            agents: [
-              {
-                id: 'agent-e2e-1',
-                name: 'e2e test task',
-                kind: 'claude',
-                task_id: 'task-e2e-1',
-                run_id: 'run-e2e-1',
-                task_status: 'queued',
-                task_created_at: '2026-07-28T00:00:00.000Z',
-                finished_at: null,
-              },
-            ],
-            truncated: false,
-          },
-        }),
-      })
-    })
-    await page.route(/\/api\/fleet-stats(\?|$)/, async (route) => {
-      await route.fulfill({
-        status: 200,
-        contentType: 'application/json',
-        body: JSON.stringify({
-          success: true,
-          data: {
-            windowHours: 1,
-            fleet: {
-              daemons: { byStatus: {}, total: 0 },
-              tasks: { byStatus: {}, total: 0 },
-            },
-            throughput: { tasks: { completed: 0, failed: 0, total: 0 } },
-          },
-        }),
-      })
-    })
-
-    await page.goto('/daemons')
-
-    await expect(page.locator('.daemons-queue')).toBeVisible({ timeout: 10_000 })
-    await expect(
-      page.locator('.daemons-task-card').filter({ hasText: 'e2e test task' }),
-    ).toBeVisible()
+  // 2026-08-19 重写：Daemons 页在 2026-08-16 审计后全面改版 —— 任务队列
+  // （.daemons-queue/.daemons-task-card，数据源 /api/agents）已被
+  // daemon 卡片列表（.daemon-card，数据源 /api/daemons → dispatch）取代；
+  // 旧的伪造 stats（.daemons-stats-inline）已移除，计数改为真实
+  // "{n} / {total} 个 daemon"。三个用例按当前页面重写。
+  test('UC-DAE-01: daemons page renders daemon-card list shell', async ({ page }) => {
+    // 页面外壳：状态 scope-tabs + 本机 CLI 区 + 注册入口 + 真实计数
+    await expect(page.getByRole('tablist', { name: 'daemon 状态' })).toBeVisible({ timeout: 10_000 })
+    // aria-label 同时命中 section 与「重新检测本机 CLI」按钮 —— 用 role=region 精确化
+    await expect(page.getByRole('region', { name: '本机 CLI' })).toBeVisible()
+    await expect(page.getByRole('button', { name: '注册 Daemon' })).toBeVisible()
+    await expect(page.locator('.result-count').first()).toContainText('个 daemon')
   })
 
-  test('UC-DAE-02: daemons page shows execution timeline on task select', async ({ page }) => {
-    // Activated: clicking a .daemons-task-card reveals .detail-timeline with
-    // .timeline-step nodes in the detail panel.
-    await page.route(/\/api\/agents(\?|$)/, async (route) => {
-      await route.fulfill({
-        status: 200,
-        contentType: 'application/json',
-        body: JSON.stringify({
-          success: true,
-          data: {
-            agents: [
-              {
-                id: 'agent-e2e-2',
-                name: 'e2e timeline task',
-                kind: 'claude',
-                task_id: 'task-e2e-2',
-                run_id: 'run-e2e-2',
-                task_status: 'running',
-                task_created_at: '2026-07-28T00:00:00.000Z',
-                finished_at: null,
-              },
-            ],
-            truncated: false,
-          },
-        }),
-      })
+  test('UC-DAE-02: registered daemon renders as a card (真实注册路径)', async ({ page, request }) => {
+    // 经真实 dispatch API 注册一个 daemon → 页面出现对应卡片
+    const reg = await request.post(`${DISPATCH_BASE}/daemons/register`, {
+      data: {
+        daemonLabel: `e2e-dae-card-${Date.now()}`,
+        capabilities: [{ agentType: 'claude', tags: ['e2e'] }],
+      },
     })
-    await page.route(/\/api\/fleet-stats(\?|$)/, async (route) => {
-      await route.fulfill({
-        status: 200,
-        contentType: 'application/json',
-        body: JSON.stringify({
-          success: true,
-          data: {
-            windowHours: 1,
-            fleet: {
-              daemons: { byStatus: {}, total: 0 },
-              tasks: { byStatus: {}, total: 0 },
-            },
-            throughput: { tasks: { completed: 0, failed: 0, total: 0 } },
-          },
-        }),
-      })
-    })
+    expect(reg.ok()).toBe(true)
+    const daemonId = ((await reg.json()).data?.daemonId ?? '') as string
+    expect(daemonId).toBeTruthy()
 
-    await page.goto('/daemons')
-
-    await expect(
-      page.locator('.daemons-task-card').filter({ hasText: 'e2e timeline task' }),
-    ).toBeVisible({ timeout: 10_000 })
-    await page
-      .locator('.daemons-task-card')
-      .filter({ hasText: 'e2e timeline task' })
-      .click()
-
-    await expect(page.locator('.detail-timeline')).toBeVisible({ timeout: 10_000 })
-    await expect(page.locator('.timeline-step').first()).toBeVisible()
-    await expect(page.locator('.detail-timeline')).toContainText('任务创建')
+    try {
+      await page.goto('/daemons')
+      const card = page.locator('.daemon-card').filter({ hasText: 'e2e-dae-card' }).first()
+      await expect(card).toBeVisible({ timeout: 10_000 })
+      // 卡片带心跳与删除操作
+      await expect(card.locator('.daemon-card-heartbeat')).toBeVisible()
+      await expect(card.locator('.daemon-card-delete')).toBeVisible()
+    } finally {
+      await request.delete(`${DISPATCH_BASE}/daemons/${daemonId}`).catch(() => {})
+    }
   })
 
-  test('UC-DAE-03: daemons page shows stats summary', async ({ page }) => {
-    // Activated: .daemons-stats-inline renders .stat-item rows (running/queued/failed/daemons)
-    // populated from /api/fleet-stats.
-    await page.route(/\/api\/agents(\?|$)/, async (route) => {
-      await route.fulfill({
-        status: 200,
-        contentType: 'application/json',
-        body: JSON.stringify({
-          success: true,
-          data: {
-            agents: [],
-            truncated: false,
-          },
-        }),
-      })
-    })
-    await page.route(/\/api\/fleet-stats(\?|$)/, async (route) => {
-      await route.fulfill({
-        status: 200,
-        contentType: 'application/json',
-        body: JSON.stringify({
-          success: true,
-          data: {
-            windowHours: 1,
-            fleet: {
-              daemons: { byStatus: { online: 3 }, total: 3 },
-              tasks: { byStatus: { running: 2, queued: 5, failed: 1 }, total: 8 },
-            },
-            throughput: { tasks: { completed: 4, failed: 1, total: 5 } },
-          },
-        }),
-      })
-    })
-
+  test('UC-DAE-03: daemon count chip reflects the real list', async ({ page }) => {
+    // 计数 chip 由真实 daemon 列表计算（filtered / total），加载后格式固定
     await page.goto('/daemons')
-
-    await expect(page.locator('.daemons-stats-inline')).toBeVisible({ timeout: 10_000 })
-    await expect(page.locator('.stat-item').first()).toBeVisible()
-
-    const statValue = await page.locator('.stat-val').first().textContent()
-    expect(statValue).not.toBeNull()
-    expect(statValue!.trim().length).toBeGreaterThan(0)
-
-    await expect(page.locator('.daemons-stats-inline')).toContainText('运行')
+    const chip = page.locator('.result-count').first()
+    await expect(chip).toBeVisible({ timeout: 10_000 })
+    await expect(chip).toHaveText(/\d+ \/ \d+ 个 daemon/)
   })
 
   test.fixme('UC-DAE-04: filter task queue by status', async ({ page }) => {

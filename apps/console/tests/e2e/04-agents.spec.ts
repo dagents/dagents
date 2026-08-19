@@ -128,7 +128,8 @@ test.describe('Agents module (UC-AGT-01 ~ 04)', () => {
     await expect(tablist).toBeVisible()
     await expect(tablist.getByRole('tab', { name: '活动' })).toBeVisible()
     await expect(tablist.getByRole('tab', { name: '指令' })).toBeVisible()
-    await expect(tablist.getByRole('tab', { name: 'Skills' })).toBeVisible()
+    // i18n：Skills 在 zh 词典映射为「技能」
+    await expect(tablist.getByRole('tab', { name: '技能' })).toBeVisible()
     await expect(tablist.getByRole('tab', { name: '日志' })).toBeVisible()
   })
 
@@ -145,8 +146,10 @@ test.describe('Agents module (UC-AGT-01 ~ 04)', () => {
     await expect(page.getByRole('link', { name: '返回 Agent 列表' })).toBeVisible()
 
     // The Instructions tab is the closest thing to a config surface today —
-    // it surfaces the system prompt + capability descriptor schema
-    // (agent-detail-view.tsx:491-503 InstructionsPanel).
+    // it surfaces the system prompt + capability descriptor schema.
+    // 2026-08-19：先等详情 fetch 完成（.ins-name 挂载、骨架 tablist 卸载）
+    // 再点 tab —— 否则点击落在骨架的非交互 span 上，面板不会切换。
+    await expect(page.locator('.ins-name')).toBeVisible({ timeout: 10_000 })
     const instructionsTab = page.getByRole('tab', { name: '指令' })
     await expect(instructionsTab).toBeVisible({ timeout: 10_000 })
     await instructionsTab.click()

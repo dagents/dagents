@@ -164,26 +164,12 @@ test.describe('Directories module (UC-DIR-01 ~ 05)', () => {
 
   // ─── UC-DIR-01: 列出所有项目目录 ───────────────────────────────────────
 
-  test('UC-DIR-01: list directories renders seeded directory + GET /api/directories contract', async ({
-    page,
+  // 2026-08-19：/directories 独立页面已移除（目录管理并入侧栏对话树，
+  // 添加目录走 /api/directories/pick）。页面断言剥离，保留 API 契约。
+  test('UC-DIR-01: GET /api/directories contract (list envelope + shape)', async ({
     request,
   }) => {
-    await page.goto('/directories')
-
-    // Page shell renders an <h1>项目目录</h1> — the page-load sentinel.
-    await expect(page.getByRole('heading', { name: '项目目录' })).toBeVisible({ timeout: 10_000 })
-    // The 「+ 新建目录」 action button is always present.
-    await expect(page.getByRole('button', { name: /新建目录/ })).toBeVisible()
-
-    // The seeded list directory's card is visible with its name + path.
     const listName = `E2E-List-${SUITE_TAG}`
-    const card = page.locator('.directory-card').filter({ hasText: listName })
-    await expect(card).toBeVisible({ timeout: 10_000 })
-    await expect(card.locator('.directory-name')).toHaveText(listName)
-    await expect(card.locator('.directory-path')).toHaveText(`/e2e/list-${SUITE_TAG}`)
-    // The meta row surfaces the chat count subquery (0 for this dir).
-    await expect(card.locator('.directory-meta')).toContainText(/对话\s*0/)
-
     // API contract: console proxy GET /api/directories → gateway list envelope.
     const res = await request.get('/api/directories')
     expect(res.ok(), `GET /api/directories should be 2xx, got ${res.status()}`).toBe(true)
@@ -206,8 +192,7 @@ test.describe('Directories module (UC-DIR-01 ~ 05)', () => {
 
   // ─── UC-DIR-02: 添加新项目目录 ─────────────────────────────────────────
 
-  test('UC-DIR-02: create directory via form + POST /api/directories contract', async ({
-    page,
+  test('UC-DIR-02: POST /api/directories contract (create + name-from-path)', async ({
     request,
   }) => {
     // API contract first: POST returns the created directory envelope.
@@ -230,39 +215,11 @@ test.describe('Directories module (UC-DIR-01 ~ 05)', () => {
     expect(defaultBody.data?.directory?.name).toBe(`default-name-${SUITE_TAG}`)
     // Track both for cleanup.
     ctx.directoryIds.push(created!.id, defaultBody.data!.directory.id)
-
-    // UI: open the create form, fill path + name, submit, assert it appears.
-    const uiPath = `/e2e/ui-create-${SUITE_TAG}`
-    const uiName = `E2E-UiCreate-${SUITE_TAG}`
-    await page.goto('/directories')
-    await expect(page.getByRole('heading', { name: '项目目录' })).toBeVisible({ timeout: 10_000 })
-
-    await page.getByRole('button', { name: /新建目录/ }).click()
-    await expect(page.locator('#f-path')).toBeVisible()
-    await page.locator('#f-path').fill(uiPath)
-    await page.locator('#f-name').fill(uiName)
-    await page.getByRole('button', { name: '创建' }).click()
-
-    // The form closes and the new card appears in the reloaded list.
-    const newCard = page.locator('.directory-card').filter({ hasText: uiName })
-    await expect(newCard).toBeVisible({ timeout: 10_000 })
-    await expect(newCard.locator('.directory-name')).toHaveText(uiName)
-    await expect(newCard.locator('.directory-path')).toHaveText(uiPath)
-    // Success toast (ephemeral, 2.4s) — assert quickly as a secondary signal.
-    await expect(page.locator('.toast.ok')).toContainText(uiName)
-
-    // Capture the UI-created id via the list API so afterAll cleans it up.
-    const listRes = await request.get('/api/directories')
-    const listBody = (await listRes.json()) as DirListEnvelope
-    const uiCreated = listBody.data?.items?.find((d) => d.path === uiPath)
-    expect(uiCreated, 'UI-created directory should appear in GET list').toBeTruthy()
-    ctx.directoryIds.push(uiCreated!.id)
   })
 
   // ─── UC-DIR-03: 编辑目录名称 (working half) ────────────────────────────
 
-  test('UC-DIR-03 (name): rename via edit form + PATCH /api/directories/:id contract', async ({
-    page,
+  test('UC-DIR-03 (name): PATCH /api/directories/:id contract (name + settings)', async ({
     request,
   }) => {
     // API contract first: PATCH { name } returns the updated directory.
@@ -284,24 +241,6 @@ test.describe('Directories module (UC-DIR-01 ~ 05)', () => {
     expect(settingsRes.ok()).toBe(true)
     const settingsBody = (await settingsRes.json()) as DirOneEnvelope
     expect(settingsBody.data?.directory?.settings).toMatchObject({ quota: 100 })
-
-    // UI: open the card's edit row, rename, save, assert the new name sticks.
-    await page.goto('/directories')
-    await expect(page.getByRole('heading', { name: '项目目录' })).toBeVisible({ timeout: 10_000 })
-    // After the API PATCH above, the card shows apiName — find it by that.
-    const card = page.locator('.directory-card').filter({ hasText: apiName })
-    await expect(card).toBeVisible({ timeout: 10_000 })
-
-    await card.getByRole('button', { name: '编辑' }).click()
-    const editInput = card.locator('input[type="text"]').first()
-    await expect(editInput).toBeVisible()
-    const uiName = `E2E-Edit-UI-${SUITE_TAG}`
-    await editInput.fill(uiName)
-    await card.getByRole('button', { name: '保存' }).click()
-
-    // The card re-renders with the new name; the edit row is gone.
-    await expect(card.locator('.directory-name')).toHaveText(uiName, { timeout: 10_000 })
-    await expect(page.locator('.toast.ok')).toContainText(/目录已更新/)
   })
 
   // ─── UC-DIR-03: 编辑 settings (missing UI — ⚠️ partial) ─────────────────
@@ -330,29 +269,9 @@ test.describe('Directories module (UC-DIR-01 ~ 05)', () => {
 
   // ─── UC-DIR-04: 删除目录(级联) ─────────────────────────────────────────
 
-  test('UC-DIR-04: delete via confirm modal + DELETE /api/directories/:id contract + cascade', async ({
-    page,
+  test('UC-DIR-04: DELETE /api/directories/:id contract + chats cascade', async ({
     request,
   }) => {
-    // UI: open the delete modal, confirm, assert the card disappears.
-    const deleteName = `E2E-Delete-${SUITE_TAG}`
-    await page.goto('/directories')
-    await expect(page.getByRole('heading', { name: '项目目录' })).toBeVisible({ timeout: 10_000 })
-    const card = page.locator('.directory-card').filter({ hasText: deleteName })
-    await expect(card).toBeVisible({ timeout: 10_000 })
-
-    await card.getByRole('button', { name: '删除' }).click()
-    // The confirm dialog is a role=alertdialog titled 「删除目录」.
-    const dialog = page.getByRole('alertdialog')
-    await expect(dialog).toBeVisible()
-    await expect(dialog).toContainText('删除目录')
-    await expect(dialog).toContainText(deleteName)
-    await page.getByRole('button', { name: '确认删除' }).click()
-
-    // The card is gone and a success toast names the deleted directory.
-    await expect(card).toHaveCount(0, { timeout: 10_000 })
-    await expect(page.locator('.toast.ok')).toContainText(deleteName)
-
     // API contract: DELETE a separate directory and verify the envelope shape.
     const delRes = await request.delete(`/api/directories/${cascadeDirId}`)
     expect(delRes.ok(), `DELETE should be 2xx, got ${delRes.status()}`).toBe(true)

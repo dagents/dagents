@@ -22,19 +22,17 @@ import {
  *   docs/superpowers/specs/2026-07-25-user-cases-gap-analysis.md §Chat Trigger)
  *
  *   UC-ID        Name                                    Status
- *   UC-TRG-01    默认通过 agent selector 发消息(SSE)     ❌ unimplemented
- *   UC-TRG-02    @flow <flow-name> <message> 触发 flow   ❌ unimplemented
- *   UC-TRG-03    @daemon <command> 触发 daemon           ❌ unimplemented
- *   UC-TRG-04    @agent <agent-name> <message> 临时覆盖  ❌ unimplemented
- *   UC-TRG-05    看到 @ 命令提示                          ⚠️ partial
- *   UC-TRG-06    SSE 流式接收 assistant 回复              ❌ unimplemented
+ *   UC-TRG-01    默认通过 agent selector 发消息           fixme（agent 路径走 WS+dispatch，需 daemon/CLI）
+ *   UC-TRG-02    @flow <flow-name> <message> 触发 flow   ✅ active（深层契约在 13 号 TR-02）
+ *   UC-TRG-03    @daemon <command> 触发 daemon           ✅ active
+ *   UC-TRG-04    @agent <agent-name> <message> 临时覆盖  ✅ active
+ *   UC-TRG-05    看到 @ 命令提示 + 补全弹窗              ✅ active（2026-08-19 弹窗已实现，激活）
+ *   UC-TRG-06    SSE 流式接收 assistant 回复              ✅ 由 13-chat-flow-trigger TR-01/07 覆盖
  *
- * Status summary: 0 ✅ / 1 ⚠️ / 5 ❌ — tied with the workflow-engine module
- * (UC-WF-01~12) as the most incomplete module in the suite. This module is the
- * P0 blocker for Chat-First usability: without a working send→predict→stream
- * loop, the chat surface is a notepad, not an agent console. See the plan
- * `docs/superpowers/specs/2026-07-26-chat-first-functional-completion.md`
- * Task 1.
+ * Status summary（2026-08-19 更新）：trigger 面大体落地。执行态的确定性
+ * 覆盖（mock LLM、SSE 帧序列、HumanInput 挂起/恢复）迁移至
+ * `13-chat-flow-trigger.spec.ts`（docs/e2e-test-plan.md Tier B）；本文件
+ * 保留 composer 触发面 + @ 命令 ack 契约。
  *
  * ## What exists in code today (verified before writing this spec)
  *
@@ -150,20 +148,15 @@ test.describe('Chat trigger mechanism (UC-TRG-01 ~ 06)', () => {
 
   // ── UC-TRG-01: 默认通过 agent selector 发消息(SSE) (❌ unimplemented) ──────
 
-  // Gap: the gap analysis flags the send→predict→SSE loop as unimplemented.
-  // Verified against current source: `chat-detail.tsx` handleSend DOES call
-  // `sendChatMessage` (chat-stream.ts) which POSTs `/api/chats/:id/messages`
-  // and the gateway's `routeMessage` returns `mode:'stream'` when an agent is
-  // bound. BUT the subsequent `GET /api/chats/:id/stream` requires
-  // `chat.flow_id` and proxies to the workflow engine — a chat bound only to an agentId
-  // (no flow) makes the stream route 400, so the assistant token stream never
-  // reaches the browser. The agent→flow resolution feeding the stream is the
-  // missing piece. Activate when agent-bound chats resolve to a prediction
-  // target the stream route can pipe.
+  // Gap（2026-08-19 更新）：agent 绑定的 chat 走 WS + dispatch/inline 路径
+  // （chat-detail 的 handleWsFrame 消费 chat:message/chat:done 帧），不经过
+  // SSE —— 确定性 e2e 需要 daemon 或本机 CLI，不适合作自动化。flow 绑定
+  // 的 chat 的完整 SSE 流式链路已由 13-chat-flow-trigger TR-01/07 覆盖。
+  // 激活条件：agent 路径具备确定性 mock 手段（如 dispatch 任务 mock）。
   test.fixme('UC-TRG-01: default send via agent selector streams an assistant reply', async ({ page, request }) => {
     // --- Browser: the composer + agent selector are the trigger surface ---
     await page.goto(`/chats/${chatForSend}`)
-    const textarea = page.getByPlaceholder(/发送消息/)
+    const textarea = page.getByLabel('消息输入框')
     await expect(textarea).toBeVisible({ timeout: 10_000 })
 
     // Agent selector pill renders with the seeded agent's name (or 'auto').
@@ -205,7 +198,7 @@ test.describe('Chat trigger mechanism (UC-TRG-01 ~ 06)', () => {
   test('UC-TRG-02: @flow triggers a named flow and acks in-chat', async ({ page, request }) => {
     // --- Browser: typing @flow renders a system ack in the message stream ---
     await page.goto(`/chats/${chatForCommands}`)
-    const textarea = page.getByPlaceholder(/发送消息/)
+    const textarea = page.getByLabel('消息输入框')
     await expect(textarea).toBeVisible({ timeout: 10_000 })
     await textarea.fill('@flow daily-summary 生成今日报告')
     await page.keyboard.press('Enter')
@@ -242,7 +235,7 @@ test.describe('Chat trigger mechanism (UC-TRG-01 ~ 06)', () => {
   // chat-execute.ts source). chatForCommands has agent_id bound in beforeAll.
   test('UC-TRG-03: @daemon invokes a daemon and acks in-chat', async ({ page, request }) => {
     await page.goto(`/chats/${chatForCommands}`)
-    const textarea = page.getByPlaceholder(/发送消息/)
+    const textarea = page.getByLabel('消息输入框')
     await expect(textarea).toBeVisible({ timeout: 10_000 })
     await textarea.fill('@daemon run daily scan')
     await page.keyboard.press('Enter')
@@ -276,7 +269,7 @@ test.describe('Chat trigger mechanism (UC-TRG-01 ~ 06)', () => {
   // captured in beforeAll so the test reads the same value that was seeded.
   test('UC-TRG-04: @agent overrides the routing agent and acks in-chat', async ({ page, request }) => {
     await page.goto(`/chats/${chatForCommands}`)
-    const textarea = page.getByPlaceholder(/发送消息/)
+    const textarea = page.getByLabel('消息输入框')
     await expect(textarea).toBeVisible({ timeout: 10_000 })
     await textarea.fill(`@agent ${agentName} hello from override`)
     await page.keyboard.press('Enter')
@@ -310,62 +303,29 @@ test.describe('Chat trigger mechanism (UC-TRG-01 ~ 06)', () => {
     const hint = page.locator('.chat-composer-hint')
     await expect(hint).toBeVisible({ timeout: 10_000 })
     // Exact copy from chat-composer.tsx — covers send / newline / @ trigger.
-    await expect(hint).toHaveText('⏎ 发送 · ⇧⏎ 换行 · 输入 @ 触发命令')
+    // 2026-08-19：hint 文案已改为「@ 命令」（@ 补全菜单由 cmd-menu 提供）
+    await expect(hint).toHaveText('⏎ 发送 · ⇧⏎ 换行 · @ 命令')
   })
 
-  // Gap: chat-composer.tsx has NO @ completion popup — typing `@` does
-  // nothing beyond inserting the character. The hint promises "输入 @ 触发命令"
-  // but no command menu (@flow / @daemon / @agent) renders. Activate when the
-  // composer renders a popup on `@` input with the three command kinds.
-  test.fixme('UC-TRG-05: typing @ opens a command completion popup', async ({ page }) => {
+  // Activated（2026-08-19）：chat-composer 现已实现 @ 补全菜单（.cmd-menu，
+  // role=listbox「命令选择」），含 @agent/@flow/@workflow/@daemon 四项。
+  test('UC-TRG-05: typing @ opens a command completion popup', async ({ page }) => {
     await page.goto(`/chats/${chatForHint}`)
-    const textarea = page.getByPlaceholder(/发送消息/)
+    const textarea = page.getByLabel('消息输入框')
     await expect(textarea).toBeVisible({ timeout: 10_000 })
     await textarea.fill('@')
 
-    // Expected: a popup listing the three @ command kinds.
-    const popup = page.locator('.chat-composer-mention-popup')
+    const popup = page.locator('.cmd-menu')
     await expect(popup).toBeVisible()
-    await expect(popup.getByText(/@flow/)).toBeVisible()
-    await expect(popup.getByText(/@daemon/)).toBeVisible()
-    await expect(popup.getByText(/@agent/)).toBeVisible()
+    for (const cmd of ['@agent', '@flow', '@workflow', '@daemon']) {
+      await expect(popup.getByText(cmd, { exact: true })).toBeVisible()
+    }
   })
 
-  // ── UC-TRG-06: SSE 流式接收 assistant 回复 (❌ unimplemented) ──────────────
+  // ── UC-TRG-06: SSE 流式接收 assistant 回复 ────────────────────────────────
 
-  // Gap: `sendChatMessage` (chat-stream.ts — named sendChatMessage, not
-  // streamMessage) + `GET /api/chats/:id/stream` exist, and chat-detail.tsx
-  // iterates `result.events` token-by-token. But the stream route requires
-  // `chat.flow_id` and pipes to the workflow engine; an agent-bound chat
-  // with no flow makes `GET /stream` return 400, so no token event ever
-  // reaches the browser. The agent→flow resolution feeding the stream, plus a
-  // reachable workflow upstream, is the missing piece. Activate when the stream
-  // route resolves a prediction target for agent-bound chats.
-  test.fixme('UC-TRG-06: assistant reply streams token-by-token over SSE', async ({ page, request }) => {
-    // --- Browser: tokens accumulate into the assistant message ---
-    await page.goto(`/chats/${chatForSend}`)
-    const textarea = page.getByPlaceholder(/发送消息/)
-    await expect(textarea).toBeVisible({ timeout: 10_000 })
-    await textarea.fill('用一句话介绍这个项目')
-    await page.keyboard.press('Enter')
-
-    // Optimistic user message, then an assistant message whose content grows
-    // as token events arrive (chat-detail.tsx accumulates into `assistantId`).
-    await expect(page.locator('.chat-msg-user').first()).toBeVisible()
-    const assistant = page.locator('.chat-msg-assistant').first()
-    await expect(assistant).toBeVisible({ timeout: 15_000 })
-    // Capture an intermediate length, then assert it grew — proves streaming
-    // rather than a single bulk write.
-    const mid = (await assistant.locator('.chat-msg-content').textContent()) ?? ''
-    expect(mid.length).toBeGreaterThanOrEqual(0)
-    // After the stream settles, content is non-empty.
-    await expect(assistant.locator('.chat-msg-content')).not.toBeEmpty({ timeout: 15_000 })
-
-    // --- API contract: GET /stream is an SSE endpoint ---
-    const streamRes = await request.get(`/api/chats/${chatForSend}/stream`, {
-      headers: { accept: 'text/event-stream' },
-    })
-    expect(streamRes.ok()).toBe(true)
-    expect(streamRes.headers()['content-type']).toContain('text/event-stream')
-  })
+  // 覆盖迁移（2026-08-19）：flow 绑定 chat 的 SSE token 流式（浏览器渲染 +
+  // 落库一致 + 帧序列断言）已由 13-chat-flow-trigger.spec.ts 的
+  // TR-01/TR-07 以 Mock LLM 确定性覆盖（docs/e2e-test-plan.md Tier B），
+  // 此处不再保留 fixme 副本。
 })
