@@ -54,6 +54,26 @@ interface SendMessageResponse {
 }
 
 /**
+ * Subscribe to a chat's SSE stream (`/api/chats/:id/stream`) and yield typed
+ * events. Shared by `sendChatMessage` and the chat view's direct pump: after
+ * POSTing a user message to a flow-bound chat, the gateway answers
+ * mode='stream' and only executes the flow once this stream is pulled — the
+ * chat view consumes it and translates frames into the same handlers the
+ * WebSocket path uses.
+ */
+export async function subscribeChatStream(chatId: string): Promise<AsyncGenerator<StreamEvent, void, unknown>> {
+  const streamRes = await fetch(`/api/chats/${encodeURIComponent(chatId)}/stream`, {
+    method: 'GET',
+    headers: { accept: 'text/event-stream' },
+  })
+  if (!streamRes.ok || !streamRes.body) {
+    const detail = await streamRes.text().catch(() => '')
+    throw new Error(`stream subscribe failed (${streamRes.status})${detail ? `: ${detail.slice(0, 200)}` : ''}`)
+  }
+  return consumeStream(streamRes)
+}
+
+/**
  * Send a chat message and either subscribe to the SSE stream or return the JSON payload.
  *
  * @param chatId target chat
@@ -97,19 +117,11 @@ export async function sendChatMessage(
 
   if (data.mode === 'stream') {
     // Subscribe to the SSE stream for assistant tokens.
-    const streamRes = await fetch(`/api/chats/${encodeURIComponent(chatId)}/stream`, {
-      method: 'GET',
-      headers: { accept: 'text/event-stream' },
-      ...(opts.signal ? { signal: opts.signal } : {}),
-    })
-    if (!streamRes.ok || !streamRes.body) {
-      const detail = await streamRes.text().catch(() => '')
-      throw new Error(`stream subscribe failed (${streamRes.status})${detail ? `: ${detail.slice(0, 200)}` : ''}`)
-    }
+    const events = await subscribeChatStream(chatId)
     return {
       userMessage,
       mode: 'stream',
-      events: consumeStream(streamRes),
+      events,
     }
   }
 

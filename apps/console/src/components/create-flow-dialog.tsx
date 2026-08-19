@@ -16,9 +16,11 @@ import { useEffect, useState } from 'react'
 import { Icon } from '@/components/icon'
 import '@/styles/dialog.css'
 
+// POST /api/workflows 网关封套是 {success, data:{flow:{id,name}}}（console
+// 代理原样透传）。此前这里按 data.id 取值拿到 undefined —— UI 新建 flow
+// 会跳到 /workflows/undefined/canvas（e2e UI-01 钉住的回归）。
 interface CreateFlowResponse {
-  id: string
-  name: string
+  flow: { id: string; name: string }
 }
 
 export interface CreateFlowDialogProps {
@@ -78,7 +80,7 @@ export function CreateFlowDialog({
       if (!res.ok || !json.success || !json.data) {
         throw new Error(json.error ?? `创建失败 (${res.status})`)
       }
-      onCreated(json.data.id)
+      onCreated(json.data.flow.id)
     } catch (err) {
       setError(err instanceof Error ? err.message : String(err))
     } finally {

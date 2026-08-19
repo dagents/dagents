@@ -143,7 +143,14 @@ export function createCliLlmClient(kind: AgentType = 'claude') {
  * Default llmClient for workflow execution. CLI-first: an explicitly
  * configured HTTP provider wins (opt-in acceleration), otherwise every
  * LLM/Agent node runs on the local CLI — workflows work with zero setup,
- * same as chat. No chatStream — nodes fall back to chat().
+ * same as chat.
+ *
+ * `chatStream` streams real deltas when a provider is configured; on the CLI
+ * fallback it degenerates to a single-shot `chat` whose whole text is yielded
+ * as one delta — nodes that stream (chat-path last-node LLM) keep working
+ * either way. (This method was lost in the CLI-first refactor, which silently
+ * turned every chat-path flow reply into metadata→end with no tokens —
+ * pinned by e2e 13-chat-flow-trigger TR-07.)
  */
 export function createDefaultLlmClient(kind: AgentType = 'claude') {
   const http = createLlmClient()
@@ -153,6 +160,17 @@ export function createDefaultLlmClient(kind: AgentType = 'claude') {
       const provider = await getActiveProvider()
       if (provider) return http.chat(params)
       return cli.chat(params)
+    },
+    async *chatStream(params: CliChatParams): AsyncGenerator<IChatStreamChunk> {
+      const provider = await getActiveProvider()
+      if (provider) {
+        yield* http.chatStream(params)
+        return
+      }
+      const result = await cli.chat(params)
+      if (result.text.length > 0) {
+        yield { delta: result.text }
+      }
     },
   }
 }

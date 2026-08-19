@@ -154,6 +154,43 @@ export async function createMessage(
   return data.message
 }
 
+/**
+ * POST a user message and keep the routing envelope, not just the persisted
+ * message. `mode='stream'` means the gateway executes the bound flow only
+ * once the caller pulls `GET /api/chats/:id/stream` — the chat view uses this
+ * to know it must open the SSE pump (assistant tokens arrive there, not over
+ * the WebSocket, for flow-bound chats). `mode='json'` carries @-command acks
+ * or routing errors in `payload`/`error`.
+ */
+export interface RoutedSendResult {
+  message: ChatMessage
+  mode: 'stream' | 'json'
+  chatRunId?: string | null
+  payload?: Record<string, unknown>
+  error?: string
+  systemMessageId?: string | null
+}
+
+export async function sendMessageRouted(
+  chatId: string,
+  body: {
+    content: string
+    role?: ChatMessageRole
+    agentIdOverride?: string
+    flowIdOverride?: string
+  },
+): Promise<RoutedSendResult> {
+  const data = await unwrap<RoutedSendResult>(
+    await fetch(`/api/chats/${encodeURIComponent(chatId)}/messages`, {
+      method: 'POST',
+      headers: { 'content-type': 'application/json' },
+      body: JSON.stringify({ role: 'user', ...body }),
+    }),
+    'create message',
+  )
+  return data
+}
+
 export interface ChatRun {
   id: string
   status: string

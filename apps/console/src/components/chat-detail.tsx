@@ -30,10 +30,11 @@ import {
   type ChatMessage,
   fetchChat,
   fetchMessages,
-  createMessage,
+  sendMessageRouted,
   updateChat,
   resetChat,
 } from '@/lib/chats'
+import { subscribeChatStream } from '@/lib/chat-stream'
 import { fetchDirectory, type Directory } from '@/lib/directories'
 import { useWsChat } from '@/lib/use-ws-chat'
 import { useI18n } from '@/i18n'
@@ -430,6 +431,59 @@ export function ChatDetail({ chatId }: ChatDetailProps): React.ReactElement {
 
   const { connected } = useWsChat(chatId, wrapWithNotifications(handleWsFrame))
 
+  // ─── SSE pump for flow-bound chats ───
+  // When a send routes to a flow (mode='stream'), the gateway executes it on
+  // GET /api/chats/:id/stream and streams metadata → token* → end over SSE
+  // (HumanInput parks mid-stream on custom:human_input until the user's next
+  // message). This pump translates those frames into the same ChatWsFrame
+  // handlers the WebSocket path uses, so flow replies render in the same
+  // bubble machinery. A HumanInput ack makes the user's NEXT send return
+  // mode='json' (the parked stream resumes) — only mode='stream' opens a new
+  // pump, so there is exactly one pump per flow run.
+  const pumpChatSse = useCallback(async () => {
+    try {
+      const events = await subscribeChatStream(chatId)
+      for await (const ev of events) {
+        if (stoppedRef.current) return
+        if (ev.event === 'token') {
+          handleWsFrame({ type: 'chat:message', chatId, role: 'assistant', content: ev.data, streaming: true })
+        } else if (ev.event === 'custom' && ev.rawEvent === 'custom:human_input') {
+          // The run is PARKED waiting for the user's answer — not busy. Clear
+          // `sending` so the composer re-enables and the user can type the
+          // answer (their next send returns mode='json' and the parked stream
+          // resumes on this same pump).
+          setSending(false)
+          // The prompt is persisted as a system message server-side — surface
+          // it in-chat immediately (same merge the @-command ack path uses).
+          try {
+            const fresh = await fetchMessages(chatId)
+            setMessages((prev) => {
+              const transient = prev.filter((m) => m.id.startsWith('stream-') || m.id.startsWith('done-'))
+              return transient.length ? [...fresh, ...transient] : fresh
+            })
+          } catch {
+            // best-effort — the system message shows on the next navigation
+          }
+        } else if (ev.event === 'error') {
+          handleWsFrame({ type: 'chat:error', chatId, role: 'assistant', content: '', streaming: false, error: ev.data })
+          return
+        } else if (ev.event === 'end') {
+          handleWsFrame({ type: 'chat:done', chatId, role: 'assistant', content: '', streaming: false })
+          return
+        }
+      }
+    } catch (err) {
+      handleWsFrame({
+        type: 'chat:error',
+        chatId,
+        role: 'assistant',
+        content: '',
+        streaming: false,
+        error: err instanceof Error ? err.message : String(err),
+      })
+    }
+  }, [chatId, handleWsFrame])
+
   const handleSend = useCallback(async (text: string) => {
     if (sending) return
     setSending(true)
@@ -467,19 +521,26 @@ export function ChatDetail({ chatId }: ChatDetailProps): React.ReactElement {
     setChat((prev) => (prev ? { ...prev, status: 'running' } : prev))
 
     try {
-      // createMessage writes the user row + triggers routeMessage, which
-      // (when agentId is set) spawns the InlineAgentExecutor and returns
-      // mode='json'. Assistant tokens arrive via WS.
-      const persisted = await createMessage(chatId, {
+      // createMessage writes the user row + triggers routeMessage. For
+      // agent-bound chats it returns mode='json' and assistant tokens arrive
+      // via WS. For flow-bound chats it returns mode='stream' — the gateway
+      // only executes the flow once /api/chats/:id/stream is pulled, so we
+      // open that SSE pump and translate frames into the same handlers the
+      // WS path uses (without this, flow chats send a message and then wait
+      // on WS forever — the flow never runs).
+      const routed = await sendMessageRouted(chatId, {
         content: text,
-        role: 'user',
         ...(selectedAgentId ? { agentIdOverride: selectedAgentId } : {}),
       })
 
       // Replace optimistic with persisted user message
       setMessages((prev) =>
-        prev.map((m) => (m.id === optimisticId ? persisted : m)),
+        prev.map((m) => (m.id === optimisticId ? routed.message : m)),
       )
+
+      if (routed.mode === 'stream') {
+        void pumpChatSse()
+      }
 
       // @-commands (@flow / @daemon / @agent / @workflow) get a system ack
       // written to the DB by the gateway's routeCommand, but no WS frame

@@ -7,7 +7,15 @@ import { DagExecutor, NodeRegistry, allNodes, CANVAS_NODES, type FlowData } from
 import { executeInline, INLINE_SUPPORTED_KINDS } from '../inline-executor.js'
 import { persistComplete } from './internal-runs-helpers.js'
 import { enqueueTask } from './dispatch/service.js'
-import { createLlmClient, createCliLlmClient } from './workflow-clients.js'
+import {
+  createLlmClient,
+  createCliLlmClient,
+  createDefaultLlmClient,
+  createAgentFetcher,
+  createBuiltInToolRegistry,
+  createHistoryRetriever,
+  resetProviderCache,
+} from './workflow-clients.js'
 import { skillsRegistry } from '../skills-registry.js'
 
 const log = createLogger({ svc: 'gateway:chat-execute' })
@@ -453,7 +461,16 @@ async function routeFlowCommand(
         return
       }
 
-      // Mirror the engine invocation from workflows.ts POST /:id/run.
+      // Mirror the engine invocation from workflows.ts POST /:id/run —
+      // including the client injection. Without these, LLM/Agent/PlatformAgent
+      // nodes throw "LLM client is not available" and only pure-compute flows
+      // (CustomFunction/DirectReply/…) can run via @flow. e2e TR-02 pins this.
+      resetProviderCache()
+      const llmClient = createDefaultLlmClient()
+      const agentFetcher = createAgentFetcher()
+      const toolRegistry = createBuiltInToolRegistry()
+      const historyRetriever = createHistoryRetriever(chatId)
+
       const registry = new NodeRegistry()
       registry.registerMany(allNodes())
       const executor = new DagExecutor(registry)
@@ -464,6 +481,10 @@ async function routeFlowCommand(
         state: {},
         isLastNode: true,
         startInput: cmd.message,
+        llmClient,
+        agentFetcher,
+        toolRegistry,
+        historyRetriever,
       })
 
       const durationMs = Date.now() - startedAt
