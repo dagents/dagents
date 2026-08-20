@@ -40,5 +40,8 @@
     "jsdom": "^25.0.1",
     "typescript": "^5.5.0",
     "vitest": "^2.1.9"
+  },
+  "engines": {
+    "node": ">=22"
   }
 }

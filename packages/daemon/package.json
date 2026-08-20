@@ -3,8 +3,15 @@
   "version": "0.0.0",
   "private": true,
   "type": "module",
-  "bin": { "mil-daemon": "./dist/cli.js" },
-  "exports": { ".": { "import": "./dist/index.js", "types": "./dist/index.d.ts" } },
+  "bin": {
+    "mil-daemon": "./dist/cli.js"
+  },
+  "exports": {
+    ".": {
+      "import": "./dist/index.js",
+      "types": "./dist/index.d.ts"
+    }
+  },
   "scripts": {
     "dev": "tsx src/cli.ts",
     "build": "tsup src/main.ts src/cli.ts src/index.ts --format esm --dts",
@@ -23,5 +30,8 @@
     "tsx": "^4.0.0",
     "vitest": "^2.0.0",
     "@types/node": "^20.0.0"
+  },
+  "engines": {
+    "node": ">=22"
   }
 }

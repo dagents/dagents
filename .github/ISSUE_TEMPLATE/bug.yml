@@ -1,0 +1,46 @@
+name: Bug report
+description: Something is broken or behaves incorrectly.
+labels: ["bug"]
+body:
+  - type: textarea
+    id: what-happened
+    attributes:
+      label: What happened?
+      description: A clear description of the bug. What did you expect to happen instead?
+    validations:
+      required: true
+  - type: textarea
+    id: reproduce
+    attributes:
+      label: Steps to reproduce
+      placeholder: |
+        1. …
+        2. …
+    validations:
+      required: true
+  - type: textarea
+    id: logs
+    attributes:
+      label: Relevant logs / errors
+      description: Gateway or console output. Paste as-is in a code block — but redact any API keys or secrets first.
+      render: shell
+  - type: input
+    id: version
+    attributes:
+      label: Dagents version
+      description: Release tag, or the commit hash if running from source.
+    validations:
+      required: true
+  - type: textarea
+    id: environment
+    attributes:
+      label: Environment
+      description: One line per item — helps us narrow things down fast.
+      placeholder: |
+        OS:
+        Node version (`node -v`):
+        Deployment: docker compose / dev servers (pnpm dev)
+        Agent CLIs installed (claude/codex/…):
+        Langfuse enabled: yes/no
+    validations:
+      required: true

@@ -1,7 +1,7 @@
 {
   "name": "dagents",
   "private": true,
-  "version": "0.0.0",
+  "version": "0.1.0",
   "packageManager": "pnpm@10.26.0",
   "scripts": {
     "build": "turbo run build",
@@ -19,5 +19,8 @@
     "eslint-plugin-react-hooks": "^5.2.0",
     "turbo": "^2.0.0",
     "typescript": "^5.5.0"
+  },
+  "engines": {
+    "node": ">=22"
   }
 }

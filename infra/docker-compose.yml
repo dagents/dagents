@@ -1,4 +1,4 @@
-# Mil-Agents local full-stack infrastructure.
+# Dagents local full-stack infrastructure.
 #
 # Bring up the two core services (Postgres + Langfuse):
 #   cd infra && docker compose up -d && docker compose ps
