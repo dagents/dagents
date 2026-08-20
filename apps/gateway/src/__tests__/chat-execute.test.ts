@@ -39,6 +39,39 @@ let agentDaemonsBackup: Array<{
   created_at: Date | string
   updated_at: Date | string
 }> = []
+/**
+ * wipeAllAgents 前的 agents 快照（全部列）。2026-08-20 修复：此前只恢复
+ * agent_daemons + 一行默认 agent，agents 表本身的开发数据（人格库启用的
+ * Agent、手工创建的 Agent）会被全表清空永久吞掉 —— 现在与 agent_daemons
+ * 同策略：备份 → 清空 → cleanup 原样恢复。
+ */
+interface AgentRowBackup {
+  id: string
+  workspace_id: string
+  name: string
+  kind: string
+  agent_type: string | null
+  roles: unknown
+  instructions: string
+  skills: unknown
+  visibility: string
+  concurrency: number
+  model: string
+  runtime: string
+  owner_id: string
+  daemon_id: string | null
+  flow_id: string | null
+  activity: unknown
+  status: string
+  availability: string
+  summary: string
+  input_schema: string
+  output_schema: string
+  library_meta: unknown
+  created_at: Date | string
+  updated_at: Date | string
+}
+let agentsBackup: AgentRowBackup[] = []
 
 beforeAll(async () => {
   if (!AppDataSource.isInitialized) await AppDataSource.initialize()
@@ -81,18 +114,21 @@ async function cleanup(): Promise<void> {
 /** 全表清空 agents / agent_daemons（仅在需要「无任何 agent」前置的用例中使用）。 */
 async function wipeAllAgents(): Promise<void> {
   // 备份遗留 agent_daemons 行，cleanup 时恢复 —— 这些是开发数据，不能真删。
-  const { records } = await runQuery<typeof agentDaemonsBackup[number]>(
+  const { records: daemonRows } = await runQuery<typeof agentDaemonsBackup[number]>(
     `SELECT id, name, kind, daemon_id, capability_descriptor, executable_path,
             default_args, workspace_id, visibility, created_at, updated_at
      FROM agent_daemons`,
   )
-  agentDaemonsBackup = records
+  agentDaemonsBackup = daemonRows
+  // 同策略备份 agents 全表（含人格库启用的 Agent 等开发数据）。
+  const { records: agentRows } = await runQuery<AgentRowBackup>(`SELECT * FROM agents`)
+  agentsBackup = agentRows
   await runQuery(`DELETE FROM agent_daemons`)
   await runQuery(`DELETE FROM agents`)
   wipedAgentsTable = true
 }
 
-/** 恢复开发数据：默认 Claude agent + 被备份的 agent_daemons 行。 */
+/** 恢复开发数据：备份的 agents / agent_daemons 行 + 保底的默认 Claude agent。 */
 async function restoreDefaultAgent(): Promise<void> {
   for (const row of agentDaemonsBackup) {
     await runQuery(
@@ -109,6 +145,29 @@ async function restoreDefaultAgent(): Promise<void> {
     )
   }
   agentDaemonsBackup = []
+  for (const row of agentsBackup) {
+    await runQuery(
+      `INSERT INTO agents (id, workspace_id, name, kind, agent_type, roles, instructions, skills,
+                           visibility, concurrency, model, runtime, owner_id, daemon_id, flow_id,
+                           activity, status, availability, summary, input_schema, output_schema,
+                           library_meta, created_at, updated_at)
+       VALUES ($1, $2, $3, $4, $5, $6::jsonb, $7, $8::jsonb,
+               $9, $10, $11, $12, $13, $14, $15,
+               $16::jsonb, $17, $18, $19, $20, $21,
+               $22::jsonb, $23, $24)
+       ON CONFLICT (id) DO NOTHING`,
+      [
+        row.id, row.workspace_id, row.name, row.kind, row.agent_type,
+        JSON.stringify(row.roles ?? []), row.instructions, JSON.stringify(row.skills ?? []),
+        row.visibility, row.concurrency, row.model, row.runtime, row.owner_id, row.daemon_id, row.flow_id,
+        JSON.stringify(row.activity ?? []), row.status, row.availability, row.summary,
+        row.input_schema, row.output_schema,
+        row.library_meta === null || row.library_meta === undefined ? null : JSON.stringify(row.library_meta),
+        row.created_at, row.updated_at,
+      ],
+    )
+  }
+  agentsBackup = []
   await runQuery(
     `INSERT INTO agents (id, workspace_id, name, kind, owner_id, status, availability, summary)
      VALUES ($1, $2, 'Claude 助手', 'claude', 'local', 'idle', 'online', 'Claude CLI agent')
@@ -274,6 +333,37 @@ describe('POST /api/v1/chats/:id/messages — default routing', () => {
       [chatId],
     )
     expect(records[0]?.agent_id).toBe(claudeId)
+  })
+
+  it('wipeAllAgents + restore preserves pre-existing agents rows (dev-data guard)', async () => {
+    // 2026-08-20 P0 回归：wipeAllAgents 曾只恢复 agent_daemons + 一行默认
+    // agent，agents 表的开发数据（人格库启用的、手工创建的）被全表清空
+    // 永久吞掉（真机上吞掉了 7 个演示 Agent）。期望：wipe 后 cleanup 把
+    // 备份的全部 agents 行原样恢复，library_meta 等 JSONB 列一字不差。
+    const markerId = randomUUID()
+    await runQuery(
+      `INSERT INTO agents (id, workspace_id, name, kind, instructions, summary, owner_id, library_meta)
+       VALUES ($1, $2, '库数据守护标记', 'claude', 'marker instructions', 'marker', 'local',
+               $3::jsonb)`,
+      [markerId, DEFAULT_WORKSPACE_ID, JSON.stringify({ id: 'guard/marker', profile: 'slim' })],
+    )
+    try {
+      await wipeAllAgents()
+      const { records: wiped } = await runQuery<{ count: string }>(
+        `SELECT count(*)::text AS count FROM agents`,
+      )
+      expect(Number(wiped[0].count)).toBe(0)
+
+      await restoreDefaultAgent()
+      const { records } = await runQuery<{ instructions: string; library_meta: { id?: string } }>(
+        `SELECT instructions, library_meta FROM agents WHERE id = $1::uuid`,
+        [markerId],
+      )
+      expect(records[0]?.instructions).toBe('marker instructions')
+      expect(records[0]?.library_meta).toMatchObject({ id: 'guard/marker', profile: 'slim' })
+    } finally {
+      await runQuery(`DELETE FROM agents WHERE id = $1::uuid`, [markerId])
+    }
   })
 
   it('returns json mode with error when no agent is available (agent_daemons empty)', async () => {
