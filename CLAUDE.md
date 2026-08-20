@@ -73,6 +73,7 @@ console (Next) → gateway (Hono) → @dagents/workflow engine (in-repo)
 - Every hop carries a business `run_id` (via `x-run-id` header) **and** a W3C `traceparent` (via OTel auto-instrumentation of `fetch`/`http`). These are different: `run_id` is the platform's; `traceId` is OTel's. Both must thread end-to-end.
 - **Workflow engine** lives in `packages/workflow/` (Plan A/B/C 完成)。14 节点 + DAG 执行器 + SSE 流式 + 变量解析。Canvas 编辑器在 `vendor/agentflow/`（前端组件），数据持久化在 `flows` 表，通过 gateway `/api/v1/workflows/*` 路由 CRUD。架构与执行模型详见 `docs/workflow-engine.md`。
 - **CLI 第一性（2026-08-18）**：本地 CLI agent 是基线执行引擎，HTTP LLM Provider 只是可选加速 —— `@workflow` 生成默认走 CLI spawn（失败才降级 HTTP）；工作流执行的 llmClient 无 provider 时用 CLI 兜底（`createDefaultLlmClient`），LLM/Agent 节点零配置可跑。
+- **fs-registry 家族（同构模式：文件系统即真相源 + TTL 缓存 + warn-and-skip + rank 去重）**：技能库 `skills-registry.ts`（`~/.agents/skills`）→ Agent 人格库 `agent-library-registry.ts`（`~/.agents/agent-library`，挂 agency-agents 类人格库；启用 = fork 成 agents 行，drift 三态同步）→ 流程模板中心 `flow-templates/`（内置 JSON import 内联 + 用户模板表；personaName 重绑、未挂库降级 LLM 节点）。详见 `docs/skills-registry.md` / `docs/agent-library.md` / `docs/flow-templates.md`。
 
 ### Monorepo & dependency direction (enforced, no cycles)
 

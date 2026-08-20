@@ -16,7 +16,10 @@
 |---|---|
 | [`workflow-engine.md`](workflow-engine.md) | 工作流引擎：执行模型（并行波次/条件路由/循环）、流式、人机协同、子流程、Langfuse、已知限制 |
 | [`skills-registry.md`](skills-registry.md) | 技能运行时注册表：发现根/rank、API、Agent 挂载、system prompt 注入 |
-| [`test-cases.md`](test-cases.md) | 测试用例目录 v2.0（331 条，2026-08-11）；历史测试报告在 `archive/testing/` |
+| [`agent-library.md`](agent-library.md) | Agent 人格库（2026-08-19）：registry-not-database 挂载 agency-agents 类人格库、启用/drift 同步、团队场景模板、中文衍生目录 |
+| [`flow-templates.md`](flow-templates.md) | 流程模板中心（2026-08-20）：内置/我的模板、画布「另存为模板」、personaName 重绑与 LLM 降级 |
+| [`test-cases.md`](test-cases.md) | 测试用例目录 v2.0（331 条，2026-08-11）+ 执行态增量索引；历史测试报告在 `archive/testing/` |
+| [`e2e-test-plan.md`](e2e-test-plan.md) | 执行态 e2e 测试计划：Mock LLM 地基、Tier A-D 分层、spec 11~17 执行记录 |
 
 ## 流程文档（docs/superpowers/）
 

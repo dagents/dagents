@@ -1,8 +1,14 @@
 # Dagents 平台 — 详细测试用例规划
 
 > **产品经理编写** · **测试工程师执行** · **产品总监 Review**  
-> 版本：v2.0（Review 修订版） | 日期：2026-08-11  
+> 版本：v2.1（+ 执行态增量索引） | 基线：v2.0（Review 修订版，2026-08-11）  
 > 测试环境：localhost:3000 (Console) + localhost:8080 (Gateway) + localhost:15432 (PostgreSQL)
+
+> **增量说明（2026-08-20）**：v2.0 之后新增的**执行态 e2e**（spec 11~17，约 67 用例：
+> 工作流执行契约 / 多 Agent 协作 MA-01~18 / 聊天触发 SSE / 边界 / UI 旅程 /
+> Agent 人格库 / 流程模板中心）与 gateway 单测扩容（persona-compiler / agent-library /
+> flow-templates / chat-execute dev-data 守护）**不在本目录逐条展开**——用例与
+> 执行记录见 `e2e-test-plan.md` §12 与各 spec 文件；本文件仍作为 UI 用例基线目录维护。
 
 ### 已知问题追踪
 

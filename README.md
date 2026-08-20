@@ -44,6 +44,7 @@ console (Next) → gateway (Hono) → @dagents/workflow → dispatch 路由（�
 - **console** (`apps/console`, :3000) — Next.js App Router。Chat-First：`/` 首页 + `/chats/{id}` 详情 + agents / flows / daemons / settings / directories；画布编辑在 `/workflows/[id]/canvas`。**所有后端调用都经 gateway**。
 - **daemon** (`packages/daemon`) — pull-based：`register → heartbeat → claim → execute → complete`。
 - **CLI 第一性（2026-08-18）** — 本地 CLI agent 是基线执行引擎，HTTP LLM Provider 只是可选加速：`@workflow` 生成默认走 CLI spawn，工作流 LLM/Agent 节点未配置 provider 时用 CLI 兜底，零配置可跑。
+- **模板生态（2026-08-20）** — 三层资产一键成军：**Agent 人格库**（挂载 [agency-agents](https://github.com/msitarzewski/agency-agents) 类人格库，270+ 专家人格按需启用，`docs/agent-library.md`）· **流程模板中心**（内置模板开箱即用、画布跑通的流程一键「另存为模板」，personaName 重绑 + 未挂库自动降级 LLM 节点，`docs/flow-templates.md`）· Agent 模板。
 
 依赖方向（无环）：`contracts ← {agent-adapters, daemon, db} ← gateway`；`workflow ← gateway`；`vendor/agentflow ← console`。
 
@@ -80,7 +81,7 @@ pnpm --filter @dagents/db migration:generate                                    
 
 - **CLAUDE.md** — Claude Code 工作指南（架构分层、关键契约、命令、约定）。
 - **架构真相源** — `docs/superpowers/specs/2026-07-25-system-architecture-redesign.md`（顶部「实现状态总览」表反映当前进度）。
-- **主题文档** — 工作流引擎 `docs/workflow-engine.md` · 技能库 `docs/skills-registry.md` · 测试用例 `docs/test-cases.md`。
+- **主题文档** — 工作流引擎 `docs/workflow-engine.md` · 技能库 `docs/skills-registry.md` · Agent 人格库 `docs/agent-library.md` · 流程模板中心 `docs/flow-templates.md` · 测试用例 `docs/test-cases.md` · e2e 测试计划 `docs/e2e-test-plan.md`。
 - **活跃 plans** — `docs/superpowers/plans/`；历史决策 / 验证记录 / 测试报告 / 设计原型归档在 `docs/archive/`。
 - **新功能流程** — brainstorm → spec → plan → issue → execute（见 CLAUDE.md）。
 - **CI** — `.github/workflows/ci.yml`（push/PR 跑 build • typecheck • test，含 Postgres service + migration）。
