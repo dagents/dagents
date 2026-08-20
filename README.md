@@ -1,87 +1,139 @@
-# Dagents 平台
+<div align="center">
 
-Chat-First 的异构 coding agent 平台。**中央调度（gateway）+ 本地 daemon** 两层架构，统一编排 claude / codex 等 CLI agent；工作流引擎内聚在 `@dagents/workflow`，画布编辑器使用 vendored `agentflow`。
+# Dagents
 
-## ⚠️ 安全须知 — 部署前必读
+**A chat-first platform for orchestrating heterogeneous coding agents — on your own machine, against your own LLM providers.**
 
-> **默认配置下，gateway 绑定 `127.0.0.1`（仅本机访问）。**
-> 如果你计划将 gateway 暴露到网络（反代、k8s Service、Cloudflare Tunnel 等），**必须**配置以下环境变量之一：
+[![License: Apache-2.0](https://img.shields.io/badge/License-Apache_2.0-blue.svg)](./LICENSE)
+![Node](https://img.shields.io/badge/node-%E2%89%A522-339933)
+<!-- TODO(oss): point CI badge at the public repo after transfer
+[![CI](https://github.com/sendwealth/dagents/actions/workflows/ci.yml/badge.svg)](https://github.com/sendwealth/dagents/actions/workflows/ci.yml)
+-->
 
-### 方案 A：API Key 鉴权（最简单）
-```bash
-# 生成一个强随机 key（≥16 字符）
-GATEWAY_API_KEY=$(openssl rand -hex 32)
+Chat with `claude`, `codex`, and 15+ other CLI agents from one place · compose them into visual workflows · zero-config to start, everything stays local.
+
+[English](./README.md) · [简体中文](./README.zh-CN.md)
+
+</div>
+
+---
+
+## Why Dagents
+
+Most agent platforms want to be the backend. Dagents is the opposite: **your local CLI agents are the baseline execution engine**, and everything else is optional acceleration.
+
+- **CLI-first execution** — Workflows and chat run by spawning your local CLI agents (`claude`, `codex`, `gemini`, `qwen`, … — 17 adapters). HTTP LLM providers are an optional fast path, not a dependency. No provider configured? It still runs.
+- **Chat-first UX** — A single chat home (`/`) + chat detail pages. Type `@workflow …` to compile a multi-agent workflow from a prompt; mention agents by name and they get dispatched with their persona and skills.
+- **Visual workflow canvas** — A 14-node DAG engine with parallel waves, condition routing, loops, human-in-the-loop, and SSE streaming, edited on a React Flow canvas (`/workflows/[id]/canvas`).
+- **Agent personality library** — Mount any [agency-agents](https://github.com/msitarzewski/agency-agents)-style library (270+ expert personas) from the filesystem; enable personas on demand, sync upstream with drift detection. No bloat — only enabled agents live in the database.
+- **Flow template center** — Built-in templates, team-scenario templates, and "save canvas as template". Instantiating re-binds personas by name; missing ones degrade to plain LLM nodes so templates always run.
+- **Local-first & private** — Postgres on your machine, no telemetry, no accounts, no callbacks home. LLM API keys encrypted at rest (AES-256-GCM).
+- **Bilingual UI** — Chinese and English, switchable in the sidebar.
+
+## Architecture
+
 ```
-设置后，所有非公开 API 路由需要 `Authorization: Bearer <key>` 头。
-Daemon 注册需要额外的 `DAEMON_REGISTER_TOKEN`。
-
-### 方案 B：SSO 会话鉴权（浏览器 + Console）
-```bash
-SSO_DEV_USERNAME=admin
-SSO_DEV_PASSWORD=<strong-password>
-SSO_SESSION_SECRET=$(openssl rand -base64 48)  # ≥32 bytes
-REQUIRE_LOGIN=1
+console (Next.js :3000) → gateway (Hono :8080) → @dagents/workflow engine
+                                              → [dispatch routes inline] → local daemon → CLI agents
 ```
 
-### 必须配置的安全变量
-| 变量 | 用途 | 生成方式 |
+| Piece | Where | Notes |
 |---|---|---|
-| `GATEWAY_API_KEY` | API 路由鉴权 | `openssl rand -hex 32` |
-| `DAEMON_REGISTER_TOKEN` | Daemon 注册令牌 | `openssl rand -hex 32` |
-| `ENCRYPTION_KEY` | LLM API Key 加密（AES-256-GCM） | `openssl rand -hex 32` |
-| `SSO_SESSION_SECRET` | SSO 会话签名 | `openssl rand -base64 48` |
+| Console | `apps/console` | Next.js App Router, every backend call goes through the gateway |
+| Gateway | `apps/gateway` | Hono. SSO/auth, workflow CRUD + runs, dispatch protocol, LLM provider CRUD + proxying |
+| Workflow engine | `packages/workflow` | 14 nodes, DAG executor, SSE streaming, variable resolution |
+| CLI adapters | `packages/agent-adapters` | claude / codex / qwen / copilot / opencode / codebuddy / cursor / deveco / antigravity / openclaw / pi / hermes / kimi / kiro / grok / qoder / traecli |
+| Daemon | `packages/daemon` | Pull-based (`register → heartbeat → claim → execute`) for remote execution; inline execution is the default path |
+| Canvas | `vendor/agentflow` | Vendored from [Flowise](https://github.com/FlowiseAI/Flowise) (Apache-2.0), frontend-only |
 
-**不设 `ENCRYPTION_KEY` 时，LLM API Key 以 Base64 存储（可逆，不安全），gateway 会打印警告。**
+Dependency direction is acyclic: `contracts ← {agent-adapters, daemon, db} ← gateway`; `workflow ← gateway`.
 
-## 架构
+## Quick start
 
-```
-console (Next) → gateway (Hono) → @dagents/workflow → dispatch 路由（已并入 gateway）
-                                              → 本地 daemon → claude/codex CLI → LLM Provider
-```
-
-- **gateway** (`apps/gateway`, :8080) — Hono。SSO、路由/审计、工作流执行入口（`/api/v1/workflows/*`）、dispatch 协议路由、LLM Provider CRUD + 动态代理转发。
-- **console** (`apps/console`, :3000) — Next.js App Router。Chat-First：`/` 首页 + `/chats/{id}` 详情 + agents / flows / daemons / settings / directories；画布编辑在 `/workflows/[id]/canvas`。**所有后端调用都经 gateway**。
-- **daemon** (`packages/daemon`) — pull-based：`register → heartbeat → claim → execute → complete`。
-- **CLI 第一性（2026-08-18）** — 本地 CLI agent 是基线执行引擎，HTTP LLM Provider 只是可选加速：`@workflow` 生成默认走 CLI spawn，工作流 LLM/Agent 节点未配置 provider 时用 CLI 兜底，零配置可跑。
-- **模板生态（2026-08-20）** — 三层资产一键成军：**Agent 人格库**（挂载 [agency-agents](https://github.com/msitarzewski/agency-agents) 类人格库，270+ 专家人格按需启用，`docs/agent-library.md`）· **流程模板中心**（内置模板开箱即用、画布跑通的流程一键「另存为模板」，personaName 重绑 + 未挂库自动降级 LLM 节点，`docs/flow-templates.md`）· Agent 模板。
-
-依赖方向（无环）：`contracts ← {agent-adapters, daemon, db} ← gateway`；`workflow ← gateway`；`vendor/agentflow ← console`。
-
-## 跑起来
+### Full stack via Docker
 
 ```bash
-pnpm install                       # .npmrc 设 ignore-scripts=true，跳过 vendor 的 husky
+git clone https://github.com/<owner>/dagents.git
+cd dagents
+docker compose up        # builds the monorepo → Postgres + gateway + console
+```
+
+Open http://localhost:3000 — migrations run automatically on boot. The first
+build takes a few minutes; everything binds to `127.0.0.1` only.
+
+### Dev mode
+
+```bash
+pnpm install                       # .npmrc sets ignore-scripts=true (vendored canvas has no husky)
 cd infra && docker compose up -d   # Postgres :15432 + Langfuse :3001
 pnpm --filter @dagents/db migration:run
 pnpm --filter @dagents/gateway dev          # :8080
 pnpm --filter @dagents/console dev          # :3000
-pnpm dev:daemon                             # daemon CLI → http://localhost:8080
+pnpm dev:daemon                             # optional, for remote agents
 ```
 
-| 服务 | 端口 | 说明 |
+Prerequisites: Node ≥ 22, pnpm 10 (`corepack enable`), Docker. With a
+`claude` CLI on your PATH, the chat home is fully functional with zero further
+configuration — that's the CLI-first baseline.
+
+| Service | Port | Notes |
 |---|---|---|
-| gateway | 8080 | `GATEWAY_URL` |
-| console | 3000 | Next.js |
-| Langfuse | 3001 | v2（v3 需 ClickHouse） |
-| Postgres | host **15432** → 5432 | `POSTGRES_URL` |
+| Gateway | 8080 | binds `127.0.0.1` by default |
+| Console | 3000 | |
+| Postgres | host **15432** → 5432 | remapped to avoid host collisions |
+| Langfuse | 3001 | optional observability profile |
 
-## 常用命令
+## Security — read before exposing the gateway
 
-```bash
-pnpm build / test / typecheck      # turbo，跨所有 workspace
-pnpm --filter @dagents/gateway exec vitest run src/__tests__/auth.test.ts      # 单文件
-pnpm --filter @dagents/gateway exec vitest run -t "rejects missing session"   # 单测试
-pnpm --filter @dagents/db migration:generate                                    # 从 entity 改动生成迁移
-```
+By default everything listens on localhost only. If you plan to put the
+gateway behind a reverse proxy or on a network, configure authentication first:
 
-## 文档
+| Variable | Purpose | Generate with |
+|---|---|---|
+| `GATEWAY_API_KEY` | Bearer auth for API routes | `openssl rand -hex 32` |
+| `DAEMON_REGISTER_TOKEN` | Daemon registration | `openssl rand -hex 32` |
+| `ENCRYPTION_KEY` | AES-256-GCM for stored LLM API keys | `openssl rand -hex 32` |
+| `SSO_SESSION_SECRET` | SSO session signing | `openssl rand -base64 48` |
 
-文档地图见 **`docs/README.md`**。核心入口：
+Without `ENCRYPTION_KEY`, LLM API keys are stored Base64-reversible and the
+gateway logs a warning. Full details and an SSO option in the docs.
 
-- **CLAUDE.md** — Claude Code 工作指南（架构分层、关键契约、命令、约定）。
-- **架构真相源** — `docs/superpowers/specs/2026-07-25-system-architecture-redesign.md`（顶部「实现状态总览」表反映当前进度）。
-- **主题文档** — 工作流引擎 `docs/workflow-engine.md` · 技能库 `docs/skills-registry.md` · Agent 人格库 `docs/agent-library.md` · 流程模板中心 `docs/flow-templates.md` · 测试用例 `docs/test-cases.md` · e2e 测试计划 `docs/e2e-test-plan.md`。
-- **活跃 plans** — `docs/superpowers/plans/`；历史决策 / 验证记录 / 测试报告 / 设计原型归档在 `docs/archive/`。
-- **新功能流程** — brainstorm → spec → plan → issue → execute（见 CLAUDE.md）。
-- **CI** — `.github/workflows/ci.yml`（push/PR 跑 build • typecheck • test，含 Postgres service + migration）。
+## Known limitations (honest list)
+
+We'd rather tell you up front:
+
+- **JS nodes are not sandboxed** — `CustomFunction` / tool / loop conditions run via `new Function`. Flows are authored by the machine owner; do not expose flow authoring to untrusted users.
+- **LLM fetches have no timeout/cancellation** — a hung upstream provider stalls the run (HTTP nodes do have a 15s timeout + 32KB truncation).
+- **Plain `LLM` nodes are single-shot** — use `PlatformAgent` nodes when you need tool-calling loops.
+- **Retriever is keyword-based** (ILIKE over chat history), not vector RAG — the node contract is ready for a vector backend swap.
+- **Human-input pending state is in-memory** — a gateway restart drops pending inputs (they fail with timeout).
+- Several CLI adapters (codex / codebuddy / copilot / qwen) are implemented from official docs and not yet regression-tested against real CLIs.
+
+Full trade-off list with upgrade paths: `docs/workflow-engine.md` § 现状与限制.
+
+## Documentation
+
+The doc map lives in [`docs/README.md`](./docs/README.md). Highlights:
+
+- [`docs/workflow-engine.md`](./docs/workflow-engine.md) — engine architecture, execution model, Langfuse setup
+- [`docs/skills-registry.md`](./docs/skills-registry.md) — skill discovery and system-prompt injection
+- [`docs/agent-library.md`](./docs/agent-library.md) — personality library mounting, drift sync, team templates
+- [`docs/flow-templates.md`](./docs/flow-templates.md) — the three-layer template center
+- [`docs/e2e-test-plan.md`](./docs/e2e-test-plan.md) — execution-state e2e suite and the mock LLM harness
+- [`CLAUDE.md`](./CLAUDE.md) · [`AGENTS.md`](./AGENTS.md) — working agreements for AI coding agents (and humans)
+
+## Contributing
+
+PRs welcome — see [CONTRIBUTING.md](./CONTRIBUTING.md) for setup, testing, and
+conventions (Chinese version: [CONTRIBUTING.zh-CN.md](./CONTRIBUTING.zh-CN.md)).
+By participating you agree to our [Code of Conduct](./CODE_OF_CONDUCT.md).
+Security reports follow [SECURITY.md](./SECURITY.md) — private disclosure,
+acknowledged within 7 working days.
+
+## License
+
+Apache-2.0 — see [LICENSE](./LICENSE).
+
+The workflow canvas in `vendor/agentflow/` is vendored from
+[FlowiseAI/Flowise](https://github.com/FlowiseAI/Flowise) `packages/agentflow`
+(Apache-2.0); see `vendor/agentflow/NOTICE`.

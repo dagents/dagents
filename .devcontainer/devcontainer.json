@@ -1,0 +1,21 @@
+{
+  "name": "dagents",
+  "image": "mcr.microsoft.com/devcontainers/typescript-node:1-22-bookworm",
+  "features": {
+    "ghcr.io/devcontainers/features/docker-in-docker:2": {}
+  },
+  "postCreateCommand": "corepack enable && pnpm install",
+  "forwardPorts": [3000, 8080, 15432, 3001, 4010],
+  "portsAttributes": {
+    "3000": { "label": "console" },
+    "8080": { "label": "gateway" },
+    "15432": { "label": "postgres" },
+    "3001": { "label": "langfuse" },
+    "4010": { "label": "e2e mock llm" }
+  },
+  "customizations": {
+    "vscode": {
+      "extensions": ["dbaeumer.vscode-eslint"]
+    }
+  }
+}
