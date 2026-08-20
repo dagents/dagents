@@ -8,6 +8,7 @@ import { agentInvokeRoutes } from './routes/agent-invoke.js'
 import { agentTemplateRoutes } from './routes/agent-templates.js'
 import { agentLibraryTeamRoutes } from './routes/agent-library-teams.js'
 import { agentLibraryRoutes } from './routes/agent-library.js'
+import { flowTemplateRoutes } from './routes/flow-templates.js'
 import { llmProviderRoutes } from './routes/llm-providers.js'
 import { workflowsRoutes } from './routes/workflows.js'
 import { cliRuntimeRoutes } from './routes/cli-runtimes.js'
@@ -170,6 +171,13 @@ app.route('/api/v1/agent-templates', agentTemplateRoutes)
  */
 app.route('/api/v1/agent-library', agentLibraryTeamRoutes)
 app.route('/api/v1/agent-library', agentLibraryRoutes)
+
+/**
+ * Flow Templates（docs/flow-templates.md）：内置（in-repo JSON）+ 用户（表）
+ * 双源模板中心 —— list / from-flow（画布另存为模板）/ instantiate（persona
+ * 重绑或降级 LLM 节点）/ delete（仅用户模板）。
+ */
+app.route('/api/v1/flow-templates', flowTemplateRoutes)
 
 /**
  * LLM Provider CRUD API: llm provider list + detail + create + update + delete + test.

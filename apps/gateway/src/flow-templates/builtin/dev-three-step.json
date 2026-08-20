@@ -1,0 +1,26 @@
+{
+  "name": "三步开发链：规划 → 实现 → 审查",
+  "description": "需求规划 → 编码实现 → 代码审查的线性流水线。三个 Agent 节点按人格名引用（Software Architect / Senior Developer / Code Reviewer）——挂载人格库时自动绑定真实 Agent，未挂载时降级为 LLM 节点照常可跑。",
+  "icon": "🛠️",
+  "category": "dev",
+  "flowData": {
+    "nodes": [
+      { "id": "node_1", "type": "customNode", "position": { "x": 0, "y": 300 }, "data": { "name": "startAgentflow", "label": "Start" } },
+      { "id": "node_2", "type": "customNode", "position": { "x": 250, "y": 300 }, "data": { "name": "platformAgentAgentflow", "label": "需求规划", "inputs": { "agentId": "", "systemPrompt": "这是三步开发链的第一步。根据上游输入梳理目标、范围与验收标准，产出结构化的需求规划，供下游直接实现。" } } },
+      { "id": "node_3", "type": "customNode", "position": { "x": 500, "y": 300 }, "data": { "name": "platformAgentAgentflow", "label": "编码实现", "inputs": { "agentId": "", "systemPrompt": "这是三步开发链的第二步。依据上游的需求规划产出实现方案（关键代码路径、模块划分、边界情况与测试要点）。" } } },
+      { "id": "node_4", "type": "customNode", "position": { "x": 750, "y": 300 }, "data": { "name": "platformAgentAgentflow", "label": "代码审查", "inputs": { "agentId": "", "systemPrompt": "这是三步开发链的第三步。审查上游实现方案的正确性、安全性与可维护性，给出可执行的修复清单与放行结论。" } } },
+      { "id": "node_5", "type": "customNode", "position": { "x": 1000, "y": 300 }, "data": { "name": "directReplyAgentflow", "label": "Direct Reply", "content": "✅ 三步开发链执行完成，各步骤产出见上方节点。" } }
+    ],
+    "edges": [
+      { "id": "edge_1", "source": "node_1", "target": "node_2" },
+      { "id": "edge_2", "source": "node_2", "target": "node_3" },
+      { "id": "edge_3", "source": "node_3", "target": "node_4" },
+      { "id": "edge_4", "source": "node_4", "target": "node_5" }
+    ]
+  },
+  "agentRefs": [
+    { "nodeId": "node_2", "personaName": "Software Architect", "task": "这是三步开发链的第一步。根据上游输入梳理目标、范围与验收标准，产出结构化的需求规划，供下游直接实现。" },
+    { "nodeId": "node_3", "personaName": "Senior Developer", "task": "这是三步开发链的第二步。依据上游的需求规划产出实现方案（关键代码路径、模块划分、边界情况与测试要点）。" },
+    { "nodeId": "node_4", "personaName": "Code Reviewer", "task": "这是三步开发链的第三步。审查上游实现方案的正确性、安全性与可维护性，给出可执行的修复清单与放行结论。" }
+  ]
+}

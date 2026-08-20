@@ -1,5 +1,6 @@
 import { PageShell } from '@/components/page-shell'
 import { FlowiseCanvasLoader } from '@/components/canvas/flowise-canvas-loader'
+import { CanvasTopBar } from '@/components/canvas-top-bar'
 import { gatewayUrl } from '@/lib/config'
 
 interface CanvasWorkflowPageProps {
@@ -45,7 +46,13 @@ export default async function CanvasWorkflowPage({
 
   return (
     <PageShell fullBleed>
-      <FlowiseCanvasLoader flowId={id} flowName={flowName} initialFlow={flowData} />
+      {/* CanvasTopBar：流程名 + 另存为模板（不侵入 vendor 画布） */}
+      <div className="ftpl-canvas-column">
+        <CanvasTopBar flowId={id} flowName={flowName} />
+        <div className="ftpl-canvas-body">
+          <FlowiseCanvasLoader flowId={id} flowName={flowName} initialFlow={flowData} />
+        </div>
+      </div>
     </PageShell>
   )
 }

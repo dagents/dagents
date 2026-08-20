@@ -1,0 +1,20 @@
+{
+  "name": "内容流水线：生成 → 审校 → 发布",
+  "description": "LLM 生成初稿 → 独立审校节点质检修订 → DirectReply 输出终稿 —— 展示 LLM 链与 DirectReply 收尾。",
+  "icon": "📝",
+  "category": "content",
+  "flowData": {
+    "nodes": [
+      { "id": "node_1", "type": "customNode", "position": { "x": 0, "y": 300 }, "data": { "name": "startAgentflow", "label": "Start" } },
+      { "id": "node_2", "type": "customNode", "position": { "x": 250, "y": 300 }, "data": { "name": "llmAgentflow", "label": "内容生成", "model": "", "systemPrompt": "你是内容创作者。根据上游输入产出一篇结构完整的初稿（标题、正文、结语），语言与上游输入一致。" } },
+      { "id": "node_3", "type": "customNode", "position": { "x": 500, "y": 300 }, "data": { "name": "llmAgentflow", "label": "审校", "model": "", "systemPrompt": "你是严格的审校编辑。审查上游初稿的事实一致性、逻辑与文风，直接输出修订后的终稿（不要只给意见）。" } },
+      { "id": "node_4", "type": "customNode", "position": { "x": 750, "y": 300 }, "data": { "name": "directReplyAgentflow", "label": "Direct Reply", "content": "✅ 内容流水线完成，终稿见上方审校节点。" } }
+    ],
+    "edges": [
+      { "id": "edge_1", "source": "node_1", "target": "node_2" },
+      { "id": "edge_2", "source": "node_2", "target": "node_3" },
+      { "id": "edge_3", "source": "node_3", "target": "node_4" }
+    ]
+  },
+  "agentRefs": []
+}

@@ -46,6 +46,7 @@ import { PageShell } from '@/components/page-shell'
 import { Icon } from '@/components/icon'
 import { FlowDag } from '@/components/flow-dag'
 import { CreateFlowDialog } from '@/components/create-flow-dialog'
+import { FlowTemplateGallery } from '@/components/flow-template-gallery'
 import { fetchRunNodeSpans, type RunNodeSpan } from '@/lib/node-spans'
 import { parseFlowData, type FlowSummary, type FlowDetailView, type NodeRunStatus } from '@/lib/flows'
 import { useI18n } from '@/i18n'
@@ -233,6 +234,7 @@ export function FlowsView(): React.ReactElement {
   const [loadingList, setLoadingList] = useState(true)
   const [loadingDetail, setLoadingDetail] = useState(false)
   const [createOpen, setCreateOpen] = useState(false)
+  const [templateOpen, setTemplateOpen] = useState(false)
   const [runningId, setRunningId] = useState<string | null>(null)
 
   /** showDetail(flowId, runId) — mirrors design/agentflows.html L432-462.
@@ -549,6 +551,14 @@ export function FlowsView(): React.ReactElement {
           </span>
           <button
             type="button"
+            className="btn btn-secondary btn-sm"
+            onClick={() => setTemplateOpen(true)}
+          >
+            <Icon name="zap" style={{ width: 14, height: 14 }} />
+            {t('从模板创建')}
+          </button>
+          <button
+            type="button"
             className="btn btn-primary btn-sm"
             onClick={() => setCreateOpen(true)}
           >
@@ -779,6 +789,12 @@ export function FlowsView(): React.ReactElement {
         open={createOpen}
         onClose={() => setCreateOpen(false)}
         onCreated={handleFlowCreated}
+      />
+
+      {/* 流程模板中心（docs/flow-templates.md）：内置 / 团队场景 / 我的模板 */}
+      <FlowTemplateGallery
+        open={templateOpen}
+        onClose={() => setTemplateOpen(false)}
       />
     </PageShell>
   )
