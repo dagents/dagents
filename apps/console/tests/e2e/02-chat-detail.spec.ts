@@ -117,6 +117,16 @@ test.describe('Chat Detail (UC-CHAT-07 ~ 13)', () => {
     await ctx?.dispose()
   })
 
+  // 冷启动预热：dev server 首次编译 /chats/[id] 路由可达 10~20s，历史上
+  // 轮流击沉本 spec 的首个触达用例（UC-CHAT-07 / UC-CHAT-usage，两轮全量
+  // 回归复现）。beforeAll 里先访问一次把编译跑完，正式用例全热（CI 热环境
+  // 该 goto 秒回，无副作用）。
+  test.beforeAll(async ({ request }) => {
+    const warm = await request.get(`/chats/${chatWithMessages}`)
+    // 只为触发路由编译，状态码不敏感（页面路由对 API 请求返回 200/308 均可）。
+    void warm.status()
+  })
+
   // ── UC-CHAT-07: 面包屑查看归属与状态 (✅ implemented) ─────────────────────
 
   test('UC-CHAT-07: breadcrumb shows directory link, chat title, and status badge', async ({ page }) => {
@@ -334,7 +344,9 @@ test.describe('Chat Detail (UC-CHAT-07 ~ 13)', () => {
   test('UC-CHAT-usage: assistant message with metadata renders usage footer', async ({ page }) => {
     await page.goto(`/chats/${chatWithMessages}`)
     // Wait for messages to load
-    await expect(page.locator('.chat-msg-assistant').first()).toBeVisible({ timeout: 10_000 })
+    // 30s：chat 详情路由在 dev server 冷编译时首次加载可超 10s（两轮全量回归
+    // 复现的 flake 根因）——CI 热环境不受影响，冷环境给足预算。
+    await expect(page.locator('.chat-msg-assistant').first()).toBeVisible({ timeout: 30_000 })
 
     // The seeded assistant message with usage metadata
     const usageAssistant = page.locator('.chat-msg-assistant').filter({ hasText: '扫描完成,共 3 个文件' })

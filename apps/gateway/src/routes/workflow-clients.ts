@@ -25,6 +25,7 @@ import {
   type IToolSchema,
   type IToolCall,
   type IAgentTool,
+  type IChatMessage,
   type IChatStreamChunk,
   type IExecutedNode,
 } from '@dagents/workflow'
@@ -201,7 +202,23 @@ function decodeApiKey(encoded: string): string {
  * `stream: true` and parsing the provider's SSE frames. If no provider is
  * configured, both throw — the calling node catches and marks itself failed.
  */
-export function createLlmClient(): NonNullable<IExecutionContext['llmClient']> {
+/**
+ * HTTP LLM client（具体返回类型）：chatStream 恒有实现（SSE 解析），因此
+ * 这里声明为必选 —— 必选成员可赋值给 IExecutionContext['llmClient'] 的
+ * 可选 chatStream，同时 createDefaultLlmClient 的转发调用不需要非空断言
+ * （修复 main 上遗留的 TS2722：接口把 chatStream 标成可选，导致
+ * `http.chatStream(params)` 报「possibly undefined」）。
+ */
+interface HttpLlmClient {
+  chat(params: Parameters<NonNullable<IExecutionContext['llmClient']>['chat']>[0]): ReturnType<NonNullable<IExecutionContext['llmClient']>['chat']>
+  chatStream(params: {
+    model: string
+    messages: IChatMessage[]
+    temperature?: number
+  }): AsyncIterable<IChatStreamChunk>
+}
+
+export function createLlmClient(): HttpLlmClient {
   return {
     async chat(params) {
       const { url, headers, body } = await prepareRequest(params, false)
