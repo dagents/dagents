@@ -1,0 +1,123 @@
+# Release — tag-driven multi-arch image publish + GitHub Release.
+#
+#   git tag v0.1.0 && git push origin v0.1.0
+#
+# Pipeline:
+#   1. validate  — tag must be strict semver (vX.Y.Z with optional prerelease)
+#   2. build     — Docker image per-arch on native runners (amd64 on
+#                  ubuntu-latest, arm64 on ubuntu-24.04-arm) to avoid slow
+#                  QEMU-emulated Next.js builds
+#   3. manifest  — merge per-arch images into one multi-arch tag (+ latest)
+#   4. release   — GitHub Release with auto-generated notes
+#
+# No repository_owner guard: jobs authenticate with the fork-scoped
+# GITHUB_TOKEN, so a tagged push in a fork publishes to that fork's GHCR
+# namespace and cannot touch upstream.
+
+name: Release
+
+on:
+  push:
+    tags:
+      - 'v*.*.*'
+
+permissions:
+  contents: write
+  packages: write
+
+jobs:
+  validate:
+    name: validate tag
+    runs-on: ubuntu-latest
+    timeout-minutes: 5
+    steps:
+      - name: Check semver format
+        run: |
+          TAG="${GITHUB_REF_NAME}"
+          if [[ ! "${TAG}" =~ ^v(0|[1-9][0-9]*)\.(0|[1-9][0-9]*)\.(0|[1-9][0-9]*)(-[0-9A-Za-z.-]+)?$ ]]; then
+            echo "::error::tag '${TAG}' is not strict semver (expected vX.Y.Z, got '${TAG}')"
+            exit 1
+          fi
+          echo "version=${TAG#v}" >> "$GITHUB_ENV"
+      - name: Show version
+        run: echo "releasing ${GITHUB_REF_NAME} (version ${version})"
+
+  build:
+    name: image (${{ matrix.arch }})
+    needs: validate
+    runs-on: ${{ matrix.runner }}
+    timeout-minutes: 45
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          - arch: amd64
+            runner: ubuntu-latest
+          - arch: arm64
+            runner: ubuntu-24.04-arm
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Set up Docker Buildx
+        uses: docker/setup-buildx-action@v3
+
+      - name: Login to GHCR
+        uses: docker/login-action@v3
+        with:
+          registry: ghcr.io
+          username: ${{ github.actor }}
+          password: ${{ secrets.GITHUB_TOKEN }}
+
+      - name: Build and push (${{ matrix.arch }})
+        uses: docker/build-push-action@v6
+        with:
+          context: .
+          platforms: linux/${{ matrix.arch }}
+          push: true
+          tags: ghcr.io/${{ github.repository }}:${{ github.ref_name }}-${{ matrix.arch }}
+          cache-from: type=gha,scope=build-${{ matrix.arch }}
+          cache-to: type=gha,mode=max,scope=build-${{ matrix.arch }}
+
+  manifest:
+    name: merge multi-arch manifest
+    needs: build
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    steps:
+      - name: Login to GHCR
+        uses: docker/login-action@v3
+        with:
+          registry: ghcr.io
+          username: ${{ github.actor }}
+          password: ${{ secrets.GITHUB_TOKEN }}
+
+      - name: Create manifest lists
+        run: |
+          IMAGE="ghcr.io/${{ github.repository }}"
+          TAG="${GITHUB_REF_NAME}"
+          # Stable tags only also move :latest; prereleases do not.
+          if [[ "${TAG}" =~ ^v(0|[1-9][0-9]*)\.(0|[1-9][0-9]*)\.(0|[1-9][0-9]*)$ ]]; then
+            docker buildx imagetools create \
+              -t "${IMAGE}:${TAG}" \
+              -t "${IMAGE}:latest" \
+              "${IMAGE}:${TAG}-amd64" \
+              "${IMAGE}:${TAG}-arm64"
+          else
+            docker buildx imagetools create \
+              -t "${IMAGE}:${TAG}" \
+              "${IMAGE}:${TAG}-amd64" \
+              "${IMAGE}:${TAG}-arm64"
+          fi
+
+  release:
+    name: github release
+    needs: [validate, manifest]
+    runs-on: ubuntu-latest
+    timeout-minutes: 5
+    steps:
+      - name: Create GitHub Release
+        uses: softprops/action-gh-release@v2
+        with:
+          generate_release_notes: true
+          draft: false

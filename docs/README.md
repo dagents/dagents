@@ -43,7 +43,10 @@
 ## 其他
 
 - [`infra/README.md`](../infra/README.md) — 本地基础设施（Postgres :15432 + Langfuse :3001，v2 pin 原因）
+- [`opensource-release-checklist.md`](opensource-release-checklist.md) — 开源发布操作手册（org 迁移 / 占位符替换 / 首个 Release / 发布渠道）
 - `.claude/skills/dagents-patterns/` — 提交与文档约定（conventional commits 中文描述、spec/plan 命名）
+
+仓库根目录的开源治理文件：`LICENSE`（Apache-2.0）· `CONTRIBUTING.md`（[中文版](../CONTRIBUTING.zh-CN.md)）· `CODE_OF_CONDUCT.md` · `SECURITY.md` · `CHANGELOG.md`。
 
 ## 维护规则
 

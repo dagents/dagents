@@ -3,6 +3,9 @@
 # Pipeline: install (frozen lockfile) → build → typecheck → lint → apply DB
 # migrations → run the test suite.
 #
+# Path awareness: the `changes` job (dorny/paths-filter) detects whether the PR
+# touches source at all; docs-only changes skip the heavy ci job entirely.
+#
 # Why a Postgres service: several gateway/db tests hit a real database — they
 # call `AppDataSource.initialize()` + `runQuery` in beforeAll (see
 # apps/gateway/src/__tests__/directories.test.ts), and the DB layer runs with
@@ -32,8 +35,37 @@ concurrency:
   cancel-in-progress: true
 
 jobs:
+  changes:
+    name: detect changed paths
+    runs-on: ubuntu-latest
+    timeout-minutes: 5
+    outputs:
+      src: ${{ steps.filter.outputs.src }}
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+      - name: Filter paths
+        uses: dorny/paths-filter@v3
+        id: filter
+        with:
+          filters: |
+            src:
+              - 'apps/**'
+              - 'packages/**'
+              - 'vendor/**'
+              - 'package.json'
+              - 'pnpm-lock.yaml'
+              - 'pnpm-workspace.yaml'
+              - 'turbo.json'
+              - 'tsconfig.base.json'
+              - '.eslintrc.cjs'
+              - '.npmrc'
+              - '.github/workflows/ci.yml'
+
   ci:
     name: build • typecheck • lint • test
+    needs: changes
+    if: needs.changes.outputs.src == 'true'
     runs-on: ubuntu-latest
     timeout-minutes: 20
 
@@ -65,7 +97,7 @@ jobs:
       - name: Setup Node
         uses: actions/setup-node@v4
         with:
-          node-version: 20
+          node-version: 22
           cache: pnpm
 
       - name: Install dependencies

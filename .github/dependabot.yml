@@ -1,0 +1,29 @@
+# Dependabot — dependency + GitHub Actions updates.
+#
+# Monthly cadence with grouping to keep PR noise low; security updates still
+# arrive immediately. Note: for the pnpm monorepo, Renovate handles workspace
+# grouping better long-term — consider migrating once the repo is public
+# (see docs/opensource-release-checklist.md).
+
+version: 2
+
+updates:
+  - package-ecosystem: npm
+    directory: /
+    schedule:
+      interval: monthly
+    open-pull-requests-limit: 5
+    groups:
+      minor-and-patch:
+        update-types:
+          - 'minor'
+          - 'patch'
+
+  - package-ecosystem: github-actions
+    directory: /
+    schedule:
+      interval: monthly
+    groups:
+      all-actions:
+        patterns:
+          - '*'
