@@ -569,8 +569,15 @@ export function buildWorkflowGeneratorPrompt(
   skills: { name: string; description: string }[],
 ): string {
   const nodeNames = CANVAS_NODES.map((n) => `${n.name} (${n.label})`).join(', ')
-  const agentLines = agents.length
-    ? agents.map((a) => `- ${a.name} | kind=${a.kind} | id=${a.id}${a.summary ? ` | ${a.summary.slice(0, 80)}` : ''}`).join('\n')
+  // 防御性上限（docs/agent-library.md D1）：agents 表只装「已启用」的人格，
+  // 正常规模远低于此；cap 防的是用户手动激活数百个的极端情况 —— 与 skills
+  // 的 40 条上限同思路，宁可让生成器少看到几个 agent，也不能撑爆生成 prompt。
+  const MAX_GENERATOR_AGENTS = 80
+  const listedAgents = agents.slice(0, MAX_GENERATOR_AGENTS)
+  const omittedAgents = agents.length - listedAgents.length
+  const agentLines = listedAgents.length
+    ? listedAgents.map((a) => `- ${a.name} | kind=${a.kind} | id=${a.id}${a.summary ? ` | ${a.summary.slice(0, 80)}` : ''}`).join('\n') +
+      (omittedAgents > 0 ? `\n(... ${omittedAgents} more agents omitted — pick from the list above only)` : '')
     : '(no agents registered — do not use platformAgentAgentflow)'
   const skillLines = skills.length
     ? skills.slice(0, 40).map((s) => `- ${s.name}: ${s.description.slice(0, 80)}`).join('\n')

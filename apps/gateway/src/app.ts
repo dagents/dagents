@@ -6,6 +6,8 @@ import { chatRoutes } from './routes/chats.js'
 import { agentsRoutes } from './routes/agents.js'
 import { agentInvokeRoutes } from './routes/agent-invoke.js'
 import { agentTemplateRoutes } from './routes/agent-templates.js'
+import { agentLibraryTeamRoutes } from './routes/agent-library-teams.js'
+import { agentLibraryRoutes } from './routes/agent-library.js'
 import { llmProviderRoutes } from './routes/llm-providers.js'
 import { workflowsRoutes } from './routes/workflows.js'
 import { cliRuntimeRoutes } from './routes/cli-runtimes.js'
@@ -156,6 +158,18 @@ app.route('/api/v1/agents', agentInvokeRoutes)
  * the console's template gallery proxy can sit next to the agents proxy.
  */
 app.route('/api/v1/agent-templates', agentTemplateRoutes)
+
+/**
+ * Agent Library (docs/agent-library.md): registry-not-database 人格库目录 +
+ * instantiate（启用 = fork 成 agents 行）+ drift/reimport（上游同步三态）。
+ * 与 agent-templates 相邻：同一「一键创建 Agent」UX 家族，只是真相源从
+ * in-repo 静态目录换成挂载的文件系统库（如 agency-agents 的 git clone）。
+ *
+ * teams 子路由必须先挂：`/team-templates/:id/instantiate` 与本组的
+ * `/:division/:slug/instantiate` 同形，Hono 按注册顺序匹配。
+ */
+app.route('/api/v1/agent-library', agentLibraryTeamRoutes)
+app.route('/api/v1/agent-library', agentLibraryRoutes)
 
 /**
  * LLM Provider CRUD API: llm provider list + detail + create + update + delete + test.

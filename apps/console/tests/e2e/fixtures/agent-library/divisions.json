@@ -1,0 +1,5 @@
+{
+  "divisions": {
+    "e2elib": { "label": "E2E Library", "color": "#8B5CF6", "icon": "FlaskConical" }
+  }
+}

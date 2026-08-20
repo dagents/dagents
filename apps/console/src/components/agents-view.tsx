@@ -20,6 +20,7 @@ import { PageShell } from '@/components/page-shell'
 import { Icon } from '@/components/icon'
 import { CreateAgentDialog } from '@/components/create-agent-dialog'
 import { AgentTemplateGallery } from '@/components/agent-template-gallery'
+import { AgentLibraryGallery } from '@/components/agent-library-gallery'
 import { SkeletonList } from '@/components/skeleton'
 import { useI18n } from '@/i18n'
 import '@/styles/agents.css'
@@ -102,6 +103,7 @@ export function AgentsView(): React.ReactElement {
   })
   const [createOpen, setCreateOpen] = useState(false)
   const [templateOpen, setTemplateOpen] = useState(false)
+  const [libraryOpen, setLibraryOpen] = useState(false)
 
   const load = useCallback(async () => {
     setLoading(true)
@@ -210,6 +212,14 @@ export function AgentsView(): React.ReactElement {
         >
           <Icon name="zap" style={{ width: 14, height: 14 }} />
           {t('从模板创建')}
+        </button>
+        <button
+          type="button"
+          className="btn btn-secondary btn-sm"
+          onClick={() => setLibraryOpen(true)}
+        >
+          <Icon name="bot" style={{ width: 14, height: 14 }} />
+          {t('从人格库启用')}
         </button>
         <button
           type="button"
@@ -381,6 +391,12 @@ export function AgentsView(): React.ReactElement {
       <AgentTemplateGallery
         open={templateOpen}
         onClose={() => setTemplateOpen(false)}
+      />
+
+      {/* agent persona library gallery（docs/agent-library.md） */}
+      <AgentLibraryGallery
+        open={libraryOpen}
+        onClose={() => setLibraryOpen(false)}
       />
     </PageShell>
   )

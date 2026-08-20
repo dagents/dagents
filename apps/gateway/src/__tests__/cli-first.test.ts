@@ -65,4 +65,14 @@ describe('buildWorkflowGeneratorPrompt', () => {
     expect(prompt).toContain('MUST set data.inputs.systemPrompt')
     expect(prompt).toContain('the label is display-only')
   })
+
+  it('caps the agent roster at 80 with an omission note (agent-library D1 guard)', () => {
+    const many = Array.from({ length: 100 }, (_, i) => ({
+      id: `uuid-${i}`, name: `agent-${i}`, kind: 'claude', summary: '',
+    }))
+    const prompt = buildWorkflowGeneratorPrompt('编排', many, [])
+    expect(prompt).toContain('uuid-79')
+    expect(prompt).not.toContain('uuid-80')
+    expect(prompt).toContain('20 more agents omitted')
+  })
 })

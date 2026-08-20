@@ -12,3 +12,6 @@ vendor/flowise/.turbo/
 # superpowers brainstorming temp dir (pid files, server state, scratch HTML)
 .superpowers/
 .codegraph/
+# 测试会话产物：playwright 失败现场 / GUI 人工巡检截图
+test-results/
+gui-test-screenshots/
