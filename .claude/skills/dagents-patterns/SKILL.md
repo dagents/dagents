@@ -79,7 +79,7 @@ This repo follows a strict 4-stage pipeline (powered by superpowers skills). **E
 
 1. **Brainstorm** (`superpowers:brainstorming`): one-question-at-a-time dialogue → produces a design spec saved to `docs/superpowers/specs/`. Includes: decision snapshot table, Gate definitions, trade-off analysis.
 2. **Plan** (`superpowers:writing-plans`): expands spec into TDD task list saved to `docs/superpowers/plans/`. Each task has: files / failing test / implementation / commit.
-3. **Issues**: plan tasks become trackable issues (currently in multica, project `f34a5b20`).
+3. **Issues**: plan tasks become trackable GitHub issues in this repo.
 4. **Execute** (`superpowers:subagent-driven-development` or `executing-plans`): one task at a time, TDD, frequent commits.
 
 **Rule**: Don't write code before a spec+plan exist for it. Don't skip stages. If asked to "just implement X", first check whether a spec/plan exists; if not, propose brainstorming.
@@ -129,8 +129,8 @@ Locked decisions (from `docs/superpowers/specs/2026-07-25-system-architecture-re
 
 ## External References
 
-- **multica** (`~/Projects/multica`): Go reference for daemon protocol. Read `server/pkg/agent/agent.go` (Backend interface), `server/internal/daemon/client.go` (claim/start/complete protocol), `server/pkg/agent/claude.go` (spawn + stream-json). License: modified Apache 2.0 — reference OK, no source import, no SaaS.
-- **vendor/agentflow** (`vendor/agentflow/`): 从 Flowise `packages/agentflow` 抽取的纯前端 React Flow 画布组件库。Plan C 完成后是仓库内唯一的 Flowise 衍生代码。原 Flowise 仓库（`~/Projects/Flowise`）不再作为参考路径。
+- **multica**: original design reference for the daemon claim/complete protocol (Go, modified Apache 2.0). The protocol was hand-translated to TypeScript — no source imported.
+- **vendor/agentflow** (`vendor/agentflow/`): 从 Flowise `packages/agentflow` 抽取的纯前端 React Flow 画布组件库（Apache-2.0，归属见其 NOTICE）。Plan C 完成后是仓库内唯一的 Flowise 衍生代码。
 
 ## Lessons Learned (from project_memory)
 

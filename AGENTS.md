@@ -5,7 +5,7 @@
 **当 gateway 或 console 无响应时，先跑这个：**
 
 ```bash
-bash /Users/rowan/Projects/dagents/restart-gateway.sh
+bash restart-gateway.sh
 ```
 
 此脚本会同时重启 gateway (8080) 和 console (3000)：
@@ -68,9 +68,7 @@ console (Next) → gateway (Hono) → @dagents/workflow engine
 ## 已知问题
 
 - **dev server 运行期间勿跑 `pnpm build` / `pnpm --filter @dagents/console build`**：生产构建会覆盖 `apps/console/.next`，导致 dev server 全站 500（`build-manifest.json` ENOENT）。误跑后用一键重启脚本恢复（脚本会清理 `.next` 缓存）。全仓 `pnpm test` 经 turbo 也会触发 console build，同样有此风险。
-- **旧 mil-agents 僵尸进程**：`mil-agents-main` 项目可能有残留 tsx watch 进程（PID 61329），不占端口但耗内存，定期清理。
 - **remote 类型 Agent 需 Daemon 在线**：`auto` 路由已优先选择 CLI 类型 Agent（2026-08-15 修复）；库里残留的 remote Agent（如 "test"）手动选中时会收到引导性报错，建议清理或为其启动 Daemon。
-- ~~openclaw agent 需 Node ≥22.22.3~~：已解决 — 系统 node 已升级至 v22.23.1，openclaw 2026.7.1 正常运行（2026-08-15 验证）。
 
 ## 2026-08-16 审计修复（摘要）
 
@@ -86,6 +84,6 @@ console (Next) → gateway (Hono) → @dagents/workflow engine
 
 ## 配置
 
-- 配置文件：`~/.hermes/config.yaml`（Hermes 网关）
-- 环境变量：`infra/.env.example`（基础设施模板）
+- 环境变量：`.env`（模板见 `.env.example`）；基础设施模板 `infra/.env.example`
+- 技能库 / 人格库根：`~/.agents/`（`skills/`、`agent-library/`，可用 `DAGENTS_SKILL_DIRS` / `DAGENTS_AGENT_LIBRARY_DIRS` 覆盖）
 - 认证：无登录（本机模式）。Gateway 默认开放；如需对外暴露可设 `GATEWAY_API_KEY`（16+ 字符 bearer key）

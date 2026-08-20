@@ -116,7 +116,7 @@ export class CreateChatTables1720000009000 implements MigrationInterface {
 
 Run:
 ```bash
-cd /Users/rowan/Projects/dagents-main
+cd ~/Projects/dagents
 pnpm --filter @dagents/db typeorm migration:run -d src/data-source.ts
 ```
 Expected: migration `CreateChatTables1720000009000` has been executed successfully.

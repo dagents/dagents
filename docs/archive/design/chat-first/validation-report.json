@@ -57,7 +57,7 @@
   "terminalState": null,
   "nextCheck": {
     "type": "finish-readiness",
-    "command": "node '/Users/rowan/.trae-cn/builtin/design/hebe/skills/solo-design/shared-runtime/deterministic-tooling/validate-finish-readiness.mjs' '/Users/rowan/Projects/dagents-main/design-redo-open-webui' --check=all",
+    "command": "node '~/.trae-cn/builtin/design/hebe/skills/solo-design/shared-runtime/deterministic-tooling/validate-finish-readiness.mjs' '~/Projects/dagents/design-redo-open-webui' --check=all",
     "fullValidationAllowed": false,
     "reason": "workspace validation passed; run complete finish readiness before final delivery"
   },
@@ -83,7 +83,7 @@
     "repairActionTable": [],
     "nextCheck": {
       "type": "finish-readiness",
-      "command": "node '/Users/rowan/.trae-cn/builtin/design/hebe/skills/solo-design/shared-runtime/deterministic-tooling/validate-finish-readiness.mjs' '/Users/rowan/Projects/dagents-main/design-redo-open-webui' --check=all",
+      "command": "node '~/.trae-cn/builtin/design/hebe/skills/solo-design/shared-runtime/deterministic-tooling/validate-finish-readiness.mjs' '~/Projects/dagents/design-redo-open-webui' --check=all",
       "fullValidationAllowed": false,
       "reason": "workspace validation passed; run complete finish readiness before final delivery"
     },
@@ -100,7 +100,7 @@
     "runtime-orchestration-summary.json": "704f272ebde838d183425b14459da37d87d0e2ad6e723432cec3ececc1624513",
     "pages/main.html": "5ae2ee8e4a129ece2e8cdf86bc58da6d425d110a17878486f73557eb05fce08b"
   },
-  "designDir": "/Users/rowan/Projects/dagents-main/design-redo-open-webui",
+  "designDir": "~/Projects/dagents/design-redo-open-webui",
   "expectedPages": 1,
   "requireInteractions": "btn-new-chat:pages/main.html,btn-toggle-sidebar:pages/main.html,nav-item-chat:pages/main.html,nav-item-dashboard:pages/main.html,chat-history-item:pages/main.html,btn-send-message:pages/main.html,btn-attach-file:pages/main.html,model-selector:pages/main.html,btn-user-menu:pages/main.html,btn-sidebar-search:pages/main.html",
   "checkedAt": "2026-07-25T07:23:12.930Z"

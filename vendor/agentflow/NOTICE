@@ -1,0 +1,8 @@
+This directory is a vendored copy of the Agentflow component from the
+Flowise project (https://github.com/FlowiseAI/Flowise), originally at
+packages/agentflow, licensed under the Apache License, Version 2.0.
+
+Upstream copyright: FlowiseAI (https://github.com/FlowiseAI)
+
+Local modifications for the Dagents console have been made on top of the
+vendored copy; see this repository's git history for the changes.

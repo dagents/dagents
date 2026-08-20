@@ -159,7 +159,7 @@ CREATE INDEX idx_directories_name ON ("name");
 ```
 
 **字段说明**:
-- `path`: 文件系统绝对路径（如 `/Users/rowan/Projects/dagents-main`）
+- `path`: 文件系统绝对路径（如 `~/Projects/dagents`）
 - `name`: 显示名称（如 `dagents-main`，可自定义）
 - `settings`: 扩展配置（如默认 agent、配额等，原 `workspaces.quota` 迁移至此）
 
@@ -715,32 +715,32 @@ CREATE INDEX idx_flows_status ON ("status");
 
 ### 设计原型（已归档）
 
-- [docs/archive/design/v0.3-9screen/](file:///Users/rowan/Projects/mil-agents-main/docs/archive/design/v0.3-9screen) — v0.2/v0.3 9 屏平台控制台原型
-- [docs/archive/design/chat-first/](file:///Users/rowan/Projects/mil-agents-main/docs/archive/design/chat-first) — Chat-First OpenWebUI 范式原型
+- [docs/archive/design/v0.3-9screen/](../../archive/design/v0.3-9screen) — v0.2/v0.3 9 屏平台控制台原型
+- [docs/archive/design/chat-first/](../../archive/design/chat-first) — Chat-First OpenWebUI 范式原型
 - `docs/archive/design/v0.3-9screen/daemon-execution.html` — Daemons 三栏布局原型
 - `docs/archive/design/v0.3-9screen/workspace.html` — Workspace 双栏布局原型（参考）
 
 ### 已实现的关键代码
 
-- [apps/gateway/src/routes/chats.ts](file:///Users/rowan/Projects/mil-agents-main/apps/gateway/src/routes/chats.ts) — Chats API + chat-execute 调度
-- [apps/gateway/src/routes/chat-execute.ts](file:///Users/rowan/Projects/mil-agents-main/apps/gateway/src/routes/chat-execute.ts) — chat 消息执行（@ 命令 + agent 路由）
-- [apps/gateway/src/routes/directories.ts](file:///Users/rowan/Projects/mil-agents-main/apps/gateway/src/routes/directories.ts) — Directories API
-- [apps/gateway/src/routes/llm-providers.ts](file:///Users/rowan/Projects/mil-agents-main/apps/gateway/src/routes/llm-providers.ts) — LLM Provider CRUD（替代 new-api）
-- [apps/dispatch/src/routes/daemons.ts](file:///Users/rowan/Projects/mil-agents-main/apps/dispatch/src/routes/daemons.ts) — Daemons 后端
-- [apps/console/src/app/api/chats/](file:///Users/rowan/Projects/mil-agents-main/apps/console/src/app/api/chats) — Console chat proxy routes
-- [apps/console/src/app/api/directories/](file:///Users/rowan/Projects/mil-agents-main/apps/console/src/app/api/directories) — Console directory proxy routes
-- [apps/console/src/app/api/llm-providers/](file:///Users/rowan/Projects/mil-agents-main/apps/console/src/app/api/llm-providers) — Console LLM Provider proxy routes
-- [apps/console/src/components/chat-home.tsx](file:///Users/rowan/Projects/mil-agents-main/apps/console/src/components/chat-home.tsx) — Chat Home 页面
-- [apps/console/src/components/chat-detail.tsx](file:///Users/rowan/Projects/mil-agents-main/apps/console/src/components/chat-detail.tsx) — 对话详情页
-- [apps/console/src/components/daemons-view.tsx](file:///Users/rowan/Projects/mil-agents-main/apps/console/src/components/daemons-view.tsx) — Daemons 三栏视图
-- [packages/db/src/entities/](file:///Users/rowan/Projects/mil-agents-main/packages/db/src/entities) — Directory/Chat/ChatMessage/LLMProvider 等 entities
-- [packages/db/src/migrations/](file:///Users/rowan/Projects/mil-agents-main/packages/db/src/migrations) — 含 9000/9001/10000/11000/12000/13000 等 migration
+- [apps/gateway/src/routes/chats.ts](../../../apps/gateway/src/routes/chats.ts) — Chats API + chat-execute 调度
+- [apps/gateway/src/routes/chat-execute.ts](../../../apps/gateway/src/routes/chat-execute.ts) — chat 消息执行（@ 命令 + agent 路由）
+- [apps/gateway/src/routes/directories.ts](../../../apps/gateway/src/routes/directories.ts) — Directories API
+- [apps/gateway/src/routes/llm-providers.ts](../../../apps/gateway/src/routes/llm-providers.ts) — LLM Provider CRUD（替代 new-api）
+- [apps/dispatch/src/routes/daemons.ts](../../../apps/dispatch/src/routes/daemons.ts) — Daemons 后端
+- [apps/console/src/app/api/chats/](../../../apps/console/src/app/api/chats) — Console chat proxy routes
+- [apps/console/src/app/api/directories/](../../../apps/console/src/app/api/directories) — Console directory proxy routes
+- [apps/console/src/app/api/llm-providers/](../../../apps/console/src/app/api/llm-providers) — Console LLM Provider proxy routes
+- [apps/console/src/components/chat-home.tsx](../../../apps/console/src/components/chat-home.tsx) — Chat Home 页面
+- [apps/console/src/components/chat-detail.tsx](../../../apps/console/src/components/chat-detail.tsx) — 对话详情页
+- [apps/console/src/components/daemons-view.tsx](../../../apps/console/src/components/daemons-view.tsx) — Daemons 三栏视图
+- [packages/db/src/entities/](../../../packages/db/src/entities) — Directory/Chat/ChatMessage/LLMProvider 等 entities
+- [packages/db/src/migrations/](../../../packages/db/src/migrations) — 含 9000/9001/10000/11000/12000/13000 等 migration
 
 ### 工作流引擎（Plan A 已完成）
 
-- [packages/workflow/](file:///Users/rowan/Projects/mil-agents-main/packages/workflow) — `@dagents/workflow` 包
-- [packages/workflow/src/engine/executor.ts](file:///Users/rowan/Projects/mil-agents-main/packages/workflow/src/engine/executor.ts) — DAG 拓扑排序 + 线性执行
-- [packages/workflow/src/engine/sse-streamer.ts](file:///Users/rowan/Projects/mil-agents-main/packages/workflow/src/engine/sse-streamer.ts) — SSE 流式输出
-- [packages/workflow/src/nodes/](file:///Users/rowan/Projects/mil-agents-main/packages/workflow/src/nodes) — 8 个简单节点（DirectReply/Iteration/Loop/CustomFunction/Retriever/Tool/HTTP/Condition）
+- [packages/workflow/](../../../packages/workflow) — `@dagents/workflow` 包
+- [packages/workflow/src/engine/executor.ts](../../../packages/workflow/src/engine/executor.ts) — DAG 拓扑排序 + 线性执行
+- [packages/workflow/src/engine/sse-streamer.ts](../../../packages/workflow/src/engine/sse-streamer.ts) — SSE 流式输出
+- [packages/workflow/src/nodes/](../../../packages/workflow/src/nodes) — 8 个简单节点（DirectReply/Iteration/Loop/CustomFunction/Retriever/Tool/HTTP/Condition）
 - **Plan B 待新增**: Start/LLM/Agent 大节点 + 分支/循环执行逻辑
 - **Plan C 待新增**: `flows` 表 + `apps/gateway/src/routes/workflows.ts` + console workflows API + Flowise proxy 删除

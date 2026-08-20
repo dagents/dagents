@@ -25,7 +25,7 @@
 项目当前 5 个进程：console (3000) / gateway (8080) / dispatch (8081) / scheduler (8082) / daemon。trial-readiness 阶段评估认为中间 3 个 Hono 服务对单机 trial 是过度工程：
 
 - **dispatch** 仅 1680 行，全是 Hono 路由，无独立业务逻辑
-- **gateway** 已经在 `/api/v1/dispatch/*` 上做 blind proxy（[app.ts:191-254](file:///Users/rowan/Projects/mil-agents-main/apps/gateway/src/app.ts#L191)），并已在 `chats.ts` / `chat-execute.ts` 内部用 `fetch(DISPATCH_URL)` 调用 dispatch
+- **gateway** 已经在 `/api/v1/dispatch/*` 上做 blind proxy（[app.ts:191-254](../../../apps/gateway/src/app.ts#L191)），并已在 `chats.ts` / `chat-execute.ts` 内部用 `fetch(DISPATCH_URL)` 调用 dispatch
 - 三个服务共用同一 PG + 同一 Redis，无独立 schema
 - 跨服务 fetch 增加延迟 + 一套多余的健康检查 + DISPATCH_URL 配置面
 

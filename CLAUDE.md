@@ -8,9 +8,7 @@ Dagents 平台 (Dagents Platform) — a TS/Node monorepo with Chat-First UX and 
 
 The architectural source of truth is `docs/superpowers/specs/2026-07-25-system-architecture-redesign.md` (Chat-First 双维度模型，顶部含实现状态总览). 所有已完成的 plans / 历史 specs / 验证记录 / 设计原型均已归档至 `docs/archive/{plans,specs,verification,design}/`。
 
-Two local skills are auto-discovered and should be invoked when relevant:
-- `dagents-patterns` — repo commit/doc/workflow conventions (read this before committing or adding docs).
-- `multica-ops` — driving the multica CLI (the issue tracker this repo's plan tasks are mirrored into).
+`.claude/skills/dagents-patterns/` documents repo conventions (commit style, doc/spec/plan pipeline) — read it before committing or adding docs.
 
 ## Commands
 
@@ -34,8 +32,8 @@ pnpm --filter @dagents/daemon dev -- http://localhost:8080 dev-laptop claude   #
 
 Single test file / single test:
 ```bash
-pnpm --filter @dagents/gateway exec vitest run src/__tests__/auth.test.ts
-pnpm --filter @dagents/gateway exec vitest run -t "rejects missing session"
+pnpm --filter @dagents/gateway exec vitest run src/__tests__/cli-first.test.ts
+pnpm --filter @dagents/gateway exec vitest run -t "degrades to a placeholder"
 ```
 
 DB migrations (TypeORM, `packages/db`):
@@ -122,7 +120,7 @@ vendor/agentflow  ← console (canvas editor, not an npm dep)
 Every new feature goes through all 4 stages (powered by superpowers skills). **Don't write code before a spec + plan exist for it.** If asked to "just implement X", first check `docs/superpowers/specs/` + `docs/superpowers/plans/`; if none exist, propose brainstorming.
 - Specs → `docs/superpowers/specs/` (decision snapshot table, Gate definitions, trade-offs).
 - Plans → `docs/superpowers/plans/` (TDD task list; each task: files / failing test / implementation / commit).
-- Plan tasks are mirrored into multica issues (project `f34a5b20`).
+- Plan tasks are tracked as GitHub issues.
 
 ### Two Gates
 

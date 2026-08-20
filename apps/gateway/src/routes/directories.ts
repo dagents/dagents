@@ -29,7 +29,7 @@ const UUID_RE = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/
  * dialog and return the real path.
  *
  * Per-platform:
- *   - darwin : `osascript -e 'choose folder'` → "alias macOS:Users:rowan:…"
+ *   - darwin : `osascript -e 'choose folder'` → "alias macOS:Users:<name>:…"
  *   - linux  : `zenity --file-selection --directory` (GTK; widely available)
  *   - win32  : PowerShell + Windows.Forms.FolderBrowserDialog
  *
