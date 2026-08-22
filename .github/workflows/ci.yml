@@ -60,6 +60,9 @@ jobs:
               - 'apps/**'
               - 'packages/**'
               - 'vendor/**'
+              - 'Dockerfile'
+              - 'docker-entrypoint.sh'
+              - '.dockerignore'
               - 'package.json'
               - 'pnpm-lock.yaml'
               - 'pnpm-workspace.yaml'
@@ -124,5 +127,30 @@ jobs:
 
       - name: Test
         # No exclusion filter: @dagents/e2e was deleted from the workspace, and
-        # turbo errors on `--filter='!<pkg>'` for a nonexistent package.
+        # turbo errors on `--filter='!..<pkg>'` for a nonexistent package.
         run: pnpm exec turbo run test
+
+  # Full image build (both stages), no push. The release workflow builds the
+  # image only on tags — without this guard, a broken Dockerfile surfaces
+  # mid-release (four such bugs shipped to the first v0.1.0 tag attempt).
+  docker:
+    name: docker image build
+    needs: changes
+    if: needs.changes.outputs.src == 'true'
+    runs-on: ubuntu-latest
+    timeout-minutes: 25
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Set up Docker Buildx
+        uses: docker/setup-buildx-action@v3
+
+      - name: Build image (no push)
+        uses: docker/build-push-action@v6
+        with:
+          context: .
+          push: false
+          tags: dagents:ci
+          cache-from: type=gha,scope=docker-ci
+          cache-to: type=gha,mode=max,scope=docker-ci

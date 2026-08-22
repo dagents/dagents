@@ -7,7 +7,7 @@
 ## A. 仓库与归属（已拍板：新建独立 org）
 
 - [x] **创建独立 GitHub org** —— `dagents`（2026-08-22）
-- [x] **迁移仓库**：经 API `POST /repos/sendwealth/dagents/transfer` transfer 到 org
+- [x] **迁移仓库**：经 API `POST /repos/<个人账户>/dagents/transfer` transfer 到 org
       （保留 Actions 历史；旧地址自动重定向）
 - [x] **可见性切 public** 前 `git grep -n "TODO(oss)"` 已确认占位符清零
 
