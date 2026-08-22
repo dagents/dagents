@@ -237,7 +237,7 @@ export class DagExecutor {
 
         while (wave.length > 0) {
           if (opts.signal?.aborted) {
-            return { processed, error: 'Execution aborted' }
+            return { processed, error: 'Execution cancelled' }
           }
 
           // Evaluate every wave member: execute or skip. Tasks never reject —
@@ -485,11 +485,15 @@ export class DagExecutor {
       const result = await runWaves(allScope, [], nodeOutputs, new Map())
 
       if (result.error) {
+        // A caller-aborted run reports `cancelled` (not `failed`) so callers
+        // can distinguish user intent from engine errors — the enum value
+        // existed since the beginning but was never produced (spec D3).
+        const cancelled = opts.signal?.aborted === true
         return {
-          status: 'failed',
+          status: cancelled ? 'cancelled' : 'failed',
           executedNodes,
           finalOutput: null,
-          error: result.error,
+          error: cancelled ? 'Execution cancelled by user' : result.error,
           state: runtime.snapshot(),
         }
       }
@@ -501,11 +505,16 @@ export class DagExecutor {
         state: runtime.snapshot(),
       }
     } catch (err) {
+      const cancelled = opts.signal?.aborted === true
       return {
-        status: 'failed',
+        status: cancelled ? 'cancelled' : 'failed',
         executedNodes,
         finalOutput: null,
-        error: err instanceof Error ? err.message : String(err),
+        error: cancelled
+          ? 'Execution cancelled by user'
+          : err instanceof Error
+            ? err.message
+            : String(err),
         state: runtime.snapshot(),
       }
     }

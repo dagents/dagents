@@ -138,6 +138,7 @@ export class PlatformAgentNode implements INode {
         model,
         messages,
         tools: tools.length > 0 ? tools : undefined,
+        signal: options.signal,
       })
       totalUsage = accumulateUsage(totalUsage, result.usage)
 

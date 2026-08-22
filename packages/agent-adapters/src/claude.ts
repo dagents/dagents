@@ -45,6 +45,7 @@ import type {
 import { createLogger } from '@dagents/shared'
 import { writeMcpConfigToTemp } from './mcp-config.js'
 import type { McpConfigFile } from './mcp-config.js'
+import { wireCancellation } from './stream-backend.js'
 
 // ────────────────────────────────────────────────────────────────────────────
 // argv construction
@@ -631,11 +632,10 @@ export function claudeBackend(cfg: BackendConfig): AgentBackend {
         // silence-detection to the daemon's idle watchdog — we fold a
         // best-effort silence layer into the adapter so a wedged CLI never
         // hangs a task even without the daemon watchdog wired yet.
-        //
-        // TODO(#7, review): no AbortSignal / `aborted`|`cancelled` path yet —
-        // `ExecOptions` carries no signal and multica's `context.Canceled` →
-        // `aborted` mapping (claude.go:196-198) is unimplemented. Add when the
-        // dispatch layer threads a cancellation signal through `execute`.
+        // Caller-initiated cancellation (execution-cancellation spec D2, closing
+        // the TODO below): the shared `wireCancellation` trigger routes the
+        // caller's AbortSignal into this stack's own kill-escalation path and
+        // the precedence chain below reports `cancelled`.
         let timer: NodeJS.Timeout | undefined
         let killTimer: NodeJS.Timeout | undefined
         let inactivityTimer: NodeJS.Timeout | undefined
@@ -678,6 +678,8 @@ export function claudeBackend(cfg: BackendConfig): AgentBackend {
             killWithEscalation()
           }, opts.timeoutMs)
         }
+
+        const cancel = wireCancellation(opts.signal, killWithEscalation, log)
 
         // Arm (first call) or reset (subsequent calls) the inactivity timer.
         // Reset on every emitted line so a chatty-but-slow run is never killed
@@ -775,12 +777,17 @@ export function claudeBackend(cfg: BackendConfig): AgentBackend {
         if (timer) clearTimeout(timer)
         if (killTimer) clearTimeout(killTimer)
         if (inactivityTimer) clearTimeout(inactivityTimer)
+        cancel.dispose()
 
-        // Precedence: total-budget timeout beats silence; both beat a non-zero
-        // exit. A run that hit the inactivity watchdog resolves `aborted`
-        // (distinct from `timeout`) so callers can tell "ran past budget" from
-        // "went silent mid-run" — the plan §M2.5 mapping.
-        if (timedOut) {
+        // Precedence: caller cancel beats everything (it is the user's intent);
+        // then total-budget timeout beats silence; both beat a non-zero exit.
+        // A run that hit the inactivity watchdog resolves `aborted` (distinct
+        // from `timeout`) so callers can tell "ran past budget" from "went
+        // silent mid-run" — the plan §M2.5 mapping.
+        if (cancel.cancelled()) {
+          finalStatus = 'cancelled'
+          finalError = 'claude cancelled by caller'
+        } else if (timedOut) {
           finalStatus = 'timeout'
           finalError = `claude timed out after ${opts.timeoutMs}ms`
         } else if (stalled) {

@@ -49,7 +49,7 @@ export interface RunTraceInput {
   flowId: string
   flowName: string
   chatId?: string
-  status: 'running' | 'completed' | 'failed'
+  status: 'running' | 'completed' | 'failed' | 'cancelled'
   startedAt: string
   finishedAt: string
   input?: unknown

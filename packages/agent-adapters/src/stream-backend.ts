@@ -46,6 +46,47 @@ export const STDERR_TAIL_BYTES = 4 * 1024
 export const SIGKILL_GRACE_MS = 5_000
 
 // ────────────────────────────────────────────────────────────────────────────
+// cancellation — shared trigger for every spawn stack
+// ────────────────────────────────────────────────────────────────────────────
+
+/**
+ * Caller-initiated cancellation wiring (execution-cancellation spec D2).
+ *
+ * One shared trigger so the three spawn stacks (`spawnStreamAgent`,
+ * `claude.ts`'s standalone copy, `acp-backend.ts`) never drift into three
+ * subtly-different cancel semantics: on abort → run the stack's own kill
+ * path; the run loop then reports `AgentResult.status = 'cancelled'` via
+ * `cancelled()`.
+ */
+export interface CancellationHandle {
+  /** True once the caller's signal aborted (user-initiated cancel). */
+  cancelled(): boolean
+  /** Remove the abort listener — call when the run settles. */
+  dispose(): void
+}
+
+export function wireCancellation(
+  signal: AbortSignal | undefined,
+  kill: () => void,
+  log?: Logger,
+): CancellationHandle {
+  if (!signal) return { cancelled: () => false, dispose: () => {} }
+  const onAbort = () => {
+    log?.info('execution cancelled via AbortSignal — killing child')
+    kill()
+  }
+  if (signal.aborted) {
+    onAbort()
+    return { cancelled: () => true, dispose: () => {} }
+  }
+  signal.addEventListener('abort', onAbort, { once: true })
+  return {
+    cancelled: () => signal.aborted,
+    dispose: () => signal.removeEventListener('abort', onAbort),
+  }
+}
+
+// ────────────────────────────────────────────────────────────────────────────
 // AsyncEventQueue — single-consumer queue backing AgentSession.events
 // ────────────────────────────────────────────────────────────────────────────
 
@@ -402,6 +443,10 @@ export function spawnStreamAgent(config: StreamAgentConfig): {
       }, opts.timeoutMs)
     }
 
+    // Caller-initiated cancellation (spec D2): the shared trigger routes the
+    // caller's AbortSignal into this stack's own kill-escalation path.
+    const cancel = wireCancellation(opts.signal, killWithEscalation, log)
+
     // Arm (first call) or reset (subsequent calls) the inactivity timer.
     // Reset on every emitted line so a chatty-but-slow run is never killed
     // merely for running long — only a truly silent one trips it.
@@ -469,10 +514,15 @@ export function spawnStreamAgent(config: StreamAgentConfig): {
     if (timer) clearTimeout(timer)
     if (killTimer) clearTimeout(killTimer)
     if (inactivityTimer) clearTimeout(inactivityTimer)
+    cancel.dispose()
 
-    // Precedence: total-budget timeout beats silence; both beat a non-zero
-    // exit. A run that hit the inactivity watchdog resolves `aborted`.
-    if (timedOut) {
+    // Precedence: caller cancel beats everything (it is the user's intent);
+    // then total-budget timeout beats silence; both beat a non-zero exit.
+    // A run that hit the inactivity watchdog resolves `aborted`.
+    if (cancel.cancelled()) {
+      state.finalStatus = 'cancelled'
+      state.finalError = `${agentName} cancelled by caller`
+    } else if (timedOut) {
       state.finalStatus = 'timeout'
       state.finalError = `${agentName} timed out after ${opts.timeoutMs}ms`
     } else if (stalled) {

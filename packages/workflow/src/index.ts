@@ -27,6 +27,8 @@ export { SseStreamer } from './engine/sse-streamer.js'
 export { resolveVariables } from './utils/variables.js'
 export { parseFlowData, flowDataSchema } from './utils/flow-data.js'
 export { findAgentReferences } from './utils/agent-refs.js'
+export { validateFlowTopology } from './utils/validate-topology.js'
+export type { TopologyError, TopologyWarning, TopologyResult } from './utils/validate-topology.js'
 
 // Flowise schema conversion for the vendored canvas editor
 export { convertNodeToFlowiseSchema } from './flowise/convert-node.js'

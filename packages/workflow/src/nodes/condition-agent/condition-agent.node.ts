@@ -82,7 +82,7 @@ export class ConditionAgentNode implements INode {
     }
     messages.push({ role: 'user', content: userPrompt })
 
-    const result = await options.llmClient.chat({ model, messages })
+    const result = await options.llmClient.chat({ model, messages, signal: options.signal })
     const selected = result.text.trim()
 
     const matched = scenarios.find((s) => s.name === selected)

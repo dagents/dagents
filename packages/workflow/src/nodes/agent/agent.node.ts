@@ -70,7 +70,7 @@ export class AgentNode implements INode {
       messages.push({ role: 'user', content: userMessage })
     }
 
-    const result = await options.llmClient.chat({ model, messages })
+    const result = await options.llmClient.chat({ model, messages, signal: options.signal })
 
     return {
       id: nodeData.id,

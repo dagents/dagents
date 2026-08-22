@@ -126,6 +126,11 @@ export interface IExecutionContext {
       temperature?: number
       /** Function tools the model may call (OpenAI tool format). */
       tools?: IToolSchema[]
+      /**
+       * Cancellation signal (execution-cancellation spec D3): hosts should
+       * abort the in-flight HTTP fetch / kill the CLI child when it fires.
+       */
+      signal?: AbortSignal
     }): Promise<{ text: string; tool_calls?: IToolCall[]; usage?: ITokenUsage }>
     /**
      * Streamed variant of `chat` — yields incremental deltas. Optional: when
@@ -135,6 +140,7 @@ export interface IExecutionContext {
       model: string
       messages: IChatMessage[]
       temperature?: number
+      signal?: AbortSignal
     }): AsyncIterable<IChatStreamChunk>
   }
   /** Tool registry for Agent / Platform Agent nodes' tool-calling loop. */

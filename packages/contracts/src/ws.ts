@@ -53,14 +53,18 @@ export type ConsoleWsFrame =
  *  and broadcast to clients subscribed (via WS `subscribe` message or
  *  `?chat=<id>` query) to the corresponding chatId. Clients accumulate
  *  `chat:message` chunks into the active assistant bubble, then seal it on
- *  `chat:done` (or surface an error on `chat:error`). */
+ *  `chat:done` (or surface an error on `chat:error`). `chat:cancelled`
+ *  (execution-cancellation spec D6) seals the bubble after a user-initiated
+ *  cancel — the backend process/fetch was actually stopped, unlike the old
+ *  UI-only stop which left the run going. */
 export type ChatWsFrame =
   | { type: 'chat:message'; chatId: string; runId?: string; role: 'assistant'; content: string; streaming: true }
   | { type: 'chat:done'; chatId: string; runId?: string; role: 'assistant'; content: string; streaming: false; status?: string; usage?: TokenUsage; durationMs?: number; cost?: number }
   | { type: 'chat:error'; chatId: string; runId?: string; role: 'assistant'; content: string; streaming: false; error?: string }
+  | { type: 'chat:cancelled'; chatId: string; runId?: string; role: 'assistant'; content: string; streaming: false; reason?: string }
 
 /** Type guard: any chat:* frame. Useful for filters that want to demux chat
- *  traffic from agent-updated / run-updated frames. */
+ * traffic from agent-updated / run-updated frames. */
 export function isChatFrame(f: ConsoleWsFrame): f is ChatWsFrame {
-  return f.type === 'chat:message' || f.type === 'chat:done' || f.type === 'chat:error'
+  return f.type === 'chat:message' || f.type === 'chat:done' || f.type === 'chat:error' || f.type === 'chat:cancelled'
 }

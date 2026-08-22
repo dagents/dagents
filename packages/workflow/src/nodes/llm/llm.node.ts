@@ -85,7 +85,12 @@ export class LLMNode implements INode {
     let usage: import('../../types/index.js').ITokenUsage | undefined
     if (streamable) {
       let accumulated = ''
-      for await (const chunk of options.llmClient.chatStream!({ model, messages, temperature })) {
+      for await (const chunk of options.llmClient.chatStream!({
+        model,
+        messages,
+        temperature,
+        signal: options.signal,
+      })) {
         if (chunk.delta && chunk.delta.length > 0) {
           accumulated += chunk.delta
           options.sseStreamer!.streamTokenEvent(options.chatId, chunk.delta)
@@ -96,7 +101,7 @@ export class LLMNode implements INode {
       }
       text = accumulated
     } else {
-      const result = await options.llmClient.chat({ model, messages, temperature })
+      const result = await options.llmClient.chat({ model, messages, temperature, signal: options.signal })
       text = result.text
       usage = result.usage
     }

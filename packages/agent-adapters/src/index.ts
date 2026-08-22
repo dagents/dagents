@@ -55,3 +55,7 @@ export { createBackend } from './factory.js'
 // MCP config support
 export { writeMcpConfigToTemp } from './mcp-config.js'
 export type { McpConfigFile } from './mcp-config.js'
+
+// Adapter maintenance tiers (方案 E — single source for UI + README)
+export { ADAPTER_TIERS, getAdapterTier } from './tiers.js'
+export type { AdapterTier, AdapterTierInfo, RegressionStatus } from './tiers.js'

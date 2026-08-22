@@ -28,7 +28,7 @@ import type {
   TokenUsage,
 } from '@dagents/contracts'
 import { createLogger } from '@dagents/shared'
-import { filterCustomArgs, buildChildEnv, AsyncEventQueue, STDERR_TAIL_BYTES, SIGKILL_GRACE_MS } from './stream-backend.js'
+import { filterCustomArgs, buildChildEnv, AsyncEventQueue, STDERR_TAIL_BYTES, SIGKILL_GRACE_MS, wireCancellation } from './stream-backend.js'
 
 // ────────────────────────────────────────────────────────────────────────────
 // ACP JSON-RPC types
@@ -382,6 +382,15 @@ export function spawnAcpAgent(config: AcpSpawnConfig): AgentSession {
       }, opts.timeoutMs)
     }
 
+    // Caller-initiated cancellation (execution-cancellation spec D2): route the
+    // caller's AbortSignal through the same SIGTERM→SIGKILL teardown; the
+    // pending session/prompt request rejects when the child dies, and the
+    // precedence below relabels the result as `cancelled`.
+    const cancel = wireCancellation(opts.signal, () => {
+      proc.kill('SIGTERM')
+      setTimeout(() => proc.kill('SIGKILL'), SIGKILL_GRACE_MS)
+    }, log)
+
     try {
       // session/new or session/load
       let sessionResult: unknown
@@ -422,8 +431,14 @@ export function spawnAcpAgent(config: AcpSpawnConfig): AgentSession {
 
     // Cleanup
     if (timer) clearTimeout(timer)
+    cancel.dispose()
     try { proc.stdin!.end() } catch { /* stdin may already be closed */ }
     client.failAllPending(new Error('session ended'))
+
+    if (cancel.cancelled()) {
+      finalStatus = 'cancelled'
+      finalError = `${acpCfg.agentName} cancelled by caller`
+    }
 
     const code = await exitCode
     if (finalStatus === 'completed' && code !== 0 && code !== null) {

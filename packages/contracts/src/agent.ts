@@ -67,6 +67,13 @@ export interface ExecOptions {
   mcpConfig?: unknown
   /** Runtime-native reasoning/effort value; empty/undefined = runtime default. */
   thinkingLevel?: ThinkingLevel
+  /**
+   * Caller-initiated cancellation (execution-cancellation spec D1): aborting
+   * the signal must make the backend kill the child (SIGTERM→SIGKILL) and
+   * resolve `AgentResult.status = 'cancelled'`. Already-aborted signals are
+   * honored too (kill right after spawn).
+   */
+  signal?: AbortSignal
 }
 
 /** A running agent execution: streaming events + a single final result. */
