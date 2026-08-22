@@ -6,7 +6,7 @@ All notable changes to Dagents are documented here. The format follows
 
 ## [Unreleased]
 
-## [0.1.0] - 2026-08-20
+## [0.1.0] - 2026-08-22
 
 First public release.
 
