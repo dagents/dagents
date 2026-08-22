@@ -6,9 +6,7 @@
 
 [![License: Apache-2.0](https://img.shields.io/badge/License-Apache_2.0-blue.svg)](./LICENSE)
 ![Node](https://img.shields.io/badge/node-%E2%89%A522-339933)
-<!-- TODO(oss): point CI badge at the public repo after transfer
-[![CI](https://github.com/sendwealth/dagents/actions/workflows/ci.yml/badge.svg)](https://github.com/sendwealth/dagents/actions/workflows/ci.yml)
--->
+[![CI](https://github.com/dagents/dagents/actions/workflows/ci.yml/badge.svg)](https://github.com/dagents/dagents/actions/workflows/ci.yml)
 
 Chat with `claude`, `codex`, and 15+ other CLI agents from one place · compose them into visual workflows · zero-config to start, everything stays local.
 
@@ -53,13 +51,16 @@ Dependency direction is acyclic: `contracts ← {agent-adapters, daemon, db} ←
 ### Full stack via Docker
 
 ```bash
-git clone https://github.com/<owner>/dagents.git
+git clone https://github.com/dagents/dagents.git
 cd dagents
-docker compose up        # builds the monorepo → Postgres + gateway + console
+docker compose up        # Postgres + gateway + console
 ```
 
-Open http://localhost:3000 — migrations run automatically on boot. The first
-build takes a few minutes; everything binds to `127.0.0.1` only.
+Open http://localhost:3000 — migrations run automatically on boot. Everything
+binds to `127.0.0.1` only. The compose file pairs
+`image: ghcr.io/dagents/dagents:latest` with `build: .`: run
+`docker compose pull dagents` first to fetch the prebuilt multi-arch image and
+skip the local build, which otherwise takes a few minutes.
 
 ### Dev mode
 

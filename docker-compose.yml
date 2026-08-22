@@ -55,6 +55,9 @@ services:
   # postgres, runs migrations, then starts both apps.
   # ──────────────────────────────────────────────────────────────────────────
   dagents:
+    # Prebuilt multi-arch image from GHCR; `build` below is the fallback used
+    # by `docker compose up` when the image is not available locally.
+    image: ghcr.io/dagents/dagents:latest
     build:
       context: .
       dockerfile: Dockerfile

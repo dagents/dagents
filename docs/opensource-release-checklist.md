@@ -37,7 +37,7 @@
 - [ ] `git tag v0.1.0 && git push origin v0.1.0` → release.yml 自动构建
       多架构镜像（amd64 + arm64 原生 runner）推 GHCR + 创建 GitHub Release
 - [ ] 验证 GHCR 包可见性为 public（否则镜像拉取需登录）
-- [ ] 在 `docker-compose.yml` 的 dagents 服务加 `image: ghcr.io/<owner>/dagents:latest`
+- [ ] 在 `docker-compose.yml` 的 dagents 服务加 `image: ghcr.io/dagents/dagents:latest`
       与 `build: .` 并存（本地无镜像时自动构建），README 补镜像拉取说明
 
 ## E. 发布叙事与渠道

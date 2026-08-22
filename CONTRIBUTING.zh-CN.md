@@ -18,7 +18,7 @@
 ## 获取代码
 
 ```bash
-git clone https://github.com/<owner>/dagents.git
+git clone https://github.com/dagents/dagents.git
 cd dagents
 pnpm install
 ```
@@ -142,5 +142,5 @@ vendor/agentflow    vendored Flowise Agentflow 画布（Apache-2.0，见 NOTICE�
 
 ## 求助渠道
 
-- 问题讨论开 [Discussion](https://github.com/<owner>/dagents/discussions)。
+- 问题讨论开 [Discussion](https://github.com/dagents/dagents/discussions)。
 - 可复现问题用 bug 模板开 issue。

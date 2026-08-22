@@ -50,13 +50,15 @@ console (Next.js :3000) → gateway (Hono :8080) → @dagents/workflow 引擎
 ### Docker 全栈
 
 ```bash
-git clone https://github.com/<owner>/dagents.git
+git clone https://github.com/dagents/dagents.git
 cd dagents
-docker compose up        # 构建整个 monorepo → Postgres + gateway + console
+docker compose up        # Postgres + gateway + console
 ```
 
-打开 http://localhost:3000 —— 迁移在启动时自动执行。首次构建需要几分钟；
-所有端口只绑定 `127.0.0.1`。
+打开 http://localhost:3000 —— 迁移在启动时自动执行；所有端口只绑定
+`127.0.0.1`。compose 中 `image: ghcr.io/dagents/dagents:latest` 与 `build: .`
+并存：先 `docker compose pull dagents` 拉取预构建多架构镜像，`up` 即跳过本地
+构建（否则首次构建需要几分钟）。
 
 ### 开发模式
 

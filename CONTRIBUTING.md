@@ -21,7 +21,7 @@ recommended for end-to-end runs, but it is not required for most tests.
 ## Getting the code
 
 ```bash
-git clone https://github.com/<owner>/dagents.git
+git clone https://github.com/dagents/dagents.git
 cd dagents
 pnpm install
 ```
@@ -155,5 +155,5 @@ open a discussion or issue first rather than a surprise PR.
 
 ## Where to get help
 
-- Open a [Discussion](https://github.com/<owner>/dagents/discussions) for questions.
+- Open a [Discussion](https://github.com/dagents/dagents/discussions) for questions.
 - Open an issue with the bug template for reproducible problems.

@@ -1,8 +1,8 @@
 blank_issues_enabled: false
 contact_links:
   - name: Questions & Discussions
-    url: https://github.com/<owner>/dagents/discussions
+    url: https://github.com/dagents/dagents/discussions
     about: Usage questions, ideas, and design discussions — GitHub Discussions is the right place.
   - name: Security issues
-    url: https://github.com/<owner>/dagents/security/advisories/new
+    url: https://github.com/dagents/dagents/security/advisories/new
     about: Please report security vulnerabilities privately, not via public issues (see SECURITY.md).

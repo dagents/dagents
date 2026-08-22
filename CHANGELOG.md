@@ -51,5 +51,5 @@ First public release.
   `GATEWAY_API_KEY`; WebSocket upgrades validate token + Origin; HTTP nodes
   enforce scheme allowlist, 15s timeout, 32KB truncation (2026-08-16 audit).
 
-[Unreleased]: https://github.com/<owner>/dagents/compare/v0.1.0...HEAD
-[0.1.0]: https://github.com/<owner>/dagents/releases/tag/v0.1.0
+[Unreleased]: https://github.com/dagents/dagents/compare/v0.1.0...HEAD
+[0.1.0]: https://github.com/dagents/dagents/releases/tag/v0.1.0
