@@ -341,7 +341,9 @@ export function AgentsView(): React.ReactElement {
                     <span className={`status-dot ${STATUS_DOT_CLASS[a.status]}`} />
                     {t(STATUS_LABEL[a.status])}
                   </span>
-                  {/* load/cost 均为前端估算（非网关下发的真实数据）— 带「估」标记 */}
+                  {/* load 仍是前端按运行时长的推算（带「估」标记）；cost 自
+                      2026-08-22 方案 D 起只显示实测值（usage.cost），无计价
+                      数据时显示「—」（未计价），不再折算。 */}
                   <div className="agent-load" title={t('按运行时长推算的负载估计，非实时监控')}>
                     <div className="load-bar">
                       <span
@@ -351,13 +353,13 @@ export function AgentsView(): React.ReactElement {
                     </div>
                     <span className="load-val mono">{t('{n}% 估', { n: a.load })}</span>
                   </div>
-                  {a.cost !== '—' ? (
+                  {a.cost != null ? (
                     <span
                       className="chip chip-outline mono"
                       style={{ fontSize: 10 }}
-                      title={t('按 $0.01/1k tokens 估算，非真实账单')}
+                      title={t('最近任务的实测成本；无单价数据时显示「—」（未计价）')}
                     >
-                      {t('估 · {cost}', { cost: a.cost })}
+                      {a.cost}
                     </span>
                   ) : null}
                 </div>

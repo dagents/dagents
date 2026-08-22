@@ -1260,3 +1260,26 @@ table.data .muted { color: var(--muted); }
   font-family: var(--font-mono);
 }
 .chat-nav-locale-btn:hover { background: var(--surface); color: var(--fg); }
+
+
+/* ─── Settings → 用量与成本（方案 D / AD-3 账单页） ─── */
+.usage-cards {
+  display: grid;
+  grid-template-columns: repeat(auto-fit, minmax(160px, 1fr));
+  gap: var(--space-3);
+  margin-bottom: var(--space-4);
+}
+.usage-card { padding: var(--space-4); }
+
+.usage-daybars { display: flex; flex-direction: column; gap: 6px; padding: var(--space-3) 0; }
+.usage-daybar { display: grid; grid-template-columns: 48px 1fr 72px; align-items: center; gap: var(--space-3); }
+.usage-daybar .date { font-size: 11px; color: var(--muted); }
+.usage-daybar .bar-track {
+  height: 8px;
+  background: var(--surface);
+  border-radius: var(--radius-pill);
+  overflow: hidden;
+}
+.usage-daybar .bar-fill { display: block; height: 100%; background: var(--accent); border-radius: var(--radius-pill); }
+.usage-daybar .bar-fill.zero { background: var(--border); }
+.usage-daybar .cost { font-size: 11px; color: var(--fg-2); text-align: right; }

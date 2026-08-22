@@ -305,7 +305,9 @@ export function derivePageModel(
     region: agent.region,
     daemon: agent.daemon,
     load: agent.load,
-    cost: agent.cost,
+    // 方案 D：CatalogAgent.cost 为 string | null（真实计价或未计价），
+    // 详情页 inspector 行降级为 '—' 展示。
+    cost: agent.cost ?? '—',
     activity,
     runCount,
     failCount,

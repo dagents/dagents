@@ -14,6 +14,7 @@ export const settings: Record<string, string> = {
   'LLM Provider 管理': 'LLM Providers',
   'CLI 运行时': 'CLI runtimes',
   '默认模型': 'Default models',
+  '用量与成本': 'Usage & cost',
   '预算与配额': 'Budget & quotas',
   '预算配额': 'Budget & quotas',
   '通知': 'Notifications',
@@ -92,6 +93,11 @@ export const settings: Record<string, string> = {
   '检测中…': 'Detecting…',
   '已安装': 'Installed',
   '未安装': 'Not installed',
+  '规划中': 'Planned',
+  '以下能力在产品规划中，尚未实现 —— 当前版本是单机单人模式（docs/product-plan.md Non-Goals）。': 'These capabilities are planned but not implemented yet — the current version is single-user, single-machine (see docs/product-plan.md Non-Goals).',
+  '预算与配额（成本熔断 / 月度告警）': 'Budgets & quotas (cost circuit-breakers / monthly alerts)',
+  '账户与团队（多用户协作）': 'Accounts & teams (multi-user collaboration)',
+  '危险区（暂停全部 / 数据清理）': 'Danger zone (pause all / data cleanup)',
   '状态由 Gateway 实时检测（': 'Status is detected live by the gateway (',
   '）。已安装的 CLI 可直接在对话中选择对应 Agent 使用——无需手动启动 daemon。未安装的请参考各 CLI 官方文档安装。':
     "). Installed CLIs are usable in chats via the matching agent — no daemon needed. For missing ones, see each CLI's official install docs.",
@@ -109,6 +115,39 @@ export const settings: Record<string, string> = {
   '国产': 'Homegrown',
   '特殊': 'Special',
   '其他': 'Other',
+
+  // ── 用量与成本（方案 D / AD-3 账单页） ──
+  '按实测 token 用量与模型单价汇总的成本账单。数据自埋点上线起累计，历史执行不回填。':
+    'A cost bill aggregated from measured token usage × per-model unit prices. Data accrues from the day billing telemetry shipped; past executions are not backfilled.',
+  '{n} 天': '{n} days',
+  '还没有用量记录': 'No usage recorded yet',
+  '执行一次对话或工作流后，实测 token 与成本会出现在这里。账单自埋点上线起累计，历史执行不回填。':
+    'Run a chat or a workflow and the measured tokens + cost will show up here. Billing accrues from the day telemetry shipped; past executions are not backfilled.',
+  '成本': 'Cost',
+  '已计价事件的成本合计': 'Total cost of priced events',
+  'Token 用量': 'Token usage',
+  '已计价事件的 token 合计': 'Total tokens of priced events',
+  '未计价 Token': 'Unpriced tokens',
+  '单价未知的 token，价格表补齐后可回算':
+    'Tokens whose unit price is unknown — repriced once the price table covers them',
+  '事件数': 'Events',
+  '对话 / 工作流 / 任务的终态记账条数':
+    'Terminal-state billing entries for chats / workflows / tasks',
+  '按天成本': 'Cost by day',
+  '{n} 天窗口': '{n}-day window',
+  '按 Agent': 'By agent',
+  '仅统计对话路径（Agent 直接执行）': 'Chat-path executions only (agent-driven)',
+  '计价状态': 'Pricing status',
+  '已计价': 'Priced',
+  '含未计价': 'Has unpriced',
+  '（已删除）': '(deleted)',
+  '窗口内没有 Agent 对话用量。': 'No agent chat usage in this window.',
+  '按 Flow': 'By flow',
+  '工作流 run 的执行用量': 'Workflow-run execution usage',
+  'Token': 'Tokens',
+  '窗口内没有工作流用量。': 'No workflow usage in this window.',
+  '成本 = 实测 token × 模型单价（内置参考价可用环境变量 DAGENTS_PRICE_OVERRIDES 校正）。单价未知的模型只记 token，不计成本。':
+    'Cost = measured tokens × per-model unit price (built-in reference prices can be corrected via the DAGENTS_PRICE_OVERRIDES env var). Models with unknown prices record tokens only — never a fabricated cost.',
 
   // ── 占位 tab 公共提示（StubNotice） ──
   '⚠️ 未接入后端 — ': '⚠️ Not wired to a backend — ',

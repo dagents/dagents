@@ -139,8 +139,12 @@ export interface CatalogAgent {
   run: string | null
   /** Derived load 0–100 (running tasks push it up; idle → 0). */
   load: number
-  /** Today's cost for this agent, formatted `$x.xx`, or `—`. */
-  cost: string
+  /**
+   * Real measured cost of the agent's latest task (`usage.cost`, 方案 D：
+   * 假估算层已删)，formatted `$x.xx`. `null` = 无计价数据 —— UI 显示「—」
+   * （未计价），run 级真值在 usage_events（Settings → 用量与成本）。
+   */
+  cost: string | null
   /** Latest task id, if any (drives the drawer's "current task"). */
   latestTaskId: string | null
   latestTaskStatus: string | null
@@ -422,16 +426,19 @@ function num(v: unknown): number {
 }
 
 /**
- * Derive a cost string from the latest task's usage. There is no cost column
- * yet (runs.cost is empty today), so we proxy from token usage at a flat
- * $0.01 / 1k tokens — enough to populate the column with a real, sortable
- * number rather than a placeholder. `—` when there is no usage.
+ * Derive a cost string from the latest task's usage. The flat $0.01/1k proxy
+ * was removed（2026-08-22 方案 D：删假估算层）— cost now comes ONLY from a
+ * real measured cost stamped in the usage payload (`usage.cost`), the same
+ * convention the gateway's agents route uses. No true source → `null` and
+ * the UI shows `—`（「未计价」，绝不折算）。Run-level truth lives in
+ * `usage_events`（账单页 Settings → 用量与成本）。
  */
-export function deriveCost(usage: unknown): string {
-  const tokens = sumUsageTokens(usage)
-  if (tokens <= 0) return '—'
-  const dollars = (tokens / 1000) * 0.01
-  return `$${dollars.toFixed(2)}`
+export function deriveCost(usage: unknown): string | null {
+  if (!usage || typeof usage !== 'object') return null
+  const cost = (usage as { cost?: unknown }).cost
+  return typeof cost === 'number' && Number.isFinite(cost) && cost >= 0
+    ? `$${cost.toFixed(2)}`
+    : null
 }
 
 /** Map a raw gateway list row to the catalogue domain model. */

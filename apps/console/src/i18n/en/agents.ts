@@ -34,8 +34,8 @@ export const agents: Record<string, string> = {
   '按运行时长推算的负载估计，非实时监控':
     'Load estimated from runtime duration — not live monitoring',
   '{n}% 估': '{n}% est.',
-  '估 · {cost}': 'est. · {cost}',
-  '按 $0.01/1k tokens 估算，非真实账单': 'Estimated at $0.01/1k tokens — not an actual bill',
+  '最近任务的实测成本；无单价数据时显示「—」（未计价）':
+    'Measured cost of the latest task; shows “—” (unpriced) when no price data exists',
 
   // ── agent-detail-view（详情页） ──
   活动: 'Activity',

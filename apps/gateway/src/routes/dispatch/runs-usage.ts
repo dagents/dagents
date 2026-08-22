@@ -1,6 +1,7 @@
 import { runQuery } from '@dagents/db'
 import type { AgentDaemonCall } from '@dagents/db'
 import { createLogger } from '@dagents/shared'
+import { aggregateModelUsage, recordUsageEvent } from '../../usage-events.js'
 
 /**
  * `runs.agent_daemon_calls` persistence (spec §5.3; plan M6.2 / P1.11.T3).
@@ -42,14 +43,18 @@ export interface AppendCallInput {
 }
 
 /**
- * Append one agent-daemon call to a run's `agent_daemon_calls` array.
+ * Append one agent-daemon call to a run's `agent_daemon_calls` array, and
+ * mirror the terminal usage into `usage_events` (AD-3 / 方案 D c 路径).
  *
  * Uses the `||` jsonb concatenation operator so each append is a single
  * statement — no read-modify-write round-trip, so concurrent appends on the
  * same run (parallel fan-out children calling the same agent) do not lose
  * entries. A missing run row updates zero rows (the `WHERE id = $1` guard);
  * that is the "task with no owning run" skip path — logged at debug, not an
- * error.
+ * error. The usage_event is written regardless（无外键，task 的真实花费
+ * 不因 run 行缺失而丢账；per-model 明细留在 dispatch_tasks.usage，可经
+ * task_id 回查）。Cost 由 pricing.ts 按 per-model 计算，任一模型无价 →
+ * cost=null + priced=false（不造假）。
  *
  * Returns true when a row was updated, false when the run id matched no row.
  */
@@ -63,6 +68,15 @@ export async function appendAgentDaemonCall(input: AppendCallInput): Promise<boo
     sessionId: input.sessionId,
     finishedAt: input.finishedAt,
   }
+
+  const rollup = aggregateModelUsage(input.usage)
+  void recordUsageEvent({
+    source: 'dispatch_task',
+    taskId: input.dispatchTaskId,
+    runId: input.runId,
+    usage: rollup.usage,
+    cost: rollup.cost,
+  })
 
   const { affected } = await runQuery(
     `UPDATE runs

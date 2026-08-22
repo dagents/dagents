@@ -144,12 +144,18 @@ daemonsRoutes.delete('/daemons/:id', async (c) => {
 /**
  * Atomically claim one queued task (spec §1.5.T4, plan M2.2 Step 4).
  *
- * `FOR UPDATE SKIP LOCKED` inside the subselect lets concurrent daemons each
- * grab a distinct row without blocking — the canonical Postgres FIFO-dequeue
- * pattern. The whole UPDATE…RETURNING runs in one statement, so the claim is
- * atomic even without an explicit transaction wrapper; `runQuery` still goes
- * through a QueryRunner so we get the structured result (RETURNING rows +
- * affected count) in one round-trip.
+ * `FOR UPDATE SKIP LOCKED` inside the CTE lets concurrent daemons each grab a
+ * distinct row without blocking — the canonical Postgres FIFO-dequeue pattern.
+ * The CTE is REQUIRED (2026-08-22 fix): a bare `WHERE id IN (SELECT … FOR
+ * UPDATE SKIP LOCKED … LIMIT 1)` lets Postgres evaluate the subquery per
+ * candidate row — rows locked by an earlier evaluation of the SAME statement
+ * get skipped, so every queued row matches and one claim sweeps the whole
+ * queue (observed live: dispatch.test.ts "claim pulls it FIFO" failed with
+ * claim #2 returning null). A locking CTE is always materialized once, so
+ * exactly one row is claimed per call. The whole UPDATE…RETURNING still runs
+ * in one statement — atomic without an explicit transaction wrapper;
+ * `runQuery` goes through a QueryRunner so we get the structured result
+ * (RETURNING rows + affected count) in one round-trip.
  *
  * `task` is null when nothing is queued (idle poll), matching ClaimTaskResponse.
  */
@@ -180,16 +186,17 @@ daemonsRoutes.post('/daemons/:id/tasks/claim', async (c) => {
       prompt: string
       exec_options: unknown
     }>(
-      `UPDATE dispatch_tasks
-         SET status = 'claimed', claimed_by_daemon_id = $1, claimed_at = NOW()
-       WHERE id IN (
+      `WITH next_task AS (
          SELECT id FROM dispatch_tasks
          WHERE status = 'queued'
          ORDER BY created_at
          LIMIT 1
          FOR UPDATE SKIP LOCKED
        )
-       RETURNING id, agent_daemon_id, run_id, prompt, exec_options`,
+       UPDATE dispatch_tasks t
+         SET status = 'claimed', claimed_by_daemon_id = $1, claimed_at = NOW()
+       WHERE t.id IN (SELECT id FROM next_task)
+       RETURNING t.id, t.agent_daemon_id, t.run_id, t.prompt, t.exec_options`,
       [daemonId],
     )
     records = res.records

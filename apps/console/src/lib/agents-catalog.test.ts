@@ -147,19 +147,21 @@ describe('deriveLoad', () => {
 })
 
 describe('deriveCost', () => {
-  it('returns — when there is no usage', () => {
-    expect(deriveCost(null)).toBe('—')
-    expect(deriveCost({})).toBe('—')
-    expect(deriveCost({ claude: {} })).toBe('—')
+  it('returns null when there is no usage / no real cost', () => {
+    expect(deriveCost(null)).toBeNull()
+    expect(deriveCost({})).toBeNull()
+    // Per-model token maps carry no price info — token counts alone must not
+    // fabricate a cost anymore (flat $0.01/1k proxy removed, 方案 D).
+    expect(deriveCost({ claude: { inputTokens: 12000, outputTokens: 3400 } })).toBeNull()
   })
 
-  it('derives cost from token usage at $0.01/1k', () => {
-    // 15400 tokens → $0.154 → $0.15
-    expect(deriveCost({ claude: { inputTokens: 12000, outputTokens: 3400 } })).toBe('$0.15')
+  it('returns null for a non-numeric cost field', () => {
+    expect(deriveCost({ cost: 'not-a-number' })).toBeNull()
+    expect(deriveCost({ cost: -1 })).toBeNull()
   })
 
-  it('sums across models', () => {
-    expect(deriveCost({ claude: { inputTokens: 1000 }, codex: { inputTokens: 1000 } })).toBe('$0.02')
+  it('passes through a real measured cost stamped in usage.cost', () => {
+    expect(deriveCost({ cost: 0.153 })).toBe('$0.15')
   })
 })
 
@@ -187,7 +189,9 @@ describe('mapRowToCatalogAgent', () => {
     expect(a.daemon).toBe('daemon-09')
     expect(a.region).toBe('ap-northeast')
     expect(a.run).toBe('R-8821')
-    expect(a.cost).toBe('$0.15')
+    // baseRow.usage is a per-model token map with no real cost → 未计价（null，
+    // UI 显示 —）。旧 flat $0.01/1k 折算已删（方案 D）。
+    expect(a.cost).toBeNull()
     expect(a.latestTaskId).toBe('task-1')
     expect(a.capability.summary).toBe('阅读论文并抽取核心论点。')
   })
@@ -217,7 +221,7 @@ describe('mapRowToCatalogAgent', () => {
     })
     expect(a.status).toBe('idle')
     expect(a.run).toBeNull()
-    expect(a.cost).toBe('—')
+    expect(a.cost).toBeNull()
     expect(a.load).toBe(0)
   })
 
