@@ -9,8 +9,11 @@ import { agentTemplateRoutes } from './routes/agent-templates.js'
 import { agentLibraryTeamRoutes } from './routes/agent-library-teams.js'
 import { agentLibraryRoutes } from './routes/agent-library.js'
 import { flowTemplateRoutes } from './routes/flow-templates.js'
+import { flowGeneratorRoutes } from './routes/flow-generator.js'
+import { chatCancelRoutes, runCancelRoutes } from './routes/execution-cancel.js'
 import { llmProviderRoutes } from './routes/llm-providers.js'
 import { workflowsRoutes } from './routes/workflows.js'
+import { usageRoutes } from './routes/usage.js'
 import { cliRuntimeRoutes } from './routes/cli-runtimes.js'
 import { skillsRoutes } from './routes/skills.js'
 import { internalRunsRoutes } from './routes/internal-runs.js'
@@ -180,6 +183,22 @@ app.route('/api/v1/agent-library', agentLibraryRoutes)
 app.route('/api/v1/flow-templates', flowTemplateRoutes)
 
 /**
+ * Unified AI flow-generation pipeline (docs/product-plan.md 方案 A1): the
+ * chat `@workflow` command calls the service in-process; the canvas
+ * GenerateFlowDialog BFF proxies this route. One prompt, one engine policy
+ * (CLI-first + HTTP insurance), one validator — no second implementation.
+ */
+app.route('/api/v1/flow-generator', flowGeneratorRoutes)
+
+/**
+ * Execution cancellation (spec D5): POST /chats/:id/cancel and
+ * POST /workflows/runs/:runId/cancel find the live execution in the
+ * in-process registry and abort it. 409 when nothing is running.
+ */
+app.route('/api/v1/chats', chatCancelRoutes)
+app.route('/api/v1/workflows', runCancelRoutes)
+
+/**
  * LLM Provider CRUD API: llm provider list + detail + create + update + delete + test.
  */
 app.route('/api/v1/llm-providers', llmProviderRoutes)
@@ -188,6 +207,14 @@ app.route('/api/v1/llm-providers', llmProviderRoutes)
  * Workflows CRUD API: workflow list + detail + create + update + delete.
  */
 app.route('/api/v1/workflows', workflowsRoutes)
+
+/**
+ * Usage & cost billing API (方案 D / AD-3): SQL aggregation over the
+ * append-only `usage_events` table — the billing truth source written by the
+ * chat / workflow-run / dispatch terminal states. Console's Settings →
+ * 用量与成本 tab reads this via its BFF proxy.
+ */
+app.route('/api/v1/usage', usageRoutes)
 
 /**
  * CLI Runtime detection (open-design parity): scans the gateway host's PATH

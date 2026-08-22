@@ -27,7 +27,12 @@ import { authConfigured, verifyApiKey } from './auth.js'
 const log = createLogger({ svc: 'gateway:ws-hub' })
 
 /** 推送给浏览器的 chat 事件类型。 */
-export type ChatEventType = 'chat:message' | 'chat:done' | 'chat:error' | 'chat:session_updated'
+export type ChatEventType =
+  | 'chat:message'
+  | 'chat:done'
+  | 'chat:error'
+  | 'chat:cancelled'
+  | 'chat:session_updated'
 
 /** 推送给浏览器的 chat 事件 payload。 */
 export interface ChatEvent {
@@ -42,6 +47,8 @@ export interface ChatEvent {
   status?: string
   /** 错误信息（仅 chat:error 携带）。 */
   error?: string
+  /** 取消原因（仅 chat:cancelled 携带）。 */
+  reason?: string
   /** Token 用量（chat:done 由内部回调携带；Task 4.1 将正式纳入协议）。 */
   usage?: TokenUsage
   /** 运行耗时毫秒（chat:done 携带）。 */

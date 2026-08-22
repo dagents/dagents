@@ -16,6 +16,8 @@ import {
 } from './workflow-clients.js'
 import { createStaticHumanInputResolver } from './human-input.js'
 import { recordAudit } from '../audit.js'
+import { executionRegistry, type ExecutionHandle } from '../execution-registry.js'
+import { aggregateExecutedNodesUsage, recordUsageEvent } from '../usage-events.js'
 
 export const workflowsRoutes = new Hono()
 
@@ -442,6 +444,22 @@ workflowsRoutes.post('/:id/run', async (c) => {
   })
 
   let result: { status: string; finalOutput: unknown; executedNodes: IExecutedNode[]; state: Record<string, unknown>; error?: string }
+  // Cancellation handle (spec D4): workflow runs register by runId —
+  // POST /workflows/runs/:runId/cancel aborts the engine signal.
+  const abort = new AbortController()
+  let resolveDone!: () => void
+  const done = new Promise<void>((resolve) => {
+    resolveDone = resolve
+  })
+  const execHandle: ExecutionHandle = {
+    chatId,
+    runId,
+    kind: 'workflow-run',
+    startedAt: startedAt.getTime(),
+    abort: (reason?: string) => abort.abort(new Error(reason ?? 'cancelled by caller')),
+    done,
+  }
+  executionRegistry.register(execHandle)
   try {
     result = await executor.execute(flowData, data.input, {
       chatId,
@@ -449,6 +467,7 @@ workflowsRoutes.post('/:id/run', async (c) => {
       state: data.state ?? {},
       isLastNode: true,
       startInput,
+      signal: abort.signal,
       llmClient,
       agentFetcher,
       // Built-in tools (http_request / datetime_now) form the base registry;
@@ -462,25 +481,38 @@ workflowsRoutes.post('/:id/run', async (c) => {
   } catch (err) {
     log.error('workflow execution failed', { id, error: String(err) })
     return fail(c, 500, 'workflow execution failed')
+  } finally {
+    resolveDone()
+    executionRegistry.unregister(execHandle)
   }
   // Subflow executions surface in the same trace/span set as the parent run.
   result.executedNodes = [...result.executedNodes, ...subflowNodes]
   const finishedAt = new Date()
   const durationMs = Math.round(finishedAt.getTime() - startedAt.getTime())
-  const runStatus: 'running' | 'completed' | 'failed' =
-    result.status === 'success' ? 'completed' : 'failed'
+  const runStatus: 'running' | 'completed' | 'failed' | 'cancelled' =
+    result.status === 'success' ? 'completed' : result.status === 'cancelled' ? 'cancelled' : 'failed'
+
+  // AD-3（方案 D b 路径）：run 级用量聚合 —— sum 各节点 tokens，cost 只在
+  // 所有 token 节点都有价格时成立（引擎目前 cost 恒 null → priced=false，
+  // 「未计价 token」在账单页单列）。三个终态（completed/failed/cancelled）
+  // 都入账；没有 token 的 run 由 recordUsageEvent 自行跳过。
+  const usageRollup = aggregateExecutedNodesUsage(result.executedNodes)
 
   try {
     // Persist a single `runs` row so the run id is authoritative in the DB
     // (scheduler proxy paths resolve a run id → spans from this table too).
+    // `cost` 消灭死列：写入聚合成本。列是 NOT NULL，无价格时写 0 ——
+    // 「未计价」的诚实标记在 usage_events.priced，runs.cost 只是去规格化
+    // 汇总（账单页只读 usage_events）。
     await runQuery(
-      `INSERT INTO runs (id, identifier, pipeline_id, status, input, output, started_at, finished_at, duration_ms)
-       VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9)
+      `INSERT INTO runs (id, identifier, pipeline_id, status, input, output, started_at, finished_at, duration_ms, cost)
+       VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10)
        ON CONFLICT (id) DO UPDATE SET
          status = EXCLUDED.status,
          output = EXCLUDED.output,
          finished_at = EXCLUDED.finished_at,
-         duration_ms = EXCLUDED.duration_ms`,
+         duration_ms = EXCLUDED.duration_ms,
+         cost = EXCLUDED.cost`,
       [
         runId,
         runId,
@@ -491,11 +523,22 @@ workflowsRoutes.post('/:id/run', async (c) => {
         startedAt,
         finishedAt,
         durationMs,
+        usageRollup.cost ?? 0,
       ],
     )
   } catch (err) {
     log.warn('persist runs row failed, spans still written below', { id, runId, error: String(err) })
   }
+
+  // 账单真相源（AD-3）：workflow run 终态各写一条 usage_events。
+  await recordUsageEvent({
+    source: 'workflow_run',
+    chatId,
+    runId,
+    flowId: id,
+    usage: usageRollup.usage,
+    cost: usageRollup.cost,
+  })
 
   // Persist one run_node_spans row per executed node so the canvas /
   // inspector can paint node status + read duration. Nodes the executor never
@@ -589,12 +632,20 @@ workflowsRoutes.post('/:id/run', async (c) => {
       executedNodes: result.executedNodes,
       state: result.state,
     })
-  } else {
-    return fail(c, 500, result.error ?? 'workflow execution failed', {
+  }
+  if (runStatus === 'cancelled') {
+    // User-initiated cancel is a distinct terminal — not a 500-style failure.
+    return ok(c, {
+      output: null,
       executedNodes: result.executedNodes,
       state: result.state,
+      status: 'cancelled',
     })
   }
+  return fail(c, 500, result.error ?? 'workflow execution failed', {
+    executedNodes: result.executedNodes,
+    state: result.state,
+  })
 })
 
 interface NodeSpanRow {

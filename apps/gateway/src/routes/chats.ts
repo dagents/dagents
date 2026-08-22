@@ -7,6 +7,8 @@ import { createLogger } from '@dagents/shared'
 import { DagExecutor, NodeRegistry, allNodes, SseStreamer, type FlowData } from '@dagents/workflow'
 import { routeMessage } from './chat-execute.js'
 import { enqueueTask, getTask, getTaskEvents } from './dispatch/service.js'
+import { executionRegistry, type ExecutionHandle } from '../execution-registry.js'
+import { persistCancelled } from './internal-runs-helpers.js'
 import {
   createDefaultLlmClient,
   createAgentFetcher,
@@ -844,6 +846,24 @@ chatRoutes.get('/:id/stream', async (c) => {
   const runId = c.req.header('x-run-id')?.trim() || randomUUID()
   const streamer = new SseStreamer(id)
 
+  // Cancellation handle (execution-cancellation spec D4): the SSE flow run
+  // registers by chat — POST /chats/:id/cancel aborts the engine signal and
+  // this handler persists the cancelled terminal + ends the stream.
+  const abort = new AbortController()
+  let resolveDone!: () => void
+  const done = new Promise<void>((resolve) => {
+    resolveDone = resolve
+  })
+  const handle: ExecutionHandle = {
+    chatId: id,
+    runId,
+    kind: 'chat-stream',
+    startedAt: Date.now(),
+    abort: (reason?: string) => abort.abort(new Error(reason ?? 'cancelled by caller')),
+    done,
+  }
+  executionRegistry.register(handle)
+
   const registry = new NodeRegistry()
   registry.registerMany(allNodes())
   const executor = new DagExecutor(registry)
@@ -861,6 +881,7 @@ chatRoutes.get('/:id/stream', async (c) => {
   ;(async () => {
     resetProviderCache()
     let finalText = ''
+    let cancelled = false
     try {
       // CLI-first：无 provider 时 LLM/Agent 节点跑本地 CLI（零配置基线）。
       const llmClient = createDefaultLlmClient()
@@ -878,6 +899,7 @@ chatRoutes.get('/:id/stream', async (c) => {
         isLastNode: true,
         sseStreamer: streamer,
         startInput: prompt,
+        signal: abort.signal,
         llmClient,
         agentFetcher,
         toolRegistry,
@@ -894,16 +916,28 @@ chatRoutes.get('/:id/stream', async (c) => {
         }),
       })
       finalText = extractReplyText(result.finalOutput)
-      if (result.status !== 'success') {
+      if (result.status === 'cancelled') {
+        cancelled = true
+        streamer.streamErrorEvent(id, 'Execution cancelled by user')
+      } else if (result.status !== 'success') {
         streamer.streamErrorEvent(id, result.error ?? 'workflow execution failed')
       }
     } catch (err) {
       log.error('chat stream execution failed', { id, error: String(err) })
       streamer.streamErrorEvent(id, String(err))
     } finally {
+      // User cancel: persist the cancelled terminal (chat:cancelled WS frame
+      // included) instead of the normal assistant-reply persistence.
+      if (cancelled) {
+        try {
+          await persistCancelled({ chatId: id, runId, reason: 'user cancelled' })
+        } catch (err) {
+          log.warn('persistCancelled failed on stream cancel', { id, runId, error: String(err) })
+        }
+      }
       // Persist the assistant reply so the conversation history survives a
       // page reload (best-effort — the stream already delivered the text).
-      if (finalText.length > 0) {
+      else if (finalText.length > 0) {
         try {
           await runQuery(
             `INSERT INTO chat_messages (chat_id, role, content, run_id, metadata)
@@ -930,8 +964,14 @@ chatRoutes.get('/:id/stream', async (c) => {
         }
       }
       streamer.streamEndEvent(id)
+      resolveDone()
+      executionRegistry.unregister(handle)
     }
-  })()
+  })().catch((err) => {
+    log.error('chat stream async loop crashed', { id, runId, error: String(err) })
+    resolveDone()
+    executionRegistry.unregister(handle)
+  })
 
   return c.body(streamer.toReadableStream())
 })

@@ -26,10 +26,20 @@ import { createLogger } from '@dagents/shared'
 import type { AgentEvent, AgentResult, TokenUsage, AgentType } from '@dagents/contracts'
 import { randomUUID } from 'node:crypto'
 import { wsHub, type ChatEvent } from './ws-hub.js'
-import { persistComplete } from './routes/internal-runs-helpers.js'
+import { persistComplete, persistCancelled } from './routes/internal-runs-helpers.js'
 import { composeSystemPrompt } from './skill-injection.js'
+import { executionRegistry, type ExecutionHandle } from './execution-registry.js'
+import { computeCost } from './pricing.js'
 
 const log = createLogger({ svc: 'gateway:inline-executor' })
+
+/**
+ * Inactivity watchdog for inline CLI executions: abort the CLI when it emits
+ * nothing for this long (hung model upstream / stuck CLI). Wall-clock cap is
+ * deliberately absent — legit coding-agent tasks can run for many minutes, and
+ * the watchdog only fires on *silence*. Env-tunable.
+ */
+const INLINE_INACTIVITY_TIMEOUT_MS = Number(process.env.INLINE_INACTIVITY_TIMEOUT_MS ?? 300_000)
 
 /**
  * inline 执行器支持的 agent kind（CLI 运行时）。
@@ -41,28 +51,6 @@ export const INLINE_SUPPORTED_KINDS = [
   'codebuddy', 'cursor', 'deveco', 'antigravity', 'openclaw', 'pi',
   'hermes', 'kimi', 'kiro', 'grok', 'qoder', 'traecli',
 ] as const
-
-/**
- * Reference price table (USD per 1M tokens) for Anthropic models.
- *
- * ⚠️ These are ONLY used as a fallback when the actual provider's pricing
- * isn't known. Real cost tracking requires the LLM provider's own response
- * usage data. The gateway reports `cost` as an *estimate* — never treat it
- * as a billing-accurate number.
- *
- * For non-Anthropic providers (DeepSeek, Qwen, local models), this price
- * table does NOT apply — `computeCost` returns `undefined` for unknown models
- * instead of silently using a wrong price.
- */
-const ANTHROPIC_MODEL_PRICES: Record<string, { input: number; output: number }> = {
-  'claude-sonnet-4-20250514': { input: 3, output: 15 },
-  'claude-opus-4-20250514': { input: 15, output: 75 },
-  'claude-haiku-3-5': { input: 0.8, output: 4 },
-  // Short aliases for CLI --model flag
-  sonnet: { input: 3, output: 15 },
-  opus: { input: 15, output: 75 },
-  haiku: { input: 0.8, output: 4 },
-}
 
 /**
  * Aggregate per-model token usage into a single summed `TokenUsage`.
@@ -101,28 +89,11 @@ export function aggregateUsage(
 }
 
 /**
- * Compute USD cost from token usage and model name. Returns `undefined`
- * when usage is missing or the model's pricing is unknown (so we never
- * silently report a wrong cost for non-Anthropic providers).
+ * Compute USD cost from token usage and model name. Moved to `pricing.ts`
+ * (multi-vendor price table + env overrides, 方案 D / AD-3) — re-exported
+ * here so existing callers/tests importing from inline-executor keep working.
  */
-export function computeCost(
-  usage: { inputTokens?: number; outputTokens?: number } | undefined | null,
-  model?: string,
-): number | undefined {
-  if (!usage) return undefined
-  // Look up pricing — returns undefined for unknown models so we don't
-  // silently apply Anthropic prices to DeepSeek/Qwen/local models.
-  const price = model ? ANTHROPIC_MODEL_PRICES[model] : undefined
-  if (!price) {
-    // Unknown model: report token usage but don't fabricate a cost.
-    log.debug('computeCost: unknown model, skipping cost', { model })
-    return undefined
-  }
-  const input = usage.inputTokens ?? 0
-  const output = usage.outputTokens ?? 0
-  if (input === 0 && output === 0) return undefined
-  return (input * price.input + output * price.output) / 1_000_000
-}
+export { computeCost }
 
 export interface InlineExecOptions {
   /** 工作目录，传给 claude CLI 的 cwd（通常是 chat 关联的 directory path）。 */
@@ -148,6 +119,25 @@ export async function executeInline(
 ): Promise<void> {
   const runId = randomUUID()
   log.info('inline execute start', { chatId, agentId, runId, cwd: opts.cwd })
+
+  // Cancellation handle (execution-cancellation spec D4): registered so
+  // POST /chats/:id/cancel can find and abort this execution. The signal
+  // reaches the CLI child via the adapters' kill-escalation path; `done`
+  // resolves in the executor loop's finally, after persist + broadcast.
+  const abort = new AbortController()
+  let resolveDone!: () => void
+  const done = new Promise<void>((resolve) => {
+    resolveDone = resolve
+  })
+  const handle: ExecutionHandle = {
+    chatId,
+    runId,
+    kind: 'chat-agent',
+    startedAt: Date.now(),
+    abort: (reason?: string) => abort.abort(new Error(reason ?? 'cancelled by caller')),
+    done,
+  }
+  executionRegistry.register(handle)
 
   // 查 agent 信息：优先 agents 表（v0.3 领域模型），fallback agent_daemons 表（旧 dispatch 模型）
   let execPath = ''
@@ -244,10 +234,12 @@ export async function executeInline(
 
   // 异步消费 AgentEvent 流，推送到 wsHub（带自动重试 + backoff）
   ;(async () => {
+    const startedAt = Date.now()
     let output = ''
     let result: AgentResult | null = null
     let lastError = 'unknown error'
     let succeeded = false
+    let cancelled = false
     let finalAttempt = 0
 
     for (let attempt = 1; attempt <= MAX_ATTEMPTS; attempt++) {
@@ -256,7 +248,13 @@ export async function executeInline(
       // Re-spawn the process for each attempt (not a resume).
       let session: ReturnType<typeof backend.execute> | null = null
       try {
-        session = backend.execute(prompt, { cwd: opts.cwd, model: opts.model, systemPrompt })
+        session = backend.execute(prompt, {
+          cwd: opts.cwd,
+          model: opts.model,
+          systemPrompt,
+          inactivityTimeoutMs: INLINE_INACTIVITY_TIMEOUT_MS,
+          signal: abort.signal,
+        })
       } catch (err) {
         lastError = `spawn failed: ${String(err)}`
         log.warn('inline execute spawn threw', { chatId, runId, attempt, error: lastError })
@@ -284,6 +282,14 @@ export async function executeInline(
           }
           result = await session.result
 
+          // User cancel: the adapters killed the child and reported
+          // 'cancelled' — never retry, fall through to the cancelled terminal.
+          if (result.status === 'cancelled') {
+            cancelled = true
+            finalAttempt = attempt
+            break
+          }
+
           // Success: process exited cleanly — break out of the retry loop.
           if (result.status !== 'failed') {
             succeeded = true
@@ -295,9 +301,20 @@ export async function executeInline(
           lastError = `agent process exited with status '${result.status}'`
           log.warn('inline execute non-zero exit', { chatId, runId, attempt, status: result.status })
         } catch (err) {
+          if (abort.signal.aborted) {
+            cancelled = true
+            finalAttempt = attempt
+            break
+          }
           lastError = `stream error: ${String(err)}`
           log.warn('inline execute stream threw', { chatId, runId, attempt, error: lastError })
         }
+      }
+
+      // A cancel during backoff stops the retry ladder immediately.
+      if (cancelled || abort.signal.aborted) {
+        cancelled = true
+        break
       }
 
       // Backoff before the next attempt (if any retries remain). We surface
@@ -321,6 +338,24 @@ export async function executeInline(
       }
     }
 
+    // User cancel: terminal state is cancelled — persisted + broadcast as
+    // chat:cancelled, never retried, never relabeled as failed.
+    if (cancelled) {
+      try {
+        await persistCancelled({
+          chatId,
+          runId,
+          output: output || undefined,
+          durationMs: Date.now() - startedAt,
+          reason: 'user cancelled',
+        })
+      } catch (err) {
+        log.error('inline execute persistCancelled failed', { chatId, runId, error: String(err) })
+      }
+      log.info('inline execute cancelled', { chatId, runId, outputLen: output.length })
+      return
+    }
+
     // All retries exhausted — report the terminal error to the client + persist.
     if (!succeeded) {
       await reportError(chatId, runId, `${lastError}（已自动重试 ${MAX_ATTEMPTS} 次仍失败）`)
@@ -340,6 +375,9 @@ export async function executeInline(
         usage,
         durationMs,
         cost,
+        // AD-3 usage_event 溯源字段：chat 终态入账时带上 agent / model。
+        agentId,
+        model: opts.model ?? null,
       })
     } catch (err) {
       log.error('inline execute persist failed', { chatId, runId, error: String(err) })
@@ -347,9 +385,16 @@ export async function executeInline(
     log.info('inline execute done', {
       chatId, runId, attempts: finalAttempt, status: result?.status, outputLen: output.length, usage, durationMs, cost,
     })
-  })().catch((err) => {
-    log.error('inline execute async loop crashed', { chatId, runId, error: String(err) })
-  })
+  })()
+    .catch((err) => {
+      log.error('inline execute async loop crashed', { chatId, runId, error: String(err) })
+    })
+    .finally(() => {
+      // Settle the cancellation handle BEFORE unregistering so a concurrent
+      // cancelChat() awaiting `done` observes the completed persist+broadcast.
+      resolveDone()
+      executionRegistry.unregister(handle)
+    })
 }
 
 /**

@@ -311,7 +311,9 @@ export function ChatDetail({ chatId }: ChatDetailProps): React.ReactElement {
   const handleWsFrame = useCallback((frame: ChatWsFrame) => {
     // If the user stopped the run, ignore further streaming frames — the
     // bubble was already sealed by handleStop with a "(已停止)" marker.
-    if (stoppedRef.current && frame.type !== 'chat:error') return
+    // chat:cancelled still passes through so the locally-sealed bubble can
+    // adopt the gateway's persisted terminal content.
+    if (stoppedRef.current && frame.type !== 'chat:error' && frame.type !== 'chat:cancelled') return
     if (frame.type === 'chat:message') {
       // Pure updater: find the streaming bubble by `stream-` id prefix.
       // Safe under StrictMode double-invoke (no side effects inside).
@@ -415,6 +417,30 @@ export function ChatDetail({ chatId }: ChatDetailProps): React.ReactElement {
       setError(errorMessage)
       setSending(false)
       setChat((prev) => (prev ? { ...prev, status: 'failed' } : prev))
+    } else if (frame.type === 'chat:cancelled') {
+      // User-initiated cancel settled on the backend (execution-cancellation
+      // spec D6): the CLI child / in-flight fetch was actually stopped and a
+      // cancelled assistant message was persisted. Seal the bubble with the
+      // gateway's terminal content.
+      setSending(false)
+      setReconnecting(false)
+      setMessages((prev) => {
+        const target = prev.find((m) => m.id.startsWith('stream-') || m.id.startsWith('stopped-'))
+        if (target) {
+          return prev.map((m) =>
+            m.id === target.id
+              ? {
+                  ...m,
+                  id: m.id.startsWith('stream-') ? `cancelled-${Date.now()}` : m.id,
+                  content: frame.content || m.content,
+                  metadata: { ...m.metadata, cancelled: true, reason: frame.reason },
+                }
+              : m,
+          )
+        }
+        return prev
+      })
+      setChat((prev) => (prev ? { ...prev, status: 'idle' } : prev))
     }
   }, [chatId])
 
@@ -584,12 +610,18 @@ export function ChatDetail({ chatId }: ChatDetailProps): React.ReactElement {
     }
   }, [chatId, sending, selectedAgentId, connected])
 
-  // Stop the in-flight run: seal the streaming bubble with a "(已停止)"
-  // marker, clear `sending`, and set the stopped flag so further WS frames
-  // are ignored. The backend agent may keep running, but the UI is released.
+  // Stop the in-flight run: FIRST ask the gateway to actually cancel it
+  // (execution-cancellation spec D5/D6 — kills the CLI child / aborts the
+  // fetch), then seal the streaming bubble with a "(已停止)" marker locally.
+  // The gateway settles with a `chat:cancelled` WS frame whose persisted
+  // content replaces the local seal; a 409 means nothing was running, so the
+  // local seal is already the correct terminal state.
   const handleStop = useCallback(() => {
     stoppedRef.current = true
     setSending(false)
+    void fetch(`/api/chats/${chatId}/cancel`, { method: 'POST' }).catch(() => {
+      // Network failure: the local seal stands; the run finishes on its own.
+    })
     setMessages((prev) =>
       prev.map((m) =>
         m.id.startsWith('stream-')
@@ -605,7 +637,7 @@ export function ChatDetail({ chatId }: ChatDetailProps): React.ReactElement {
         m.id.startsWith('stream-') ? { ...m, id: `stopped-${Date.now()}` } : m,
       ),
     )
-  }, [t])
+  }, [t, chatId])
 
   // Retry the last user message after an error — clears ALL error/failure
   // state (chat status, error bubbles, optimistic stream bubbles), resets

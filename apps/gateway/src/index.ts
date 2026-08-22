@@ -16,6 +16,49 @@ const hostname = process.env.GATEWAY_HOST ?? '127.0.0.1'
 await initDb()
 
 /**
+ * Boot sweep (execution-cancellation spec D7 / architecture AD-6): a gateway
+ * restart kills every in-flight execution — inline CLI spawns, engine runs,
+ * HumanInput pending promises all lived in this process and nothing will ever
+ * write their terminal state. Converge the dangling DB rows so nothing stays
+ * 'running' forever: affected chats get a visible system message, runs flip
+ * to failed. ('cancelled' stays reserved for explicit user cancels.)
+ */
+async function sweepDanglingExecutions(): Promise<void> {
+  try {
+    const { records } = await runQuery<{ id: string }>(
+      `SELECT id FROM chats WHERE status = 'running'`,
+      [],
+    )
+    if (records.length > 0) {
+      for (const chat of records) {
+        await runQuery(
+          `INSERT INTO chat_messages (chat_id, role, content, created_at)
+           VALUES ($1::uuid, 'system', '执行被 gateway 重启中断（如有需要请重新发起）', NOW())`,
+          [chat.id],
+        ).catch(() => {
+          // best-effort message — the status flip below is what matters
+        })
+      }
+      await runQuery(
+        `UPDATE chats SET status = 'failed', updated_at = NOW() WHERE status = 'running'`,
+        [],
+      )
+      log.warn('boot sweep: dangling chats converged to failed', { count: records.length })
+    }
+    const { affected } = await runQuery(
+      `UPDATE runs SET status = 'failed', finished_at = NOW() WHERE status IN ('running', 'pending')`,
+      [],
+    )
+    if (affected && affected > 0) {
+      log.warn('boot sweep: dangling runs converged to failed', { count: affected })
+    }
+  } catch (err) {
+    log.warn('boot sweep failed', { error: err instanceof Error ? err.message : String(err) })
+  }
+}
+await sweepDanglingExecutions()
+
+/**
  * Daemon offline reaper — marks daemons as `offline` when their
  * `last_heartbeat_at` is older than the staleness threshold.
  *
