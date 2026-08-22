@@ -12,8 +12,8 @@
 # `synchronize: false`, so the schema only exists after `migration:run`.
 #
 # Deliberately skipped:
-#   - @dagents/e2e: boots the full gateway+daemon stack against a fake LLM and
-#     needs the wider dev environment; belongs in a heavier, separate job.
+#   - Playwright e2e: boots the full gateway+daemon stack against a fake LLM and
+#     needs the wider dev environment; lives in e2e.yml instead.
 #
 # lint runs across every workspace except @dagents/agentflow (the vendored
 # Flowise canvas ships its own ESLint config, which isn't ours to maintain).
@@ -123,4 +123,6 @@ jobs:
         run: pnpm --filter @dagents/db migration:run
 
       - name: Test
-        run: pnpm exec turbo run test --filter='!@dagents/e2e'
+        # No exclusion filter: @dagents/e2e was deleted from the workspace, and
+        # turbo errors on `--filter='!<pkg>'` for a nonexistent package.
+        run: pnpm exec turbo run test

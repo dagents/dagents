@@ -1,4 +1,4 @@
-#!/bin/sh
+#!/usr/bin/env bash
 # docker-entrypoint.sh — boots the dagents stack inside a single container.
 #
 #   1. wait for postgres to accept connections
@@ -6,6 +6,10 @@
 #   3. start gateway (Hono on :8080) in the background
 #   4. start console (Next.js standalone on :3000) in the foreground
 #   5. forward SIGTERM/SIGINT to both, then exit
+#
+# bash, not sh: `wait -n` below is a bashism — Debian slim's dash rejects it
+# ("Illegal option -n"), which took the container down right after boot.
+# node:*-slim ships bash 5.2, and wait -n only gained PID args in 5.1+.
 #
 # PIDs are tracked so the trap can tear both processes down cleanly. The
 # gateway is backgrounded and `wait`ed on so a crash in either app surfaces as
@@ -120,8 +124,7 @@ CONSOLE_PID=$!
 echo "[entrypoint] gateway pid=${GATEWAY_PID} console pid=${CONSOLE_PID}"
 
 # `wait -n` returns when *either* child exits; we then take the whole container
-# down so a crash in one app doesn't leave the other running headless. (Busybox
-# sh on node:20-slim supports `wait -n`.)
+# down so a crash in one app doesn't leave the other running headless.
 wait -n "$GATEWAY_PID" "$CONSOLE_PID"
 EXIT_CODE=$?
 echo "[entrypoint] a child exited (code=${EXIT_CODE}), shutting down the other…"

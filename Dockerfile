@@ -6,7 +6,7 @@
 #   compiled artifacts (gateway dist/, packages/*/dist/, console .next/) that
 #   the runtime stage copies over.
 # =============================================================================
-FROM node:20-slim AS builder
+FROM node:22-slim AS builder
 
 # pnpm is pinned in the root package.json via packageManager; corepack resolves
 # the exact version, so we just enable it here. (The package.json field is the
@@ -17,7 +17,19 @@ WORKDIR /app
 
 # Copy only the workspace manifests + lockfile first so the install layer is
 # cached across source changes. turbo.json is needed by `pnpm run build`.
+# EVERY workspace member's package.json must be present before install — with
+# them missing, pnpm silently installs only the root importer and the later
+# `pnpm run build` dies with "tsup: not found" (per-package devDeps absent).
 COPY package.json pnpm-lock.yaml pnpm-workspace.yaml .npmrc turbo.json ./
+COPY apps/gateway/package.json apps/gateway/
+COPY apps/console/package.json apps/console/
+COPY packages/contracts/package.json packages/contracts/
+COPY packages/shared/package.json packages/shared/
+COPY packages/db/package.json packages/db/
+COPY packages/workflow/package.json packages/workflow/
+COPY packages/agent-adapters/package.json packages/agent-adapters/
+COPY packages/daemon/package.json packages/daemon/
+COPY vendor/agentflow/package.json vendor/agentflow/
 
 # Install the entire workspace (all apps/* + packages/* + vendor/*). The
 # lockfile is committed, so --frozen-lockfile keeps the install reproducible.
@@ -41,7 +53,7 @@ RUN pnpm run build
 #   devDeps, no source, no toolchain — just node, node_modules, built artifacts,
 #   and the manifests pnpm needs at runtime (for the migration filter).
 # =============================================================================
-FROM node:20-slim AS runtime
+FROM node:22-slim AS runtime
 
 # wget is used by HEALTHCHECK; the slim image doesn't ship it.
 RUN apt-get update \
@@ -75,6 +87,13 @@ COPY --from=builder /app/vendor/agentflow/package.json ./vendor/agentflow/
 # entrypoint's migration filter).
 RUN corepack enable \
     && pnpm install --frozen-lockfile --prod
+
+# tsconfig for the runtime migrations: typeorm-ts-node-esm compiles
+# packages/db/src/*.ts on the fly, and without module:NodeNext from these
+# tsconfigs ts-node falls back to CommonJS — where data-source.ts's
+# import.meta is a hard error (TS1470).
+COPY --from=builder /app/tsconfig.base.json ./
+COPY --from=builder /app/packages/db/tsconfig.json ./packages/db/
 
 # Built artifacts.
 COPY --from=builder /app/apps/gateway/dist ./apps/gateway/dist
