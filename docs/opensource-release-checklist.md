@@ -80,3 +80,5 @@
 镜像修复后本地端到端冒烟验证通过：迁移 → gateway `/health` db:up →
 console HTTP 200。教训：**给 Docker build 也配一条 CI 路径**（至少
 `docker build --target builder`），否则镜像只在发 tag 时才第一次被构建。
+
+<!-- arch-check: docs-only commit to verify branch protection treats skipped checks as passing (will be reverted) -->
