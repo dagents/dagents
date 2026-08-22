@@ -16,12 +16,11 @@ import { createSeedContext, type SeedContext } from './helpers/seed'
  *
  * ## UC range & status summary (from gap-analysis)
  *
- *   UC-SET-01  管理 API Key        ✅ implemented  (live CRUD: /api/tokens/* → gateway → new-api)
+ *   UC-SET-01  管理 API Key        ✅ implemented  (live CRUD: LLM Provider 管理)
  *   UC-SET-02  配置默认模型        ✅ implemented  (read-only shell, shape-aligned to design)
- *   UC-SET-03  配置预算配额        ✅ implemented  (read-only shell)
+ *   UC-SET-03  用量与成本          ✅ implemented  (2026-08-22 方案 D 账单页，live /api/usage/summary)
  *   UC-SET-04  配置通知            ✅ implemented  (tab exposed, read-only shell)
- *   UC-SET-05  管理账户团队        ✅ implemented  (tab exposed, read-only shell)
- *   UC-SET-06  危险区操作          ✅ implemented  (tab exposed, read-only shell)
+ *   UC-SET-05  规划中              ✅ implemented  (2026-08-22 方案 F：原 预算配额/账户团队/危险区 三个占位 tab 收拢)
  *
  * Tally: 6 ✅ / 0 ⚠️ / 0 ❌. All six cases are real `test()`s with assertions
  * on visible elements (tab labels, tab switching, section content).
@@ -88,8 +87,13 @@ test.describe('Settings module (UC-SET-01 ~ 06)', () => {
     // the switching behavior.
     const tablist = page.getByRole('tablist', { name: '设置分组' })
     await expect(tablist).toBeVisible()
-    for (const shortName of ['LLM Provider', '默认模型', '预算配额', '通知', '账户团队', '危险区']) {
+    // 2026-08-22（方案 F）：占位 tab（预算配额/账户团队/危险区）已收拢为「规划中」，
+    // 新增真功能 tab「用量与成本」（方案 D）。
+    for (const shortName of ['LLM Provider', '默认模型', '通知', '规划中']) {
       await expect(tablist.getByRole('tab', { name: shortName, exact: true })).toBeVisible()
+    }
+    for (const removed of ['预算配额', '账户团队', '危险区']) {
+      await expect(tablist.getByRole('tab', { name: removed, exact: true })).toHaveCount(0)
     }
 
     // LLM Provider is the default active tab — aria-selected + aria-current both
@@ -148,29 +152,31 @@ test.describe('Settings module (UC-SET-01 ~ 06)', () => {
     await expect(section.getByText('1. Anthropic claude-sonnet-4', { exact: true })).toBeVisible()
   })
 
-  // ── UC-SET-03: 配置预算配额 (✅ implemented, read-only shell) ─────────────
-  test('UC-SET-03: 预算配额 tab renders platform budget + circuit-breaker rules', async ({
+  // ── UC-SET-03: 用量与成本 (✅ implemented, live billing summary) ──────────
+  test('UC-SET-03: 用量与成本 tab renders usage summary (实测账单，2026-08-22)', async ({
     page,
   }) => {
     const tablist = page.getByRole('tablist', { name: '设置分组' })
-    const quotaTab = tablist.getByRole('tab', { name: '预算配额', exact: true })
+    const usageTab = tablist.getByRole('tab', { name: '用量与成本', exact: true })
 
-    await quotaTab.click()
-    await expect(quotaTab).toHaveAttribute('aria-selected', 'true')
-    await expect(quotaTab).toHaveAttribute('aria-current', 'true')
+    await usageTab.click()
+    await expect(usageTab).toHaveAttribute('aria-selected', 'true')
+    await expect(usageTab).toHaveAttribute('aria-current', 'true')
 
-    const section = page.getByRole('region', { name: '预算与配额' })
+    const section = page.getByRole('region', { name: '用量与成本' })
     await expect(section).toBeVisible()
-    await expect(section.getByText('预算与配额', { exact: true })).toBeVisible()
 
-    // 全平台预算 card — month budget bar + 熔断阈值 marker.
-    await expect(section.getByText('全平台预算', { exact: true })).toBeVisible()
-    await expect(section.getByText('月预算', { exact: true })).toBeVisible()
-    await expect(section.getByText(/熔断阈值/)).toBeVisible()
+    // 口径说明（不回填历史）+ 实测口径的统计卡（未计价 token 单列 = 不造假原则）。
+    await expect(
+      section.getByText('按实测 token 用量与模型单价汇总的成本账单。数据自埋点上线起累计，历史执行不回填。'),
+    ).toBeVisible()
+    await expect(section.getByText('Token 用量', { exact: true })).toBeVisible()
+    await expect(section.getByText('未计价 Token', { exact: true })).toBeVisible()
 
-    // 熔断规则 card — toggle-row primitives (disabled, read-only).
-    await expect(section.getByText('熔断规则', { exact: true })).toBeVisible()
-    await expect(section.getByText('单 run 成本超 $5 暂停', { exact: true })).toBeVisible()
+    // 三个维度区块：按天 / 按 Agent / 按 Flow。
+    await expect(section.getByText('按天成本', { exact: true })).toBeVisible()
+    await expect(section.getByText('按 Agent', { exact: true })).toBeVisible()
+    await expect(section.getByText('按 Flow', { exact: true })).toBeVisible()
   })
 
   // ── UC-SET-04: 配置通知 (✅ implemented, read-only shell) ─────────────────
@@ -198,55 +204,28 @@ test.describe('Settings module (UC-SET-01 ~ 06)', () => {
     await expect(section.getByText('邮件', { exact: true })).toBeVisible()
   })
 
-  // ── UC-SET-05: 管理账户团队 (✅ implemented, read-only shell) ─────────────
-  test('UC-SET-05: 账户团队 tab renders personal KV + team member list', async ({ page }) => {
+  // ── UC-SET-05(+06): 规划中 (2026-08-22 方案 F：三个占位 tab 收拢) ─────────
+  test('UC-SET-05: 规划中 tab lists deferred areas honestly (占位假数据清零)', async ({ page }) => {
     const tablist = page.getByRole('tablist', { name: '设置分组' })
-    const accountTab = tablist.getByRole('tab', { name: '账户团队', exact: true })
+    const plannedTab = tablist.getByRole('tab', { name: '规划中', exact: true })
 
-    await accountTab.click()
-    await expect(accountTab).toHaveAttribute('aria-selected', 'true')
-    await expect(accountTab).toHaveAttribute('aria-current', 'true')
+    await plannedTab.click()
+    await expect(plannedTab).toHaveAttribute('aria-selected', 'true')
+    await expect(plannedTab).toHaveAttribute('aria-current', 'true')
 
-    const section = page.getByRole('region', { name: '账户与团队' })
+    const section = page.getByRole('region', { name: '规划中' })
     await expect(section).toBeVisible()
-    await expect(section.getByText('账户与团队', { exact: true })).toBeVisible()
 
-    // 个人 card — kv primitive (姓名 / 邮箱 / 角色 / SSO / 默认 workspace).
-    await expect(section.getByText('个人', { exact: true })).toBeVisible()
-    const personal = section.locator('.kv')
-    await expect(personal).toBeVisible()
-    await expect(personal.getByText('姓名', { exact: true })).toBeVisible()
-    await expect(personal.getByText('邮箱', { exact: true })).toBeVisible()
+    // 三个延后领域逐条可见（原 预算配额 / 账户团队 / 危险区）。
+    await expect(section.getByText('预算与配额（成本熔断 / 月度告警）')).toBeVisible()
+    await expect(section.getByText('账户与团队（多用户协作）')).toBeVisible()
+    await expect(section.getByText('危险区（暂停全部 / 数据清理）')).toBeVisible()
 
-    // 团队 card — member rows (model-row primitive) + 邀请 button (disabled).
-    await expect(section.getByText('团队 · 38 成员', { exact: true })).toBeVisible()
-    // 2026-08-19：成员行文本在 dd + tooltip 双处出现 —— 用 .first() 去歧义
-    await expect(section.getByText('饶哲', { exact: true }).first()).toBeVisible()
-    await expect(section.getByText('林敏', { exact: true }).first()).toBeVisible()
-    await expect(section.getByRole('button', { name: '邀请', exact: true })).toBeDisabled()
+    // 原占位假数据（假预算表 / 假成员名单）必须不复存在。
+    await expect(section.getByText('全平台预算')).toHaveCount(0)
+    await expect(section.getByText('团队 · 38 成员')).toHaveCount(0)
+    await expect(page.getByText('饶哲')).toHaveCount(0)
   })
 
-  // ── UC-SET-06: 危险区操作 (✅ implemented, read-only shell) ───────────────
-  test('UC-SET-06: 危险区 tab renders suspend / rotate / delete actions', async ({ page }) => {
-    const tablist = page.getByRole('tablist', { name: '设置分组' })
-    const dangerTab = tablist.getByRole('tab', { name: '危险区', exact: true })
-
-    await dangerTab.click()
-    await expect(dangerTab).toHaveAttribute('aria-selected', 'true')
-    await expect(dangerTab).toHaveAttribute('aria-current', 'true')
-
-    const section = page.getByRole('region', { name: '危险区' })
-    await expect(section).toBeVisible()
-    await expect(section.locator('.danger-zone')).toBeVisible()
-
-    // Three danger rows (toggle-row primitive) with their CTAs. All buttons
-    // are disabled today (design-aligned placeholder; wiring deferred).
-    await expect(section.getByText('暂停所有运行中的 run', { exact: true })).toBeVisible()
-    await expect(section.getByText('轮换全部令牌', { exact: true })).toBeVisible()
-    await expect(section.getByText('删除 workspace 及全部数据', { exact: true })).toBeVisible()
-
-    await expect(section.getByRole('button', { name: '暂停全部', exact: true })).toBeDisabled()
-    await expect(section.getByRole('button', { name: '轮换全部', exact: true })).toBeDisabled()
-    await expect(section.getByRole('button', { name: '删除', exact: true })).toBeDisabled()
-  })
+  // ── UC-SET-06: 危险区 → 已并入 UC-SET-05「规划中」（2026-08-22 方案 F 收拢）
 })

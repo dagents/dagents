@@ -38,15 +38,21 @@ test.describe('Flow Templates (spec-17)', () => {
     }
   })
 
-  test('catalogue lists the three builtin templates', async ({ request }) => {
+  test('catalogue lists the ten builtin templates (2026-08-22 扩充)', async ({ request }) => {
     const res = await request.get('/api/flow-templates')
     expect(res.ok()).toBe(true)
     const json = (await res.json()) as {
       data: { templates: { id: string; source: string; nodeCount: number }[] }
     }
     const builtin = json.data.templates.filter((t) => t.source === 'builtin')
-    expect(builtin.map((t) => t.id)).toEqual([
+    expect(builtin).toHaveLength(10)
+    expect(builtin.slice(0, 3).map((t) => t.id)).toEqual([
       'builtin/dev-three-step', 'builtin/research-fanout', 'builtin/content-pipeline',
+    ])
+    expect(builtin.slice(3).map((t) => t.id)).toEqual([
+      'builtin/code-review-chain', 'builtin/refactor-plan', 'builtin/bug-triage',
+      'builtin/tech-comparison', 'builtin/docs-readme', 'builtin/translate-localize',
+      'builtin/release-checklist',
     ])
     expect(builtin.every((t) => t.nodeCount >= 3)).toBe(true)
   })
@@ -184,9 +190,10 @@ test.describe('Flow Templates (spec-17)', () => {
     await page.goto('/flows')
     await page.getByRole('button', { name: '从模板创建' }).click()
     const gallery = page.getByRole('dialog', { name: '从模板创建工作流' })
-    await gallery.getByRole('tab', { name: '团队场景' }).click()
-    // 团队场景目录是静态的（6 个），成员可解析性不影响卡片渲染。
-    await expect(gallery.getByRole('button', { name: '查看团队场景 创业 MVP 构建' })).toBeVisible()
-    await expect(gallery.getByRole('button', { name: '查看团队场景 产品发现（并行）' })).toBeVisible()
+    // 2026-08-22（方案 F）：「团队场景」更名「虚拟团队」（单人指挥多 Agent，消除多人协作预期）。
+    await gallery.getByRole('tab', { name: '虚拟团队' }).click()
+    // 虚拟团队目录是静态的（6 个），成员可解析性不影响卡片渲染。
+    await expect(gallery.getByRole('button', { name: '查看虚拟团队场景 创业 MVP 构建' })).toBeVisible()
+    await expect(gallery.getByRole('button', { name: '查看虚拟团队场景 产品发现（并行）' })).toBeVisible()
   })
 })
