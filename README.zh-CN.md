@@ -11,6 +11,8 @@
 
 [English](./README.md) · [简体中文](./README.zh-CN.md)
 
+<img src="docs/assets/console-home.png" alt="Dagents 控制台 —— 聊天主页" width="820">
+
 </div>
 
 ---

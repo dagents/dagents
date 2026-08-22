@@ -12,6 +12,8 @@ Chat with `claude`, `codex`, and 15+ other CLI agents from one place · compose 
 
 [English](./README.md) · [简体中文](./README.zh-CN.md)
 
+<img src="docs/assets/console-home.png" alt="Dagents console — chat home" width="820">
+
 </div>
 
 ---
