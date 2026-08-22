@@ -2,6 +2,7 @@ import { Hono, type Context } from 'hono'
 import { runQuery } from '@dagents/db'
 import { createLogger } from '@dagents/shared'
 import { decryptSecret } from '../crypto.js'
+import { LLM_HTTP_TIMEOUT_MS } from './workflow-clients.js'
 
 export const llmRoutes = new Hono()
 
@@ -123,7 +124,25 @@ llmRoutes.all('/*', async (c) => {
 
   let upstream: Response
   try {
-    upstream = await fetch(upstreamUrl, { method, headers: fwdHeaders, body })
+    // Time-to-headers budget only: a hung upstream that never responds with
+    // headers aborts here. The timer is cleared once headers arrive so long
+    // legitimate SSE streams are never cut mid-body; client disconnects
+    // propagate via c.req.raw.signal to cancel the upstream body.
+    const controller = new AbortController()
+    const timer = setTimeout(
+      () => controller.abort(new Error(`llm upstream timeout after ${LLM_HTTP_TIMEOUT_MS}ms`)),
+      LLM_HTTP_TIMEOUT_MS,
+    )
+    c.req.raw.signal.addEventListener(
+      'abort',
+      () => controller.abort(new Error('client disconnected')),
+      { once: true },
+    )
+    try {
+      upstream = await fetch(upstreamUrl, { method, headers: fwdHeaders, body, signal: controller.signal })
+    } finally {
+      clearTimeout(timer)
+    }
   } catch (err) {
     log.error('llm upstream failed', { path: rest, method, providerId: provider.id, error: String(err) })
     return fail(c, 502, 'upstream unavailable')

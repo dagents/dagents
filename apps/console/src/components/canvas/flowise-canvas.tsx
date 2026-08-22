@@ -5,7 +5,9 @@
 import { useCallback, useMemo, useRef, useState } from 'react'
 import { Agentflow } from '@dagents/agentflow'
 import type { AgentFlowInstance, FlowData, HeaderRenderProps } from '@dagents/agentflow'
-import { getNodeMeta } from '@dagents/workflow'
+import { getNodeMeta, validateFlowTopology } from '@dagents/workflow'
+import { useToast } from '@/components/toast'
+import { useI18n } from '@/i18n'
 // flowise.css 是 vendor 画布的基础样式（节点 max-content 尺寸规则 + React Flow
 // 定位/handle/edge 基类），canvas.css 只在其上做主题变量覆盖。此前 base 缺失，
 // 节点量不出尺寸 → React Flow 永久 visibility:hidden → 边被静默丢弃，
@@ -123,6 +125,19 @@ export function convertToFlowiseFormat(initialFlow: FlowiseCanvasProps['initialF
   }
 }
 
+/**
+ * 拓扑问题清单 → toast 文案片段：展示前 limit 条原文（校验器消息含节点 id），
+ * 超出部分折叠为「等 {n} 条」计数。
+ */
+function formatTopologyIssues(
+  issues: ReadonlyArray<{ message: string }>,
+  limit: number,
+  t: (key: string, params?: Record<string, string | number>) => string,
+): string {
+  const shown = issues.slice(0, limit).map((issue) => issue.message).join('；')
+  return issues.length > limit ? `${shown} …${t('等 {n} 条', { n: issues.length })}` : shown
+}
+
 export function FlowiseCanvas({
   flowId,
   flowName = 'Untitled',
@@ -132,6 +147,8 @@ export function FlowiseCanvas({
 }: FlowiseCanvasProps): React.ReactElement {
   const agentflowRef = useRef<AgentFlowInstance>(null)
   const [saveState, setSaveState] = useState<'idle' | 'saving' | 'saved' | 'error'>('idle')
+  const toast = useToast()
+  const { t } = useI18n()
 
   const initialFlowData = useMemo(
     () => convertToFlowiseFormat(initialFlow),
@@ -141,12 +158,34 @@ export function FlowiseCanvas({
 
   const handleSave = useCallback(
     async (flowData: FlowData) => {
+      // 保存前拓扑干跑（docs/product-plan.md 方案 A4）：errors=不可执行 /
+      // warnings=可疑，全部不阻断保存 —— 尊重草稿自由，把「执行时才爆炸」
+      // 提前到「保存时就看见」。校验器是 @dagents/workflow 的 AD-2 单源
+      // 实现，vendor 画布形状（data.name 优先、type 回退）直接喂即可。
+      const topology = validateFlowTopology(flowData)
+      // 保存成功后才提示 —— PUT 失败时说「已保存」会误导。
+      // 全干净不提示：保存按钮已有「已保存 ✓」状态反馈，不重复。
+      const notifyTopologyAfterSave = () => {
+        if (!topology.ok) {
+          toast.error(
+            `${t('已保存，但该流程当前无法运行')}：${formatTopologyIssues(topology.errors, 3, t)}`,
+            8000,
+          )
+        } else if (topology.warnings.length > 0) {
+          toast.warning(
+            `${t('已保存，流程有可疑之处')}：${formatTopologyIssues(topology.warnings, 2, t)}`,
+            6000,
+          )
+        }
+      }
+
       // 优先使用外部 onSave，否则走默认持久化逻辑（PUT /api/workflows/:id）
       if (onSave) {
         setSaveState('saving')
         try {
           await onSave(flowData)
           setSaveState('saved')
+          notifyTopologyAfterSave()
           setTimeout(() => setSaveState('idle'), 2000)
         } catch {
           setSaveState('error')
@@ -166,6 +205,7 @@ export function FlowiseCanvas({
           throw new Error(`保存失败: ${res.status}`)
         }
         setSaveState('saved')
+        notifyTopologyAfterSave()
         setTimeout(() => setSaveState('idle'), 2000)
       } catch (err) {
         console.error('保存工作流失败:', err)
@@ -173,7 +213,7 @@ export function FlowiseCanvas({
         setTimeout(() => setSaveState('idle'), 3000)
       }
     },
-    [onSave, flowId],
+    [onSave, flowId, toast, t],
   )
 
   // 自定义 header：显示真实 flowName + 美观的 Save 按钮（带状态反馈）

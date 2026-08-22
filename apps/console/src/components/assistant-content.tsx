@@ -28,6 +28,7 @@ import { Fragment, memo, useEffect, useRef, useState } from 'react'
 import { Icon } from '@/components/icon'
 import { CodeBlock } from '@/components/code-block'
 import { ToolCallCard } from '@/components/tool-call-card'
+import { FlowPreviewCard, parseWorkflowSuccessMessage } from '@/components/flow-preview-card'
 import {
   classifyTool,
   extractSummary,
@@ -258,7 +259,23 @@ interface AssistantContentProps {
 }
 
 export function AssistantContent({ content, streaming, meta }: AssistantContentProps): React.ReactElement {
-  const { t } = useI18n()
+  // @workflow 生成成功消息 → 结构化预览卡（docs/product-plan.md 方案 A3）。
+  // gateway 的 persistComplete 不支持自定义 metadata，这里解析消息 markdown
+  // 识别（格式由 routeWorkflowCommand 生成，稳定）；仅在消息完整（非流式）
+  // 时判定，避免半截内容误命中。chat-detail 与 floating-chat 共用本组件，
+  // 两处一起升级。
+  if (!streaming) {
+    const workflowInfo = parseWorkflowSuccessMessage(content)
+    if (workflowInfo) {
+      return (
+        <div className="assistant-content">
+          <FlowPreviewCard info={workflowInfo} />
+          {meta ? <UsageFooter meta={meta} /> : null}
+        </div>
+      )
+    }
+  }
+
   const segments = parseAssistantContent(content)
 
   // No segments parsed (e.g. empty content or only whitespace) → render

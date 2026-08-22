@@ -2,6 +2,7 @@ import { describe, it, expect, vi, beforeEach, afterEach } from 'vitest'
 import { render, screen, waitFor } from '@testing-library/react'
 import userEvent from '@testing-library/user-event'
 import { convertToFlowiseFormat, FlowiseCanvas } from './flowise-canvas'
+import { ToastProvider } from '@/components/toast'
 
 // Mock @dagents/agentflow so we don't need React Flow / MUI in jsdom.
 const mockAgentflow = vi.fn()
@@ -221,5 +222,83 @@ describe('FlowiseCanvas', () => {
     )
 
     fetchSpy.mockRestore()
+  })
+})
+
+// ─── 保存拓扑干跑（docs/product-plan.md 方案 A4）────────────────────────
+// 保存前 validateFlowTopology，errors/warnings 通过 toast 反馈且不阻断保存。
+// 这里不走 header 按钮绕道（mock 里 onSave 被硬编码喂空图），直接从 mock
+// 收集到的 props 里调 onSave，喂入构造的 flowData 验证 toast 分支。
+// 不用 fake timers —— toast 的自动消失计时器用真实时间即可。
+describe('FlowiseCanvas topology dry-run', () => {
+  afterEach(() => {
+    vi.clearAllMocks()
+  })
+
+  /** 渲染后取 mock Agentflow 收到的 onSave 回调。 */
+  function renderAndGetSave(): (data: unknown) => Promise<void> {
+    render(
+      <ToastProvider>
+        <FlowiseCanvas
+          flowId='flow-1'
+          flowName='Test Flow'
+          initialFlow={{ nodes: [], edges: [] }}
+          onSave={vi.fn().mockResolvedValue(undefined)}
+        />
+      </ToastProvider>,
+    )
+    const props = mockAgentflow.mock.calls[0][0] as { onSave: (data: unknown) => Promise<void> }
+    return props.onSave
+  }
+
+  it('toasts a non-blocking error when the saved flow cannot run', async () => {
+    const onSave = renderAndGetSave()
+
+    // 无 startAgentflow + 边悬空 → errors
+    await onSave({
+      nodes: [
+        { id: 'n1', type: 'agentflowNode', data: { name: 'llmAgentflow' } },
+        { id: 'n2', type: 'agentflowNode', data: { name: 'llmAgentflow' } },
+      ],
+      edges: [{ id: 'e1', source: 'n1', target: 'missing' }],
+    })
+
+    expect(
+      await screen.findByText(/已保存，但该流程当前无法运行/),
+    ).toBeInTheDocument()
+    // 错误详情（前 3 条）也随 toast 展示
+    expect(screen.getByText(/flow has no startAgentflow node/)).toBeInTheDocument()
+  })
+
+  it('toasts a warning (no error) when the flow only has suspicious nodes', async () => {
+    const onSave = renderAndGetSave()
+
+    // platformAgent 无 agentId → warning；结构本身可执行
+    await onSave({
+      nodes: [
+        { id: 'start', type: 'agentflowNode', data: { name: 'startAgentflow' } },
+        { id: 'pa', type: 'agentflowNode', data: { name: 'platformAgentAgentflow', inputs: {} } },
+      ],
+      edges: [{ id: 'e1', source: 'start', target: 'pa' }],
+    })
+
+    expect(await screen.findByText(/已保存，流程有可疑之处/)).toBeInTheDocument()
+    expect(screen.getByText(/platform agent node "pa" has no agentId/)).toBeInTheDocument()
+    expect(screen.queryByText(/已保存，但该流程当前无法运行/)).not.toBeInTheDocument()
+  })
+
+  it('stays quiet on a clean flow — save button feedback is enough', async () => {
+    const onSave = renderAndGetSave()
+
+    await onSave({
+      nodes: [
+        { id: 'start', type: 'agentflowNode', data: { name: 'startAgentflow' } },
+        { id: 'llm', type: 'agentflowNode', data: { name: 'llmAgentflow' } },
+      ],
+      edges: [{ id: 'e1', source: 'start', target: 'llm' }],
+    })
+
+    await waitFor(() => expect(screen.getByRole('button', { name: '已保存 ✓' })).toBeInTheDocument())
+    expect(screen.queryByText(/已保存，/)).not.toBeInTheDocument()
   })
 })

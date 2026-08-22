@@ -31,6 +31,14 @@ export const chat: Record<string, string> = {
   '多次失败，请检查 Agent 配置（已重试 {n} 次）':
     'Failed repeatedly — please check the agent configuration (retried {n} times)',
 
+  // ── flow-preview-card（@workflow 生成成功预览卡） ──
+  '工作流已创建': 'Workflow created',
+  '引擎 {engine}': 'engine {engine}',
+  '自动修复 {n} 轮后通过': 'passed after {n} repair round(s)',
+  '打开画布': 'Open canvas',
+  '去 Flows 运行': 'Run in Flows',
+  'AI 生成的工作流': 'AI-generated workflow',
+
   // ── chat-context-panel（上下文面板） ──
   '所属目录': 'Directory',
   '绑定 Agent': 'Bound agent',

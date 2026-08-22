@@ -83,6 +83,8 @@ export interface CliChatParams {
   messages: { role: string; content: string }[]
   temperature?: number
   tools?: IToolSchema[]
+  /** Cancellation signal (spec D3): aborts the HTTP fetch / kills the CLI child. */
+  signal?: AbortSignal
 }
 
 /**
@@ -110,6 +112,14 @@ export function buildCliMessages(messages: { role: string; content: string }[]):
 export const CLI_LLM_TIMEOUT_MS = 180_000
 
 /**
+ * Timeout (ms) for HTTP LLM calls: non-stream `chat` gets it as a total
+ * wall-clock budget; `chatStream` uses it as first-byte + inter-chunk idle
+ * watchdog so long legitimate streams are never cut mid-flight, only hung
+ * upstreams are. Env-tunable.
+ */
+export const LLM_HTTP_TIMEOUT_MS = Number(process.env.LLM_HTTP_TIMEOUT_MS ?? 120_000)
+
+/**
  * CLI-backed llmClient — the CLI-first baseline for workflow execution.
  *
  * First-class-CLI principle: local CLI agents (claude by default) are the
@@ -126,6 +136,7 @@ export function createCliLlmClient(kind: AgentType = 'claude') {
       const session = backend.execute(prompt, {
         systemPrompt,
         timeoutMs: CLI_LLM_TIMEOUT_MS,
+        signal: params.signal,
       })
       let text = ''
       for await (const evt of session.events as AsyncIterable<AgentEvent>) {
@@ -215,14 +226,24 @@ interface HttpLlmClient {
     model: string
     messages: IChatMessage[]
     temperature?: number
+    signal?: AbortSignal
   }): AsyncIterable<IChatStreamChunk>
 }
 
-export function createLlmClient(): HttpLlmClient {
+export function createLlmClient(
+  override: { providerId?: string; model?: string } = {},
+): HttpLlmClient {
   return {
     async chat(params) {
-      const { url, headers, body } = await prepareRequest(params, false)
-      const res = await fetch(url, { method: 'POST', headers, body })
+      const { url, headers, body } = await prepareRequest(params, false, override)
+      const res = await fetch(url, {
+        method: 'POST',
+        headers,
+        body,
+        signal: params.signal
+          ? AbortSignal.any([AbortSignal.timeout(LLM_HTTP_TIMEOUT_MS), params.signal])
+          : AbortSignal.timeout(LLM_HTTP_TIMEOUT_MS),
+      })
 
       if (!res.ok) {
         const errText = await res.text().catch(() => '')
@@ -267,8 +288,33 @@ export function createLlmClient(): HttpLlmClient {
     },
 
     async *chatStream(params): AsyncGenerator<IChatStreamChunk> {
-      const { url, headers, body } = await prepareRequest(params, true)
-      const res = await fetch(url, { method: 'POST', headers, body })
+      const { url, headers, body } = await prepareRequest(params, true, override)
+      // Idle watchdog: fires when no byte arrives within the budget — covers
+      // both a hung upstream (no first byte) and a stream stalled mid-flight.
+      // Every chunk read re-arms the timer, so long healthy streams survive.
+      const controller = new AbortController()
+      let idleTimer: ReturnType<typeof setTimeout> | undefined
+      const armIdle = () => {
+        if (idleTimer) clearTimeout(idleTimer)
+        idleTimer = setTimeout(
+          () => controller.abort(new Error(`LLM stream idle for over ${LLM_HTTP_TIMEOUT_MS}ms`)),
+          LLM_HTTP_TIMEOUT_MS,
+        )
+      }
+      armIdle() // covers time-to-headers — a hung upstream never sends headers
+      let res: Response
+      try {
+        res = await fetch(url, {
+          method: 'POST',
+          headers,
+          body,
+          signal: params.signal
+            ? AbortSignal.any([controller.signal, params.signal])
+            : controller.signal,
+        })
+      } finally {
+        if (idleTimer) clearTimeout(idleTimer)
+      }
 
       if (!res.ok) {
         const errText = await res.text().catch(() => '')
@@ -285,9 +331,11 @@ export function createLlmClient(): HttpLlmClient {
       const decoder = new TextDecoder()
       let buffer = ''
 
+      armIdle() // headers→first-chunk gap
       try {
         for (;;) {
           const { done, value } = await reader.read()
+          armIdle() // healthy traffic keeps re-arming; silence trips the abort
           if (done) break
           buffer += decoder.decode(value, { stream: true })
 
@@ -323,6 +371,7 @@ export function createLlmClient(): HttpLlmClient {
           }
         }
       } finally {
+        if (idleTimer) clearTimeout(idleTimer)
         reader.releaseLock()
       }
     },
@@ -338,15 +387,29 @@ async function prepareRequest(
     tools?: IToolSchema[]
   },
   stream: boolean,
+  override: { providerId?: string; model?: string } = {},
 ): Promise<{ url: string; headers: Record<string, string>; body: string }> {
-  const provider = await getActiveProvider()
+  // Explicit provider override (canvas generator picking `providerId::model`):
+  // bypass the active-provider cache and read that row directly.
+  let provider: LlmProviderRow | null
+  if (override.providerId) {
+    const { records } = await runQuery<LlmProviderRow>(
+      `SELECT id, base_url, api_key, default_model, provider_type
+         FROM llm_providers
+        WHERE id = $1`,
+      [override.providerId],
+    )
+    provider = records[0] ?? null
+  } else {
+    provider = await getActiveProvider()
+  }
   if (!provider) {
     throw new Error(
       'No active LLM provider configured. Add one in the LLM Providers settings.',
     )
   }
 
-  const model = params.model || provider.default_model
+  const model = override.model || params.model || provider.default_model
   if (!model) {
     throw new Error('No model specified and provider has no default model')
   }

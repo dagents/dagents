@@ -3,20 +3,20 @@ import type { ContentfulStatusCode } from 'hono/utils/http-status'
 import { randomUUID } from 'node:crypto'
 import { runQuery } from '@dagents/db'
 import { createLogger } from '@dagents/shared'
-import { DagExecutor, NodeRegistry, allNodes, CANVAS_NODES, type FlowData } from '@dagents/workflow'
+import { DagExecutor, NodeRegistry, allNodes, type FlowData } from '@dagents/workflow'
 import { executeInline, INLINE_SUPPORTED_KINDS } from '../inline-executor.js'
 import { persistComplete } from './internal-runs-helpers.js'
 import { enqueueTask } from './dispatch/service.js'
 import {
-  createLlmClient,
-  createCliLlmClient,
   createDefaultLlmClient,
   createAgentFetcher,
   createBuiltInToolRegistry,
   createHistoryRetriever,
   resetProviderCache,
 } from './workflow-clients.js'
-import { skillsRegistry } from '../skills-registry.js'
+import { generateFlow, attachFlowIdToAttempt } from './flow-generator.js'
+import { executionRegistry, type ExecutionHandle } from '../execution-registry.js'
+import { persistCancelled } from './internal-runs-helpers.js'
 
 const log = createLogger({ svc: 'gateway:chat-execute' })
 
@@ -426,6 +426,23 @@ async function routeFlowCommand(
 
   const runId = randomUUID()
 
+  // Cancellation handle (spec D4): @flow executions register like inline ones,
+  // keyed by chat — POST /chats/:id/cancel aborts the engine signal.
+  const abort = new AbortController()
+  let resolveDone!: () => void
+  const done = new Promise<void>((resolve) => {
+    resolveDone = resolve
+  })
+  const handle: ExecutionHandle = {
+    chatId,
+    runId,
+    kind: 'chat-flow',
+    startedAt: Date.now(),
+    abort: (reason?: string) => abort.abort(new Error(reason ?? 'cancelled by caller')),
+    done,
+  }
+  executionRegistry.register(handle)
+
   // Fire-and-forget execution — persistComplete writes the assistant message
   // and pushes chat:done via wsHub when finished. We don't await here so the
   // HTTP response returns immediately with the ack.
@@ -481,6 +498,7 @@ async function routeFlowCommand(
         state: {},
         isLastNode: true,
         startInput: cmd.message,
+        signal: abort.signal,
         llmClient,
         agentFetcher,
         toolRegistry,
@@ -488,6 +506,15 @@ async function routeFlowCommand(
       })
 
       const durationMs = Date.now() - startedAt
+      if (result.status === 'cancelled') {
+        await persistCancelled({
+          chatId,
+          runId,
+          durationMs,
+          reason: 'user cancelled',
+        })
+        return
+      }
       if (result.status === 'success') {
         // finalOutput is Record<string, unknown> | null — extract a string
         // for chat rendering. DirectReply nodes emit { content: string };
@@ -539,6 +566,13 @@ async function routeFlowCommand(
       }
     }
   })()
+    .catch((err) => {
+      log.error('routeFlowCommand async loop crashed', { chatId, runId, error: String(err) })
+    })
+    .finally(() => {
+      resolveDone()
+      executionRegistry.unregister(handle)
+    })
 
   return {
     mode: 'json',
@@ -554,69 +588,11 @@ async function routeFlowCommand(
 }
 
 /**
- * Build the workflow-generator system prompt. Exported for unit tests.
- *
- * CLI-first: generation runs on the local CLI by default (same execution
- * mechanism as chat), with an HTTP provider only as fallback insurance.
- * The prompt carries the REAL platform inventories — agents (so "claude a
- * 做规划" maps to a platformAgentAgentflow node with the agent's UUID) and
- * installed skills — because a generator that can only invent anonymous LLM
- * nodes cannot orchestrate what the platform actually has.
- */
-export function buildWorkflowGeneratorPrompt(
-  userDesc: string,
-  agents: { id: string; name: string; kind: string; summary: string }[],
-  skills: { name: string; description: string }[],
-): string {
-  const nodeNames = CANVAS_NODES.map((n) => `${n.name} (${n.label})`).join(', ')
-  // 防御性上限（docs/agent-library.md D1）：agents 表只装「已启用」的人格，
-  // 正常规模远低于此；cap 防的是用户手动激活数百个的极端情况 —— 与 skills
-  // 的 40 条上限同思路，宁可让生成器少看到几个 agent，也不能撑爆生成 prompt。
-  const MAX_GENERATOR_AGENTS = 80
-  const listedAgents = agents.slice(0, MAX_GENERATOR_AGENTS)
-  const omittedAgents = agents.length - listedAgents.length
-  const agentLines = listedAgents.length
-    ? listedAgents.map((a) => `- ${a.name} | kind=${a.kind} | id=${a.id}${a.summary ? ` | ${a.summary.slice(0, 80)}` : ''}`).join('\n') +
-      (omittedAgents > 0 ? `\n(... ${omittedAgents} more agents omitted — pick from the list above only)` : '')
-    : '(no agents registered — do not use platformAgentAgentflow)'
-  const skillLines = skills.length
-    ? skills.slice(0, 40).map((s) => `- ${s.name}: ${s.description.slice(0, 80)}`).join('\n')
-    : '(no skills installed)'
-  return `You are a workflow designer for the Dagents platform.
-Given a user's description, generate a valid FlowData JSON object with "nodes" and "edges" arrays.
-
-Available node types (use these EXACT values in data.name):
-${nodeNames}
-
-Platform agents (for platformAgentAgentflow nodes, set data.inputs.agentId to the agent's id):
-${agentLines}
-
-Installed skills (agents may reference these; skills influence instructions, not node config):
-${skillLines}
-
-Rules:
-- Every flow MUST start with a node whose data.name is "startAgentflow"
-- Use unique node ids like "node_1", "node_2", etc.
-- Each node MUST have: id, type: "customNode", position: {x, y}, data: { name, label, ...config }
-- When the user mentions an agent/role doing work (e.g. "claude a 做需求规划"), use a platformAgentAgentflow node bound to the matching agent id above
-- Every platformAgentAgentflow node MUST set data.inputs.systemPrompt to a concrete, self-contained task instruction for THAT step's role (in the user's language): what this role is responsible for, what input it receives, and what deliverable it must produce. Never rely on the node label alone — the label is display-only and never reaches the model.
-- For LLM nodes (data.name: "llmAgentflow"), set data.model and data.systemPrompt
-- For DirectReply nodes (data.name: "directReplyAgentflow"), set data.content
-- Position nodes in a left-to-right layout with ~250px spacing
-- Return ONLY the JSON object, no markdown fences, no explanation
-
-User description:
-${userDesc}
-
-Example structure:
-{"nodes":[{"id":"node_1","type":"customNode","position":{"x":0,"y":200},"data":{"name":"startAgentflow","label":"Start"}},{"id":"node_2","type":"customNode","position":{"x":250,"y":200},"data":{"name":"platformAgentAgentflow","label":"规划","inputs":{"agentId":"<uuid from the list above>","systemPrompt":"你是需求规划角色。根据上游输入梳理目标与约束，产出结构化的需求规划（目标、范围、验收标准）。"}}},{"id":"node_3","type":"customNode","position":{"x":500,"y":200},"data":{"name":"directReplyAgentflow","label":"Direct Reply","content":"Done"}}],"edges":[{"id":"edge_1","source":"node_1","target":"node_2"},{"id":"edge_2","source":"node_2","target":"node_3"}]}`
-}
-
-/**
- * Route a @workflow command. CLI-first: the flow JSON is generated by the
- * local CLI (same zero-config path as chat); an HTTP provider is only used
- * as fallback insurance when the CLI spawn fails. The result is persisted as
- * a new flow and pushed via `persistComplete` → WebSocket `chat:done`.
+ * Route a @workflow command through the unified generation pipeline
+ * (`routes/flow-generator.ts` — the same service the canvas GenerateFlowDialog
+ * proxies). Success persists a validated draft flow + canvas link; failure is
+ * EXPLICIT — the old silent three-node fallback template is gone
+ * (docs/product-plan.md 方案 A1/A2：静默降级率必须为 0).
  */
 async function routeWorkflowCommand(
   chatId: string,
@@ -630,110 +606,74 @@ async function routeWorkflowCommand(
   void (async () => {
     const startedAt = Date.now()
     try {
-      // 1. Real platform inventories so the generator maps roles to agents.
-      const [{ records: agentRows }, skills] = await Promise.all([
-        runQuery<{ id: string; name: string; kind: string; summary: string }>(
-          `SELECT id, name, kind, summary FROM agents ORDER BY name`,
-          [],
-        ),
-        Promise.resolve(
-          skillsRegistry.list().map(({ name, description }) => ({ name, description })),
-        ),
-      ])
-      const systemPrompt = buildWorkflowGeneratorPrompt(userDesc, agentRows, skills)
+      const result = await generateFlow({ userDesc, source: 'chat', chatId })
 
-      // 2. Generate the flow JSON — CLI first, HTTP provider as insurance.
-      const messages = [
-        { role: 'system', content: systemPrompt },
-        { role: 'user', content: userDesc },
-      ]
-      let llmResult: { text: string }
-      try {
-        llmResult = await createCliLlmClient('claude').chat({ model: '', messages })
-      } catch (cliErr) {
-        log.warn('workflow generation via CLI failed, trying HTTP provider', {
-          chatId, runId, error: String(cliErr),
+      if (result.status === 'failed') {
+        const hint =
+          result.stage === 'validation'
+            ? '生成的内容未通过结构校验（已自动修复一轮）。可以直接重试一次，或换一个更具体的描述。'
+            : '生成引擎调用失败。请确认本机 CLI 可用，或在 设置 → LLM Provider 配置 Provider 后重试。'
+        const detail = result.validationErrors?.length
+          ? `\n\n**校验问题**:\n${result.validationErrors.map((e) => `- ${e}`).join('\n')}`
+          : `\n\n> ${result.error}`
+        await persistComplete({
+          chatId,
+          runId,
+          output: `❌ 工作流生成失败，本次没有创建任何流程。\n\n${hint}${detail}`,
+          status: 'failed',
+          durationMs: Date.now() - startedAt,
         })
-        llmResult = await createLlmClient().chat({
-          model: '',
-          messages,
-          temperature: 0.7,
-        })
+        return
       }
 
-      // 3. Parse the generated JSON
-      let flowData: FlowData
-      try {
-        // Strip markdown fences if present
-        const cleaned = llmResult.text
-          .replace(/^```(?:json)?\s*/i, '')
-          .replace(/\s*```\s*$/, '')
-          .trim()
-        flowData = JSON.parse(cleaned) as FlowData
-
-        // Basic validation
-        if (!Array.isArray(flowData.nodes) || !Array.isArray(flowData.edges)) {
-          throw new Error('missing nodes or edges arrays')
-        }
-        if (flowData.nodes.length === 0) {
-          throw new Error('empty nodes array')
-        }
-      } catch (parseErr) {
-        log.warn('routeWorkflowCommand LLM output parse failed, using fallback', {
-          chatId, runId, error: String(parseErr),
-          rawOutput: llmResult.text.slice(0, 300),
-        })
-        // Fallback: minimal Start → LLM → DirectReply
-        flowData = {
-          nodes: [
-            { id: 'node_1', type: 'customNode', position: { x: 0, y: 200 }, data: { name: 'startAgentflow', label: 'Start' } },
-            { id: 'node_2', type: 'customNode', position: { x: 250, y: 200 }, data: { name: 'llmAgentflow', label: 'LLM', model: '', systemPrompt: userDesc } },
-            { id: 'node_3', type: 'customNode', position: { x: 500, y: 200 }, data: { name: 'directReplyAgentflow', label: 'Direct Reply', content: '' } },
-          ],
-          edges: [
-            { id: 'edge_1', source: 'node_1', target: 'node_2' },
-            { id: 'edge_2', source: 'node_2', target: 'node_3' },
-          ],
-        }
-      }
-
-      // 4. Generate a flow name from the user description
+      // Persist the validated flow as a draft.
       const flowName = userDesc.slice(0, 40).trim() || 'AI生成的工作流'
-
-      // 5. Persist to DB
       const { records } = await runQuery<{ id: string }>(
         `INSERT INTO flows (name, description, flow_data, status)
          VALUES ($1, $2, $3, 'draft')
          RETURNING id`,
-        [flowName, `由聊天 @workflow 命令生成: ${userDesc}`, JSON.stringify(flowData)],
+        [flowName, `由聊天 @workflow 命令生成: ${userDesc}`, JSON.stringify(result.flowData)],
       )
       const flowId = records[0]?.id
+      if (!flowId) throw new Error('flow insert returned no id')
 
-      if (!flowId) {
-        throw new Error('flow insert returned no id')
-      }
+      if (result.attemptId) await attachFlowIdToAttempt(result.attemptId, flowId)
 
-      log.info('routeWorkflowCommand flow created', { chatId, runId, flowId, nodeCount: flowData.nodes.length })
+      log.info('routeWorkflowCommand flow created', {
+        chatId,
+        runId,
+        flowId,
+        nodeCount: result.flowData.nodes.length,
+        engine: result.engineUsed,
+        repairRounds: result.repairRounds,
+      })
 
-      // 6. Reply in chat with canvas link
-      const nodeCount = flowData.nodes.length
       const canvasUrl = `/workflows/${flowId}/canvas`
-      const output = [
-        `✅ 工作流已创建！`,
+      const lines = [
+        `✅ 工作流已创建（已通过结构校验）！`,
         ``,
         `**名称**: ${flowName}`,
-        `**节点数**: ${nodeCount}`,
-        `**描述**: ${userDesc}`,
+        `**节点数**: ${result.flowData.nodes.length}`,
+        `**引擎**: ${result.engineUsed}${result.repairRounds > 0 ? `（自动修复 ${result.repairRounds} 轮后通过）` : ''}`,
         ``,
         `👉 [打开画布编辑](${canvasUrl})`,
         ``,
         `你可以在画布中调整节点参数，然后点击"发布"来运行它。`,
-      ].join('\n')
+      ]
+      if (result.droppedNodes.length > 0) {
+        lines.push(
+          ``,
+          `⚠️ 生成结果中有 ${result.droppedNodes.length} 个无法识别的节点被丢弃（${result.droppedNodes.join(', ')}），建议在画布中检查补齐。`,
+        )
+      }
+      for (const w of result.warnings) {
+        lines.push(``, `⚠️ ${w.message}`)
+      }
 
       await persistComplete({
         chatId,
         runId,
-        output,
+        output: lines.join('\n'),
         status: 'completed',
         durationMs: Date.now() - startedAt,
       })
@@ -743,7 +683,7 @@ async function routeWorkflowCommand(
         await persistComplete({
           chatId,
           runId,
-          output: `工作流创建失败: ${String(err)}`,
+          output: `❌ 工作流创建失败: ${String(err)}`,
           status: 'failed',
           durationMs: Date.now() - startedAt,
         })

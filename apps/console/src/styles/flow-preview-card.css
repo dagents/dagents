@@ -1,0 +1,148 @@
+/* ─── FlowPreviewCard — @workflow 生成成功的结构化预览卡 ────────────────
+   视觉语言对齐 chat-error-card（成功方向）：左侧 3px 成功色竖条 + 卡片式
+   容器 + 头部图标标题 + meta 行 + 操作按钮。按钮沿用 chat-error-retry
+   的 pill 形态（primary 实底 accent / secondary 幽灵），保证在
+   chat-detail 与 floating-chat 两个宿主里观感一致。 */
+
+.flow-preview-card {
+  max-width: 100%;
+  width: 100%;
+  padding: var(--space-3) var(--space-4);
+  border: 1px solid color-mix(in oklab, var(--success), transparent 55%);
+  border-left: 3px solid var(--success);
+  border-radius: var(--radius-md);
+  background: var(--success-soft);
+  display: flex;
+  flex-direction: column;
+  gap: var(--space-2);
+  animation: flow-preview-card-in var(--motion-base) var(--ease-out-quint) both;
+}
+
+/* 自带 keyframes — 卡片也会渲染在 floating-chat（不引入 chat-detail.css）。 */
+@keyframes flow-preview-card-in {
+  from {
+    opacity: 0;
+    transform: translateY(4px);
+  }
+  to {
+    opacity: 1;
+    transform: translateY(0);
+  }
+}
+
+.flow-preview-card-header {
+  display: flex;
+  align-items: center;
+  gap: var(--space-2);
+  color: var(--success);
+}
+
+.flow-preview-card-title {
+  font-size: var(--text-sm);
+  font-weight: 600;
+}
+
+/* 修复轮徽标 — 推到右侧、弱化为次要信息（通过 ≠ 一把过）。 */
+.flow-preview-card-repair {
+  margin-left: auto;
+  padding: 2px var(--space-2);
+  border-radius: var(--radius-pill);
+  border: 1px solid color-mix(in oklab, var(--success), transparent 60%);
+  font-size: var(--text-xs);
+  font-weight: 500;
+  color: var(--success);
+  background: var(--surface-warm);
+}
+
+.flow-preview-card-name {
+  font-size: var(--text-base);
+  font-weight: 600;
+  color: var(--fg);
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.flow-preview-card-meta {
+  font-size: var(--text-xs);
+  color: var(--meta);
+}
+
+/* 生成警告（被丢弃节点 / 生成警告行）— 原文透传但视觉降级为次要。 */
+.flow-preview-card-warnings {
+  margin: 0;
+  padding: 0;
+  list-style: none;
+  display: flex;
+  flex-direction: column;
+  gap: var(--space-1);
+}
+
+.flow-preview-card-warnings li {
+  display: flex;
+  align-items: baseline;
+  gap: var(--space-1);
+  font-size: var(--text-xs);
+  color: var(--warn);
+  word-break: break-word;
+}
+
+.flow-preview-card-actions {
+  display: flex;
+  align-items: center;
+  gap: var(--space-2);
+  flex-wrap: wrap;
+  margin-top: var(--space-1);
+}
+
+/* 主按钮（打开画布）— 实底 accent pill，对齐 chat-error-retry 形态。 */
+.flow-preview-card-btn {
+  display: inline-flex;
+  align-items: center;
+  gap: var(--space-1);
+  padding: var(--space-1) var(--space-3);
+  border: 1px solid var(--border);
+  background: var(--surface-warm);
+  color: var(--fg);
+  font-size: var(--text-xs);
+  font-weight: 600;
+  border-radius: var(--radius-pill);
+  cursor: pointer;
+  text-decoration: none;
+  transition: background var(--motion-fast), color var(--motion-fast),
+    border-color var(--motion-fast);
+}
+
+.flow-preview-card-btn-primary {
+  background: var(--accent);
+  border-color: var(--accent);
+  color: var(--accent-on);
+}
+
+.flow-preview-card-btn-primary:hover {
+  background: var(--accent-hover);
+  border-color: var(--accent-hover);
+}
+
+.flow-preview-card-btn:hover:not(.flow-preview-card-btn-primary) {
+  background: var(--surface);
+}
+
+.flow-preview-card-btn:focus-visible {
+  outline: none;
+  box-shadow: var(--focus-ring);
+}
+
+/* 窄屏 — 操作按钮整行铺满，与 chat-error-actions 的移动端行为一致。 */
+@media (max-width: 640px) {
+  .flow-preview-card {
+    padding: var(--space-2) var(--space-3);
+  }
+  .flow-preview-card-actions {
+    flex-direction: column;
+    align-items: stretch;
+  }
+  .flow-preview-card-btn {
+    justify-content: center;
+  }
+}

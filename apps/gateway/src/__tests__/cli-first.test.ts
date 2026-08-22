@@ -6,7 +6,7 @@
  */
 import { describe, it, expect } from 'vitest'
 import { buildCliMessages } from '../routes/workflow-clients.js'
-import { buildWorkflowGeneratorPrompt } from '../routes/chat-execute.js'
+import { buildWorkflowGeneratorPrompt } from '../routes/flow-generator.js'
 
 describe('buildCliMessages', () => {
   it('merges system messages into the system prompt, role-prefixes the rest', () => {

@@ -398,6 +398,7 @@ llmProviderRoutes.post('/:id/test', async (c) => {
         'Authorization': `Bearer ${decodedKey}`,
         'Content-Type': 'application/json',
       },
+      signal: AbortSignal.timeout(15_000),
     })
 
     if (!resp.ok) {
