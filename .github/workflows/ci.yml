@@ -34,6 +34,13 @@ concurrency:
   group: ci-${{ github.ref }}
   cancel-in-progress: true
 
+# pull-requests: read lets dorny/paths-filter resolve changed files via the
+# pulls API on PR events — without it Dependabot-triggered runs (restricted
+# token) fail with "Resource not accessible by integration".
+permissions:
+  contents: read
+  pull-requests: read
+
 jobs:
   changes:
     name: detect changed paths

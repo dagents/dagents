@@ -19,6 +19,9 @@ concurrency:
 
 permissions:
   contents: read
+  # actions: read — codeql-action fetches the workflow run (for SARIF
+  # categorization); without it Dependabot-triggered PR runs are rejected.
+  actions: read
   security-events: write
 
 jobs:
