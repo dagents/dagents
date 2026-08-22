@@ -3,7 +3,7 @@
 /**
  * FlowTemplateGallery — /flows 页「从模板创建」三 tab 画廊（docs/flow-templates.md §5）。
  *
- * 内置模板（仓库自带）/ 团队场景（agent-library 的生成式场景，数据源与
+ * 内置模板（仓库自带）/ 虚拟团队（agent-library 的生成式场景，单人指挥多 Agent ——
  * instantiate 仍走原端点，此处只统一入口）/ 我的模板（画布另存抽取）。
  * 确认步展示成员解析状态：可解析 → 将绑定 Agent；不可解析 → 将降级为 LLM
  * 节点（模板零依赖可跑的核心 UX）。降级数量在创建 toast 中显式告知。
@@ -34,7 +34,7 @@ type Tab = 'builtin' | 'teams' | 'user'
 
 const TABS: { key: Tab; label: string }[] = [
   { key: 'builtin', label: '内置模板' },
-  { key: 'teams', label: '团队场景' },
+  { key: 'teams', label: '虚拟团队' },
   { key: 'user', label: '我的模板' },
 ]
 
@@ -58,6 +58,7 @@ export function FlowTemplateGallery({
   const [error, setError] = useState<string | null>(null)
   const [confirmTpl, setConfirmTpl] = useState<FlowTemplateSummary | null>(null)
   const [confirmTeam, setConfirmTeam] = useState<TeamTemplateSummary | null>(null)
+  const [paramAnswers, setParamAnswers] = useState<Record<string, string>>({})
   const [submitting, setSubmitting] = useState(false)
   const [deleting, setDeleting] = useState<string | null>(null)
 
@@ -83,6 +84,11 @@ export function FlowTemplateGallery({
     if (!open) return
     void load()
   }, [open, load])
+
+  // 切换确认模板时清空参数答案，避免上一个模板的值带进下一个。
+  useEffect(() => {
+    setParamAnswers({})
+  }, [confirmTpl])
 
   useEffect(() => {
     if (open) return
@@ -117,7 +123,7 @@ export function FlowTemplateGallery({
     if (!confirmTpl) return
     setSubmitting(true)
     try {
-      const result = await instantiateFlowTemplate(confirmTpl.id)
+      const result = await instantiateFlowTemplate(confirmTpl.id, { answers: paramAnswers })
       const degraded = result.members.filter((m) => m.degraded).length
       toast.success(
         degraded > 0
@@ -240,6 +246,24 @@ export function FlowTemplateGallery({
                   ? t('纯 LLM 模板，零依赖开箱即跑。')
                   : t('可解析的人格将绑定真实 Agent；未解析的节点自动降级为 LLM（任务指令照常执行）。')}
               </div>
+              {(confirmTpl.paramNames?.length ?? 0) > 0 && (
+                <div className="ft-params">
+                  <div className="alib-team-shape-hint">{t('模板包含变量，创建时回填到提示词（留空则按缺省值）。')}</div>
+                  {confirmTpl.paramNames!.map((name) => (
+                    <label key={name} className="ft-param-row">
+                      <span className="ft-param-name">{`{{${name}}}`}</span>
+                      <input
+                        className="ft-param-input"
+                        value={paramAnswers[name] ?? ''}
+                        placeholder={t('留空使用缺省值')}
+                        onChange={(e) =>
+                          setParamAnswers((prev) => ({ ...prev, [name]: e.target.value }))
+                        }
+                      />
+                    </label>
+                  ))}
+                </div>
+              )}
               {confirmTpl.agentRefs.length > 0 && (
                 <div className="alib-team-member-list">
                   {confirmTpl.agentRefs.map((r) => (
@@ -333,7 +357,7 @@ export function FlowTemplateGallery({
                 </div>
               ) : tab === 'teams' ? (
                 (teamTemplates ?? []).length === 0 ? (
-                  <div className="atg-empty">{t('暂无团队场景。')}</div>
+                  <div className="atg-empty">{t('暂无虚拟团队场景。')}</div>
                 ) : (
                   <div className="atg-grid alib-team-grid">
                     {(teamTemplates ?? []).map((tpl) => (
@@ -342,7 +366,7 @@ export function FlowTemplateGallery({
                         type="button"
                         className="atg-card alib-team-card"
                         onClick={() => setConfirmTeam(tpl)}
-                        aria-label={t('查看团队场景 {name}', { name: tpl.name })}
+                        aria-label={t('查看虚拟团队场景 {name}', { name: tpl.name })}
                       >
                         <div className="atg-card-icon" aria-hidden="true">{tpl.icon}</div>
                         <div className="atg-card-body">

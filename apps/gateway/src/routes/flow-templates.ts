@@ -15,6 +15,7 @@ import { agentLibraryRegistry } from '../agent-library-registry.js'
 import {
   extractTemplateFromFlow,
   instantiateFlowTemplate,
+  scanTemplateParams,
   type AgentRef,
   type FlowTemplateSpec,
   type TemplateCategory,
@@ -41,6 +42,7 @@ interface UserTemplateRow {
   category: string
   flow_data: { nodes: Record<string, unknown>[]; edges: Record<string, unknown>[] }
   agent_refs: AgentRef[] | null
+  params: { name: string; defaultValue?: string }[] | null
   source_flow_id: string | null
   created_at: string | Date
 }
@@ -57,6 +59,7 @@ function rowToSpec(row: UserTemplateRow): FlowTemplateSpec {
     source: 'user',
     flowData: row.flow_data,
     agentRefs: row.agent_refs ?? [],
+    params: row.params ?? [],
   }
 }
 
@@ -85,7 +88,7 @@ flowTemplateRoutes.get('/', async (c) => {
   let userRows: UserTemplateRow[] = []
   try {
     const { records } = await runQuery<UserTemplateRow>(
-      `SELECT id, name, description, icon, category, flow_data, agent_refs, source_flow_id, created_at
+      `SELECT id, name, description, icon, category, flow_data, agent_refs, params, source_flow_id, created_at
          FROM flow_templates ORDER BY created_at DESC`,
     )
     userRows = records
@@ -113,6 +116,8 @@ flowTemplateRoutes.get('/', async (c) => {
       source: t.source,
       nodeCount: t.flowData.nodes.length,
       agentRefs: memberSummaries(t.agentRefs, entriesByName),
+      // 参数化（方案 G）：表单在实例化前渲染，列表只回参数名清单。
+      paramNames: (t.params ?? scanTemplateParams(t.flowData)).map((p) => p.name),
     })),
   })
 })
@@ -185,8 +190,8 @@ flowTemplateRoutes.post('/from-flow/:flowId', async (c) => {
   }
 
   const { records: inserted } = await runQuery<{ id: string }>(
-    `INSERT INTO flow_templates (name, description, icon, category, flow_data, agent_refs, source_flow_id)
-     VALUES ($1, $2, $3, $4, $5::jsonb, $6::jsonb, $7::uuid)
+    `INSERT INTO flow_templates (name, description, icon, category, flow_data, agent_refs, params, source_flow_id)
+     VALUES ($1, $2, $3, $4, $5::jsonb, $6::jsonb, $7::jsonb, $8::uuid)
      RETURNING id`,
     [
       parsed.name ?? `${flowRow.name}（模板）`,
@@ -195,17 +200,20 @@ flowTemplateRoutes.post('/from-flow/:flowId', async (c) => {
       parsed.category ?? 'custom',
       JSON.stringify(extracted.flowData),
       JSON.stringify(extracted.agentRefs),
+      JSON.stringify(extracted.params),
       flowId,
     ],
   )
   const id = inserted[0].id
-  log.info('flow template extracted', { id, fromFlow: flowId, agentRefs: extracted.agentRefs.length })
-  return c.json({ success: true, data: { id, agentRefCount: extracted.agentRefs.length } }, 201)
+  log.info('flow template extracted', { id, fromFlow: flowId, agentRefs: extracted.agentRefs.length, params: extracted.params.length })
+  return c.json({ success: true, data: { id, agentRefCount: extracted.agentRefs.length, paramCount: extracted.params.length } }, 201)
 })
 
 const instantiateSchema = z.object({
   profile: z.enum(['full', 'slim', 'minimal']).optional(),
   flow_name: z.string().min(1).max(128).optional(),
+  /** 参数化（方案 G）：{{变量}} 表单答案；缺省回落 defaultValue/空串。 */
+  answers: z.record(z.string(), z.string()).optional(),
 })
 
 /** 模板寻址：'builtin/<slug>' 或用户模板 uuid。 */
@@ -214,7 +222,7 @@ async function resolveTemplate(id: string): Promise<FlowTemplateSpec | null> {
     return BUILTIN_FLOW_TEMPLATES.find((t) => t.id === id) ?? null
   }
   const { records } = await runQuery<UserTemplateRow>(
-    `SELECT id, name, description, icon, category, flow_data, agent_refs, source_flow_id, created_at
+    `SELECT id, name, description, icon, category, flow_data, agent_refs, params, source_flow_id, created_at
        FROM flow_templates WHERE id = $1::uuid`,
     [id],
   ).catch(() => ({ records: [] as UserTemplateRow[] }))
@@ -239,7 +247,12 @@ async function handleInstantiate(c: Context, id: string) {
 
   let instantiated: Awaited<ReturnType<typeof instantiateFlowTemplate>>
   try {
-    instantiated = await instantiateFlowTemplate(template, { profile: parsed.profile })
+    // builtin 模板没有 params 列 —— 实时扫描占位符，行为与用户模板一致。
+    const params = template.params ?? scanTemplateParams(template.flowData)
+    instantiated = await instantiateFlowTemplate(
+      { ...template, params },
+      { profile: parsed.profile, answers: parsed.answers },
+    )
   } catch (err) {
     log.error('instantiate failed', { id, error: String(err) })
     return fail(c, 422, '模板实例化失败', { detail: String(err) })

@@ -21,13 +21,19 @@
 
 多数 agent 平台想自己做后端，Dagents 相反：**本地 CLI agent 就是基线执行引擎**，其他一切都是可选加速。
 
-- **CLI 第一性** —— 聊天与工作流默认 spawn 本地 CLI agent（claude / codex / gemini / qwen / …，17 种适配器）；HTTP LLM Provider 是可选快路径而非依赖。没配 provider？照样跑。
+- **CLI 第一性** —— 聊天与工作流默认 spawn 本地 CLI agent（claude / codex / qwen 为保真维护的核心适配器，另有 14 个社区适配器）；HTTP LLM Provider 是可选快路径而非依赖。没配 provider？照样跑。
 - **Chat-First UX** —— 聊天主页 `/` + 聊天详情 `/chats/{id}`。输入 `@workflow …` 从一句话编译多 Agent 工作流；按名字 @ agent，带着人格与技能派活。
 - **可视化工作流画布** —— 14 节点 DAG 引擎：并行波次、条件路由、循环、人机协同、SSE 流式，画布编辑在 `/workflows/[id]/canvas`（React Flow）。
 - **Agent 人格库** —— 文件系统挂载任意 [agency-agents](https://github.com/msitarzewski/agency-agents) 类人格库（270+ 专家人格），按需启用、drift 三态同步上游；库里只装「已启用」的，天然不爆。
 - **流程模板中心** —— 内置模板 / 团队场景模板 / 画布「另存为模板」三层收拢；实例化按 personaName 重绑人格，缺的自动降级 LLM 节点，模板永远可跑。
 - **本地优先、隐私为王** —— Postgres 在本机，无遥测、无账号、不回传。LLM API Key 落库加密（AES-256-GCM）。
 - **中英双语界面** —— 侧栏一键切换。
+
+## 为什么不是 X
+
+- **对比云端编排平台（Dify / n8n / LangFlow / Flowise）** —— 起步不需要 API Key，流程/模板/人格库都在本机，执行引擎就是你自己的本地 CLI。
+- **对比单一 CLI 的原生多 Agent 模式** —— 在一处编排异构 CLI，提供 CLI 原生给不了的原语（并行波次、条件路由、人机协同），工作流是可沉淀、可分享的资产而非会话状态。
+- **对比单 CLI 的 GUI 壳** —— 不锁任何厂商；聊天是入口，画布与模板库是可版本化的资产。
 
 ## 架构
 
@@ -41,7 +47,7 @@ console (Next.js :3000) → gateway (Hono :8080) → @dagents/workflow 引擎
 | Console | `apps/console` | Next.js App Router，所有后端调用经 gateway |
 | Gateway | `apps/gateway` | Hono：SSO/认证、工作流 CRUD 与执行、dispatch 协议、LLM Provider CRUD + 动态代理 |
 | 工作流引擎 | `packages/workflow` | 14 节点、DAG 执行器、SSE 流式、变量解析 |
-| CLI 适配器 | `packages/agent-adapters` | claude / codex / qwen / copilot / opencode / codebuddy / cursor / deveco / antigravity / openclaw / pi / hermes / kimi / kiro / grok / qoder / traecli |
+| CLI 适配器 | `packages/agent-adapters` | 3 个核心（claude / codex / qwen —— 优先保障真机回归与可取消）+ 14 个社区适配器；分级单源：`packages/agent-adapters/src/tiers.ts` |
 | Daemon | `packages/daemon` | pull-based（register → heartbeat → claim → execute），remote 执行用；inline 是默认执行路径 |
 | 画布 | `vendor/agentflow` | vendored 自 [Flowise](https://github.com/FlowiseAI/Flowise)（Apache-2.0），纯前端 |
 
@@ -102,7 +108,7 @@ gateway 会打印警告。完整说明与 SSO 方案见文档。
 我们宁可先说清楚：
 
 - **JS 节点非沙箱** —— `CustomFunction` / 工具 / 循环条件走 `new Function`。flow 的信任对象是机器所有者；不要把 flow 编排开放给不受信任的用户。
-- **LLM 请求无超时/取消** —— 上游 provider 挂起会挂住整个 run（HTTP 节点已有 15s 超时 + 32KB 截断）。
+- **远程 daemon 任务暂不可取消** —— 内联聊天/工作流执行已具备超时与显式取消（`POST /chats/:id/cancel`）；dispatch/daemon 远程任务的取消通道延后（见取消 spec §7）。
 - **普通 `LLM` 节点是单次调用** —— 需要工具循环请用 `PlatformAgent` 节点。
 - **Retriever 是关键词检索**（chat 历史 ILIKE），不是向量 RAG —— 节点契约已为向量后端替换预留。
 - **HumanInput 挂起态在内存** —— gateway 重启会丢挂起中的输入（流随超时失败）。

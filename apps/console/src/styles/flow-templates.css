@@ -103,3 +103,37 @@
   font-size: 12px;
   color: #e5484d;
 }
+
+/* 方案 G：模板参数回填表单（实例化确认框内） */
+.ft-params {
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+  margin: 10px 0;
+  padding: 10px 12px;
+  border: 1px solid var(--border, #2a2f3a);
+  border-radius: 10px;
+  background: color-mix(in srgb, var(--accent, #10b981) 4%, transparent);
+}
+.ft-param-row {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+}
+.ft-param-name {
+  flex: 0 0 auto;
+  min-width: 110px;
+  font-family: var(--mono, monospace);
+  font-size: 12px;
+  color: var(--accent, #10b981);
+}
+.ft-param-input {
+  flex: 1 1 auto;
+  min-width: 0;
+  padding: 6px 10px;
+  border-radius: 8px;
+  border: 1px solid var(--border, #2a2f3a);
+  background: var(--bg-elev, #161b26);
+  color: inherit;
+  font-size: 13px;
+}

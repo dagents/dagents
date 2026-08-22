@@ -21,6 +21,8 @@ export interface FlowTemplateSummary {
   source: 'builtin' | 'user'
   nodeCount: number
   agentRefs: FlowTemplateMemberSummary[]
+  /** `{{变量}}` 占位符名清单（方案 G）：实例化前表单回填。 */
+  paramNames?: string[]
 }
 
 export interface FlowTemplateMember {
@@ -75,12 +77,12 @@ export async function extractFlowTemplate(
 
 export async function instantiateFlowTemplate(
   id: string,
-  req: { flowName?: string } = {},
+  req: { flowName?: string; answers?: Record<string, string> } = {},
 ): Promise<FlowTemplateInstantiateResult> {
   const res = await fetch(instantiatePath(id), {
     method: 'POST',
     headers: { 'content-type': 'application/json' },
-    body: JSON.stringify({ flow_name: req.flowName }),
+    body: JSON.stringify({ flow_name: req.flowName, answers: req.answers }),
   })
   return unwrap(res, '从模板创建失败')
 }

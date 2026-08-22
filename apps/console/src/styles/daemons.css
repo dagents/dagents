@@ -809,3 +809,15 @@
   padding: var(--space-3) var(--space-4);
   border-top: 1px solid var(--border-soft);
 }
+
+/* 方案 E：core 适配器徽标（与名称同行，主色调弱化） */
+.local-cli-core-badge {
+  font-size: 10px;
+  line-height: 1;
+  padding: 2px 6px;
+  border-radius: 999px;
+  background: color-mix(in srgb, var(--accent, #10b981) 14%, transparent);
+  color: var(--accent, #10b981);
+  border: 1px solid color-mix(in srgb, var(--accent, #10b981) 35%, transparent);
+  white-space: nowrap;
+}

@@ -22,13 +22,19 @@ Chat with `claude`, `codex`, and 15+ other CLI agents from one place · compose 
 
 Most agent platforms want to be the backend. Dagents is the opposite: **your local CLI agents are the baseline execution engine**, and everything else is optional acceleration.
 
-- **CLI-first execution** — Workflows and chat run by spawning your local CLI agents (`claude`, `codex`, `gemini`, `qwen`, … — 17 adapters). HTTP LLM providers are an optional fast path, not a dependency. No provider configured? It still runs.
+- **CLI-first execution** — Workflows and chat run by spawning your local CLI agents (`claude`, `codex`, `qwen` as faithfully-maintained core adapters + 14 community adapters). HTTP LLM providers are an optional fast path, not a dependency. No provider configured? It still runs.
 - **Chat-first UX** — A single chat home (`/`) + chat detail pages. Type `@workflow …` to compile a multi-agent workflow from a prompt; mention agents by name and they get dispatched with their persona and skills.
 - **Visual workflow canvas** — A 14-node DAG engine with parallel waves, condition routing, loops, human-in-the-loop, and SSE streaming, edited on a React Flow canvas (`/workflows/[id]/canvas`).
 - **Agent personality library** — Mount any [agency-agents](https://github.com/msitarzewski/agency-agents)-style library (270+ expert personas) from the filesystem; enable personas on demand, sync upstream with drift detection. No bloat — only enabled agents live in the database.
 - **Flow template center** — Built-in templates, team-scenario templates, and "save canvas as template". Instantiating re-binds personas by name; missing ones degrade to plain LLM nodes so templates always run.
 - **Local-first & private** — Postgres on your machine, no telemetry, no accounts, no callbacks home. LLM API keys encrypted at rest (AES-256-GCM).
 - **Bilingual UI** — Chinese and English, switchable in the sidebar.
+
+## Why not X
+
+- **vs cloud orchestrators (Dify / n8n / LangFlow / Flowise)** — no API key needed to start, your flows/templates/personas stay on your machine, and execution is your own local CLI.
+- **vs one CLI's native multi-agent mode** — orchestrate heterogeneous CLIs from one place with DAG primitives the CLIs don't offer (parallel waves, condition routing, human-in-the-loop), and keep workflows as durable, shareable assets instead of session state.
+- **vs single-CLI GUI wrappers** — not locked to one vendor; chats are the entry point, the canvas and template library are versionable artifacts.
 
 ## Architecture
 
@@ -42,7 +48,7 @@ console (Next.js :3000) → gateway (Hono :8080) → @dagents/workflow engine
 | Console | `apps/console` | Next.js App Router, every backend call goes through the gateway |
 | Gateway | `apps/gateway` | Hono. SSO/auth, workflow CRUD + runs, dispatch protocol, LLM provider CRUD + proxying |
 | Workflow engine | `packages/workflow` | 14 nodes, DAG executor, SSE streaming, variable resolution |
-| CLI adapters | `packages/agent-adapters` | claude / codex / qwen / copilot / opencode / codebuddy / cursor / deveco / antigravity / openclaw / pi / hermes / kimi / kiro / grok / qoder / traecli |
+| CLI adapters | `packages/agent-adapters` | 3 core (claude / codex / qwen — regression-tested & cancellation-supported first) + 14 community. Tier single-source: `packages/agent-adapters/src/tiers.ts` |
 | Daemon | `packages/daemon` | Pull-based (`register → heartbeat → claim → execute`) for remote execution; inline execution is the default path |
 | Canvas | `vendor/agentflow` | Vendored from [Flowise](https://github.com/FlowiseAI/Flowise) (Apache-2.0), frontend-only |
 
@@ -106,7 +112,7 @@ gateway logs a warning. Full details and an SSO option in the docs.
 We'd rather tell you up front:
 
 - **JS nodes are not sandboxed** — `CustomFunction` / tool / loop conditions run via `new Function`. Flows are authored by the machine owner; do not expose flow authoring to untrusted users.
-- **LLM fetches have no timeout/cancellation** — a hung upstream provider stalls the run (HTTP nodes do have a 15s timeout + 32KB truncation).
+- **Remote daemon tasks cannot be cancelled yet** — inline chat/workflow executions have timeouts and explicit cancel (`POST /chats/:id/cancel`); dispatch/daemon remote tasks are cancel-deferred (see the cancellation spec §7).
 - **Plain `LLM` nodes are single-shot** — use `PlatformAgent` nodes when you need tool-calling loops.
 - **Retriever is keyword-based** (ILIKE over chat history), not vector RAG — the node contract is ready for a vector backend swap.
 - **Human-input pending state is in-memory** — a gateway restart drops pending inputs (they fail with timeout).

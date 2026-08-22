@@ -92,9 +92,9 @@ llm_providers 表 → OpenAI 兼容 API     nodes 里嵌的平台 Agent → tool
 
 - **Tool / CustomFunction / Loop condition 的 JS 执行是 `new Function`**，不是硬沙箱——代码信任对象是 flow 设计者而非终端用户；要对外暴露需换 `isolated-vm` 类方案。CustomFunction 同步跑在主事件循环上（死循环会冻住 gateway）
 - **Retriever 目前是关键词检索**（当前会话的 chat_messages ILIKE），不是向量 RAG；接向量库时替换 gateway 的 `historyRetriever` 实现即可，节点契约不变
-- **HumanInput 的挂起状态在 gateway 内存里**（单进程本机模式）：gateway 重启会丢挂起中的输入（流随超时失败）；前端暂未渲染 `custom:human_input` 专用输入框，但系统消息 + 聊天回复已构成完整可用闭环
+- **HumanInput 的挂起状态在 gateway 内存里**（单进程本机模式）：gateway 重启会丢挂起中的输入（流随超时失败）；boot 清扫会把悬空的 chats/runs 收敛为 failed 并留 system 提示，但挂起中的 run 本身不可恢复。前端暂未渲染 `custom:human_input` 专用输入框，但系统消息 + 聊天回复已构成完整可用闭环
 - **Langfuse 需手工申请 keys**；未配置时导出静默关闭，不影响 run
-- **LLM 请求无超时/取消**：gateway 的 provider fetch 不传 signal —— 上游挂起会挂住整个 run（HTTP 节点已有 15s 超时 + 32KB 截断）
+- **LLM 请求与 CLI 执行已具备超时与显式取消**（2026-08-22，执行取消 spec）：HTTP 调用带 `LLM_HTTP_TIMEOUT_MS`（默认 120s，流式为空闲看门狗）；inline CLI 执行带 `INLINE_INACTIVITY_TIMEOUT_MS`（默认 300s 静默看门狗）；用户显式取消经 `POST /chats/:id/cancel` / `POST /workflows/runs/:runId/cancel` → 内存执行注册表 → AbortSignal → adapter SIGTERM/SIGKILL。仍存的取舍：SSE/WS 掉线**不**隐式取消（显式取消才停）；daemon/dispatch 远程任务暂无取消通道
 - **普通 Agent 节点无工具循环**：`agentAgentflow` 是单次 LLM 调用（不读 tools/maxIterations）；需要工具循环用 `platformAgentAgentflow`
 
 ## 关键文件索引
@@ -109,5 +109,8 @@ llm_providers 表 → OpenAI 兼容 API     nodes 里嵌的平台 Agent → tool
 | 人机协同（挂起/回答/超时） | `apps/gateway/src/routes/human-input.ts` |
 | run 路由 + span 落库 + Langfuse | `apps/gateway/src/routes/workflows.ts` |
 | 聊天流式执行 | `apps/gateway/src/routes/chats.ts`（`GET /:id/stream`） |
+| 执行取消（注册表/cancel 端点） | `apps/gateway/src/execution-registry.ts` + `routes/execution-cancel.ts` |
+| 统一 AI 生成管线（@workflow + 画布） | `apps/gateway/src/routes/flow-generator.ts` |
+| flow 拓扑校验（单源） | `packages/workflow/src/utils/validate-topology.ts` |
 | Langfuse 客户端 | `packages/shared/src/langfuse.ts` |
 | console SSE 解析 | `apps/console/src/lib/sse.ts` |

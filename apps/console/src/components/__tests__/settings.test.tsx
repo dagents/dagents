@@ -5,7 +5,7 @@
  * 密钥/模型/治理/账户, and the DOM shape each tab renders once switched to.
  *
  *   §1 tablist — all six tabs render with their design name (LLM Provider /
- *     默认模型 / 预算配额 / 通知 / 账户团队 / 危险区) and LLM Provider is the
+ *     默认模型 / 通知 / 规划中) and LLM Provider is the
  *     default-open tab.
  *
  *   §2 switch — clicking a tab swaps the visible `<section>`; the design's
@@ -141,12 +141,16 @@ async function renderView(): Promise<void> {
 // ─── §1 tablist ───────────────────────────────────────────────────────────────
 
 describe('SettingsView — 6-tab tablist (M8.2)', () => {
-  it('renders all six tabs by their design name', async () => {
+  it('renders the live tabs plus the planned placeholder (方案 F 收拢)', async () => {
     await renderView()
-    const names = ['LLM Provider', '默认模型', '预算配额', '通知', '账户团队', '危险区']
+    const names = ['LLM Provider', '默认模型', '通知', '规划中']
     for (const name of names) {
       expect(screen.getByRole('tab', { name })).toBeInTheDocument()
     }
+    // 收拢后的占位 tab 不再伪装成真功能：预算配额 / 账户团队 / 危险区 不出现
+    expect(screen.queryByRole('tab', { name: '预算配额' })).not.toBeInTheDocument()
+    expect(screen.queryByRole('tab', { name: '账户团队' })).not.toBeInTheDocument()
+    expect(screen.queryByRole('tab', { name: '危险区' })).not.toBeInTheDocument()
   })
 
   it('opens the LLM Provider tab by default', async () => {
@@ -171,15 +175,15 @@ describe('SettingsView — tab switch + per-tab shape (M8.2)', () => {
     expect(screen.getByText('1. Anthropic claude-sonnet-4')).toBeInTheDocument()
   })
 
-  it('switches to 预算配额 and renders the budget meter + toggle-rows', async () => {
+  it('switches to 规划中 and lists the deferred areas honestly', async () => {
     await renderView()
-    fireEvent.click(screen.getByRole('tab', { name: '预算配额' }))
-    expect(screen.getByText('全平台预算')).toBeInTheDocument()
-    expect(screen.getByText('月预算')).toBeInTheDocument()
-    const quotaSection = screen.getByText('全平台预算').closest('section')
-    expect(quotaSection!.querySelector('.bar')).not.toBeNull()
-    expect(screen.getByText('熔断规则')).toBeInTheDocument()
-    expect(screen.getByText('单 run 成本超 $5 暂停')).toBeInTheDocument()
+    fireEvent.click(screen.getByRole('tab', { name: '规划中' }))
+    expect(screen.getByText(/预算与配额（成本熔断 \/ 月度告警）/)).toBeInTheDocument()
+    expect(screen.getByText('账户与团队（多用户协作）')).toBeInTheDocument()
+    expect(screen.getByText('危险区（暂停全部 / 数据清理）')).toBeInTheDocument()
+    // 占位假数据（预算表 / 成员名单）必须不再出现
+    expect(screen.queryByText('全平台预算')).not.toBeInTheDocument()
+    expect(screen.queryByText('团队 · 38 成员')).not.toBeInTheDocument()
   })
 
   it('switches to 通知 and renders event + channel toggle-rows', async () => {
@@ -188,30 +192,6 @@ describe('SettingsView — tab switch + per-tab shape (M8.2)', () => {
     expect(screen.getByText('Run 失败')).toBeInTheDocument()
     expect(screen.getByText('通知渠道')).toBeInTheDocument()
     expect(screen.getByText('Webhook')).toBeInTheDocument()
-  })
-
-  it('switches to 账户团队 and renders 个人 kv + 团队 model-rows', async () => {
-    await renderView()
-    fireEvent.click(screen.getByRole('tab', { name: '账户团队' }))
-    const section = document.querySelector('section.settings-section.active') as HTMLElement | null
-    expect(section).not.toBeNull()
-    expect(within(section!).getByText('姓名')).toBeInTheDocument()
-    const dt = Array.from(section!.querySelectorAll('dl.kv dt')).find((n) => n.textContent === '邮箱')
-    expect(dt?.nextElementSibling?.textContent).toBe('rz@team.dev')
-    expect(within(section!).getByText('团队 · 38 成员')).toBeInTheDocument()
-    expect(section!.querySelectorAll('.model-row').length).toBeGreaterThanOrEqual(3)
-  })
-
-  it('switches to 危险区 and renders the danger-zone rows (不可恢复 wording present)', async () => {
-    await renderView()
-    fireEvent.click(screen.getByRole('tab', { name: '危险区' }))
-    const section = document.querySelector('section.settings-section.active') as HTMLElement | null
-    expect(section).not.toBeNull()
-    expect(within(section!).getByText('危险区')).toBeInTheDocument()
-    expect(within(section!).getByText('暂停所有运行中的 run')).toBeInTheDocument()
-    expect(within(section!).getByText('轮换全部令牌')).toBeInTheDocument()
-    expect(within(section!).getByText(/删除 workspace 及全部数据/)).toBeInTheDocument()
-    expect(within(section!).getByText(/30 天可恢复/)).toBeInTheDocument()
   })
 
   it('hides the LLM Provider table when a different tab is selected', async () => {

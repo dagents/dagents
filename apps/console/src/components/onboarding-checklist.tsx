@@ -41,25 +41,31 @@ export function OnboardingChecklist(): React.ReactElement | null {
     let cancelled = false
     async function check() {
       try {
-        const [dirsRes, cliRes, agentsRes] = await Promise.all([
+        const [dirsRes, cliRes, agentsRes, providersRes] = await Promise.all([
           fetch('/api/directories'),
           fetch('/api/cli-runtimes'),
           fetch('/api/agents'),
+          fetch('/api/llm-providers'),
         ])
 
         const dirs = dirsRes.ok ? await dirsRes.json() : null
         const cli = cliRes.ok ? await cliRes.json() : null
         const agents = agentsRes.ok ? await agentsRes.json() : null
+        const providers = providersRes.ok ? await providersRes.json() : null
 
         const dirList = dirs?.data?.items ?? dirs?.items ?? (Array.isArray(dirs) ? dirs : [])
         const runtimes = cli?.data?.runtimes ?? cli?.runtimes ?? []
         const hasCli = Array.isArray(runtimes) && runtimes.some((r: { available: boolean }) => r.available)
+        // No CLI installed? A configured LLM provider is the alternative
+        // execution engine (方案 F：无 CLI 用户出口，不再死路).
+        const providerList = providers?.data?.providers ?? providers?.providers ?? []
+        const hasEngine = hasCli || (Array.isArray(providerList) && providerList.length > 0)
         const agentList = agents?.data?.agents ?? agents?.agents ?? (Array.isArray(agents) ? agents : [])
 
         if (!cancelled) {
           setSteps([
             { id: 'dir', label: '项目目录', done: dirList.length > 0, href: '/' },
-            { id: 'cli', label: 'CLI 已安装', done: hasCli, href: '/settings' },
+            { id: 'cli', label: 'CLI 已安装', done: hasEngine, href: '/settings' },
             { id: 'agent', label: 'Agent 已创建', done: agentList.length > 0, href: '/agents' },
           ])
           setLoading(false)

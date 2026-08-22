@@ -20,6 +20,9 @@
 | [`flow-templates.md`](flow-templates.md) | 流程模板中心（2026-08-20）：内置/我的模板、画布「另存为模板」、personaName 重绑与 LLM 降级 |
 | [`test-cases.md`](test-cases.md) | 测试用例目录 v2.0（331 条，2026-08-11）+ 执行态增量索引；历史测试报告在 `archive/testing/` |
 | [`e2e-test-plan.md`](e2e-test-plan.md) | 执行态 e2e 测试计划：Mock LLM 地基、Tier A-D 分层、spec 11~17 执行记录 |
+| [`product-review.md`](product-review.md) | 产品推敲（2026-08-22 快照）：定位、四个核心张力、旅程漏洞、竞品坐标、优先级总览 |
+| [`product-plan.md`](product-plan.md) | 产品方案（活文档）：@workflow 质量闭环 / 可中断执行 / 成本实测 / 适配器分级等 7 个方案的设计与验收标准 |
+| [`product-architecture.md`](product-architecture.md) | 产品方案架构分析（活文档）：AD-1~AD-6 架构决策、逐方案受力点、BFF 边界规则、里程碑修订 |
 
 ## 流程文档（docs/superpowers/）
 

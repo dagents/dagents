@@ -182,7 +182,7 @@ describe('flow-templates routes（dev Postgres）', () => {
     return id
   }
 
-  it('GET / lists the 3 builtin templates with member availability', async () => {
+  it('GET / lists the builtin templates (10 since 2026-08-22) with member availability', async () => {
     process.env.DAGENTS_AGENT_LIBRARY_DIRS = fixtureRoot
     const res = await app.request('/api/v1/flow-templates')
     expect(res.status).toBe(200)
@@ -190,7 +190,18 @@ describe('flow-templates routes（dev Postgres）', () => {
       data: { templates: { id: string; source: string; nodeCount: number; agentRefs: { personaName: string | null; available: boolean }[] }[] }
     }
     const ids = json.data.templates.filter((t) => t.source === 'builtin').map((t) => t.id)
-    expect(ids).toEqual(['builtin/dev-three-step', 'builtin/research-fanout', 'builtin/content-pipeline'])
+    // 首三批保持顺序；2026-08-22 批次追加在后（共 10 个）。
+    expect(ids).toHaveLength(10)
+    expect(ids.slice(0, 3)).toEqual(['builtin/dev-three-step', 'builtin/research-fanout', 'builtin/content-pipeline'])
+    expect(ids.slice(3)).toEqual([
+      'builtin/code-review-chain',
+      'builtin/refactor-plan',
+      'builtin/bug-triage',
+      'builtin/tech-comparison',
+      'builtin/docs-readme',
+      'builtin/translate-localize',
+      'builtin/release-checklist',
+    ])
     const dev = json.data.templates.find((t) => t.id === 'builtin/dev-three-step')!
     expect(dev.nodeCount).toBe(5)
     expect(dev.agentRefs.map((r) => r.personaName)).toEqual(['Software Architect', 'Senior Developer', 'Code Reviewer'])

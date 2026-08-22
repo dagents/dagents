@@ -24,6 +24,7 @@ import { PageShell } from '@/components/page-shell'
 import { Icon } from '@/components/icon'
 import { NotificationSettings } from '@/components/notification-settings'
 import { AuditLog } from '@/components/audit-log'
+import { UsageTab } from '@/components/usage-tab'
 import { AGENT_KINDS } from '@/lib/agents-catalog'
 import {
   createLlmProvider,
@@ -41,7 +42,7 @@ import {
 import { useI18n } from '@/i18n'
 
 /** The settings tabs, grouped as the design's sub-nav renders them. */
-type TabId = 'keys' | 'runtimes' | 'models' | 'quota' | 'notify' | 'audit' | 'account' | 'danger'
+type TabId = 'keys' | 'runtimes' | 'models' | 'usage' | 'notify' | 'audit' | 'planned'
 
 type TabGroupKey = '密钥' | '模型' | '治理' | '账户'
 
@@ -71,11 +72,10 @@ const TABS: readonly TabDef[] = [
   { id: 'keys', label: 'LLM Provider 管理', a11y: 'LLM Provider', group: '密钥' },
   { id: 'runtimes', label: 'CLI 运行时', a11y: 'CLI 运行时', group: '密钥' },
   { id: 'models', label: '默认模型', group: '模型' },
-  { id: 'quota', label: '预算与配额', a11y: '预算配额', group: '治理' },
+  { id: 'usage', label: '用量与成本', a11y: '用量与成本', group: '治理' },
   { id: 'notify', label: '通知', group: '治理' },
   { id: 'audit', label: '审计日志', a11y: '审计日志', group: '治理' },
-  { id: 'account', label: '账户与团队', a11y: '账户团队', group: '账户' },
-  { id: 'danger', label: '危险区', group: '账户' },
+  { id: 'planned', label: '规划中', group: '账户' },
 ] as const
 
 interface TabGroup {
@@ -153,11 +153,10 @@ export function SettingsView(): React.ReactElement {
           {tab === 'keys' && <LlmProvidersTab />}
           {tab === 'runtimes' && <RuntimesTab />}
           {tab === 'models' && <DefaultModelsTab />}
-          {tab === 'quota' && <QuotaTab />}
+          {tab === 'usage' && <UsageTab label={TAB_LABEL.usage} />}
           {tab === 'notify' && <NotifyTab />}
           {tab === 'audit' && <AuditLog />}
-          {tab === 'account' && <AccountTab />}
-          {tab === 'danger' && <DangerTab />}
+          {tab === 'planned' && <PlannedTab />}
         </div>
       </div>
     </PageShell>
@@ -959,61 +958,6 @@ function DefaultModelsTab(): React.ReactElement {
   )
 }
 
-/** 预算与配额 — design §quota. 全平台预算 + 熔断规则. */
-const QUOTA_FALLBACK = [
-  { t: '单 run 成本超 $5 暂停', d: '超阈值自动暂停并通知 owner' },
-  { t: 'workspace 月配额 90% 告警', d: '达到 90% 通知，100% 阻断新 run' },
-  { t: '令牌限流自动切换', d: '429/5xx 时切换网关内其他令牌，3 次失败标记不健康' },
-  { t: 'daemon 超时熔断', d: '静默 120s 触发双层 watchdog，回收任务重排' },
-] as const
-
-function QuotaTab(): React.ReactElement {
-  const { t } = useI18n()
-  return (
-    <section className="settings-section active" aria-label={t(TAB_LABEL.quota)}>
-      <div className="card-title mb-4" style={{ fontSize: 'var(--text-lg)' }}>{t(TAB_LABEL.quota)}</div>
-      <StubNotice note="本页为设计占位数据，不反映真实配置" />
-      <div className="card mb-4">
-        <div className="card-head">
-          <div className="card-title">{t('全平台预算')}</div>
-          <span className="chip chip-outline">{t('月度')}</span>
-        </div>
-        <div className="row-between mb-3">
-          <span className="muted" style={{ fontSize: 13 }}>{t('月预算')}</span>
-          <span className="mono" style={{ fontSize: 14 }}>$135,000</span>
-        </div>
-        <div className="bar mb-2">
-          <span style={{ width: '31%' }} />
-        </div>
-        <div className="row-between">
-          <span className="meta" style={{ fontSize: 11 }}>{t('已用 $41,820 (31%)')}</span>
-          <span className="meta" style={{ fontSize: 11 }}>{t('熔断阈值 90%')}</span>
-        </div>
-      </div>
-      <div className="card mb-4">
-        <div className="card-head">
-          <div className="card-title">{t('熔断规则')}</div>
-        </div>
-        {QUOTA_FALLBACK.map((r) => (
-          <div className="toggle-row" key={r.t}>
-            <div className="info">
-              <div className="t">{t(r.t)}</div>
-              <div className="d">{t(r.d)}</div>
-            </div>
-            <label className="switch">
-              <input type="checkbox" checked disabled readOnly aria-disabled="true" />
-              <span className="track" />
-            </label>
-          </div>
-        ))}
-        <p className="muted mt-3" style={{ fontSize: 12 }}>
-          {t('熔断由 scheduler 实现并下发策略（spec P1.7.T6，coverage analysis §2.1 ✅）。本 tab 待资源面板聚合 API（P1.11.T6）接入后回填实时数据与策略开关。')}
-        </p>
-      </div>
-    </section>
-  )
-}
-
 /** 通知 — design §notify. 通知事件 + 通知渠道 (toggle-row). */
 const NOTIFY_EVENTS: ReadonlyArray<{ t: string; d: string; off: boolean }> = [
   { t: 'Run 失败', d: '任何 run 进入 failed 状态时通知', off: false },
@@ -1084,114 +1028,28 @@ function NotifyTab(): React.ReactElement {
   )
 }
 
-/** 账户与团队 — design §account. 个人 kv + 团队成员 (model-row). */
-const ACCOUNT_KV = [
-  ['姓名', '饶哲'],
-  ['邮箱', 'rz@team.dev'],
-  ['角色', 'owner'],
-  ['默认 workspace', '论文复现 · RL'],
+/** 规划中 — 原「预算与配额 / 账户与团队 / 危险区」三个设计占位 tab 收拢处
+ * （产品方案 F：占位假数据是开源产品的负资产；等真功能落地再回来开 tab）。 */
+const PLANNED_AREAS = [
+  '预算与配额（成本熔断 / 月度告警）',
+  '账户与团队（多用户协作）',
+  '危险区（暂停全部 / 数据清理）',
 ] as const
 
-const TEAM_MEMBERS: ReadonlyArray<{ nm: string; p: string; role: string; scope: string; tag?: string }> = [
-  { nm: '饶哲', p: 'rz@team.dev', role: 'owner', scope: '全 workspace', tag: '你' },
-  { nm: '林敏', p: 'lm@team.dev', role: 'admin', scope: '3 workspace' },
-  { nm: '邓凯', p: 'dk@team.dev', role: 'editor', scope: '2 workspace' },
-]
-
-function AccountTab(): React.ReactElement {
+function PlannedTab(): React.ReactElement {
   const { t } = useI18n()
   return (
-    <section className="settings-section active" aria-label={t(TAB_LABEL.account)}>
-      <div className="card-title mb-4" style={{ fontSize: 'var(--text-lg)' }}>{t(TAB_LABEL.account)}</div>
-      <StubNotice note="本页为设计占位数据（成员名单非真实），不反映真实配置" />
-      <div className="card mb-4">
-        <div className="card-head">
-          <div className="card-title">{t('个人')}</div>
-        </div>
-        <dl className="kv">
-          {ACCOUNT_KV.map(([k, v]) => (
-            <Fragment key={k}>
-              <dt>{t(k)}</dt>
-              <dd>{v}</dd>
-            </Fragment>
-          ))}
-        </dl>
-      </div>
+    <section className="settings-section active" aria-label={t('规划中')}>
+      <div className="card-title mb-4" style={{ fontSize: 'var(--text-lg)' }}>{t('规划中')}</div>
       <div className="card">
-        <div className="card-head">
-          <div className="card-title">{t('团队 · 38 成员')}</div>
-          <button type="button" className="btn btn-secondary btn-sm" disabled>{t('邀请')}</button>
-        </div>
-        {TEAM_MEMBERS.map((m) => (
-          <div className="model-row" key={m.nm}>
-            <div>
-              <div className="nm">{m.nm}</div>
-              <div className="p">{m.p}</div>
-            </div>
-            <div className="pr">{m.role}</div>
-            <div className="pr">{m.scope}</div>
-            <div>
-              {m.tag ? <span className="chip chip-outline">{t(m.tag)}</span> : null}
-            </div>
-          </div>
-        ))}
-        <p className="muted mt-3" style={{ fontSize: 12 }}>
-          {t('MVP 用 workspace 软隔离 + 最小 RBAC（spec P1.2.T6）。强多租户账户/团队管理推迟（coverage analysis §2.3）；成员管理待 workspace_members 表（M5b.1）接入后回填。')}
+        <p className="muted" style={{ fontSize: 13, lineHeight: 1.7 }}>
+          {t('以下能力在产品规划中，尚未实现 —— 当前版本是单机单人模式（docs/product-plan.md Non-Goals）。')}
         </p>
-      </div>
-    </section>
-  )
-}
-
-/** 危险区 — design §danger. 暂停 / 轮换 / 删除 (toggle-row + danger buttons). */
-const DANGER_ROWS = [
-  {
-    t: '暂停所有运行中的 run',
-    d: '立即暂停全平台运行中 agent。可恢复。',
-    cta: '暂停全部',
-    variant: 'outline' as const,
-  },
-  {
-    t: '轮换全部令牌',
-    d: '在 new-api 标记所有令牌为待轮换并生成新 key，旧 key 立即吊销。不可逆。',
-    cta: '轮换全部',
-    variant: 'outline' as const,
-  },
-  {
-    t: '删除 workspace 及全部数据',
-    d: 'runs、对话、artifact、版本快照全部删除（软删除，30 天可恢复）。',
-    cta: '删除',
-    variant: 'danger' as const,
-  },
-]
-
-function DangerTab(): React.ReactElement {
-  const { t } = useI18n()
-  return (
-    <section className="settings-section active" aria-label={t(TAB_LABEL.danger)}>
-      <StubNotice note="本页为设计占位，功能未实现（按钮均不可用）" />
-      <div className="danger-zone">
-        <div className="card-title mb-2" style={{ color: 'var(--danger)' }}>{t(TAB_LABEL.danger)}</div>
-        {DANGER_ROWS.map((r) => (
-          <div className="toggle-row" key={r.t}>
-            <div className="info">
-              <div className="t">{t(r.t)}</div>
-              <div className="d">{t(r.d)}</div>
-            </div>
-            {r.variant === 'danger' ? (
-              <button type="button" className="btn btn-danger btn-sm" disabled>{t(r.cta)}</button>
-            ) : (
-              <button
-                type="button"
-                className="btn btn-secondary btn-sm"
-                style={{ color: 'var(--danger)', borderColor: 'var(--danger-soft)' }}
-                disabled
-              >
-                {t(r.cta)}
-              </button>
-            )}
-          </div>
-        ))}
+        <ul style={{ margin: '10px 0 0 18px', fontSize: 13, lineHeight: 1.9 }}>
+          {PLANNED_AREAS.map((a) => (
+            <li key={a}>{t(a)}</li>
+          ))}
+        </ul>
       </div>
     </section>
   )

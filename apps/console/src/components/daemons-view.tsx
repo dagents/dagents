@@ -35,6 +35,8 @@ interface RuntimeDetection {
   binary: string
   available: boolean
   path: string | null
+  /** Maintenance tier (方案 E): core / community + regression status. */
+  tier?: { tier: string; regression: string; note?: string }
 }
 
 /** CLI agent kinds only (prompt/remote have no binary — nothing to detect). */
@@ -304,14 +306,22 @@ export function DaemonsView(): React.ReactElement {
             CLI_KINDS.map((m) => {
               const det = runtimes.find((r) => r.kind === m.kind)
               const available = det?.available ?? false
+              const isCore = det?.tier?.tier === 'core'
+              const untested = det?.tier?.regression === 'docs-only'
+              const tierTitle = det?.tier?.note
+                ?? (untested ? t('社区适配器 — 按官方文档实现，未经真机回归') : undefined)
               return (
                 <div
                   key={m.kind}
                   className={`local-cli-card${available ? '' : ' unavailable'}`}
-                  title={available ? det?.path ?? m.hint : t('未安装 — {hint}', { hint: m.hint })}
+                  title={[
+                    available ? det?.path ?? m.hint : t('未安装 — {hint}', { hint: m.hint }),
+                    tierTitle,
+                  ].filter(Boolean).join('\n')}
                 >
                   <span className={`status-dot ${available ? 'dot-running' : 'dot-done'}`} />
                   <span className="local-cli-name">{m.label}</span>
+                  {isCore && <span className="local-cli-core-badge">{t('核心')}</span>}
                   <span className="local-cli-meta">
                     {available ? (det?.path ?? det?.binary ?? m.binary) : t('未安装')}
                   </span>

@@ -44,11 +44,97 @@ export interface FlowTemplateSpec {
   source: 'builtin' | 'user'
   flowData: { nodes: Record<string, unknown>[]; edges: Record<string, unknown>[] }
   agentRefs: AgentRef[]
+  /** `{{变量}}` 占位符清单（方案 G）；builtin 模板由路由侧实时扫描。 */
+  params?: TemplateParam[]
 }
 
 export interface ExtractedTemplate {
   flowData: { nodes: Record<string, unknown>[]; edges: Record<string, unknown>[] }
   agentRefs: AgentRef[]
+  /** `{{变量名}}` 占位符清单（方案 G）：实例化时表单回填。 */
+  params: TemplateParam[]
+}
+
+/** 模板参数：节点文案中的 `{{name}}` 占位符（与引擎变量语法共用 `{{}}`）。 */
+export interface TemplateParam {
+  name: string
+  defaultValue?: string
+}
+
+/** 占位符语法：`{{word}}`，首字符允许字母/下划线/中文， tolerate 空白。 */
+const PARAM_PATTERN = /\{\{\s*([A-Za-z_\u4e00-\u9fa5][\w\u4e00-\u9fa5]*)\s*\}\}/g
+
+/**
+ * 实例化时做参数替换的文案字段（节点 data 的浅层 + inputs 嵌套）。
+ * 刻意收窄到「提示词/回复类」文本字段——不递归扫描所有字符串，避免
+ * 误伤 canvas 坐标/类型名等结构性字段。
+ */
+const PARAM_FIELDS = ['systemPrompt', 'prompt', 'userPrompt', 'content', 'question']
+
+/** 扫描模板节点文案里的 `{{变量名}}` 占位符（去重、保持出现顺序）。 */
+export function scanTemplateParams(
+  flowData: { nodes?: unknown },
+): TemplateParam[] {
+  const names: string[] = []
+  const seen = new Set<string>()
+  const nodes = Array.isArray(flowData.nodes) ? (flowData.nodes as Record<string, unknown>[]) : []
+  for (const node of nodes) {
+    const data = node.data as Record<string, unknown> | undefined
+    if (!data) continue
+    const candidates: unknown[] = [
+      ...PARAM_FIELDS.map((f) => data[f]),
+      ...PARAM_FIELDS.map((f) => (data.inputs as Record<string, unknown> | undefined)?.[f]),
+    ]
+    for (const value of candidates) {
+      if (typeof value !== 'string') continue
+      for (const match of value.matchAll(PARAM_PATTERN)) {
+        const name = match[1]
+        if (name && !seen.has(name)) {
+          seen.add(name)
+          names.push(name)
+        }
+      }
+    }
+  }
+  return names.map((name) => ({ name }))
+}
+
+/**
+ * 参数替换：把 nodes 文案里的 `{{name}}` 换成 answers[name]（缺省回落
+ * defaultValue，再缺省空串——模板永远可实例化，不留悬空占位符）。
+ */
+export function applyTemplateParams(
+  flowData: { nodes: Record<string, unknown>[]; edges: Record<string, unknown>[] },
+  params: TemplateParam[],
+  answers: Record<string, string>,
+): { nodes: Record<string, unknown>[]; edges: Record<string, unknown>[] } {
+  const resolve = (name: string): string | null => {
+    if (Object.prototype.hasOwnProperty.call(answers, name)) return answers[name]
+    const param = params.find((p) => p.name === name)
+    if (!param) return null // 未声明的占位符 —— 可能是引擎运行时变量，保持原样
+    return param.defaultValue ?? ''
+  }
+  const substitute = (text: string): string =>
+    text.replace(PARAM_PATTERN, (whole, name: string) => resolve(name) ?? whole)
+
+  const nodes = flowData.nodes.map((node) => {
+    const data = node.data as Record<string, unknown> | undefined
+    if (!data) return node
+    const nextData: Record<string, unknown> = { ...data }
+    for (const field of PARAM_FIELDS) {
+      if (typeof nextData[field] === 'string') nextData[field] = substitute(nextData[field] as string)
+    }
+    const inputs = nextData.inputs as Record<string, unknown> | undefined
+    if (inputs && typeof inputs === 'object') {
+      const nextInputs: Record<string, unknown> = { ...inputs }
+      for (const field of PARAM_FIELDS) {
+        if (typeof nextInputs[field] === 'string') nextInputs[field] = substitute(nextInputs[field] as string)
+      }
+      nextData.inputs = nextInputs
+    }
+    return { ...node, data: nextData }
+  })
+  return { nodes, edges: flowData.edges }
 }
 
 /** 节点 data.name 判定（画布平铺 data.<field> 约定）。 */
@@ -94,7 +180,7 @@ export function extractTemplateFromFlow(
   })
 
   const edges = Array.isArray(flowData.edges) ? (flowData.edges as Record<string, unknown>[]) : []
-  return { flowData: { nodes, edges }, agentRefs }
+  return { flowData: { nodes, edges }, agentRefs, params: scanTemplateParams({ nodes }) }
 }
 
 export interface TemplateMember {
@@ -117,8 +203,8 @@ export interface InstantiatedTemplate {
  * slim 启用；解析不到 → 该节点降级 llmAgentflow。
  */
 export async function instantiateFlowTemplate(
-  template: Pick<FlowTemplateSpec, 'flowData' | 'agentRefs' | 'name'>,
-  opts: { profile?: PersonaProfile } = {},
+  template: Pick<FlowTemplateSpec, 'flowData' | 'agentRefs' | 'name'> & { params?: TemplateParam[] },
+  opts: { profile?: PersonaProfile; answers?: Record<string, string> } = {},
 ): Promise<InstantiatedTemplate> {
   const profile = opts.profile ?? 'slim'
 
@@ -183,5 +269,12 @@ export async function instantiateFlowTemplate(
     return { ...node, data: degradedData }
   })
 
-  return { flowData: { nodes, edges: template.flowData.edges }, members }
+  // 参数回填（方案 G）：{{变量}} → 表单答案（缺省回落 defaultValue/空串）。
+  // 在 persona 重绑/降级之后做，替换目标是最终文案。
+  const finalFlow =
+    template.params && template.params.length > 0
+      ? applyTemplateParams({ nodes, edges: template.flowData.edges }, template.params, opts.answers ?? {})
+      : { nodes, edges: template.flowData.edges }
+
+  return { flowData: finalFlow, members }
 }

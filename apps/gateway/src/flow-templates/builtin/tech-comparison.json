@@ -1,0 +1,129 @@
+{
+  "name": "技术选型：三路并行调研 → 对比推荐",
+  "description": "输入待选型的技术问题与候选（可写「帮我比较 A / B / C」），三路并行调研各候选 → 汇总为对比矩阵与推荐结论。纯 LLM 节点零依赖，并行波次执行。",
+  "icon": "⚖️",
+  "category": "research",
+  "flowData": {
+    "nodes": [
+      {
+        "id": "node_1",
+        "type": "customNode",
+        "position": {
+          "x": 0,
+          "y": 300
+        },
+        "data": {
+          "name": "startAgentflow",
+          "label": "Start"
+        }
+      },
+      {
+        "id": "node_2",
+        "type": "customNode",
+        "position": {
+          "x": 250,
+          "y": 120
+        },
+        "data": {
+          "name": "llmAgentflow",
+          "label": "候选一调研",
+          "model": "",
+          "systemPrompt": "从上游选型问题中提取第一个候选技术，围绕适用场景、优势、劣势、生态与成本做深度调研，输出结构化小结。"
+        }
+      },
+      {
+        "id": "node_3",
+        "type": "customNode",
+        "position": {
+          "x": 250,
+          "y": 300
+        },
+        "data": {
+          "name": "llmAgentflow",
+          "label": "候选二调研",
+          "model": "",
+          "systemPrompt": "从上游选型问题中提取第二个候选技术，用与候选一相同的维度（适用场景/优势/劣势/生态/成本）调研，输出结构化小结，便于后续对齐比较。"
+        }
+      },
+      {
+        "id": "node_4",
+        "type": "customNode",
+        "position": {
+          "x": 250,
+          "y": 480
+        },
+        "data": {
+          "name": "llmAgentflow",
+          "label": "候选三调研",
+          "model": "",
+          "systemPrompt": "从上游选型问题中提取第三个候选技术（若不足三个则调研「不引入新技术的现状方案」），用相同维度调研并输出结构化小结。"
+        }
+      },
+      {
+        "id": "node_5",
+        "type": "customNode",
+        "position": {
+          "x": 500,
+          "y": 300
+        },
+        "data": {
+          "name": "llmAgentflow",
+          "label": "对比与推荐",
+          "model": "",
+          "systemPrompt": "汇总三路调研，产出对比矩阵（维度 × 候选）与推荐结论：明确首选、何时选其他、迁移/退出成本。"
+        }
+      },
+      {
+        "id": "node_6",
+        "type": "customNode",
+        "position": {
+          "x": 750,
+          "y": 300
+        },
+        "data": {
+          "name": "directReplyAgentflow",
+          "label": "Direct Reply",
+          "content": "✅ 技术选型调研完成：对比矩阵与推荐见上方节点。"
+        }
+      }
+    ],
+    "edges": [
+      {
+        "id": "edge_1_2",
+        "source": "node_1",
+        "target": "node_2"
+      },
+      {
+        "id": "edge_1_3",
+        "source": "node_1",
+        "target": "node_3"
+      },
+      {
+        "id": "edge_1_4",
+        "source": "node_1",
+        "target": "node_4"
+      },
+      {
+        "id": "edge_2_5",
+        "source": "node_2",
+        "target": "node_5"
+      },
+      {
+        "id": "edge_3_5",
+        "source": "node_3",
+        "target": "node_5"
+      },
+      {
+        "id": "edge_4_5",
+        "source": "node_4",
+        "target": "node_5"
+      },
+      {
+        "id": "edge_5_6",
+        "source": "node_5",
+        "target": "node_6"
+      }
+    ]
+  },
+  "agentRefs": []
+}

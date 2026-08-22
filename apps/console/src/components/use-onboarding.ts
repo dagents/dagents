@@ -42,26 +42,31 @@ function pickList(body: unknown, envelopeKey: string, bareKey: string): UnknownR
 }
 
 async function checkOnboardingComplete(): Promise<boolean> {
-  const [dirsRes, cliRes, agentsRes] = await Promise.all([
+  const [dirsRes, cliRes, agentsRes, providersRes] = await Promise.all([
     fetch('/api/directories'),
     fetch('/api/cli-runtimes'),
     fetch('/api/agents'),
+    fetch('/api/llm-providers'),
   ])
 
   const dirs = dirsRes.ok ? await dirsRes.json() : null
   const cli = cliRes.ok ? await cliRes.json() : null
   const agents = agentsRes.ok ? await agentsRes.json() : null
+  const providers = providersRes.ok ? await providersRes.json() : null
 
   const dirList = pickList(dirs, 'items', 'items')
   const runtimeList = pickList(cli, 'runtimes', 'runtimes')
   const agentList = pickList(agents, 'agents', 'agents')
+  const providerList = pickList(providers, 'providers', 'providers')
 
-  // CLI 运行时检测：gateway 扫描 PATH，至少一个 binary available 即视为已安装
+  // CLI 运行时检测：gateway 扫描 PATH，至少一个 binary available 即视为已安装；
+  // 无 CLI 时一个已配置的 LLM Provider 同样构成可执行引擎（方案 F 的出口）
   const hasInstalledRuntime = runtimeList.some((r) => r.available === true)
+  const hasProvider = providerList.length > 0
 
   return (
     dirList.length > 0 &&
-    hasInstalledRuntime &&
+    (hasInstalledRuntime || hasProvider) &&
     agentList.length > 0
   )
 }

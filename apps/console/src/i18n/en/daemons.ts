@@ -26,6 +26,8 @@ export const daemons: Record<string, string> = {
   '重新检测本机 CLI': 'Re-detect local CLIs',
   '检测中…': 'Detecting…',
   '未安装': 'Not installed',
+  '核心': 'Core',
+  '社区适配器 — 按官方文档实现，未经真机回归': 'Community adapter — implemented from official docs, not regression-tested against the real CLI',
   '未安装 — {hint}': 'Not installed — {hint}',
 
   // ── 远程 daemon 区 ──

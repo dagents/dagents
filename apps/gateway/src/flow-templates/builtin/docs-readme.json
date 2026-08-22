@@ -1,0 +1,81 @@
+{
+  "name": "README 生成器：职责提取 → 草稿（{{项目名}}）",
+  "description": "输入项目/模块的代码或结构描述，先提取模块职责，再生成 README 草稿（项目名用{{项目名}}参数回填，留空则按输入推断）。纯 LLM 节点零依赖。",
+  "icon": "📘",
+  "category": "content",
+  "flowData": {
+    "nodes": [
+      {
+        "id": "node_1",
+        "type": "customNode",
+        "position": {
+          "x": 0,
+          "y": 300
+        },
+        "data": {
+          "name": "startAgentflow",
+          "label": "Start"
+        }
+      },
+      {
+        "id": "node_2",
+        "type": "customNode",
+        "position": {
+          "x": 250,
+          "y": 300
+        },
+        "data": {
+          "name": "llmAgentflow",
+          "label": "职责提取",
+          "model": "",
+          "systemPrompt": "分析上游输入的项目/模块信息，提取：定位一句话、核心能力清单、目标用户与使用场景、依赖与边界。"
+        }
+      },
+      {
+        "id": "node_3",
+        "type": "customNode",
+        "position": {
+          "x": 500,
+          "y": 300
+        },
+        "data": {
+          "name": "llmAgentflow",
+          "label": "README 草稿",
+          "model": "",
+          "systemPrompt": "根据上游职责提取，为「{{项目名}}」生成 README 草稿（Markdown）：标题与一句话介绍、快速开始、核心功能、目录结构说明、常见问题。只输出 README 本体。"
+        }
+      },
+      {
+        "id": "node_4",
+        "type": "customNode",
+        "position": {
+          "x": 750,
+          "y": 300
+        },
+        "data": {
+          "name": "directReplyAgentflow",
+          "label": "Direct Reply",
+          "content": "✅ README 草稿生成完成，见上方节点输出。"
+        }
+      }
+    ],
+    "edges": [
+      {
+        "id": "edge_1_2",
+        "source": "node_1",
+        "target": "node_2"
+      },
+      {
+        "id": "edge_2_3",
+        "source": "node_2",
+        "target": "node_3"
+      },
+      {
+        "id": "edge_3_4",
+        "source": "node_3",
+        "target": "node_4"
+      }
+    ]
+  },
+  "agentRefs": []
+}

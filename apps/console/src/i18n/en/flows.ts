@@ -120,6 +120,11 @@ export const flows: Record<string, string> = {
   内置模板: 'Built-ins',
   我的模板: 'My templates',
   '暂无团队场景。': 'No team scenarios yet.',
+  '模板包含变量，创建时回填到提示词（留空则按缺省值）。': 'This template has variables — they are substituted into prompts on creation (empty falls back to defaults).',
+  '留空使用缺省值': 'Leave empty for default',
+  '虚拟团队': 'Virtual Team',
+  '暂无虚拟团队场景。': 'No virtual-team scenarios yet.',
+  '查看虚拟团队场景 {name}': 'View virtual-team scenario {name}',
   '暂无模板。': 'No templates yet.',
   '还没有自己的模板 —— 在画布页点「另存为模板」把跑通的流程固化下来。': 'No templates of your own yet — click “Save as template” on the canvas to capture a working flow.',
   '查看模板 {name}': 'View template {name}',
@@ -153,4 +158,9 @@ export const flows: Record<string, string> = {
   '已保存为模板（{n} 个 Agent 引用）': 'Saved as template ({n} agent reference(s))',
   '保存中…': 'Saving…',
   '保存模板': 'Save template',
+
+  // ── flowise-canvas 保存拓扑干跑（方案 A4，toast 提示） ──
+  '已保存，但该流程当前无法运行': 'Saved — but this flow cannot run in its current state',
+  '已保存，流程有可疑之处': 'Saved — the flow looks suspicious',
+  '等 {n} 条': '{n} issues in total',
 }

@@ -8,6 +8,13 @@
 import devThreeStep from './dev-three-step.json' with { type: 'json' }
 import researchFanout from './research-fanout.json' with { type: 'json' }
 import contentPipeline from './content-pipeline.json' with { type: 'json' }
+import codeReviewChain from './code-review-chain.json' with { type: 'json' }
+import refactorPlan from './refactor-plan.json' with { type: 'json' }
+import bugTriage from './bug-triage.json' with { type: 'json' }
+import techComparison from './tech-comparison.json' with { type: 'json' }
+import docsReadme from './docs-readme.json' with { type: 'json' }
+import translateLocalize from './translate-localize.json' with { type: 'json' }
+import releaseChecklist from './release-checklist.json' with { type: 'json' }
 import type { FlowTemplateSpec, TemplateCategory } from '../../flow-template-pipeline.js'
 
 interface BuiltinFile {
@@ -23,6 +30,13 @@ const FILES: Array<{ slug: string; file: BuiltinFile }> = [
   { slug: 'dev-three-step', file: devThreeStep as BuiltinFile },
   { slug: 'research-fanout', file: researchFanout as BuiltinFile },
   { slug: 'content-pipeline', file: contentPipeline as BuiltinFile },
+  { slug: 'code-review-chain', file: codeReviewChain as BuiltinFile },
+  { slug: 'refactor-plan', file: refactorPlan as BuiltinFile },
+  { slug: 'bug-triage', file: bugTriage as BuiltinFile },
+  { slug: 'tech-comparison', file: techComparison as BuiltinFile },
+  { slug: 'docs-readme', file: docsReadme as BuiltinFile },
+  { slug: 'translate-localize', file: translateLocalize as BuiltinFile },
+  { slug: 'release-checklist', file: releaseChecklist as BuiltinFile },
 ]
 
 const CATEGORIES = new Set(['dev', 'research', 'content', 'ops', 'custom'])

@@ -1,0 +1,100 @@
+{
+  "name": "重构方案：识别 → 分级 → 回归验证",
+  "description": "输入一段代码/模块描述，产出结构化重构方案：识别重构点 → 按收益/风险分级并给出方案 → 回归验证步骤。纯 LLM 节点零依赖。",
+  "icon": "🧱",
+  "category": "dev",
+  "flowData": {
+    "nodes": [
+      {
+        "id": "node_1",
+        "type": "customNode",
+        "position": {
+          "x": 0,
+          "y": 300
+        },
+        "data": {
+          "name": "startAgentflow",
+          "label": "Start"
+        }
+      },
+      {
+        "id": "node_2",
+        "type": "customNode",
+        "position": {
+          "x": 250,
+          "y": 300
+        },
+        "data": {
+          "name": "llmAgentflow",
+          "label": "识别重构点",
+          "model": "",
+          "systemPrompt": "你是重构顾问。分析上游输入的代码或模块，识别值得重构的点（重复逻辑、过长函数、职责混杂、缺失抽象等），每条说明现状与影响。"
+        }
+      },
+      {
+        "id": "node_3",
+        "type": "customNode",
+        "position": {
+          "x": 500,
+          "y": 300
+        },
+        "data": {
+          "name": "llmAgentflow",
+          "label": "分级方案",
+          "model": "",
+          "systemPrompt": "对上游识别出的重构点按「收益/风险/工作量」分级，给出每项的具体重构方案（目标结构、步骤拆解），并建议实施顺序。"
+        }
+      },
+      {
+        "id": "node_4",
+        "type": "customNode",
+        "position": {
+          "x": 750,
+          "y": 300
+        },
+        "data": {
+          "name": "llmAgentflow",
+          "label": "回归验证",
+          "model": "",
+          "systemPrompt": "为上游重构方案设计回归验证：每一步重构后用什么手段确认行为未变（测试清单/手工验证点/风险哨兵）。"
+        }
+      },
+      {
+        "id": "node_5",
+        "type": "customNode",
+        "position": {
+          "x": 1000,
+          "y": 300
+        },
+        "data": {
+          "name": "directReplyAgentflow",
+          "label": "Direct Reply",
+          "content": "✅ 重构方案生成完成：重构点、分级方案与回归验证见上方节点。"
+        }
+      }
+    ],
+    "edges": [
+      {
+        "id": "edge_1_2",
+        "source": "node_1",
+        "target": "node_2"
+      },
+      {
+        "id": "edge_2_3",
+        "source": "node_2",
+        "target": "node_3"
+      },
+      {
+        "id": "edge_3_4",
+        "source": "node_3",
+        "target": "node_4"
+      },
+      {
+        "id": "edge_4_5",
+        "source": "node_4",
+        "target": "node_5"
+      }
+    ]
+  },
+  "agentRefs": []
+}

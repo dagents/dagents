@@ -10,6 +10,7 @@
  */
 import { Hono } from 'hono'
 import { execSync } from 'node:child_process'
+import { getAdapterTier } from '@dagents/agent-adapters'
 
 // Re-import from the source directly (this route lives in gateway, but the
 // catalog is a console-side module). We inline the binary list here to avoid
@@ -46,6 +47,8 @@ interface RuntimeDetection {
   binary: string
   available: boolean
   path: string | null
+  /** Maintenance tier (方案 E): core / community + regression status. */
+  tier: { tier: string; regression: string; note?: string }
 }
 
 function detectAll(): RuntimeDetection[] {
@@ -68,7 +71,8 @@ function detectAll(): RuntimeDetection[] {
     } catch {
       // not found — leave available=false
     }
-    results.push({ kind, binary, available, path })
+    const { tier, regression, note } = getAdapterTier(kind)
+    results.push({ kind, binary, available, path, tier: { tier, regression, note } })
   }
   return results
 }

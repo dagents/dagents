@@ -1,0 +1,100 @@
+{
+  "name": "代码审查链：审查 → 修复清单 → 放行结论",
+  "description": "对输入的代码/变更做三段式审查：静态审查（可指定{{关注点}}，如安全/性能）→ 产出按严重度排序的修复清单 → 给出放行结论。纯 LLM 节点零依赖，无人格库、无 Provider 也能跑（CLI 兜底）。",
+  "icon": "🔍",
+  "category": "dev",
+  "flowData": {
+    "nodes": [
+      {
+        "id": "node_1",
+        "type": "customNode",
+        "position": {
+          "x": 0,
+          "y": 300
+        },
+        "data": {
+          "name": "startAgentflow",
+          "label": "Start"
+        }
+      },
+      {
+        "id": "node_2",
+        "type": "customNode",
+        "position": {
+          "x": 250,
+          "y": 300
+        },
+        "data": {
+          "name": "llmAgentflow",
+          "label": "静态审查",
+          "model": "",
+          "systemPrompt": "你是资深代码审查者。审查上游输入的代码或变更，重点关注{{关注点}}（未指定则覆盖正确性、安全性、性能、可维护性）。逐条列出发现的问题，标注位置与严重度。"
+        }
+      },
+      {
+        "id": "node_3",
+        "type": "customNode",
+        "position": {
+          "x": 500,
+          "y": 300
+        },
+        "data": {
+          "name": "llmAgentflow",
+          "label": "修复清单",
+          "model": "",
+          "systemPrompt": "根据上游审查发现，产出按严重度（阻断/高/中/低）排序的修复清单，每条含问题描述、建议修法与验证方式。"
+        }
+      },
+      {
+        "id": "node_4",
+        "type": "customNode",
+        "position": {
+          "x": 750,
+          "y": 300
+        },
+        "data": {
+          "name": "llmAgentflow",
+          "label": "放行结论",
+          "model": "",
+          "systemPrompt": "综合上游修复清单，给出放行结论：能否合并/发布、必须先修哪些、可以跟进的有哪些。结论明确不含糊。"
+        }
+      },
+      {
+        "id": "node_5",
+        "type": "customNode",
+        "position": {
+          "x": 1000,
+          "y": 300
+        },
+        "data": {
+          "name": "directReplyAgentflow",
+          "label": "Direct Reply",
+          "content": "✅ 代码审查链执行完成：问题清单与放行结论见上方节点。"
+        }
+      }
+    ],
+    "edges": [
+      {
+        "id": "edge_1_2",
+        "source": "node_1",
+        "target": "node_2"
+      },
+      {
+        "id": "edge_2_3",
+        "source": "node_2",
+        "target": "node_3"
+      },
+      {
+        "id": "edge_3_4",
+        "source": "node_3",
+        "target": "node_4"
+      },
+      {
+        "id": "edge_4_5",
+        "source": "node_4",
+        "target": "node_5"
+      }
+    ]
+  },
+  "agentRefs": []
+}
