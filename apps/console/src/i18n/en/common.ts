@@ -94,10 +94,10 @@ export const common = {
   '帮我创建第一个 Agent': 'Help me create my first agent',
   '什么是 AgentFlow？': 'What is an AgentFlow?',
   '这个平台能做什么？': 'What can this platform do?',
-  '帮我创建一个批量推理的 AgentFlow': 'Create a batch-inference AgentFlow for me',
-  '查看当前资源看板的 agent 状态': 'Show agent status on the resource board',
-  '设计一个多步骤的 Workspace 任务': 'Design a multi-step workspace task',
-  '测试新的 Agent prompt 模板': 'Test a new agent prompt template',
+  // ⚠️ @workflow 前缀必须原样保留：onPick 发送的是翻译后文本，前缀丢了
+  // 命令解析（parseCommand）就匹配不上生成管线。
+  '@workflow 帮我生成一个代码审查工作流': '@workflow Generate a code-review workflow for me',
+  '这个项目有哪些可以改进的地方？': 'What could be improved in this project?',
 
   // ── 侧栏补充 ──
   新对话: 'New chat',

@@ -31,12 +31,20 @@ const ONBOARDING_SUGGESTIONS: readonly Suggestion[] = [
   { icon: 'lab', text: '这个平台能做什么？' },
 ] as const
 
-/** Default suggestions for returning users with existing resources. */
+/**
+ * Default suggestions for returning users with existing resources.
+ *
+ * 2026-08-23 产品复盘（docs 会话记录）：旧四条全部失败——「资源看板」/
+ * 「Workspace」是被砍掉的 v0.2 概念，「创建 AgentFlow」7 次点击 0 产出
+ * （普通消息不触发生成管线，agent 甚至不认识 AgentFlow 一词）。新四条
+ * 绑定真实能力：@workflow 前缀直通生成管线（注意 en 词条必须保留前缀，
+ * onPick 发送的是翻译后文本），其余为已验证的目录场景真能力。
+ */
 const DEFAULT_SUGGESTIONS: readonly Suggestion[] = [
-  { icon: 'zap', text: '帮我创建一个批量推理的 AgentFlow' },
-  { icon: 'agents', text: '查看当前资源看板的 agent 状态' },
-  { icon: 'flows', text: '设计一个多步骤的 Workspace 任务' },
-  { icon: 'lab', text: '测试新的 Agent prompt 模板' },
+  { icon: 'zap', text: '@workflow 帮我生成一个代码审查工作流' },
+  { icon: 'brain', text: '帮我理解这个项目的架构' },
+  { icon: 'refresh', text: '审查最近的代码变更' },
+  { icon: 'pencil', text: '这个项目有哪些可以改进的地方？' },
 ] as const
 
 export function SuggestionCards({ onPick }: SuggestionCardsProps): React.ReactElement {
@@ -101,9 +109,9 @@ export function SuggestionCards({ onPick }: SuggestionCardsProps): React.ReactEl
             if (runningAgent) {
               setSuggestions([
                 { icon: 'agents', text: `查看 Agent "${agentName}" 的运行状态` },
-                { icon: 'zap', text: '帮我创建一个批量推理的 AgentFlow' },
-                { icon: 'flows', text: '设计一个多步骤的 Workspace 任务' },
-                { icon: 'lab', text: '测试新的 Agent prompt 模板' },
+                { icon: 'zap', text: '@workflow 帮我生成一个代码审查工作流' },
+                { icon: 'brain', text: '帮我理解这个项目的架构' },
+                { icon: 'refresh', text: '审查最近的代码变更' },
               ])
             } else {
               setSuggestions(DEFAULT_SUGGESTIONS)
