@@ -636,10 +636,10 @@ export function FlowsView(): React.ReactElement {
                     <div className="flow-info">
                       <div className="nm">{f.name}</div>
                       <div className="sub">
-                        <span className="mono">{f.id}</span>
+                        <span className="mono" title={f.id}>{f.id.slice(0, 8)}</span>
                         {f.versionHash ? <span>{`sha ${f.versionHash.slice(0, 7)}`}</span> : null}
                         <span>{t('{n} 节点', { n: f.nodeCount })}</span>
-                        <span>{t('{n} 次运行', { n: f.runCount })}</span>
+                        {f.runCount > 0 ? <span>{t('{n} 次运行', { n: f.runCount })}</span> : null}
                       </div>
                     </div>
                     <div className="flow-card-meta">

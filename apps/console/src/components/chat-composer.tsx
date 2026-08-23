@@ -248,8 +248,8 @@ export function ChatComposer({
               onMouseDown={(e) => e.preventDefault()}
               onClick={openCommandMenu}
               disabled={disabled}
-              title="插入 @ 命令"
-              aria-label="插入 @ 命令"
+              title={t('插入 @ 命令')}
+              aria-label={t('插入 @ 命令')}
             >
               <Icon name="plus" style={{ width: 14, height: 14 }} />
             </button>
@@ -262,7 +262,7 @@ export function ChatComposer({
           </div>
           <div className="chat-composer-trailing">
             <span className="chat-composer-hint">
-              {'⏎'} 发送 · {'⇧⏎'} 换行 · {'@'} 命令
+              {t('⏎ 发送 · ⇧⏎ 换行 · @ 命令')}
             </span>
             {showStop ? (
               <button

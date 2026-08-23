@@ -557,7 +557,7 @@ export function ChatNavSidebar({ collapsed, onToggle }: ChatNavSidebarProps): Re
                 <button
                   type="button"
                   className="chat-nav-search-open"
-                  aria-label="搜索对话"
+                  aria-label={t('搜索对话')}
                   onClick={() => {
                     setSearchExpanded(true)
                     requestAnimationFrame(() => searchInputRef.current?.focus())

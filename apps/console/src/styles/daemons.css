@@ -88,7 +88,8 @@
   flex-shrink: 0;
 }
 .local-cli-card.unavailable {
-  opacity: 0.55;
+  opacity: 0.6;
+  filter: grayscale(0.9);
 }
 .local-cli-name {
   font-size: var(--text-sm);
