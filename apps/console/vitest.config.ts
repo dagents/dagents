@@ -31,6 +31,12 @@ export default defineConfig({
     environment: 'jsdom',
     setupFiles: ['./vitest.setup.ts'],
     include: ['src/**/*.{test,spec}.{ts,tsx}'],
+    // 这台开发机常驻高负载（宿主应用 + 多 dev server），jsdom 渲染类用例
+    // 在默认 5s 下会因 CPU 饥饿偶发超时（断言本身没问题）。放宽到 20s /
+    // hook 10s，并行度跟随 CPU 但压到 4 以内，减少抖动。
+    testTimeout: 20_000,
+    hookTimeout: 10_000,
+    maxConcurrency: 4,
   },
 })
 
