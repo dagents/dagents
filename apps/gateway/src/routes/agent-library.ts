@@ -180,10 +180,12 @@ agentLibraryRoutes.post('/:division/:slug/instantiate', async (c) => {
     return fail(c, 400, 'invalid instantiate body', { detail: String(err) })
   }
 
-  const kind = parsed.kind ?? 'claude'
+  // 建议优先级：请求体 > 人格 frontmatter（快速开始档位人格锁定 kind/model）> 默认 claude
+  const kind = parsed.kind ?? entry.suggestedKind ?? 'claude'
   if (!ALLOWED_KINDS.includes(kind)) {
     return fail(c, 400, `kind must be one of: ${ALLOWED_KINDS.join(', ')}`, { kind })
   }
+  const model = parsed.model ?? entry.suggestedModel ?? ''
   const profile = parsed.profile ?? 'slim'
 
   const existing = await findInstantiatedRow(id)
@@ -199,7 +201,7 @@ agentLibraryRoutes.post('/:division/:slug/instantiate', async (c) => {
     agentId = await insertLibraryAgent(entry, {
       profile,
       kind,
-      model: parsed.model ?? '',
+      model,
       name: parsed.name ?? entry.name,
       workspaceId: parsed.workspace_id,
       ownerId: parsed.owner_id,

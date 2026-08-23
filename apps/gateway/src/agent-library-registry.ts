@@ -20,7 +20,8 @@
  */
 import { readdirSync, readFileSync, statSync } from 'node:fs'
 import { homedir } from 'node:os'
-import { join } from 'node:path'
+import { dirname, join } from 'node:path'
+import { fileURLToPath } from 'node:url'
 import { createLogger } from '@dagents/shared'
 import {
   parsePersonaMarkdown,
@@ -63,6 +64,9 @@ export interface AgentLibraryEntrySummary {
   vibe: string | null
   /** frontmatter tools 声明（仅展示标注，不映射执行配置 —— 见设计 D2）。 */
   tools: string[] | null
+  /** frontmatter kind/model 建议（快速开始档位人格用）：instantiate 的默认值。 */
+  suggestedKind: string | null
+  suggestedModel: string | null
   /** 文件字节数（前端据此提示 token 量级）。 */
   sizeBytes: number
 }
@@ -89,10 +93,20 @@ interface ScannedEntry extends AgentLibraryEntry {
   rootRank: number
 }
 
+/** 内置快速开始库根（agent-templates 退役承接，5 个运行时档位人格）。
+ *  以本模块相对路径定位 —— dev（tsx 直跑 src）与构建产物均指向
+ *  apps/gateway/quickstart-library；目录缺失时静默跳过。 */
+const BUILTIN_QUICKSTART_DIR = join(dirname(fileURLToPath(import.meta.url)), '..', 'quickstart-library')
+const BUILTIN_QUICKSTART_RANK = 50
+
 /** Resolve discovery roots. Evaluated per scan so env changes apply on refresh. */
 export function defaultAgentLibraryRoots(): AgentLibraryRoot[] {
   const roots: AgentLibraryRoot[] = []
   const seen = new Set<string>()
+  if (isReadableDir(BUILTIN_QUICKSTART_DIR)) {
+    roots.push({ source: 'custom', dir: BUILTIN_QUICKSTART_DIR, rank: BUILTIN_QUICKSTART_RANK })
+    seen.add(BUILTIN_QUICKSTART_DIR)
+  }
   const custom = process.env.DAGENTS_AGENT_LIBRARY_DIRS
   if (custom) {
     custom
@@ -227,6 +241,8 @@ function scanRoot(root: AgentLibraryRoot, divisions: Map<string, AgentLibraryDiv
         color: typeof md.color === 'string' && md.color ? md.color : null,
         vibe: typeof md.vibe === 'string' && md.vibe ? md.vibe : null,
         tools: toStringArray(md.tools),
+        suggestedKind: typeof md.kind === 'string' && md.kind ? md.kind : null,
+        suggestedModel: typeof md.model === 'string' && md.model ? md.model : null,
         sizeBytes: Buffer.byteLength(raw, 'utf-8'),
         body: parsed.body,
         filePath: file,
@@ -269,8 +285,8 @@ export class AgentLibraryRegistry {
     const now = Date.now()
     if (this.cached && this.cachedDivisions && now - this.cachedAt < CATALOG_TTL_MS) return
     const { entries, divisions } = this.scanAll()
-    this.cached = entries.map(({ id, division, name, description, emoji, color, vibe, tools, sizeBytes }) => ({
-      id, division, name, description, emoji, color, vibe, tools, sizeBytes,
+    this.cached = entries.map(({ id, division, name, description, emoji, color, vibe, tools, suggestedKind, suggestedModel, sizeBytes }) => ({
+      id, division, name, description, emoji, color, vibe, tools, suggestedKind, suggestedModel, sizeBytes,
     }))
     this.cachedDivisions = [...divisions.values()].sort((a, b) => a.key.localeCompare(b.key))
     this.cachedAt = now

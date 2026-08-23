@@ -19,7 +19,6 @@ import { useRouter } from 'next/navigation'
 import { PageShell } from '@/components/page-shell'
 import { Icon } from '@/components/icon'
 import { CreateAgentDialog } from '@/components/create-agent-dialog'
-import { AgentTemplateGallery } from '@/components/agent-template-gallery'
 import { AgentLibraryGallery } from '@/components/agent-library-gallery'
 import { SkeletonList } from '@/components/skeleton'
 import { useI18n } from '@/i18n'
@@ -102,7 +101,6 @@ export function AgentsView(): React.ReactElement {
     dir: 'asc',
   })
   const [createOpen, setCreateOpen] = useState(false)
-  const [templateOpen, setTemplateOpen] = useState(false)
   const [libraryOpen, setLibraryOpen] = useState(false)
 
   const load = useCallback(async () => {
@@ -204,14 +202,6 @@ export function AgentsView(): React.ReactElement {
           onClick={() => void load()}
         >
           {t('刷新')}
-        </button>
-        <button
-          type="button"
-          className="btn btn-secondary btn-sm"
-          onClick={() => setTemplateOpen(true)}
-        >
-          <Icon name="zap" style={{ width: 14, height: 14 }} />
-          {t('从模板创建')}
         </button>
         <button
           type="button"
@@ -389,13 +379,9 @@ export function AgentsView(): React.ReactElement {
         onCreated={handleCreated}
       />
 
-      {/* template gallery */}
-      <AgentTemplateGallery
-        open={templateOpen}
-        onClose={() => setTemplateOpen(false)}
-      />
-
-      {/* agent persona library gallery（docs/agent-library.md） */}
+      {/* agent persona library gallery（docs/agent-library.md）—— 模板体系
+          （agent-templates）已于 2026-08-23 退役，5 个运行时档位预设翻译为
+          人格库「快速开始」分区（gateway/quickstart-library）。 */}
       <AgentLibraryGallery
         open={libraryOpen}
         onClose={() => setLibraryOpen(false)}

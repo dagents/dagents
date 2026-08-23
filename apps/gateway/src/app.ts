@@ -5,7 +5,6 @@ import { directoryRoutes } from './routes/directories.js'
 import { chatRoutes } from './routes/chats.js'
 import { agentsRoutes } from './routes/agents.js'
 import { agentInvokeRoutes } from './routes/agent-invoke.js'
-import { agentTemplateRoutes } from './routes/agent-templates.js'
 import { agentLibraryTeamRoutes } from './routes/agent-library-teams.js'
 import { agentLibraryRoutes } from './routes/agent-library.js'
 import { flowTemplateRoutes } from './routes/flow-templates.js'
@@ -161,7 +160,7 @@ app.route('/api/v1/agents', agentInvokeRoutes)
  * real `agents` row from a template. Mounted alongside `/api/v1/agents` so
  * the console's template gallery proxy can sit next to the agents proxy.
  */
-app.route('/api/v1/agent-templates', agentTemplateRoutes)
+  // agent-templates 已退役（2026-08-23）：5 个预设翻译为 quickstart-library 人格，见 routes/agent-library.ts
 
 /**
  * Agent Library (docs/agent-library.md): registry-not-database 人格库目录 +

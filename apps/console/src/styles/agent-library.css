@@ -325,3 +325,11 @@
   color: var(--text-secondary, #aaa);
   margin-top: 2px;
 }
+
+/* 确认步：运行时/模型档位选择 */
+.alib-runtime-dd { display: flex; gap: 6px; align-items: center; }
+.alib-runtime-select {
+  border: 1px solid var(--border); border-radius: 6px;
+  background: var(--bg); color: var(--fg);
+  font-size: 12px; padding: 3px 6px; font-family: var(--font-mono);
+}

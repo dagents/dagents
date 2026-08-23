@@ -70,6 +70,9 @@ export function AgentLibraryGallery({
   const [search, setSearch] = useState('')
   const [detail, setDetail] = useState<AgentLibraryDetail | null>(null)
   const [profile, setProfile] = useState<PersonaProfile>('slim')
+  // 运行时档位：预填人格 frontmatter 建议（快速开始人格锁定 kind/model），可改
+  const [runtimeKind, setRuntimeKind] = useState('claude')
+  const [runtimeModel, setRuntimeModel] = useState('')
   const [submitting, setSubmitting] = useState(false)
   const [rootInput, setRootInput] = useState('')
   const [addingRoot, setAddingRoot] = useState(false)
@@ -181,6 +184,9 @@ export function AgentLibraryGallery({
     try {
       const d = await fetchAgentLibraryEntry(id)
       setDetail(d)
+      // 快速开始人格锁定档位；普通人格默认 claude
+      setRuntimeKind(d.suggestedKind ?? 'claude')
+      setRuntimeModel(d.suggestedModel ?? '')
       setProfile('slim')
     } catch (err) {
       toast.error(err instanceof Error ? err.message : String(err))
@@ -191,7 +197,11 @@ export function AgentLibraryGallery({
     if (!detail) return
     setSubmitting(true)
     try {
-      const { id } = await instantiateAgentFromLibrary(detail.id, { profile })
+      const { id } = await instantiateAgentFromLibrary(detail.id, {
+        profile,
+        kind: runtimeKind,
+        ...(runtimeModel ? { model: runtimeModel } : {}),
+      })
       toast.success(t('已启用「{name}」', { name: detail.name }))
       onClose()
       router.push(`/agents/${id}`)
@@ -292,7 +302,35 @@ export function AgentLibraryGallery({
                 </div>
                 <div>
                   <dt>{t('运行时')}</dt>
-                  <dd>claude（{t('CLI，带真实工具')}）</dd>
+                  <dd className='alib-runtime-dd'>
+                    <select
+                      className='alib-runtime-select'
+                      value={runtimeKind}
+                      onChange={(e) => {
+                        setRuntimeKind(e.target.value)
+                        // 非 claude 无模型档位概念，清空
+                        if (e.target.value !== 'claude') setRuntimeModel('')
+                      }}
+                      aria-label={t('运行时')}
+                    >
+                      {['claude', 'codex', 'copilot', 'qwen'].map((k) => (
+                        <option key={k} value={k}>{k}</option>
+                      ))}
+                    </select>
+                    {runtimeKind === 'claude' ? (
+                      <select
+                        className='alib-runtime-select'
+                        value={runtimeModel}
+                        onChange={(e) => setRuntimeModel(e.target.value)}
+                        aria-label={t('模型档位')}
+                      >
+                        <option value=''>{t('默认模型')}</option>
+                        <option value='sonnet'>sonnet</option>
+                        <option value='opus'>opus</option>
+                        <option value='haiku'>haiku</option>
+                      </select>
+                    ) : null}
+                  </dd>
                 </div>
                 {detail.tools && detail.tools.length > 0 && (
                   <div>

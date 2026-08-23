@@ -18,6 +18,9 @@ export interface AgentLibraryEntrySummary {
   vibe: string | null
   tools: string[] | null
   sizeBytes: number
+  /** frontmatter 建议运行时（快速开始档位人格锁定 kind/model；instantiate 默认采用）。 */
+  suggestedKind?: string | null
+  suggestedModel?: string | null
 }
 
 export interface AgentLibraryDivision {

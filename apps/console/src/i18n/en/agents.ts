@@ -211,4 +211,8 @@ export const agents: Record<string, string> = {
   '缺失的成员将自动启用为 claude Agent（slim 档）；已启用的直接复用。': 'Missing members are auto-enabled as claude agents (slim); enabled ones are reused.',
   '已创建工作流「{name}」（{n} 个成员 Agent）': 'Workflow “{name}” created ({n} member agents)',
   创建工作流: 'Create workflow',
+
+  // ── 人格库运行时选择（模板体系退役后） ──
+  '模型档位': 'Model tier',
+  '默认模型': 'Default model',
 }

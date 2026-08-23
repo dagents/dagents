@@ -1,0 +1,6 @@
+{
+  "_note": "内置快速开始库根（agent-templates 退役后的承接）：5 个运行时档位预设人格，rank 最低优先展示。frontmatter 的 kind/model 为建议运行时，instantiate 默认采用、可被请求体覆盖。",
+  "divisions": {
+    "quickstart": { "label": "快速开始", "icon": "Zap", "color": "#f59e0b" }
+  }
+}
