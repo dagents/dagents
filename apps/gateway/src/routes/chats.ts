@@ -5,6 +5,7 @@ import { z } from 'zod'
 import { runQuery } from '@dagents/db'
 import { createLogger } from '@dagents/shared'
 import { DagExecutor, NodeRegistry, allNodes, SseStreamer, type FlowData } from '@dagents/workflow'
+import { makeIncrementalSpanWriter } from '../span-writer.js'
 import { routeMessage } from './chat-execute.js'
 import { enqueueTask, getTask, getTaskEvents } from './dispatch/service.js'
 import { executionRegistry, type ExecutionHandle } from '../execution-registry.js'
@@ -789,11 +790,11 @@ chatRoutes.get('/:id/stream', async (c) => {
   }
 
   // Fetch the latest user message (the prompt for execution) alongside chat metadata.
-  let chat: { flow_id: string | null; agent_id: string | null } | null
+  let chat: { flow_id: string | null; agent_id: string | null; directory_id: string | null } | null
   let lastUserMsg: string | null = null
   try {
-    const { records: chatRows } = await runQuery<{ flow_id: string | null; agent_id: string | null }>(
-      `SELECT flow_id, agent_id FROM chats WHERE id = $1::uuid`,
+    const { records: chatRows } = await runQuery<{ flow_id: string | null; agent_id: string | null; directory_id: string | null }>(
+      `SELECT flow_id, agent_id, directory_id FROM chats WHERE id = $1::uuid`,
       [id],
     )
     chat = chatRows[0] ?? null
@@ -884,7 +885,18 @@ chatRoutes.get('/:id/stream', async (c) => {
     let cancelled = false
     try {
       // CLI-first：无 provider 时 LLM/Agent 节点跑本地 CLI（零配置基线）。
-      const llmClient = createDefaultLlmClient()
+      // 工作目录 = 会话绑定的项目目录（和聊天 inline 执行一致）。
+      let chatCwd: string | undefined
+      if (chat.directory_id) {
+        try {
+          const { records: dirRows } = await runQuery<{ path: string }>(
+            `SELECT path FROM directories WHERE id = $1::uuid`,
+            [chat.directory_id],
+          )
+          chatCwd = dirRows[0]?.path ?? undefined
+        } catch { /* 目录解析失败回落网关 cwd */ }
+      }
+      const llmClient = createDefaultLlmClient('claude', { cwd: chatCwd })
       const agentFetcher = createAgentFetcher()
       const toolRegistry = createBuiltInToolRegistry()
       const historyRetriever = createHistoryRetriever(id)
@@ -892,6 +904,22 @@ chatRoutes.get('/:id/stream', async (c) => {
       // (see human-input.ts); ExecuteFlow nodes run subflows with the same
       // clients — subflows never stream into this stream.
       const humanInputResolver = createChatHumanInputResolver({ chatId: id, runId, streamer })
+      // 节点生命周期 → 增量写 run_node_spans：chat 触发的工作流与画布直跑
+      // 共用同一进度数据源，画布可通过 /workflows/:flowId/canvas?run=<id>
+      // 实时旁观 chat 发起的运行。
+      const nodeLabelById = new Map<string, string | null>()
+      const nodeTypeById = new Map<string, string | null>()
+      for (const n of flowData.nodes) {
+        nodeLabelById.set(n.id, (n.data as { label?: string })?.label ?? n.id)
+        nodeTypeById.set(n.id, n.type ?? 'customNode')
+      }
+      const spanWriter = makeIncrementalSpanWriter({
+        runId,
+        flowId: chat.flow_id!,
+        nodeLabelById,
+        nodeTypeById,
+        log,
+      })
       const result = await executor.execute(flowData, prompt, {
         chatId: id,
         runId,
@@ -900,6 +928,8 @@ chatRoutes.get('/:id/stream', async (c) => {
         sseStreamer: streamer,
         startInput: prompt,
         signal: abort.signal,
+        onNodeStart: spanWriter.onNodeStart,
+        onNodeEnd: spanWriter.onNodeEnd,
         llmClient,
         agentFetcher,
         toolRegistry,
@@ -921,6 +951,36 @@ chatRoutes.get('/:id/stream', async (c) => {
         streamer.streamErrorEvent(id, 'Execution cancelled by user')
       } else if (result.status !== 'success') {
         streamer.streamErrorEvent(id, result.error ?? 'workflow execution failed')
+      }
+      // runs 行：chat 触发的工作流运行也进 flow 运行历史，且画布旁观
+      // （canvas?run=）依赖它判断终态。best-effort —— 失败不影响流。
+      try {
+        const runStatus =
+          result.status === 'success' ? 'completed'
+          : result.status === 'cancelled' ? 'cancelled'
+          : 'failed'
+        await runQuery(
+          `INSERT INTO runs (id, identifier, pipeline_id, chat_id, status, input, output, started_at, finished_at, duration_ms, cost)
+           VALUES ($1::uuid, $2::text, $3::uuid, $4::text, $5, $6, $7, $8, NOW(), $9, 0)
+           ON CONFLICT (id) DO UPDATE SET
+             status = EXCLUDED.status,
+             output = EXCLUDED.output,
+             finished_at = EXCLUDED.finished_at,
+             duration_ms = EXCLUDED.duration_ms`,
+          [
+            runId,
+            runId,
+            chat.flow_id!,
+            id,
+            runStatus,
+            JSON.stringify(prompt.slice(0, 200)),
+            JSON.stringify(finalText.slice(0, 500) || null),
+            new Date(handle.startedAt).toISOString(),
+            Math.max(0, Date.now() - handle.startedAt),
+          ],
+        )
+      } catch (err) {
+        log.warn('chat stream runs row persist failed', { id, runId, error: String(err) })
       }
     } catch (err) {
       log.error('chat stream execution failed', { id, error: String(err) })

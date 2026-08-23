@@ -43,6 +43,16 @@ export interface ExecuteOptions {
   humanInputResolver?: IExecutionContext['humanInputResolver']
   /** Flow executor — passed through to ExecuteFlow nodes (subflow execution). */
   flowExecutor?: IExecutionContext['flowExecutor']
+  /**
+   * Node lifecycle hooks — fire as each node starts / finishes so callers
+   * (e.g. the gateway's canvas run) can persist live progress. Hooks are
+   * synchronous from the executor's perspective: async work should be
+   * fire-and-forget inside the callback so it never stalls a wave.
+   * Subflow (ExecuteFlow) nodes do not fire these — their spans surface
+   * via the caller's onExecutedNodes aggregation.
+   */
+  onNodeStart?: (node: { nodeId: string; nodeName: string }) => void
+  onNodeEnd?: (node: IExecutedNode) => void
 }
 
 /** Node type names whose loop body the executor repeats. */
@@ -268,8 +278,9 @@ export class DagExecutor {
 
               const startedAt = new Date().toISOString()
               try {
+                opts.onNodeStart?.({ nodeId, nodeName: flowNode.data.name as string })
                 const output = await runNode(flowNode, nodeInput)
-                executedNodes.push({
+                const executed: IExecutedNode = {
                   nodeId,
                   nodeName: flowNode.data.name as string,
                   startedAt,
@@ -279,7 +290,9 @@ export class DagExecutor {
                   output: output.output,
                   tokens: output.usage ?? null,
                   cost: null,
-                })
+                }
+                executedNodes.push(executed)
+                opts.onNodeEnd?.(executed)
                 runtime.merge(output.state)
                 // Expose the node's output to template variables under its
                 // node id (the canvas variable picker inserts `{{<nodeId>}}`),
@@ -292,7 +305,7 @@ export class DagExecutor {
                 return { kind: 'executed', nodeId, output: output.output, input: nodeInput }
               } catch (err) {
                 const message = err instanceof Error ? err.message : String(err)
-                executedNodes.push({
+                const executed: IExecutedNode = {
                   nodeId,
                   nodeName: flowNode.data.name as string,
                   startedAt,
@@ -301,7 +314,9 @@ export class DagExecutor {
                   input: this.toRecord(nodeInput),
                   output: {},
                   error: message,
-                })
+                }
+                executedNodes.push(executed)
+                opts.onNodeEnd?.(executed)
                 return { kind: 'failed', nodeId, error: message }
               }
             }),

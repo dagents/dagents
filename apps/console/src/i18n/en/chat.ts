@@ -109,4 +109,55 @@ export const chat: Record<string, string> = {
   '点击创建': 'Click to create',
   '未安装': 'Not installed',
   '还没有 Agent · 去创建': 'No agents yet · Create one',
+
+  // ── 画布运行 ──
+  '运行完成 · {n}s': 'Run finished · {n}s',
+  '运行失败 · {reason}': 'Run failed · {reason}',
+  '运行失败：{reason}': 'Run failed: {reason}',
+  '▶ 运行': '▶ Run',
+  '▶ 再次运行': '▶ Run again',
+  '▶ 重试运行': '▶ Retry run',
+  '在画布上运行此工作流，节点将实时显示执行进度': 'Run this workflow on the canvas — nodes show live execution progress',
+
+  // ── 画布旁观入口 ──
+  '画布查看': 'View on canvas',
+  '在画布中查看此运行的节点级进度': 'Watch this run\'s node-level progress on the canvas',
+  '运行完成': 'Run finished',
+  '已取消': 'Cancelled',
+  '运行失败': 'Run failed',
+
+  // ── 画布运行输入/结果面板 ──
+  '运行输入': 'Run input',
+  '输入将作为 {{$start.input}} 传入（节点里可用 {{<节点id>.output}} 引用上游产出）':
+    'Passed in as {{$start.input}} (nodes can reference upstream output via {{<nodeId>.output}})',
+  '开始运行': 'Start run',
+  '运行结果': 'Run results',
+  '运行结果（{n}）': 'Results ({n})',
+  '查看每个节点的执行状态与产出': 'Inspect per-node status and output',
+  完成: 'Done',
+  '（无产出）': '(no output)',
+  产出: 'Output',
+
+  // ── 异步运行/失败即时检测 ──
+  '启动失败 · {reason}': 'Failed to start · {reason}',
+  '启动失败：{reason}': 'Failed to start: {reason}',
+  '运行失败 · {n}s': 'Run failed · {n}s',
+  '运行失败 · {node}': 'Run failed · {node}',
+  '运行失败 — 详见「运行结果」面板中红色节点': 'Run failed — see the red node in the results panel',
+  '节点 {node} 失败 — 展开运行结果查看详情': 'Node {node} failed — expand results for details',
+  正在执行: 'Running',
+  失败: 'failed',
+  准备中: 'Preparing',
+  收尾中: 'Finalizing',
+  输入: 'Input',
+  '已取消 · {n}s': 'Cancelled · {n}s',
+
+  // ── 运行目录选择 ──
+  '（无目录 — Agent 在网关目录运行）': '(no directory — agents run in the gateway dir)',
+  'Agent 将在所选项目目录中读写文件、执行命令': 'Agents will read/write files and run commands inside the selected project',
+
+  // ── 结果面板 v2 ──
+  '原始数据': 'Raw data',
+  '（执行中…）': '(running…)',
+  'token 用量（输入/输出）': 'Token usage (input/output)',
 }

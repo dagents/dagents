@@ -3,6 +3,7 @@ import type { ContentfulStatusCode } from 'hono/utils/http-status'
 import { randomUUID } from 'node:crypto'
 import { z } from 'zod'
 import { runQuery, type NodeSpanStatus } from '@dagents/db'
+import { makeIncrementalSpanWriter } from '../span-writer.js'
 import { createLogger } from '@dagents/shared'
 import { exportRunTraceToLangfuse, isLangfuseConfigured } from '@dagents/shared/langfuse'
 import { DagExecutor, NodeRegistry, allNodes, CANVAS_NODES, type FlowData, type IExecutedNode } from '@dagents/workflow'
@@ -312,6 +313,8 @@ const runBodySchema = z.object({
   input: z.unknown().optional(),
   chatId: z.string().optional(),
   state: z.record(z.string(), z.unknown()).optional(),
+  /** 项目目录 —— CLI 兜底执行的工作目录（画布运行必选语境，chat 路径用会话绑定目录）。 */
+  directoryId: z.string().uuid().optional(),
 })
 
 const MAX_RUN_ID_LEN = 128
@@ -411,12 +414,27 @@ workflowsRoutes.post('/:id/run', async (c) => {
     nodeTypeById.set(n.id, n.type ?? 'customNode')
   }
 
+  // 解析项目目录 → CLI 工作目录（directoryId 缺省/查不到时 CLI 用网关进程 cwd）
+  let runCwd: string | undefined
+  if (data.directoryId) {
+    try {
+      const { records: dirRows } = await runQuery<{ path: string }>(
+        `SELECT path FROM directories WHERE id = $1::uuid`,
+        [data.directoryId],
+      )
+      if (dirRows[0]?.path) runCwd = dirRows[0].path
+      else log.warn('run directory not found — CLI falls back to gateway cwd', { id, directoryId: data.directoryId })
+    } catch (err) {
+      log.warn('run directory lookup failed — CLI falls back to gateway cwd', { id, error: String(err) })
+    }
+  }
+
   const startedAt = new Date()
   // Reset the LLM provider cache so each run picks up the latest config.
   resetProviderCache()
   // CLI-first：配了 provider 走 HTTP（加速），否则 LLM/Agent 节点全部
   // 跑本地 CLI —— 工作流与聊天一样零配置可用。
-  const llmClient = createDefaultLlmClient()
+  const llmClient = createDefaultLlmClient('claude', { cwd: runCwd })
   const agentFetcher = createAgentFetcher()
   const toolRegistry = createBuiltInToolRegistry()
   const historyRetriever = createHistoryRetriever(chatId)
@@ -443,7 +461,12 @@ workflowsRoutes.post('/:id/run', async (c) => {
     onExecutedNodes: (nodes) => subflowNodes.push(...nodes),
   })
 
-  let result: { status: string; finalOutput: unknown; executedNodes: IExecutedNode[]; state: Record<string, unknown>; error?: string }
+  // 闭包（runAndPersist）内赋值、闭包外（同步响应）读取：
+  // `!` 明确赋值断言 + runStatus 用 string（TS 无法跨闭包收窄）
+  let result!: { status: string; finalOutput: unknown; executedNodes: IExecutedNode[]; state: Record<string, unknown>; error?: string }
+  let finishedAt = new Date()
+  let durationMs = 0
+  let runStatus: string = 'running'
   // Cancellation handle (spec D4): workflow runs register by runId —
   // POST /workflows/runs/:runId/cancel aborts the engine signal.
   const abort = new AbortController()
@@ -460,6 +483,14 @@ workflowsRoutes.post('/:id/run', async (c) => {
     done,
   }
   executionRegistry.register(execHandle)
+  // 节点生命周期 → 增量写 run_node_spans（画布实时进度的数据源）。
+  // 共享实现见 span-writer.ts；事后批量落库跳过已增量写过的节点。
+  const spanWriter = makeIncrementalSpanWriter({ runId, flowId: id, nodeLabelById, nodeTypeById, log })
+
+  /** 执行 + 全部落库（runs 终态行 / usage / 批量 spans / Langfuse）。
+   *  同步路径 await 它；异步路径（?async=1）void 它 —— 客户端靠轮询
+   *  node-spans + runStatus 获得终态，不再受代理层超时影响。 */
+  const runAndPersist = async (): Promise<void> => {
   try {
     result = await executor.execute(flowData, data.input, {
       chatId,
@@ -477,19 +508,22 @@ workflowsRoutes.post('/:id/run', async (c) => {
       historyRetriever,
       humanInputResolver,
       flowExecutor,
+      onNodeStart: spanWriter.onNodeStart,
+      onNodeEnd: spanWriter.onNodeEnd,
     })
   } catch (err) {
     log.error('workflow execution failed', { id, error: String(err) })
-    return fail(c, 500, 'workflow execution failed')
+    // 异常也置 failed 终态 —— 否则异步轮询方会永远看到 running
+    result = { status: 'failed', finalOutput: null, executedNodes: [], state: {}, error: String(err) }
   } finally {
     resolveDone()
     executionRegistry.unregister(execHandle)
   }
   // Subflow executions surface in the same trace/span set as the parent run.
   result.executedNodes = [...result.executedNodes, ...subflowNodes]
-  const finishedAt = new Date()
-  const durationMs = Math.round(finishedAt.getTime() - startedAt.getTime())
-  const runStatus: 'running' | 'completed' | 'failed' | 'cancelled' =
+  finishedAt = new Date()
+  durationMs = Math.round(finishedAt.getTime() - startedAt.getTime())
+  runStatus =
     result.status === 'success' ? 'completed' : result.status === 'cancelled' ? 'cancelled' : 'failed'
 
   // AD-3（方案 D b 路径）：run 级用量聚合 —— sum 各节点 tokens，cost 只在
@@ -549,6 +583,8 @@ workflowsRoutes.post('/:id/run', async (c) => {
     const spanValues: unknown[] = []
     let i = 1
     for (const en of result.executedNodes) {
+      // 增量路径已实时写过（画布进度轮询的数据源），只补子流程节点等遗漏项
+      if (spanWriter.writtenNodes.has(en.nodeId)) continue
       const started = en.startedAt ? new Date(en.startedAt) : startedAt
       const finished = en.endedAt ? new Date(en.endedAt) : finishedAt
       const durMs = Math.max(0, finished.getTime() - started.getTime())
@@ -603,7 +639,7 @@ workflowsRoutes.post('/:id/run', async (c) => {
       flowId: id,
       flowName: row.name,
       chatId,
-      status: runStatus,
+      status: runStatus as 'completed' | 'failed' | 'cancelled' | 'running',
       startedAt: startedAt.toISOString(),
       finishedAt: finishedAt.toISOString(),
       input: data.input ?? null,
@@ -623,6 +659,31 @@ workflowsRoutes.post('/:id/run', async (c) => {
       log.warn('langfuse export failed', { id, runId, error: langfuse.error })
     }
   }
+
+  } // ← runAndPersist 闭包结束
+
+  // ── 异步模式：立即返回，后台执行（画布/长流程用） ──
+  if (c.req.query('async') === '1') {
+    // 先落一行 running（轮询终态判断依据 + 运行历史即时可见）；
+    // 结束时 runAndPersist 里的 ON CONFLICT 会更新为终态。
+    try {
+      await runQuery(
+        `INSERT INTO runs (id, identifier, pipeline_id, status, input, output, started_at, duration_ms, cost)
+         VALUES ($1::uuid, $2::text, $3::uuid, 'running', $4, NULL, $5, NULL, 0)
+         ON CONFLICT (id) DO NOTHING`,
+        [runId, runId, id, JSON.stringify(data.input ?? null), startedAt],
+      )
+    } catch (err) {
+      log.warn('async runs row init failed', { id, runId, error: String(err) })
+    }
+    void runAndPersist().catch((err) => {
+      log.error('async run crashed', { id, runId, error: String(err) })
+    })
+    c.header('x-run-id', runId)
+    return ok(c, { runId, async: true })
+  }
+
+  await runAndPersist()
 
   c.header('x-run-id', runId)
 
@@ -684,6 +745,8 @@ workflowsRoutes.get('/runs/:runId/node-spans', async (c) => {
   }
 
   let rows: NodeSpanRow[] = []
+  let runStatus: string | null = null
+  let runDurationMs: number | null = null
   try {
     const { records } = await runQuery<NodeSpanRow>(
       `SELECT node_id, node_label, node_type, status, started_at, finished_at, duration_ms, tokens, cost, error, trace_id, input, output
@@ -696,6 +759,18 @@ workflowsRoutes.get('/runs/:runId/node-spans', async (c) => {
   } catch (err) {
     log.error('node-spans query failed', { runId, error: String(err) })
     return fail(c, 502, 'node-spans query failed')
+  }
+  // 附带 runs 行的状态/耗时 —— 画布旁观（canvas?run=）据此判断终态。
+  // 没有 runs 行（老数据 / 尚未落库）时为 null，旁观端回退到启发式判断。
+  try {
+    const { records: runRows } = await runQuery<{ status: string; duration_ms: number | null }>(
+      `SELECT status, duration_ms FROM runs WHERE id = $1`,
+      [runId],
+    )
+    runStatus = runRows[0]?.status ?? null
+    runDurationMs = runRows[0]?.duration_ms ?? null
+  } catch {
+    // runs 查询失败不影响 spans 返回
   }
 
   const spans = rows.map((r) => {
@@ -723,7 +798,7 @@ workflowsRoutes.get('/runs/:runId/node-spans', async (c) => {
     }
   })
 
-  return ok(c, { runId, spans })
+  return ok(c, { runId, runStatus, runDurationMs, spans })
 })
 
 /**

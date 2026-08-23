@@ -128,7 +128,7 @@ export const LLM_HTTP_TIMEOUT_MS = Number(process.env.LLM_HTTP_TIMEOUT_MS ?? 120
  * text. tool_calls are never returned — the PlatformAgent tool loop
  * degenerates to a single call (the CLI brings its own tools anyway).
  */
-export function createCliLlmClient(kind: AgentType = 'claude') {
+export function createCliLlmClient(kind: AgentType = 'claude', cliCwd?: string) {
   return {
     async chat(params: CliChatParams): Promise<{ text: string; usage?: ITokenUsage }> {
       const { systemPrompt, prompt } = buildCliMessages(params.messages)
@@ -137,6 +137,9 @@ export function createCliLlmClient(kind: AgentType = 'claude') {
         systemPrompt,
         timeoutMs: CLI_LLM_TIMEOUT_MS,
         signal: params.signal,
+        // 工作目录 = 项目目录：Agent/LLM 节点的 CLI 在选定项目里干活
+        //（读写文件、跑命令都基于它）。缺省回落 gateway 进程 cwd。
+        cwd: cliCwd,
       })
       let text = ''
       for await (const evt of session.events as AsyncIterable<AgentEvent>) {
@@ -146,7 +149,23 @@ export function createCliLlmClient(kind: AgentType = 'claude') {
       if (result.status === 'failed') {
         throw new Error(`CLI llm backend failed: ${result.error ?? 'unknown'}`)
       }
-      return { text: text || result.output || '' }
+      // 聚合各模型 usage（claude stream-json 事件携带）—— 结果面板的
+      // token 徽章 / runs 用量聚合都依赖它；此前只返回 text 导致恒空。
+      let usage: ITokenUsage | undefined
+      const models = Object.keys(result.usage ?? {})
+      if (models.length > 0) {
+        let input = 0
+        let output = 0
+        for (const m of models) {
+          const u = result.usage![m] as { inputTokens?: number; outputTokens?: number } | undefined
+          input += u?.inputTokens ?? 0
+          output += u?.outputTokens ?? 0
+        }
+        // 双命名（ITokenUsage 是 prompt_tokens 命名 + 开放索引；结果面板
+        // 的 tokensBadge 读 inputTokens/outputTokens）
+        usage = { prompt_tokens: input, completion_tokens: input, total_tokens: input + output, inputTokens: input, outputTokens: output }
+      }
+      return { text: text || result.output || '', usage }
     },
   }
 }
@@ -164,9 +183,9 @@ export function createCliLlmClient(kind: AgentType = 'claude') {
  * turned every chat-path flow reply into metadata→end with no tokens —
  * pinned by e2e 13-chat-flow-trigger TR-07.)
  */
-export function createDefaultLlmClient(kind: AgentType = 'claude') {
+export function createDefaultLlmClient(kind: AgentType = 'claude', opts: { cwd?: string } = {}) {
   const http = createLlmClient()
-  const cli = createCliLlmClient(kind)
+  const cli = createCliLlmClient(kind, opts.cwd)
   return {
     async chat(params: CliChatParams): Promise<{ text: string; tool_calls?: IToolCall[]; usage?: ITokenUsage }> {
       const provider = await getActiveProvider()

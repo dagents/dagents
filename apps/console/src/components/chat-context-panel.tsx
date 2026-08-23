@@ -163,6 +163,15 @@ export function ChatContextPanel({ chat, directory }: ChatContextPanelProps): Re
                   {r.id.slice(0, 8)}
                 </span>
                 <span className={`chat-context-run-status status-${r.status}`}>{t(STATUS_LABEL[r.status] ?? r.status)}</span>
+                {chat?.flowId ? (
+                  <a
+                    href={`/workflows/${chat.flowId}/canvas?run=${r.id}`}
+                    style={{ fontSize: 'var(--text-xs)', flexShrink: 0 }}
+                    title={t('在画布中查看此运行的节点级进度')}
+                  >
+                    {t('画布查看')}
+                  </a>
+                ) : null}
               </div>
             ))}
           </div>

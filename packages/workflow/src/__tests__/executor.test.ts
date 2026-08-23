@@ -982,3 +982,58 @@ describe('DagExecutor (canvas-shape compatibility)', () => {
     expect(executedNames).not.toContain('branchB')
   })
 })
+
+describe('DagExecutor node lifecycle hooks (onNodeStart / onNodeEnd)', () => {
+  it('fires start→end per node in execution order with success status', async () => {
+    const registry = new NodeRegistry()
+    registry.registerMany([makeEchoNode('echoA', 'A'), makeEchoNode('echoB', 'B')])
+    const flow: FlowData = {
+      nodes: [
+        { id: 'a', type: 'customNode', position: { x: 0, y: 0 }, data: { name: 'echoA' } },
+        { id: 'b', type: 'customNode', position: { x: 1, y: 0 }, data: { name: 'echoB' } },
+      ],
+      edges: [{ id: 'e1', source: 'a', target: 'b' }],
+    }
+    const events: string[] = []
+    const result = await new DagExecutor(registry).execute(flow, 'hi', {
+      chatId: 'c1',
+      runId: 'r1',
+      state: {},
+      isLastNode: true,
+      onNodeStart: (n) => events.push(`start:${n.nodeId}:${n.nodeName}`),
+      onNodeEnd: (n) => events.push(`end:${n.nodeId}:${n.status}`),
+    })
+    expect(result.status).toBe('success')
+    expect(events).toEqual([
+      'start:a:echoA',
+      'end:a:success',
+      'start:b:echoB',
+      'end:b:success',
+    ])
+  })
+
+  it('fires onNodeEnd with failed status when a node throws', async () => {
+    const registry = new NodeRegistry()
+    registry.register({
+      label: 'boom', name: 'boom', version: 1, type: 'boom', category: 'Test', color: '#000', inputs: [],
+      async run(): Promise<INodeOutput> {
+        throw new Error('kaboom')
+      },
+    })
+    const flow: FlowData = {
+      nodes: [{ id: 'x', type: 'customNode', position: { x: 0, y: 0 }, data: { name: 'boom' } }],
+      edges: [],
+    }
+    const events: string[] = []
+    const result = await new DagExecutor(registry).execute(flow, 'in', {
+      chatId: 'c1',
+      runId: 'r1',
+      state: {},
+      isLastNode: true,
+      onNodeStart: (n) => events.push(`start:${n.nodeId}`),
+      onNodeEnd: (n) => events.push(`end:${n.nodeId}:${n.status}:${n.error}`),
+    })
+    expect(result.status).toBe('failed')
+    expect(events).toEqual(['start:x', 'end:x:failed:kaboom'])
+  })
+})

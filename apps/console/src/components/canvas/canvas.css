@@ -471,3 +471,138 @@
 @media (prefers-reduced-motion: reduce) {
   .canvas-loading-chip, .canvas-loading-node { animation: none; }
 }
+
+/* ─── 画布内运行（节点实时进度） ─── */
+.canvas-run-btn {
+  padding: var(--agentflow-spacing-sm, 4px) var(--agentflow-spacing-lg, 16px);
+  border: 1px solid var(--agentflow-border, var(--border));
+  border-radius: 4px;
+  background: var(--agentflow-card-bg, var(--surface));
+  color: var(--agentflow-text-primary, var(--fg));
+  font-size: 14px;
+  cursor: pointer;
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  transition: all 0.2s;
+}
+.canvas-run-btn:hover:not(:disabled) { background: var(--agentflow-card-bg-hover, var(--surface)); border-color: var(--agentflow-border-hover, var(--border-strong)); }
+.canvas-run-btn:disabled { opacity: 0.55; cursor: default; }
+.canvas-run-spin {
+  width: 12px; height: 12px;
+  border: 2px solid var(--agentflow-border, var(--border));
+  border-top-color: var(--agentflow-text-primary, var(--fg));
+  border-radius: 50%;
+  animation: canvas-run-rotate 0.8s linear infinite;
+}
+@keyframes canvas-run-rotate { to { transform: rotate(360deg); } }
+.canvas-run-summary { font-size: 12px; font-family: var(--font-mono); }
+.canvas-run-summary--done { color: var(--success, #16a34a); }
+.canvas-run-summary--failed { color: var(--danger, #dc2626); }
+.canvas-run-summary--running { color: var(--muted); }
+
+/* ─── 运行输入面板 + 运行结果面板 ─── */
+.canvas-run-panel, .canvas-results-panel {
+  position: absolute;
+  top: calc(100% + 6px);
+  right: 0;
+  z-index: 1200;
+  width: min(480px, 92vw);
+  background: var(--agentflow-card-bg, var(--bg));
+  border: 1px solid var(--agentflow-border, var(--border));
+  border-radius: 8px;
+  box-shadow: 0 8px 28px rgba(0, 0, 0, 0.18);
+  padding: var(--space-3, 12px);
+}
+.canvas-run-panel-title {
+  font-size: 12px; font-weight: 600; color: var(--agentflow-text-secondary, var(--muted));
+  margin-bottom: 8px; display: flex; align-items: center; justify-content: space-between;
+}
+.canvas-run-input {
+  width: 100%; box-sizing: border-box; resize: vertical;
+  border: 1px solid var(--agentflow-border, var(--border));
+  border-radius: 6px; background: var(--bg); color: var(--fg);
+  font-size: 13px; line-height: 1.5; padding: 8px 10px; font-family: inherit;
+}
+.canvas-run-input:focus { outline: 1px solid var(--accent); }
+.canvas-run-panel-actions { display: flex; align-items: center; justify-content: flex-end; gap: 8px; margin-top: 8px; }
+.canvas-run-panel-hint { margin-right: auto; font-size: 11px; color: var(--meta); }
+.canvas-run-panel-cancel, .canvas-run-panel-go {
+  border-radius: 6px; border: 1px solid var(--border); padding: 5px 14px;
+  font-size: 13px; cursor: pointer; background: var(--surface); color: var(--fg);
+}
+.canvas-run-panel-go { background: var(--accent); border-color: var(--accent); color: var(--accent-on, #fff); }
+.canvas-run-panel-go:hover { filter: brightness(1.05); }
+.canvas-results-btn {
+  border: 1px solid var(--border); border-radius: 4px; background: var(--surface);
+  color: var(--fg); font-size: 13px; padding: 4px 12px; cursor: pointer;
+}
+.canvas-results-btn:hover { border-color: var(--border-strong); }
+.canvas-results-close { border: 0; background: transparent; color: var(--muted); cursor: pointer; font-size: 15px; line-height: 1; }
+.canvas-results-close:hover { color: var(--fg); }
+.canvas-results-list { max-height: 56vh; overflow-y: auto; display: flex; flex-direction: column; gap: 4px; }
+.canvas-result-row { border: 1px solid var(--border-soft); border-radius: 6px; background: var(--bg); }
+.canvas-result-row summary {
+  display: flex; align-items: center; gap: 8px; padding: 7px 10px;
+  cursor: pointer; font-size: 12.5px; list-style: none; user-select: none;
+}
+.canvas-result-row summary::-webkit-details-marker { display: none; }
+.canvas-result-dot { width: 8px; height: 8px; border-radius: 50%; flex-shrink: 0; }
+.dot-running { background: #f59e0b; animation: canvas-run-rotate 1s linear infinite; }
+.dot-done, .dot-completed { background: #16a34a; }
+.dot-failed { background: #dc2626; }
+.dot-unknown { background: var(--meta); }
+.canvas-result-label { font-weight: 500; color: var(--fg); font-family: var(--font-mono); }
+.canvas-result-meta { margin-left: auto; font-size: 11px; color: var(--meta); }
+.canvas-result-body { padding: 0 10px 10px; }
+.canvas-result-error { color: var(--danger); font-size: 12px; margin-bottom: 6px; white-space: pre-wrap; }
+.canvas-result-io-label { font-size: 11px; color: var(--meta); margin-bottom: 3px; }
+.canvas-result-io pre {
+  margin: 0; padding: 8px; border-radius: 6px; background: var(--surface);
+  font-size: 11.5px; line-height: 1.5; white-space: pre-wrap; word-break: break-word;
+  max-height: 220px; overflow-y: auto; color: var(--fg);
+}
+
+/* 结果面板：实时执行行 + 输入折叠 */
+.canvas-results-live {
+  font-size: 12px; color: var(--accent); margin: -2px 0 8px;
+  display: flex; align-items: center; gap: 6px;
+}
+.canvas-results-live::before {
+  content: ''; width: 8px; height: 8px; border-radius: 50%;
+  background: var(--accent); animation: canvas-run-rotate 1s linear infinite;
+  display: inline-block; flex-shrink: 0;
+}
+details.canvas-result-io { margin-bottom: 6px; }
+details.canvas-result-io > summary { cursor: pointer; list-style: none; font-size: 11px; color: var(--meta); }
+details.canvas-result-io > summary::before { content: '▸ '; }
+details.canvas-result-io[open] > summary::before { content: '▾ '; }
+
+/* 运行面板：项目目录选择 */
+.canvas-run-dir-label {
+  display: flex; align-items: center; gap: 8px;
+  font-size: 12px; color: var(--muted); margin-bottom: 6px;
+}
+.canvas-run-dir-select {
+  flex: 1; border: 1px solid var(--border); border-radius: 6px;
+  background: var(--bg); color: var(--fg); font-size: 12.5px; padding: 5px 8px;
+}
+.canvas-run-dir-hint { font-size: 11px; color: var(--meta); margin-bottom: 8px; }
+
+/* 结果行 v2：折叠预览 + tokens 徽章 + 文本直出 */
+.canvas-result-preview {
+  flex: 1; min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap;
+  font-size: 11.5px; color: var(--muted); font-family: inherit;
+}
+.canvas-result-tokens {
+  flex-shrink: 0; font-size: 10.5px; font-family: var(--font-mono);
+  color: var(--meta); background: var(--surface);
+  border-radius: 4px; padding: 1px 5px;
+}
+.canvas-result-text {
+  font-size: 12.5px; line-height: 1.65; color: var(--fg);
+  white-space: pre-wrap; word-break: break-word;
+  padding: 8px 10px; border-left: 2px solid var(--accent);
+  background: var(--surface); border-radius: 0 6px 6px 0;
+  max-height: 260px; overflow-y: auto;
+}

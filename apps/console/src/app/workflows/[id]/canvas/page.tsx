@@ -5,12 +5,17 @@ import { gatewayUrl } from '@/lib/config'
 
 interface CanvasWorkflowPageProps {
   params: Promise<{ id: string }>
+  searchParams?: Promise<{ run?: string }>
 }
 
 export default async function CanvasWorkflowPage({
   params,
+  searchParams,
 }: CanvasWorkflowPageProps): Promise<React.ReactElement> {
   const { id } = await params
+  // ?run=<runId> — 旁观一个已有运行（如 chat @flow 触发），画布自动点亮进度
+  const runParam = (await searchParams)?.run ?? null
+  const watchRunId = /^[0-9a-fA-F-]{8,64}$/.test(runParam ?? '') ? runParam : null
 
   let flowData = {
     nodes: [],
@@ -50,7 +55,7 @@ export default async function CanvasWorkflowPage({
       <div className="ftpl-canvas-column">
         <CanvasTopBar flowId={id} flowName={flowName} />
         <div className="ftpl-canvas-body">
-          <FlowiseCanvasLoader flowId={id} flowName={flowName} initialFlow={flowData} />
+          <FlowiseCanvasLoader flowId={id} flowName={flowName} initialFlow={flowData} watchRunId={watchRunId} />
         </div>
       </div>
     </PageShell>

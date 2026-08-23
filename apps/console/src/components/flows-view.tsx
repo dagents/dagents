@@ -740,6 +740,14 @@ export function FlowsView(): React.ReactElement {
                     <span className="dot" />
                     {t(STATUS_CN[detail.status])}
                   </span>
+                  {/* 在画布中旁观此运行（节点徽章 + 连线点亮实时/回放） */}
+                  <a
+                    className="btn btn-accent btn-sm"
+                    href={`/workflows/${selectedFlowId}/canvas?run=${activeRunId}`}
+                    title={t('在画布中查看此运行的节点级进度')}
+                  >
+                    {t('画布查看')}
+                  </a>
                 </>
               ) : null}
             </div>
