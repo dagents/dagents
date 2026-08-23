@@ -45,6 +45,11 @@
   background: var(--bg);
 }
 
+/* Desktop default: hamburger hidden. Declared BEFORE the mobile media block
+   so the media query's display:flex wins below 768px (same specificity,
+   source order decides). */
+.chat-mobile-nav-toggle { display: none; }
+
 @media (max-width: 768px) {
   .chat-layout-sidebar {
     position: fixed;
@@ -57,21 +62,43 @@
     transform: translateX(-100%);
     box-shadow: var(--elev-overlay);
   }
-  .chat-layout-sidebar:not(.collapsed) {
-    transform: translateX(-100%);
-  }
   .chat-layout.sidebar-open .chat-layout-sidebar {
     transform: translateX(0);
   }
-  /* Backdrop when sidebar is open on mobile */
-  .chat-layout.sidebar-open::before {
-    content: "";
+  /* Click-to-close backdrop rendered by ChatLayout when the drawer is open.
+     Real <button> (not a ::before) so it is focusable + keyboard-dismissable. */
+  .chat-layout-backdrop {
     position: fixed;
     inset: 0;
-    background: rgba(0, 0, 0, 0.4);
     z-index: 99;
+    border: none;
+    padding: 0;
+    background: rgba(0, 0, 0, 0.4);
     -webkit-backdrop-filter: blur(2px);
     backdrop-filter: blur(2px);
+    cursor: pointer;
+  }
+  /* Mobile-only hamburger (fixed top-left; desktop hides it). Sits below the
+     backdrop so an open drawer naturally covers it. */
+  .chat-mobile-nav-toggle {
+    position: fixed;
+    top: 10px;
+    left: 10px;
+    z-index: 90;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    width: 36px;
+    height: 36px;
+    border-radius: var(--radius-md);
+    border: 1px solid var(--border);
+    background: var(--bg);
+    color: var(--fg);
+    box-shadow: var(--elev-raised);
+    cursor: pointer;
+  }
+  .chat-mobile-nav-toggle:active {
+    transform: scale(0.96);
   }
   /* Composer sticks to bottom on mobile */
   .chat-composer-wrap {
@@ -88,6 +115,8 @@
 
 @media (max-width: 640px) {
   .chat-layout-search-text { display: none; }
+  /* Keyboard hints are meaningless on touch devices — reclaim the row. */
+  .chat-composer-hint { display: none; }
 }
 
 /* ─── Account menu ─────────────────────────────────────────────── */

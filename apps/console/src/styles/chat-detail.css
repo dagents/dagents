@@ -208,7 +208,7 @@
    in a slim action row tucked under the bubble. */
 .chat-msg-user {
   align-self: flex-end;
-  max-width: min(525px, 85%);
+  max-width: min(640px, 88%);
 }
 
 .chat-msg-user-stack {

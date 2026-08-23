@@ -137,3 +137,18 @@
   color: inherit;
   font-size: 13px;
 }
+
+/* 画布顶栏窄屏适配：名称截断、操作钮换行（vendor 画布内部不动，只改自有外壳） */
+@media (max-width: 640px) {
+  .ftpl-canvas-topbar {
+    flex-wrap: wrap;
+    padding: 6px 10px;
+  }
+  .ftpl-canvas-topbar .ftpl-flow-name {
+    min-width: 0;
+    overflow: hidden;
+    text-overflow: ellipsis;
+    white-space: nowrap;
+    max-width: 60vw;
+  }
+}

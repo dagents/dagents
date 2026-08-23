@@ -815,10 +815,11 @@
 .local-cli-core-badge {
   font-size: 10px;
   line-height: 1;
-  padding: 2px 6px;
+  padding: 3px 7px;
   border-radius: 999px;
-  background: color-mix(in srgb, var(--accent, #10b981) 14%, transparent);
+  font-weight: 600;
+  background: color-mix(in srgb, var(--accent, #10b981) 20%, transparent);
   color: var(--accent, #10b981);
-  border: 1px solid color-mix(in srgb, var(--accent, #10b981) 35%, transparent);
+  border: 1px solid color-mix(in srgb, var(--accent, #10b981) 45%, transparent);
   white-space: nowrap;
 }

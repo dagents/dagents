@@ -1,4 +1,4 @@
-import type { Metadata } from 'next'
+import type { Metadata, Viewport } from 'next'
 import { ToastProvider } from '@/components/toast'
 import { ChatLayout } from '@/components/chat-layout'
 import { I18nProvider } from '@/i18n'
@@ -8,6 +8,16 @@ import '@/styles/shell.css'
 export const metadata: Metadata = {
   title: 'Dagents',
   description: 'Dagents 编排平台 — 控制台',
+}
+
+/**
+ * Without this export Next.js emits NO viewport meta — mobile browsers then
+ * render at a ~980px layout viewport and scale down, breaking every narrow
+ * breakpoint (the 768px sidebar drawer included).
+ */
+export const viewport: Viewport = {
+  width: 'device-width',
+  initialScale: 1,
 }
 
 export default function RootLayout({ children }: { children: React.ReactNode }) {

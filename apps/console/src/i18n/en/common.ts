@@ -56,6 +56,8 @@ export const common = {
   '命令选择': 'Command picker',
   '插入 @ 命令': 'Insert @ command',
   '⏎ 发送 · ⇧⏎ 换行 · @ 命令': '⏎ Send · ⇧⏎ New line · @ Commands',
+  '打开导航': 'Open navigation',
+  '关闭导航': 'Close navigation',
   '选择 ↑↓ · 确认 Tab · 关闭 Esc': 'Navigate ↑↓ · Confirm Tab · Close Esc',
 
   // ── 目录选择器 ──
