@@ -61,3 +61,9 @@
 .wf-run-canvas-link:hover { text-decoration: underline; }
 .wf-run-card.agent-badge-only { background: transparent; border-color: transparent; }
 .wf-run-card.agent-badge-only .wf-run-card-head { padding: 2px 0; cursor: default; font-size: 11px; }
+
+/* 权限拒绝的诚实标注（黄警） */
+.wf-run-card.warn { border-color: #eab308; }
+.wf-run-card.warn .wf-run-card-head { background: #eab30814; }
+.wf-chain-node.dot-warn, .wf-tl-dot.dot-warn { background: #eab308; }
+.wf-run-warn-flag { font-size: 11px; color: #a16207; font-weight: 600; flex-shrink: 0; }

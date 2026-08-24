@@ -63,6 +63,13 @@ const CODEX_BLOCKED_ARGS: Record<string, 'value' | 'standalone'> = {
  */
 export function buildCodexArgs(prompt: string, opts: ExecOptions): string[] {
   const args = ['exec', '--json', '--skip-git-repo-check']
+  // 非交互权限（对齐 claude 的 bypassPermissions / qwen 的 --yolo）：
+  // codex exec 默认 read-only 沙箱，写文件类工具全被拒 → 模型绕路后回复
+  // "没权限"。--full-auto = 工作区可写 + 联网，仍在沙箱内（保守的全自动）。
+  // DAGENTS_CODEX_SANDBOX 可覆盖（如 danger-full-access / read-only / none）。
+  const codexSandbox = process.env.DAGENTS_CODEX_SANDBOX ?? 'full-auto'
+  if (codexSandbox === 'full-auto') args.push('--full-auto')
+  else if (codexSandbox !== 'none') args.push('--sandbox', codexSandbox)
   if (opts.model) args.push('--model', opts.model)
   if (opts.maxTurns && opts.maxTurns > 0) args.push('--max-turns', String(opts.maxTurns))
   args.push(...filterCustomArgs(opts.extraArgs, CODEX_BLOCKED_ARGS))

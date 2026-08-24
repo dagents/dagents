@@ -606,3 +606,5 @@ details.canvas-result-io[open] > summary::before { content: '▾ '; }
   background: var(--surface); border-radius: 0 6px 6px 0;
   max-height: 260px; overflow-y: auto;
 }
+
+.dot-warn { background: #eab308; }

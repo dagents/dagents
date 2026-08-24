@@ -1,4 +1,3 @@
-import { describe, it, expect } from 'vitest'
 import { describe, it, expect, afterEach } from 'vitest'
 import { claudeBackend, buildClaudeArgs, parseEvent } from './claude.js'
 import { writeMcpConfigToTemp } from './mcp-config.js'

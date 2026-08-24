@@ -165,5 +165,6 @@ export const chat: Record<string, string> = {
   '工作流': 'Workflow',
   '（尚无节点执行记录）': '(no node executions yet)',
   '在画布中查看': 'View on canvas',
+  '疑似权限受限': 'Possible permission refusal',
   'Agent': 'Agent',
 }

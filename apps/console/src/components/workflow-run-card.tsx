@@ -15,6 +15,7 @@
 
 import { useCallback, useEffect, useRef, useState } from 'react'
 import { useI18n } from '@/i18n'
+import { detectRefusal } from '@/lib/refusal-detect'
 import '@/styles/workflow-run-card.css'
 
 interface SpanRow {
@@ -124,23 +125,32 @@ export function WorkflowRunCard({ runId, flowName, flowId, live = false, onTermi
   const fmtTok = (n: number): string => (n >= 1000 ? `${(n / 1000).toFixed(1)}k` : String(n))
   const hasTokens = totalTokens.in > 0 || totalTokens.out > 0
 
+  // 诚实标注：CLI 回复含权限拒绝话术时黄警 —— done 完成的是"放弃并解释"，
+  // 不标注会把失败伪装成成功（2026-08-24 权限事故的教训）。
+  const refusedNodes = spans.filter((sp) => sp.status === 'done' && detectRefusal(spanText(sp))).map((sp) => sp.nodeLabel || sp.nodeId)
+  const hasRefusal = refusedNodes.length > 0
+
   const dur = durationMs != null ? `${(durationMs / 1000).toFixed(1)}s` : null
   const title = flowName || runId.slice(0, 8)
 
   return (
-    <div className={`wf-run-card${runStatus === 'failed' ? ' failed' : ''}${runStatus === 'running' || (live && !runStatus) ? ' running' : ''}`}>
+    <div className={`wf-run-card${runStatus === 'failed' ? ' failed' : ''}${hasRefusal ? ' warn' : ''}${runStatus === 'running' || (live && !runStatus) ? ' running' : ''}`}>
       <button type='button' className='wf-run-card-head' onClick={() => setOpen((v) => !v)} aria-expanded={open}>
+        {hasRefusal ? (
+          <span className='wf-run-warn-flag' title={refusedNodes.join('、')}>⚠ {t('疑似权限受限')}</span>
+        ) : null}
         <span className='wf-run-badge' aria-hidden='true'>⚡</span>
         <span className='wf-run-kind'>{t('工作流')}</span>
         <span className='wf-run-flow' title={title}>{title}</span>
         <span className='wf-run-chain' aria-hidden='true'>
           {spans.map((sp) => {
-            const st = sp.status ?? ''
+            let st = sp.status ?? ''
+            if (st === 'done' && detectRefusal(spanText(sp))) st = 'warn'
             return (
               <span
                 key={sp.nodeId ?? sp.node_id}
                 className={`wf-chain-node dot-${st || 'pending'}`}
-                title={`${sp.nodeLabel || sp.nodeId} · ${st}`}
+                title={`${sp.nodeLabel || sp.nodeId} · ${st === 'warn' ? t('疑似权限受限') : st}`}
               />
             )
           })}
@@ -157,15 +167,16 @@ export function WorkflowRunCard({ runId, flowName, flowId, live = false, onTermi
         <div className='wf-run-timeline'>
           {spans.map((sp) => {
             const id = sp.nodeId ?? sp.node_id ?? '?'
-            const st = sp.status ?? ''
             const text = spanText(sp)
+            let st = sp.status ?? ''
+            if (st === 'done' && detectRefusal(text)) st = 'warn'
             return (
               <details key={id} className={`wf-tl-row status-${st}`} open={st === 'failed' || undefined}>
                 <summary>
                   <span className={`wf-tl-dot dot-${st}`} aria-hidden='true' />
                   <span className='wf-tl-label'>{sp.nodeLabel || id}</span>
                   <span className='wf-tl-meta'>
-                    {st === 'running' ? t('运行中') : st === 'done' || st === 'completed' ? t('完成') : st === 'failed' ? t('失败') : st}
+                    {st === 'warn' ? `⚠ ${t('疑似权限受限')}` : st === 'running' ? t('运行中') : st === 'done' || st === 'completed' ? t('完成') : st === 'failed' ? t('失败') : st}
                     {sp.durationMs != null ? ` · ${(sp.durationMs / 1000).toFixed(1)}s` : ''}
                   </span>
                 </summary>

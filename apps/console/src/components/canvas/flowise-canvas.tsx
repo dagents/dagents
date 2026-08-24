@@ -8,6 +8,7 @@ import type { AgentFlowInstance, ExecutionStatus, FlowData, HeaderRenderProps } 
 import { getNodeMeta, validateFlowTopology } from '@dagents/workflow'
 import { useToast } from '@/components/toast'
 import { useI18n } from '@/i18n'
+import { detectRefusal } from '@/lib/refusal-detect'
 // flowise.css 是 vendor 画布的基础样式（节点 max-content 尺寸规则 + React Flow
 // 定位/handle/edge 基类），canvas.css 只在其上做主题变量覆盖。此前 base 缺失，
 // 节点量不出尺寸 → React Flow 永久 visibility:hidden → 边被静默丢弃，
@@ -729,8 +730,11 @@ export function FlowiseCanvas({
               <div className='canvas-results-list'>
                 {latestSpans.map((sp) => {
                   const id = sp.nodeId ?? sp.node_id ?? '?'
-                  const st = sp.status ?? ''
-                  const terminal = st === 'done' || st === 'completed' || st === 'failed'
+                  const displayForWarn = spanToDisplay(sp.output)
+                  let st = sp.status ?? ''
+                  // 诚实标注：done 但内容是权限拒绝 → 黄警（同聊天执行卡）
+                  if (st === 'done' && detectRefusal(displayForWarn?.text)) st = 'warn'
+                  const terminal = st === 'done' || st === 'completed' || st === 'failed' || st === 'warn'
                   // 运行中：已完成的节点自动展开（用户手动收起的除外）；失败必展开
                   const autoOpen = runState === 'running' && terminal && !manualCollapseRef.current.has(id)
                   const display = spanToDisplay(sp.output)
@@ -739,7 +743,7 @@ export function FlowiseCanvas({
                     <details
                       key={id}
                       className={`canvas-result-row status-${st}`}
-                      open={st === 'failed' || autoOpen || undefined}
+                      open={st === 'failed' || st === 'warn' || autoOpen || undefined}
                       onToggle={(e) => {
                         // 手动收起 → 记住，不再自动展开
                         if (!(e.target as HTMLDetailsElement).open) manualCollapseRef.current.add(id)
@@ -755,7 +759,7 @@ export function FlowiseCanvas({
                           <span className='canvas-result-tokens' title={t('token 用量（输入/输出）')}>{badge}</span>
                         ) : null}
                         <span className='canvas-result-meta'>
-                          {st === 'running' ? t('运行中') : st === 'done' || st === 'completed' ? t('完成') : st === 'failed' ? t('失败') : st}
+                          {st === 'warn' ? `⚠ ${t('疑似权限受限')}` : st === 'running' ? t('运行中') : st === 'done' || st === 'completed' ? t('完成') : st === 'failed' ? t('失败') : st}
                           {sp.durationMs != null ? ` · ${(sp.durationMs / 1000).toFixed(1)}s` : ''}
                         </span>
                       </summary>
