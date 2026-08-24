@@ -22,6 +22,7 @@ import Link from 'next/link'
 import { Icon } from '@/components/icon'
 import { ChatComposer } from '@/components/chat-composer'
 import { AssistantContent, extractMeta } from '@/components/assistant-content'
+import { WorkflowRunCard, AgentSourceBadge } from '@/components/workflow-run-card'
 import { ChatDetailSkeleton } from '@/components/skeleton'
 import { useToast } from '@/components/toast'
 import { useFirstReplyCelebration } from '@/components/use-first-reply-celebration'
@@ -31,6 +32,8 @@ import {
   fetchChat,
   fetchMessages,
   sendMessageRouted,
+  fetchChatRuns,
+  type ChatRun,
   updateChat,
   resetChat,
 } from '@/lib/chats'
@@ -64,6 +67,11 @@ export function ChatDetail({ chatId }: ChatDetailProps): React.ReactElement {
   const [directory, setDirectory] = useState<Directory | null>(null)
   const [messages, setMessages] = useState<ChatMessage[]>([])
   const [sending, setSending] = useState(false)
+  // 工作流执行卡：runId → runs 行（flowName/duration/status）映射 +
+  // 当前流式回复是否来自工作流（mode='stream'）+ 流程名兜底映射。
+  const [runsInfo, setRunsInfo] = useState<Record<string, ChatRun>>({})
+  const [streamIsWorkflow, setStreamIsWorkflow] = useState(false)
+  const [flowNameById, setFlowNameById] = useState<Record<string, string>>({})
   const [loading, setLoading] = useState(true)
   const [error, setError] = useState<string | null>(null)
   const [selectedAgentId, setSelectedAgentId] = useState<string | null>(chat?.agentId ?? null)
@@ -306,6 +314,44 @@ export function ChatDetail({ chatId }: ChatDetailProps): React.ReactElement {
   }, [chatId])
 
   // ─── WebSocket subscription for this chat ───
+  /** 拉取 chat 的 runs 映射（执行卡的流程名/耗时/终态来源）。 */
+  const loadRuns = useCallback(async (): Promise<void> => {
+    try {
+      const runs = await fetchChatRuns(chatId)
+      setRunsInfo((prev) => {
+        const next = { ...prev }
+        for (const r of runs) next[r.id] = r
+        return next
+      })
+    } catch {
+      // best-effort —— 卡片降级显示 runId
+    }
+  }, [chatId])
+
+  useEffect(() => {
+    void loadRuns()
+  }, [loadRuns])
+
+  // 流程名兜底：live 执行卡出现时 runs 行尚未落库（chat 路径终态才写），
+  // 拉一次 flows 列表建 id→name 映射，让卡片第一时间显示流程名。
+  useEffect(() => {
+    if (!chat?.flowId || flowNameById[chat.flowId]) return
+    let cancelled = false
+    void fetch('/api/workflows', { cache: 'no-store' })
+      .then((r) => r.json())
+      .then((body: { data?: { flows?: Array<{ id: string; name: string }> } }) => {
+        if (cancelled) return
+        const map: Record<string, string> = {}
+        for (const f of body?.data?.flows ?? []) map[f.id] = f.name
+        setFlowNameById((prev) => ({ ...prev, ...map }))
+      })
+      .catch(() => {})
+    return () => {
+      cancelled = true
+    }
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [chat?.flowId])
+
   // Receives chat:message / chat:done / chat:error frames from the gateway's
   // InlineAgentExecutor and patches the trailing assistant bubble.
   const handleWsFrame = useCallback((frame: ChatWsFrame) => {
@@ -353,6 +399,8 @@ export function ChatDetail({ chatId }: ChatDetailProps): React.ReactElement {
       // UI on the next send (it stays in the DB and only returns on the
       // next full fetch).
       const doneId = `done-${Date.now()}`
+      // 工作流执行卡：终态后刷新 runs 映射（流程名/耗时）
+      void loadRuns()
       const doneAt = new Date().toISOString()
       setMessages((prev) => {
         const existing = prev.find((m) => m.id.startsWith('stream-'))
@@ -442,7 +490,7 @@ export function ChatDetail({ chatId }: ChatDetailProps): React.ReactElement {
       })
       setChat((prev) => (prev ? { ...prev, status: 'idle' } : prev))
     }
-  }, [chatId])
+  }, [chatId, loadRuns])
 
   // Task-completion notifications: wraps the WS frame handler so terminal
   // events (chat:done / chat:error) fire desktop + sound notifications when
@@ -469,10 +517,23 @@ export function ChatDetail({ chatId }: ChatDetailProps): React.ReactElement {
   const pumpChatSse = useCallback(async () => {
     try {
       const events = await subscribeChatStream(chatId)
+      // SSE 元数据事件携带本 pump 的 runId —— 工作流执行卡靠它关联
+      // node-spans（转换帧时透传给 handleWsFrame）。
+      let pumpRunId: string | null = null
       for await (const ev of events) {
         if (stoppedRef.current) return
-        if (ev.event === 'token') {
-          handleWsFrame({ type: 'chat:message', chatId, role: 'assistant', content: ev.data, streaming: true })
+        if (ev.event === 'metadata') {
+          // data 已是解析后的对象（lib/sse 的 StreamEvent.metadata）
+          const meta = ev.data as { runId?: string }
+          pumpRunId = meta?.runId ?? null
+          // 运行一开始就创建直播气泡（空内容 + runId）—— 工作流执行卡靠它
+          // 从 t=0 开始轮询点亮节点链。否则首个 token 要等第一个 LLM 节点
+          // 跑完才到（CLI 兜底是单发块），live 窗口就没了。
+          if (pumpRunId) {
+            handleWsFrame({ type: 'chat:message', chatId, role: 'assistant', content: '', streaming: true, runId: pumpRunId })
+          }
+        } else if (ev.event === 'token') {
+          handleWsFrame({ type: 'chat:message', chatId, role: 'assistant', content: ev.data, streaming: true, runId: pumpRunId ?? undefined })
         } else if (ev.event === 'custom' && ev.rawEvent === 'custom:human_input') {
           // The run is PARKED waiting for the user's answer — not busy. Clear
           // `sending` so the composer re-enables and the user can type the
@@ -491,10 +552,10 @@ export function ChatDetail({ chatId }: ChatDetailProps): React.ReactElement {
             // best-effort — the system message shows on the next navigation
           }
         } else if (ev.event === 'error') {
-          handleWsFrame({ type: 'chat:error', chatId, role: 'assistant', content: '', streaming: false, error: ev.data })
+          handleWsFrame({ type: 'chat:error', chatId, role: 'assistant', content: '', streaming: false, error: ev.data, runId: pumpRunId ?? undefined })
           return
         } else if (ev.event === 'end') {
-          handleWsFrame({ type: 'chat:done', chatId, role: 'assistant', content: '', streaming: false })
+          handleWsFrame({ type: 'chat:done', chatId, role: 'assistant', content: '', streaming: false, runId: pumpRunId ?? undefined })
           return
         }
       }
@@ -564,6 +625,7 @@ export function ChatDetail({ chatId }: ChatDetailProps): React.ReactElement {
         prev.map((m) => (m.id === optimisticId ? routed.message : m)),
       )
 
+      setStreamIsWorkflow(routed.mode === 'stream')
       if (routed.mode === 'stream') {
         void pumpChatSse()
       }
@@ -889,6 +951,30 @@ export function ChatDetail({ chatId }: ChatDetailProps): React.ReactElement {
                             {/* Column keeps the footer (time + copy) aligned
                                 with the content, not under the avatar. */}
                             <div className="chat-msg-assistant-col">
+                              {(() => {
+                                // 工作流执行卡：历史消息看 metadata.source；
+                                // 本轮直播气泡（stream-/done-）看 mode=stream 标记。
+                                const isWf =
+                                  m.metadata?.source === 'workflow' ||
+                                  (streamIsWorkflow && !!m.runId && (m.id.startsWith('stream-') || m.id.startsWith('done-')))
+                                if (isWf && m.runId) {
+                                  const run = runsInfo[m.runId]
+                                  const fid = run?.flowId ?? chat?.flowId ?? null
+                                  const fname = run?.flowName ?? (fid ? flowNameById[fid] : null) ?? null
+                                  return (
+                                    <WorkflowRunCard
+                                      key={`${m.runId}-${m.id.startsWith('stream-') ? 'live' : 'static'}`}
+                                      runId={m.runId}
+                                      flowName={fname}
+                                      flowId={fid}
+                                      live={m.id.startsWith('stream-')}
+                                      onTerminal={loadRuns}
+                                    />
+                                  )
+                                }
+                                if (!isWf) return <AgentSourceBadge />
+                                return null
+                              })()}
                               <AssistantContent
                                 content={m.content}
                                 streaming={isStreaming}

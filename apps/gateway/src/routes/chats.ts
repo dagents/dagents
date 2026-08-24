@@ -1065,6 +1065,9 @@ interface RunRow {
   status: string
   created_at: Date
   finished_at: Date | null
+  duration_ms: number | null
+  pipeline_id: string | null
+  flow_name: string | null
 }
 
 chatRoutes.get('/:id/runs', async (c) => {
@@ -1077,10 +1080,12 @@ chatRoutes.get('/:id/runs', async (c) => {
   let rows: RunRow[]
   try {
     const { records } = await runQuery<RunRow>(
-      `SELECT id, status, created_at, finished_at
-         FROM runs
-         WHERE chat_id = $1::text
-         ORDER BY created_at DESC
+      `SELECT r.id, r.status, r.created_at, r.finished_at, r.duration_ms,
+              r.pipeline_id, f.name AS flow_name
+         FROM runs r
+         LEFT JOIN flows f ON f.id::text = r.pipeline_id::text
+         WHERE r.chat_id = $1::text
+         ORDER BY r.created_at DESC
          LIMIT 50`,
       [id],
     )
@@ -1096,6 +1101,10 @@ chatRoutes.get('/:id/runs', async (c) => {
       status: r.status,
       createdAt: r.created_at instanceof Date ? r.created_at.toISOString() : new Date(r.created_at).toISOString(),
       finishedAt: r.finished_at instanceof Date ? r.finished_at.toISOString() : (r.finished_at ? new Date(r.finished_at).toISOString() : null),
+      // 执行卡用：流程名 + 耗时（「⚡ 工作流 · Skill测试Flowv4 · 12.8s」）
+      durationMs: r.duration_ms ?? null,
+      flowId: r.pipeline_id ?? null,
+      flowName: r.flow_name ?? null,
     })),
   })
 })

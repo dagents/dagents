@@ -160,4 +160,10 @@ export const chat: Record<string, string> = {
   '原始数据': 'Raw data',
   '（执行中…）': '(running…)',
   'token 用量（输入/输出）': 'Token usage (input/output)',
+
+  // ── 聊天内工作流执行卡 ──
+  '工作流': 'Workflow',
+  '（尚无节点执行记录）': '(no node executions yet)',
+  '在画布中查看': 'View on canvas',
+  'Agent': 'Agent',
 }

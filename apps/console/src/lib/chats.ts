@@ -196,6 +196,9 @@ export interface ChatRun {
   status: string
   createdAt: string
   finishedAt: string | null
+  durationMs?: number | null
+  flowId?: string | null
+  flowName?: string | null
 }
 
 export async function fetchChatRuns(chatId: string, signal?: AbortSignal): Promise<ChatRun[]> {
