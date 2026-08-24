@@ -1036,14 +1036,28 @@ chatRoutes.get('/:id/stream', async (c) => {
   return c.body(streamer.toReadableStream())
 })
 
-/** Pull a printable reply string out of a flow's final output record. */
+/** Pull a printable reply string out of a flow's final output record.
+ *  DirectReply 节点的 content 常是「字符串化的上游 JSON」（引擎把上游
+ *  output 记录 stringify 后塞进 content）—— 二次解包取 text/content，
+ *  否则用户在聊天里看到一坨 {"text":…} JSON，像工作流没生效。 */
 function extractReplyText(finalOutput: Record<string, unknown> | null): string {
   if (!finalOutput) return ''
-  const content = finalOutput.content
-  if (typeof content === 'string') return content
-  const text = finalOutput.text
-  if (typeof text === 'string') return text
-  return ''
+  const raw =
+    typeof finalOutput.content === 'string' && finalOutput.content ? finalOutput.content
+    : typeof finalOutput.text === 'string' && finalOutput.text ? finalOutput.text
+    : ''
+  if (!raw) return ''
+  const trimmed = raw.trimStart()
+  if (trimmed.startsWith('{')) {
+    try {
+      const inner = JSON.parse(trimmed) as Record<string, unknown>
+      if (typeof inner.text === 'string' && inner.text) return inner.text
+      if (typeof inner.content === 'string' && inner.content) return inner.content
+    } catch {
+      // 不是合法 JSON —— 按原文返回
+    }
+  }
+  return raw
 }
 
 interface RunRow {

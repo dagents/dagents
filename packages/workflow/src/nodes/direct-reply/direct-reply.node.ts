@@ -13,6 +13,22 @@ import { resolveVariables } from '../../utils/variables.js'
  *   - `IServerSideEventStreamer` → our `IServerSideEventStreamer` (same shape)
  *   - `options.agentflowRuntime?.state` → `options.state`
  */
+/** 变量解析（resolveVariables）把上游 output 对象替换进模板时会
+ *  stringify 成 JSON —— 回复文案要的是内层 text/content，不是 JSON 壳
+ * （聊天里显示一坨 {"text":…} 看起来像工作流没生效）。 */
+function unwrapJsonText(s: string): string {
+  const t = s.trimStart()
+  if (!t.startsWith('{')) return s
+  try {
+    const inner = JSON.parse(t) as Record<string, unknown>
+    if (typeof inner.text === 'string' && inner.text) return inner.text
+    if (typeof inner.content === 'string' && inner.content) return inner.content
+  } catch {
+    // 不是合法 JSON —— 按原文返回
+  }
+  return s
+}
+
 export class DirectReplyNode implements INode {
   label = 'Direct Reply'
   name = 'directReplyAgentflow'
@@ -39,7 +55,7 @@ export class DirectReplyNode implements INode {
       (nodeData.inputs?.text as string) ??
       (nodeData.inputs?.content as string) ??
       ''
-    const directReplyMessage = resolveVariables(rawMessage, options.state) as string
+    const directReplyMessage = unwrapJsonText(resolveVariables(rawMessage, options.state) as string)
     const isStreamable = options.isLastNode && options.sseStreamer !== undefined
 
     if (isStreamable) {
