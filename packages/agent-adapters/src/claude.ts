@@ -77,6 +77,13 @@ export function buildClaudeArgs(
   mcpConfigPath?: string,
 ): string[] {
   const args = ['--print', '--output-format', 'stream-json', '--verbose']
+  // 非交互（--print）下 Claude Code 无法弹批准框 —— 不给权限模式时，
+  // 写文件/执行命令类工具调用会被直接拒绝，模型反复绕路后回复"没有
+  // 权限"。本机模式默认 bypassPermissions（工作目录由用户显式选择，
+  // 即授权边界）；DAGENTS_CLAUDE_PERMISSION_MODE 可覆盖（如
+  // acceptEdits / default，收紧为只读咨询模式）。
+  const permissionMode = process.env.DAGENTS_CLAUDE_PERMISSION_MODE ?? 'bypassPermissions'
+  if (permissionMode !== 'none') args.push('--permission-mode', permissionMode)
   if (opts.model) args.push('--model', opts.model)
   // `--effort` is the CLI's real reasoning-level flag (the plan's
   // `--thinking-level` does not exist). Slotted right after --model so the

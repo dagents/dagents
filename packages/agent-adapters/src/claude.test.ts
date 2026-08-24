@@ -1,4 +1,5 @@
 import { describe, it, expect } from 'vitest'
+import { describe, it, expect, afterEach } from 'vitest'
 import { claudeBackend, buildClaudeArgs, parseEvent } from './claude.js'
 import { writeMcpConfigToTemp } from './mcp-config.js'
 import type { Logger } from '@dagents/contracts'
@@ -180,5 +181,32 @@ describe('writeMcpConfigToTemp', () => {
   it('非对象 mcpConfig 抛 TypeError（数组 / 原始值）', async () => {
     await expect(writeMcpConfigToTemp([{ command: 'x' }])).rejects.toThrow(TypeError)
     await expect(writeMcpConfigToTemp('not-an-object')).rejects.toThrow(TypeError)
+  })
+})
+
+describe('buildClaudeArgs — permission mode（非交互工具授权）', () => {
+  const ORIGINAL = process.env.DAGENTS_CLAUDE_PERMISSION_MODE
+  afterEach(() => {
+    if (ORIGINAL === undefined) delete process.env.DAGENTS_CLAUDE_PERMISSION_MODE
+    else process.env.DAGENTS_CLAUDE_PERMISSION_MODE = ORIGINAL
+  })
+
+  it('默认追加 --permission-mode bypassPermissions（否则 --print 下写文件类工具被拒）', () => {
+    delete process.env.DAGENTS_CLAUDE_PERMISSION_MODE
+    const args = buildClaudeArgs({})
+    const i = args.indexOf('--permission-mode')
+    expect(i).toBeGreaterThan(-1)
+    expect(args[i + 1]).toBe('bypassPermissions')
+  })
+
+  it('DAGENTS_CLAUDE_PERMISSION_MODE 可覆盖（收紧为 acceptEdits）', () => {
+    process.env.DAGENTS_CLAUDE_PERMISSION_MODE = 'acceptEdits'
+    const args = buildClaudeArgs({})
+    expect(args[args.indexOf('--permission-mode') + 1]).toBe('acceptEdits')
+  })
+
+  it('设为 none 时不加该参数（交由 CLI 默认行为）', () => {
+    process.env.DAGENTS_CLAUDE_PERMISSION_MODE = 'none'
+    expect(buildClaudeArgs({})).not.toContain('--permission-mode')
   })
 })
