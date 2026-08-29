@@ -179,8 +179,11 @@ test.describe('Flow Templates (spec-17)', () => {
     const card = gallery.getByRole('button', { name: '查看模板 spec17 另存源（模板）' })
     await expect(card).toBeVisible()
 
-    // 4. 我的模板可删除（内联删除按钮）。
-    await page.getByRole('button', { name: '删除模板 spec17 另存源（模板）' }).click()
+    // 4. 我的模板可删除（两步确认：第一次点击武装「确认删除？」，第二次执行）。
+    const deleteBtn = page.getByRole('button', { name: '删除模板 spec17 另存源（模板）' })
+    await deleteBtn.click()
+    await expect(deleteBtn).toHaveText(/确认删除/)
+    await deleteBtn.click()
     await expect(page.getByText(/已删除模板/)).toBeVisible({ timeout: 10_000 })
     seededTemplateIds.length = 0
     await expect(card).toHaveCount(0)

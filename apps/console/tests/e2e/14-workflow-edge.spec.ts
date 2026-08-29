@@ -210,9 +210,12 @@ test.describe('ED-07b/CLI-SMOKE：文档化限制与真实 CLI 冒烟（默认 s
   // ED-07 的 LLM 挂起分支：引擎对 LLM fetch 无超时（docs/workflow-engine.md
   // 已知限制），run 会一直吊到客户端超时 —— 无法确定性 e2e，保持 skip 并
   // 引用文档；HTTP 节点的 15s 超时已在上方 ED-07 覆盖。
-  test.skip('ED-07b: LLM 挂起（引擎已知限制，LLM fetch 无超时）', async () => {
-    // 若未来给 llmClient.chat 加超时，可启用：mock respond.mode:'hang' +
-    // 断言 run 在超时后 failed。实现见 docs/e2e-test-plan.md §5.5 ED-07。
+  test.skip('ED-07b: LLM 挂起（HTTP LLM 已有 LLM_HTTP_TIMEOUT_MS，但 e2e 无法调低它）', async () => {
+    // 超时已存在（2026-08-22 起非流式总预算/流式空闲看门狗），skip 原因
+    // 变为：gateway 由 playwright 外部复用启动，测试内无法注入更低的
+    // LLM_HTTP_TIMEOUT_MS，按真实 120s 等待又过长。可启用条件：gateway
+    // 支持 env 热调或专用测试实例 —— mock respond.mode:'hang' + 断言 run
+    // 在超时后 failed。实现见 docs/e2e-test-plan.md §5.5 ED-07。
   })
 
   // 真实 CLI 冒烟（P2，本机装了 claude 时手动开）：验证 CLI-first 兜底路径

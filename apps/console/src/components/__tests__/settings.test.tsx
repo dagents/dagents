@@ -132,10 +132,17 @@ afterEach(() => {
 })
 
 // Imported lazily so the fetch stub above is in place before the view's mount
-// effect fires (same guard the lab test uses).
+// effect fires (same guard the lab test uses). Wrapped in ToastProvider —
+// the provider CRUD feedback moved from a local fake-toast div to the
+// global toast system.
 async function renderView(): Promise<void> {
   const { SettingsView } = await import('@/components/settings-view')
-  render(<SettingsView />)
+  const { ToastProvider } = await import('@/components/toast')
+  render(
+    <ToastProvider>
+      <SettingsView />
+    </ToastProvider>,
+  )
 }
 
 // ─── §1 tablist ───────────────────────────────────────────────────────────────

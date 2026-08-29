@@ -1,22 +1,23 @@
 'use client'
 
 /**
- * Chat-First global layout (OpenWebUI paradigm).
+ * 全局布局 —— IA 开关的双壳（docs/prd-workflow-first.md）。
  *
- * Replaces the old AppShell (3-grid: sidebar + topbar + main) with a
- * 2-pane layout: sidebar + main. The sidebar is the new ChatNavSidebar
- * (dual-dimension: directories → chats). The main pane is pure page
- * content — the slim navbar was removed (chat pages carry their own
- * breadcrumb; ⌘K still opens the command palette from any route).
+ * Workflow-First（默认，`dagents.ia.workflow-first=on`）：AppNavSidebar
+ * （工作流 / 模板 / 运行历史 / Agents / 技能 / Daemons + 最近对话折叠）。
+ * Chat-First（`off`，P3 观察期回滚通道）：旧 ChatNavSidebar（目录→会话树）。
+ *
+ * 两态共用：FAB 悬浮副驾、命令面板（⌘K）、快捷键帮助（?）、移动端抽屉。
+ * 主内容区与折叠持久化（od:chat-sidebar）不变。
  */
-
 import { useState, useCallback, useEffect } from 'react'
 import { usePathname } from 'next/navigation'
 import { ChatNavSidebar } from '@/components/chat-nav-sidebar'
+import { AppNavSidebar } from '@/components/app-nav-sidebar'
 import { CommandPalette } from '@/components/command-palette'
 import { KeyboardShortcuts } from '@/components/keyboard-shortcuts'
 import { FloatingChat } from '@/components/floating-chat'
-import { useI18n } from '@/i18n'
+import { isWorkflowFirstIA } from '@/lib/ia-flag'
 import '@/styles/chat-layout.css'
 
 const COLLAPSE_KEY = 'od:chat-sidebar'
@@ -25,14 +26,16 @@ export function ChatLayout({ children }: { children: React.ReactNode }): React.R
   const pathname = usePathname() // subscribe to route changes so the layout re-renders per page
   const [collapsed, setCollapsed] = useState(false)
   const [paletteOpen, setPaletteOpen] = useState(false)
+  // null = 首帧未定（SSR 水合安全）：渲染旧壳占位，挂载后立即校正
+  const [wfIA, setWfIA] = useState<boolean | null>(null)
   // Mobile drawer (<768px). The CSS side (off-canvas + `sidebar-open` class)
   // existed already; this state is the missing JS trigger that makes the
   // sidebar REACHABLE on narrow viewports.
   const [mobileNavOpen, setMobileNavOpen] = useState(false)
-  const { t } = useI18n()
 
   useEffect(() => {
     setCollapsed(localStorage.getItem(COLLAPSE_KEY) === 'collapsed')
+    setWfIA(isWorkflowFirstIA())
   }, [])
 
   // Navigating from the drawer closes it — the destination page owns the
@@ -70,7 +73,7 @@ export function ChatLayout({ children }: { children: React.ReactNode }): React.R
       <button
         type="button"
         className="chat-mobile-nav-toggle"
-        aria-label={t('打开导航')}
+        aria-label="打开导航"
         onClick={() => setMobileNavOpen(true)}
       >
         <svg viewBox="0 0 24 24" width="18" height="18" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" aria-hidden>
@@ -81,20 +84,24 @@ export function ChatLayout({ children }: { children: React.ReactNode }): React.R
         <button
           type="button"
           className="chat-layout-backdrop"
-          aria-label={t('关闭导航')}
+          aria-label="关闭导航"
           onClick={() => setMobileNavOpen(false)}
         />
       )}
       <aside className={`chat-layout-sidebar${collapsed ? ' collapsed' : ''}`}>
-        <ChatNavSidebar collapsed={collapsed} onToggle={toggleCollapsed} />
+        {wfIA === false ? (
+          <ChatNavSidebar collapsed={collapsed} onToggle={toggleCollapsed} />
+        ) : (
+          <AppNavSidebar collapsed={collapsed} onToggle={toggleCollapsed} />
+        )}
       </aside>
       <div className="chat-layout-main">
         <div className="chat-layout-content">
           {children}
         </div>
       </div>
-      {/* Floating chat overlay — multica-style FAB + window. Hidden on
-          /chats/[id] (the full-page chat owns the conversation there). */}
+      {/* Floating chat overlay —— 双 IA 共用（新 IA 全路由常驻，旧 IA 管理
+          页隐藏；隐藏策略在 FloatingChat 内部按 IA 分派）。 */}
       <FloatingChat />
       <CommandPalette open={paletteOpen} onClose={() => setPaletteOpen(false)} />
       <KeyboardShortcuts />

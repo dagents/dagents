@@ -1,0 +1,128 @@
+/* FlowsEmptyHero —— Workflow-First 首页空态（PRD F1）。token 双主题。 */
+
+.flows-hero {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  gap: 28px;
+  padding: 56px 24px 40px;
+  text-align: center;
+}
+
+.flows-hero-title {
+  margin: 0;
+  font-size: 26px;
+  font-weight: 700;
+  letter-spacing: -0.02em;
+}
+
+.flows-hero-sub {
+  margin: 8px 0 0;
+  font-size: 13px;
+  opacity: 0.65;
+}
+
+.flows-hero-entries {
+  display: flex;
+  gap: 14px;
+  flex-wrap: wrap;
+  justify-content: center;
+}
+
+.flows-hero-entry {
+  display: flex;
+  flex-direction: column;
+  align-items: flex-start;
+  gap: 4px;
+  width: 200px;
+  padding: 16px;
+  border: 1px solid var(--border, rgba(0, 0, 0, 0.1));
+  border-radius: 12px;
+  background: var(--bg-1, transparent);
+  color: var(--text);
+  cursor: pointer;
+  text-align: left;
+  transition: border-color 0.15s ease, transform 0.15s ease, box-shadow 0.15s ease;
+}
+
+.flows-hero-entry:hover {
+  border-color: var(--accent, #6366f1);
+  transform: translateY(-2px);
+  box-shadow: 0 6px 18px rgba(0, 0, 0, 0.08);
+}
+
+.flows-hero-entry.primary {
+  border-color: var(--accent, #6366f1);
+  background: var(--accent-soft, rgba(99, 102, 241, 0.1));
+}
+
+.flows-hero-entry-title {
+  font-size: 14px;
+  font-weight: 600;
+}
+
+.flows-hero-entry-desc {
+  font-size: 11px;
+  opacity: 0.6;
+}
+
+.flows-hero-templates {
+  width: 100%;
+  max-width: 720px;
+}
+
+.flows-hero-templates-label {
+  font-size: 11px;
+  opacity: 0.55;
+  margin-bottom: 8px;
+  text-align: left;
+}
+
+.flows-hero-templates-strip {
+  display: flex;
+  gap: 10px;
+  overflow-x: auto;
+  padding-bottom: 6px;
+  scrollbar-width: thin;
+}
+
+.flows-hero-tpl-card {
+  display: flex;
+  flex-direction: column;
+  gap: 3px;
+  min-width: 150px;
+  max-width: 190px;
+  padding: 12px;
+  border: 1px solid var(--border, rgba(0, 0, 0, 0.1));
+  border-radius: 10px;
+  background: var(--bg-1, transparent);
+  color: var(--text);
+  cursor: pointer;
+  text-align: left;
+  flex-shrink: 0;
+}
+
+.flows-hero-tpl-card:hover {
+  border-color: var(--accent, #6366f1);
+}
+
+.flows-hero-tpl-name {
+  font-size: 12px;
+  font-weight: 600;
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+
+.flows-hero-tpl-desc {
+  font-size: 10px;
+  opacity: 0.55;
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+
+[data-theme='dark'] .flows-hero-entry:hover,
+[data-theme='dark'] .flows-hero-tpl-card:hover {
+  box-shadow: 0 6px 18px rgba(0, 0, 0, 0.35);
+}

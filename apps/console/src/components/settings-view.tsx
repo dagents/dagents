@@ -18,10 +18,11 @@
 
 'use client'
 
-import { Fragment, useCallback, useEffect, useMemo, useState } from 'react'
+import { useCallback, useEffect, useMemo, useState } from 'react'
 import { createPortal } from 'react-dom'
 import { PageShell } from '@/components/page-shell'
 import { Icon } from '@/components/icon'
+import { useToast } from '@/components/toast'
 import { NotificationSettings } from '@/components/notification-settings'
 import { AuditLog } from '@/components/audit-log'
 import { UsageTab } from '@/components/usage-tab'
@@ -138,7 +139,6 @@ export function SettingsView(): React.ReactElement {
                   role="tab"
                   className="settings-tab"
                   aria-selected={tab === it.id}
-                  aria-current={tab === it.id ? 'true' : undefined}
                   aria-label={t(TAB_A11Y[it.id])}
                   onClick={() => setTab(it.id)}
                 >
@@ -167,12 +167,12 @@ export function SettingsView(): React.ReactElement {
 
 function LlmProvidersTab(): React.ReactElement {
   const { t } = useI18n()
+  const toast = useToast()
   const [providers, setProviders] = useState<LlmProvider[]>([])
   const [loading, setLoading] = useState(true)
   const [error, setError] = useState<string | null>(null)
   const [query, setQuery] = useState('')
   const [statusFilter, setStatusFilter] = useState<LlmProviderStatus | null>(null)
-  const [toast, setToast] = useState<{ msg: string; kind: 'ok' | 'err' } | null>(null)
 
   const [editing, setEditing] = useState<{ id: string | null; form: LlmProviderFormInput } | null>(null)
   const [pendingDelete, setPendingDelete] = useState<LlmProvider | null>(null)
@@ -195,12 +195,6 @@ function LlmProvidersTab(): React.ReactElement {
   useEffect(() => {
     void load()
   }, [load])
-
-  useEffect(() => {
-    if (!toast) return
-    const t = setTimeout(() => setToast(null), 2400)
-    return () => clearTimeout(t)
-  }, [toast])
 
   const filtered = useMemo(() => {
     const q = query.trim().toLowerCase()
@@ -241,7 +235,11 @@ function LlmProvidersTab(): React.ReactElement {
     const name = editing.form.name.trim()
     const baseUrl = editing.form.baseUrl.trim()
     const defaultModel = editing.form.defaultModel.trim()
-    if (!name || !baseUrl || !defaultModel) return
+    if (!name || !baseUrl || !defaultModel) {
+      // Button-disabled bypass (e.g. Enter in a form field) must not be silent.
+      toast.error(t('请完整填写名称、Base URL 与默认模型'))
+      return
+    }
     setBusy(true)
     try {
       const form: LlmProviderFormInput = {
@@ -252,19 +250,19 @@ function LlmProvidersTab(): React.ReactElement {
       }
       if (editing.id === null) {
         await createLlmProvider(form)
-        setToast({ msg: t('Provider「{name}」已创建', { name }), kind: 'ok' })
+        toast.success(t('Provider「{name}」已创建', { name }))
       } else {
         const updatePayload: Partial<LlmProviderFormInput> = { ...form }
         if (!form.apiKey) {
           delete updatePayload.apiKey
         }
         await updateLlmProvider(editing.id, updatePayload)
-        setToast({ msg: t('Provider「{name}」已更新', { name }), kind: 'ok' })
+        toast.success(t('Provider「{name}」已更新', { name }))
       }
       setEditing(null)
       await load()
     } catch (err) {
-      setToast({ msg: err instanceof Error ? err.message : String(err), kind: 'err' })
+      toast.error(err instanceof Error ? err.message : String(err))
     } finally {
       setBusy(false)
     }
@@ -276,9 +274,9 @@ function LlmProvidersTab(): React.ReactElement {
     try {
       await updateLlmProvider(p.id, { status: nextStatus })
       await load()
-      setToast({ msg: t(nextStatus === 'disabled' ? 'Provider「{name}」已禁用' : 'Provider「{name}」已启用', { name: p.name }), kind: 'ok' })
+      toast.success(t(nextStatus === 'disabled' ? 'Provider「{name}」已禁用' : 'Provider「{name}」已启用', { name: p.name }))
     } catch (err) {
-      setToast({ msg: err instanceof Error ? err.message : String(err), kind: 'err' })
+      toast.error(err instanceof Error ? err.message : String(err))
     } finally {
       setBusy(false)
     }
@@ -288,9 +286,9 @@ function LlmProvidersTab(): React.ReactElement {
     setTestingId(p.id)
     try {
       const result = await testLlmProvider(p.id)
-      setToast({ msg: t('连接成功，发现 {n} 个模型', { n: result.models.length }), kind: 'ok' })
+      toast.success(t('连接成功，发现 {n} 个模型', { n: result.models.length }))
     } catch (err) {
-      setToast({ msg: err instanceof Error ? err.message : String(err), kind: 'err' })
+      toast.error(err instanceof Error ? err.message : String(err))
     } finally {
       setTestingId(null)
     }
@@ -301,11 +299,11 @@ function LlmProvidersTab(): React.ReactElement {
     setBusy(true)
     try {
       await deleteLlmProvider(pendingDelete.id)
-      setToast({ msg: t('Provider「{name}」已删除', { name: pendingDelete.name }), kind: 'ok' })
+      toast.success(t('Provider「{name}」已删除', { name: pendingDelete.name }))
       setPendingDelete(null)
       await load()
     } catch (err) {
-      setToast({ msg: err instanceof Error ? err.message : String(err), kind: 'err' })
+      toast.error(err instanceof Error ? err.message : String(err))
     } finally {
       setBusy(false)
     }
@@ -425,7 +423,7 @@ function LlmProvidersTab(): React.ReactElement {
                         disabled={busy}
                         onClick={() => void toggleStatus(p)}
                       >
-                        {p.status === 'active' ? '∥' : '▶'}
+                        <Icon name={p.status === 'active' ? 'pause' : 'play'} style={{ width: 12, height: 12 }} />
                       </button>
                       <button
                         type="button"
@@ -435,7 +433,7 @@ function LlmProvidersTab(): React.ReactElement {
                         disabled={busy || testingId === p.id}
                         onClick={() => void testConnection(p)}
                       >
-                        {testingId === p.id ? '⟳' : '↻'}
+                        <Icon name={testingId === p.id ? 'loader' : 'refresh'} style={{ width: 12, height: 12 }} />
                       </button>
                       <button
                         type="button"
@@ -445,7 +443,7 @@ function LlmProvidersTab(): React.ReactElement {
                         disabled={busy}
                         onClick={() => openEdit(p)}
                       >
-                        ✎
+                        <Icon name="pencil" style={{ width: 12, height: 12 }} />
                       </button>
                       <button
                         type="button"
@@ -455,7 +453,7 @@ function LlmProvidersTab(): React.ReactElement {
                         disabled={busy}
                         onClick={() => setPendingDelete(p)}
                       >
-                        ✕
+                        <Icon name="close" style={{ width: 12, height: 12 }} />
                       </button>
                     </div>
                   </td>
@@ -489,8 +487,6 @@ function LlmProvidersTab(): React.ReactElement {
           onConfirm={() => void confirmDelete()}
         />
       ) : null}
-
-      {toast ? <div className={`toast ${toast.kind}`}>{toast.msg}</div> : null}
     </section>
   )
 }
@@ -525,28 +521,34 @@ function RuntimesTab(): React.ReactElement {
   const { t } = useI18n()
   const [detections, setDetections] = useState<Record<string, RuntimeDetection>>({})
   const [loading, setLoading] = useState(true)
+  // Detection failure must not render as「未安装」.
+  const [detectError, setDetectError] = useState<string | null>(null)
+
+  const loadDetections = useCallback(async (): Promise<void> => {
+    setLoading(true)
+    try {
+      const resp = await fetch('/api/cli-runtimes')
+      const json = await resp.json()
+      if (json.success) {
+        const map: Record<string, RuntimeDetection> = {}
+        for (const r of json.data.runtimes as RuntimeDetection[]) {
+          map[r.kind] = r
+        }
+        setDetections(map)
+        setDetectError(null)
+      } else {
+        setDetectError(`HTTP ${resp.status}`)
+      }
+    } catch (err) {
+      setDetectError(err instanceof Error ? err.message : String(err))
+    } finally {
+      setLoading(false)
+    }
+  }, [])
 
   useEffect(() => {
-    let cancelled = false
-    void (async () => {
-      try {
-        const resp = await fetch('/api/cli-runtimes')
-        const json = await resp.json()
-        if (!cancelled && json.success) {
-          const map: Record<string, RuntimeDetection> = {}
-          for (const r of json.data.runtimes as RuntimeDetection[]) {
-            map[r.kind] = r
-          }
-          setDetections(map)
-        }
-      } catch {
-        // silent — table still shows, just with unknown status
-      } finally {
-        if (!cancelled) setLoading(false)
-      }
-    })()
-    return () => { cancelled = true }
-  }, [])
+    void loadDetections()
+  }, [loadDetections])
 
   const installedCount = Object.values(detections).filter((d) => d.available).length
 
@@ -571,13 +573,23 @@ function RuntimesTab(): React.ReactElement {
           <button
             type="button"
             className="btn btn-secondary btn-sm"
-            onClick={() => { setLoading(true); window.location.reload() }}
+            disabled={loading}
+            onClick={() => void loadDetections()}
           >
-            {t('↻ 重新检测')}
+            <Icon name={loading ? 'loader' : 'refresh'} style={{ width: 12, height: 12 }} />
+            {t('重新检测')}
           </button>
         </div>
       </div>
 
+      {detectError ? (
+        <div className="agents-error" role="alert" style={{ display: 'flex', alignItems: 'center', gap: 'var(--space-3)', marginBottom: 'var(--space-3)' }}>
+          <span>{t('CLI 检测失败：{error} — 表内「未安装」状态不可信', { error: detectError })}</span>
+          <button type="button" className="btn btn-ghost btn-sm" onClick={() => void loadDetections()}>
+            {t('重试')}
+          </button>
+        </div>
+      ) : null}
       <div className="table-wrap">
         <table className="data" style={{ width: '100%' }}>
           <thead>
@@ -676,12 +688,12 @@ function LlmProviderModal(props: {
   }
 
   return createPortal(
-    <div className="modal-backdrop open" onClick={(e) => e.target === e.currentTarget && onCancel()}>
+    <div className="modal-backdrop open" onClick={(e) => e.target === e.currentTarget && !busy && onCancel()}>
       <div className="modal" role="dialog" aria-modal="true" aria-labelledby="lp-title">
         <div className="modal-head">
           <div className="title" id="lp-title">{isEdit ? t('编辑 Provider') : t('新建 Provider')}</div>
           <button type="button" className="icon-btn" aria-label={t('关闭')} onClick={onCancel}>
-            ✕
+            <Icon name="close" style={{ width: 14, height: 14 }} />
           </button>
         </div>
         <div className="modal-body">
@@ -838,14 +850,14 @@ function DeleteModal(props: {
   const { t } = useI18n()
   const { provider, busy, onCancel, onConfirm } = props
   return createPortal(
-    <div className="modal-backdrop open" onClick={(e) => e.target === e.currentTarget && onCancel()}>
+    <div className="modal-backdrop open" onClick={(e) => e.target === e.currentTarget && !busy && onCancel()}>
       <div className="modal" style={{ width: 420 }} role="alertdialog" aria-modal="true" aria-labelledby="del-title">
         <div className="modal-head">
           <div className="title" id="del-title">{t('删除 Provider')}</div>
         </div>
         <div className="modal-body">
           <p style={{ fontSize: 'var(--text-sm)', color: 'var(--fg-2)', lineHeight: 1.6 }}>
-            {t('即将删除 Provider ')}<span className="mono" style={{ fontWeight: 600 }}>{provider.name}</span>{t('。')}
+            {t('即将删除 Provider「{name}」。', { name: provider.name })}
           </p>
           <p className="muted mt-3" style={{ fontSize: 12, lineHeight: 1.6 }}>
             {t('删除后该 Provider 配置立即失效，关联的调用会失败。此操作不可撤销。')}
@@ -997,10 +1009,10 @@ function NotifyTab(): React.ReactElement {
               <div className="t">{t(r.t)}</div>
               <div className="d">{t(r.d)}</div>
             </div>
-            <label className="switch">
-              <input type="checkbox" checked={!r.off} disabled readOnly aria-disabled="true" />
-              <span className="track" />
-            </label>
+            {/* 静态状态徽章（不是拨动开关）— 死开关的形态在诱导交互 */}
+            <span className="chip chip-outline" title={t('占位 — 未接线')}>
+              {r.off ? t('关闭 · 占位') : t('启用 · 占位')}
+            </span>
           </div>
         ))}
       </div>
@@ -1014,10 +1026,9 @@ function NotifyTab(): React.ReactElement {
               <div className="t">{t(r.t)}</div>
               <div className="d">{t(r.d)}</div>
             </div>
-            <label className="switch">
-              <input type="checkbox" checked={!r.off} disabled readOnly aria-disabled="true" />
-              <span className="track" />
-            </label>
+            <span className="chip chip-outline" title={t('占位 — 未接线')}>
+              {r.off ? t('关闭 · 占位') : t('启用 · 占位')}
+            </span>
           </div>
         ))}
         <p className="muted mt-3" style={{ fontSize: 12 }}>

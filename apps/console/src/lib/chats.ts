@@ -1,6 +1,15 @@
 export type ChatStatus = 'idle' | 'running' | 'done' | 'failed'
 export type ChatMessageRole = 'user' | 'assistant' | 'system' | 'tool'
 
+/** 中文状态词条（单一来源）—— t() 的 key，en 词典负责翻译。
+ *  此前在 chat-detail / chat-context-panel / chat-nav-sidebar 各有一份拷贝。 */
+export const CHAT_STATUS_LABEL: Record<ChatStatus, string> = {
+  idle: '空闲',
+  running: '运行中',
+  done: '已完成',
+  failed: '失败',
+}
+
 export interface Chat {
   id: string
   directoryId: string

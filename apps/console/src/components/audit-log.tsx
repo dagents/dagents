@@ -19,6 +19,7 @@
 import { useCallback, useEffect, useRef, useState } from 'react'
 import { Icon, type IconName } from '@/components/icon'
 import { fetchAudit, type AuditEntry } from '@/lib/audit'
+import { timeAgo } from '@/lib/format'
 import { useI18n } from '@/i18n'
 import '@/styles/audit-log.css'
 
@@ -71,24 +72,6 @@ function actorVisual(actorType: string): { icon: IconName; label: string } {
     default:
       return { icon: 'bot', label: actorType }
   }
-}
-
-/** 相对时间 —— "刚刚 / 3分钟前 / 2小时前 / 3天前 / 绝对日期"。
- *  `t` 来自调用方 useI18n()，单位随语言切换。 */
-type TFn = (key: string, params?: Record<string, string | number>) => string
-function timeAgo(iso: string, t: TFn): string {
-  const diff = Date.now() - new Date(iso).getTime()
-  if (diff < 60_000) return t('刚刚')
-  if (diff < 3_600_000) return t('{n} 分钟前', { n: Math.floor(diff / 60_000) })
-  if (diff < 86_400_000) return t('{n} 小时前', { n: Math.floor(diff / 3_600_000) })
-  if (diff < 7 * 86_400_000) return t('{n} 天前', { n: Math.floor(diff / 86_400_000) })
-  // 老于一周回退到绝对日期，避免"30 天前"这种没信息量的表达
-  return new Date(iso).toLocaleString([], {
-    month: '2-digit',
-    day: '2-digit',
-    hour: '2-digit',
-    minute: '2-digit',
-  })
 }
 
 /** 绝对时间 title（hover 看精确时间）—— ISO + 本地串。 */
@@ -245,7 +228,7 @@ export function AuditLog(): React.ReactElement {
           ))}
         </div>
 
-        <span className="tk-count">{hasEntries ? t('{n} 条记录', { n: entries.length }) : ''}</span>
+        <span className="tk-count">{hasEntries ? t('已加载 {n} 条', { n: entries.length }) : ''}</span>
         <div className="grow" />
         <button
           type="button"

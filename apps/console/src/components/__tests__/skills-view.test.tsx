@@ -337,6 +337,9 @@ describe('SkillsView', () => {
     })
 
     const removeBtn = screen.getByRole('button', { name: /移除目录 \/opt\/team-skills/ })
+    // Two-step confirm: first click arms (确认？), second click deletes.
+    fireEvent.click(removeBtn)
+    expect(screen.getByText('确认？')).toBeTruthy()
     fireEvent.click(removeBtn)
     await waitFor(() => {
       expect(screen.queryByText('team-skill')).toBeNull()

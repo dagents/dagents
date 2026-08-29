@@ -165,12 +165,13 @@ describe('FlowsView list-page (M2.1 fidelity)', () => {
       .closest('.flow-card')!.querySelector('.flow-card-head') as HTMLElement
     await userEvent.click(head)
     expect(head).toHaveAttribute('aria-expanded', 'true')
-    // The runs panel keeps its structure (header row) but shows an honest
-    // empty state instead of fabricated run rows.
+    // The runs panel shows an honest hint row (no forever-empty table
+    // header) instead of fabricated run rows.
     const card = head.closest('.flow-card')!
     const runs = card.querySelector('.flow-runs')
     expect(runs).not.toBeNull()
-    expect(runs!.textContent).toContain('暂无运行记录 — 从 Flow 详情页或画布触发运行')
+    expect(runs!.querySelector('.run-list-head')).toBeNull()
+    expect(runs!.textContent).toContain('暂无运行记录 — 点「运行」或到画布中触发')
   })
 
   it('filters flows by search query (visibleFlows scope + search)', async () => {
@@ -205,9 +206,9 @@ describe('FlowsView list-page (M2.1 fidelity)', () => {
   it('the run button has data-action=run and data-flow-id (showDetail wiring)', async () => {
     await renderView()
     const card = (await screen.findByText('论文批量复现流水线')).closest('.flow-card') as HTMLElement
-    // The card's run button — `▶ 运行` (the ▶ prefix makes the accessible
+    // The card's run button — `运行` (data-action=run makes the accessible
     // name distinct from the run-row's "运行" status badge text).
-    const runBtn = within(card).getByRole('button', { name: /▶ 运行/ })
+    const runBtn = within(card).getByRole('button', { name: /^运行$/ })
     expect(runBtn).toHaveAttribute('data-action', 'run')
     expect(runBtn).toHaveAttribute('data-flow-id', 'flow_repro_01')
   })

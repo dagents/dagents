@@ -47,24 +47,28 @@ import { Icon } from '@/components/icon'
 import { FlowDag } from '@/components/flow-dag'
 import { CreateFlowDialog } from '@/components/create-flow-dialog'
 import { FlowTemplateGallery } from '@/components/flow-template-gallery'
+import { GenerateFlowDialog } from '@/components/generate-flow-dialog'
+import { FlowsEmptyHero } from '@/components/flows-empty-hero'
+import { SkeletonList } from '@/components/skeleton'
+import { useToast } from '@/components/toast'
 import { fetchRunNodeSpans, type RunNodeSpan } from '@/lib/node-spans'
-import { parseFlowData, type FlowSummary, type FlowDetailView, type NodeRunStatus } from '@/lib/flows'
+import {
+  parseFlowData,
+  NODE_STATUS_CN as STATUS_CN,
+  SPAN_STATUS_CN,
+  type FlowSummary,
+  type FlowDetailView,
+  type NodeRunStatus,
+} from '@/lib/flows'
+import { formatDateTime, formatClockSeconds, formatTokens, formatDuration, truncateMiddle } from '@/lib/format'
 import { useI18n } from '@/i18n'
 import '@/styles/flows.css'
 
-const STATUS_CN: Record<NodeRunStatus, string> = {
-  running: '运行',
-  done: '完成',
-  failed: '失败',
-  queued: '排队',
-  paused: '人工暂停',
-  idle: '未触发',
-}
-
-/** Chinese label for a node-span status (the M6.4 domain adds `unknown`). */
-const SPAN_STATUS_CN: Record<string, string> = {
-  ...STATUS_CN,
-  unknown: '未知',
+/** Log/ts strings are ISO from the gateway — render LOCAL time (never slice
+ *  the raw ISO: that shows UTC and drifts by the timezone offset). */
+function isoTime(ts: string): string {
+  const d = new Date(ts)
+  return Number.isNaN(d.getTime()) ? ts : formatClockSeconds(ts)
 }
 
 /** The three scope tabs (agentflows.html:157-161). */
@@ -216,9 +220,10 @@ function mapFlowDetail(data: FlowDetailResponse['data']): FlowDetailView | null 
   return null
 }
 
-export function FlowsView(): React.ReactElement {
+export function FlowsView({ home = false }: { home?: boolean }): React.ReactElement {
   const router = useRouter()
   const { t } = useI18n()
+  const toast = useToast()
   const [flows, setFlows] = useState<FlowSummary[]>([])
   // ── list-page state (M2.1) ──────────────────────────────────────────────
   const [scope, setScope] = useState<Scope>('all')
@@ -235,7 +240,14 @@ export function FlowsView(): React.ReactElement {
   const [loadingDetail, setLoadingDetail] = useState(false)
   const [createOpen, setCreateOpen] = useState(false)
   const [templateOpen, setTemplateOpen] = useState(false)
+  const [generateOpen, setGenerateOpen] = useState(false)
   const [runningId, setRunningId] = useState<string | null>(null)
+  // Inline delete confirmation per card (like the sidebar's chat delete).
+  const [deletingFlowId, setDeletingFlowId] = useState<string | null>(null)
+  const [deletingFlowPending, setDeletingFlowPending] = useState(false)
+  // Retry ticks — bump re-run the corresponding load effect.
+  const [reloadListTick, setReloadListTick] = useState(0)
+  const [reloadDetailTick, setReloadDetailTick] = useState(0)
 
   /** showDetail(flowId, runId) — mirrors design/agentflows.html L432-462.
    *  Sets both ids; the detail effect fetches the flow + drives the swap.
@@ -248,8 +260,9 @@ export function FlowsView(): React.ReactElement {
 
   /** Run a flow by POSTing to the gateway's /:id/run endpoint, then open the
    *  detail page with the returned run id so the user sees the DAG + result.
-   *  The gateway executes the workflow synchronously and returns the runId via
-   *  the `x-run-id` response header. */
+   *  The gateway executes the workflow asynchronously and returns the runId
+   *  via the `x-run-id` response header. Failures land in the top banner —
+   *  the list itself stays rendered (previously an error blanked it). */
   const runFlow = useCallback(async (flowId: string) => {
     setRunningId(flowId)
     setListError(null)
@@ -262,24 +275,52 @@ export function FlowsView(): React.ReactElement {
       const runId = res.headers.get('x-run-id')
       const json = (await res.json()) as { success: boolean; error?: string }
       if (!res.ok || !json.success) {
-        setListError(json.error ?? t('运行失败 ({status})', { status: res.status }))
+        setListError(json.error ?? t('运行失败（HTTP {status}）', { status: res.status }))
         return
       }
       if (runId) {
         showDetail(flowId, runId)
+      } else {
+        // Success but no run id — don't leave the user at a dead end.
+        toast.warning(t('运行已提交，但未能获取运行 ID'))
       }
     } catch (err) {
       setListError(err instanceof Error ? err.message : String(err))
     } finally {
       setRunningId(null)
     }
-  }, [showDetail, t])
+  }, [showDetail, t, toast])
 
-  /** 返回 AgentFlows — mirrors design `hideDetail` (L464-469): clears both. */
+  /** 返回 AgentFlows — mirrors design `hideDetail` (L464-469): clears both,
+   *  and scrubs the `#flow=…&run=…` hash so a refresh/share doesn't reopen
+   *  the detail page. */
   const hideDetail = useCallback(() => {
     setSelectedFlowId(null)
     setSelectedRunId(null)
+    if (typeof window !== 'undefined' && window.location.hash) {
+      window.history.replaceState(null, '', window.location.pathname + window.location.search)
+    }
   }, [])
+
+  /** Delete a flow (with the inline confirmation the card renders). */
+  const confirmDeleteFlow = useCallback(async (flowId: string) => {
+    if (deletingFlowPending) return
+    setDeletingFlowPending(true)
+    try {
+      const res = await fetch(`/api/workflows/${encodeURIComponent(flowId)}`, { method: 'DELETE' })
+      const json = (await res.json().catch(() => ({}))) as { success?: boolean; error?: string }
+      if (!res.ok || json.success === false) {
+        throw new Error(json.error ?? `HTTP ${res.status}`)
+      }
+      setFlows((prev) => prev.filter((f) => f.id !== flowId))
+      toast.success(t('Flow 已删除'))
+    } catch (err) {
+      toast.error(t('删除 Flow 失败：{error}', { error: err instanceof Error ? err.message : String(err) }))
+    } finally {
+      setDeletingFlowPending(false)
+      setDeletingFlowId(null)
+    }
+  }, [deletingFlowPending, toast, t])
 
   /** Create-flow success handler — navigate to the canvas editor so the
    *  user can immediately start adding nodes to the new empty flow. */
@@ -288,7 +329,7 @@ export function FlowsView(): React.ReactElement {
     router.push(`/workflows/${id}/canvas`)
   }, [router])
 
-  // Fetch the flow list once on mount.
+  // Fetch the flow list on mount / retry.
   useEffect(() => {
     let cancelled = false
     void (async () => {
@@ -299,7 +340,7 @@ export function FlowsView(): React.ReactElement {
         const json = (await res.json()) as FlowListResponse
         if (cancelled) return
         if (!res.ok || !json.success || !json.data) {
-          setListError(json.error ?? `flows list failed (${res.status})`)
+          setListError(json.error ?? t('Flow 列表加载失败（HTTP {status}）', { status: res.status }))
           setFlows([])
         } else {
           setFlows(mapFlowList(json.data))
@@ -313,7 +354,7 @@ export function FlowsView(): React.ReactElement {
     return () => {
       cancelled = true
     }
-  }, [])
+  }, [reloadListTick, t])
 
   // Fetch the flow detail whenever the selection changes. In the swapped
   // layout, selection is gated by BOTH ids being set (showDetail) — fetching
@@ -338,7 +379,7 @@ export function FlowsView(): React.ReactElement {
         const json = (await res.json()) as FlowDetailResponse
         if (cancelled) return
         if (!res.ok || !json.success || !json.data) {
-          setDetailError(json.error ?? `flow fetch failed (${res.status})`)
+          setDetailError(json.error ?? t('Flow 详情加载失败（HTTP {status}）', { status: res.status }))
           setDetail(null)
         } else {
           setDetail(mapFlowDetail(json.data))
@@ -352,7 +393,7 @@ export function FlowsView(): React.ReactElement {
     return () => {
       cancelled = true
     }
-  }, [selectedFlowId])
+  }, [selectedFlowId, reloadDetailTick, t])
 
   // Node-level spans for the selected run (M6.4). In the swapped layout the
   // run is whichever run the user opened the detail page for (`selectedRunId`),
@@ -546,9 +587,11 @@ export function FlowsView(): React.ReactElement {
             />
           </div>
           <div className="grow" />
-          <span className="result-count">
-            {t('{n} / {total} 个 flow', { n: visibleFlows.length, total: flows.length })}
-          </span>
+          {!listError ? (
+            <span className="result-count">
+              {t('{n} / {total} 个 flow', { n: visibleFlows.length, total: flows.length })}
+            </span>
+          ) : null}
           <button
             type="button"
             className="btn btn-secondary btn-sm"
@@ -556,6 +599,15 @@ export function FlowsView(): React.ReactElement {
           >
             <Icon name="zap" style={{ width: 14, height: 14 }} />
             {t('从模板创建')}
+          </button>
+          {/* 一句话生成（PRD F7）—— 与画布/聊天共用 flow-generator 单一服务 */}
+          <button
+            type="button"
+            className="btn btn-secondary btn-sm"
+            onClick={() => setGenerateOpen(true)}
+          >
+            <Icon name="bot" style={{ width: 14, height: 14 }} />
+            {t('一句话生成')}
           </button>
           <button
             type="button"
@@ -567,16 +619,49 @@ export function FlowsView(): React.ReactElement {
           </button>
         </div>
 
+        {/* Error banner — transient failures (e.g. a run that failed) surface
+            here WITHOUT blanking the list below. */}
+        {listError && flows.length > 0 ? (
+          <div
+            className="agents-error"
+            role="alert"
+            style={{ display: 'flex', alignItems: 'center', gap: 'var(--space-3)', marginBottom: 'var(--space-4)' }}
+          >
+            <span style={{ color: 'var(--danger)' }}>{listError}</span>
+            <button type="button" className="btn btn-ghost btn-sm" onClick={() => setListError(null)}>
+              {t('关闭')}
+            </button>
+          </div>
+        ) : null}
+
         <div className="flow-cards">
           {loadingList ? (
-            <div className="muted" style={{ padding: 'var(--space-4)', fontSize: 12 }}>
-              {t('加载 flow 列表…')}
-            </div>
-          ) : listError ? (
-            <div className="muted" style={{ padding: 'var(--space-4)', fontSize: 12, color: 'var(--danger)' }}>
-              {listError}
+            <SkeletonList rows={5} variant="card" />
+          ) : listError && flows.length === 0 ? (
+            /* Initial load failed and there is nothing to show — full-state
+             * error with retry. (A failure with a rendered list shows as the
+             * banner above instead of blanking it.) */
+            <div className="empty-state">
+              <div className="h" style={{ color: 'var(--danger)' }}>{listError}</div>
+              <button
+                type="button"
+                className="btn btn-secondary btn-sm"
+                onClick={() => setReloadListTick((n) => n + 1)}
+              >
+                <Icon name="refresh" style={{ width: 12, height: 12 }} />
+                {t('重试')}
+              </button>
             </div>
           ) : visibleFlows.length === 0 ? (
+            home && flows.length === 0 ? (
+              /* Workflow-First 首页空态（PRD F1）：三入口 + 模板横滑卡。
+               * 仅「真没有任何 Flow」时展示；筛选无结果仍走旧空态。 */
+              <FlowsEmptyHero
+                onTemplate={() => setTemplateOpen(true)}
+                onGenerate={() => setGenerateOpen(true)}
+                onCreate={() => setCreateOpen(true)}
+              />
+            ) : (
             <div className="empty-state">
               <div className="empty-state-icon" aria-hidden="true">⚡</div>
               <div className="h">{flows.length === 0 ? t('还没有 Flow') : t('没有匹配的 Flow')}</div>
@@ -607,6 +692,7 @@ export function FlowsView(): React.ReactElement {
                 </button>
               )}
             </div>
+            )
           ) : (
             visibleFlows.map((f, i) => {
               const expanded = expandedId === f.id
@@ -638,8 +724,13 @@ export function FlowsView(): React.ReactElement {
                       <div className="sub">
                         <span className="mono" title={f.id}>{f.id.slice(0, 8)}</span>
                         {f.versionHash ? <span>{`sha ${f.versionHash.slice(0, 7)}`}</span> : null}
-                        <span>{t('{n} 节点', { n: f.nodeCount })}</span>
-                        {f.runCount > 0 ? <span>{t('{n} 次运行', { n: f.runCount })}</span> : null}
+                        {/* EN 复数：n=1 用单数词条（词典无复数基建，按可见场景单值处理） */}
+                        <span>{f.nodeCount === 1 ? t('1 节点') : t('{n} 节点', { n: f.nodeCount })}</span>
+                        {f.runCount === 1 ? (
+                          <span>{t('1 次运行')}</span>
+                        ) : f.runCount > 1 ? (
+                          <span>{t('{n} 次运行', { n: f.runCount })}</span>
+                        ) : null}
                       </div>
                     </div>
                     <div className="flow-card-meta">
@@ -649,8 +740,8 @@ export function FlowsView(): React.ReactElement {
                         {t('未触发')}
                       </span>
                       {f.latestRunId ? (
-                        <span className="chip chip-outline mono" style={{ fontSize: 10 }}>
-                          {f.latestRunId}
+                        <span className="chip chip-outline mono" style={{ fontSize: 10 }} title={f.latestRunId}>
+                          {truncateMiddle(f.latestRunId, 8)}
                         </span>
                       ) : null}
                     </div>
@@ -680,24 +771,53 @@ export function FlowsView(): React.ReactElement {
                           void runFlow(f.id)
                         }}
                       >
-                        {runningId === f.id ? t('运行中…') : t('▶ 运行')}
+                        {runningId === f.id ? t('运行中…') : t('运行')}
+                      </button>
+                      <button
+                        type="button"
+                        className="btn btn-ghost btn-sm"
+                        title={t('删除此 Flow')}
+                        disabled={deletingFlowPending && deletingFlowId === f.id}
+                        onClick={(e) => {
+                          e.stopPropagation()
+                          setDeletingFlowId(deletingFlowId === f.id ? null : f.id)
+                        }}
+                      >
+                        <Icon name={deletingFlowPending && deletingFlowId === f.id ? 'loader' : 'close'} style={{ width: 12, height: 12 }} />
+                        <span>{t('删除')}</span>
                       </button>
                     </div>
                   </div>
-                  <div className="flow-runs">
-                    <div className="run-list-head">
-                      <span>Run ID</span>
-                      <span>{t('触发')}</span>
-                      <span>{t('状态')}</span>
-                      <span>{t('耗时')}</span>
-                      <span>{t('成本')}</span>
-                      <span>{t('时间')}</span>
-                      <span />
+                  {deletingFlowId === f.id ? (
+                    <div
+                      className="chat-nav-chat-delete-confirm"
+                      style={{ display: 'flex', alignItems: 'center', gap: 'var(--space-2)', padding: 'var(--space-2) var(--space-4)' }}
+                      onClick={(e) => e.stopPropagation()}
+                    >
+                      <span>{t('删除 Flow「{name}」？此操作不可撤销。', { name: f.name })}</span>
+                      <button
+                        type="button"
+                        className="btn btn-danger btn-sm"
+                        disabled={deletingFlowPending}
+                        onClick={() => void confirmDeleteFlow(f.id)}
+                      >
+                        {deletingFlowPending ? t('删除中…') : t('删除')}
+                      </button>
+                      <button
+                        type="button"
+                        className="btn btn-ghost btn-sm"
+                        disabled={deletingFlowPending}
+                        onClick={() => setDeletingFlowId(null)}
+                      >
+                        {t('取消')}
+                      </button>
                     </div>
-                    {/* 列表页没有真实的 run 历史数据（不伪造「手动触发」行）—
-                        运行请从卡片「▶ 运行」按钮、Flow 详情页或画布触发 */}
-                    <div className="muted" style={{ padding: 'var(--space-4)', fontSize: 12 }}>
-                      {t('暂无运行记录 — 从 Flow 详情页或画布触发运行')}
+                  ) : null}
+                  <div className="flow-runs">
+                    {/* 列表页没有真实的 run 历史数据 — 只渲染提示行，不渲染
+                        永远为空的 7 列表头（运行请从「运行」按钮或画布触发） */}
+                    <div className="muted" style={{ padding: 'var(--space-3) var(--space-4)', fontSize: 12 }}>
+                      {t('暂无运行记录 — 点「运行」或到画布中触发')}
                     </div>
                   </div>
                 </div>
@@ -728,7 +848,7 @@ export function FlowsView(): React.ReactElement {
           <div className="flow-canvas-wrap">
             <div className="flow-canvas-head">
               <div className="title">
-                {detail ? `${detail.name} — ${selectedRunId ?? detail.latestExecutionId ?? '—'}` : loadingDetail ? t('加载中…') : '—'}
+                {detail ? `${detail.name} — ${truncateMiddle(selectedRunId ?? detail.latestExecutionId ?? '—', 8)}` : loadingDetail ? t('加载中…') : '—'}
               </div>
               {detail ? (
                 <>
@@ -752,8 +872,16 @@ export function FlowsView(): React.ReactElement {
               ) : null}
             </div>
             {detailError ? (
-              <div className="muted" style={{ padding: 'var(--space-6)', color: 'var(--danger)' }}>
-                {detailError}
+              <div className="muted" style={{ padding: 'var(--space-6)', color: 'var(--danger)', display: 'flex', alignItems: 'center', gap: 'var(--space-3)' }}>
+                <span>{detailError}</span>
+                <button
+                  type="button"
+                  className="btn btn-ghost btn-sm"
+                  onClick={() => setReloadDetailTick((n) => n + 1)}
+                >
+                  <Icon name="refresh" style={{ width: 12, height: 12 }} />
+                  {t('重试')}
+                </button>
               </div>
             ) : mergedFlow ? (
               <FlowDag flow={mergedFlow} selectedNodeId={selectedNodeId} onSelectNode={onSelectNode} />
@@ -803,6 +931,14 @@ export function FlowsView(): React.ReactElement {
       <FlowTemplateGallery
         open={templateOpen}
         onClose={() => setTemplateOpen(false)}
+      />
+      <GenerateFlowDialog
+        open={generateOpen}
+        onClose={() => setGenerateOpen(false)}
+        onCreated={(flowId) => {
+          setReloadListTick((n) => n + 1)
+          router.push(`/workflows/${flowId}/canvas`)
+        }}
       />
     </PageShell>
   )
@@ -872,15 +1008,15 @@ function NodeInspector({
             </>
           ) : null}
           <dt>{t('所属 run')}</dt>
-          <dd>{runId ? runId.slice(0, 16) : (metrics?.executionId?.slice(0, 8) ?? '—')}{runId ? '…' : (metrics?.executionId ? '…' : '')}</dd>
+          <dd>{runId ? truncateMiddle(runId, 8) : (metrics?.executionId ? truncateMiddle(metrics.executionId, 8) : '—')}</dd>
           <dt>{t('所属 flow')}</dt>
-          <dd>{detail?.id.slice(0, 8) ?? '—'}…</dd>
+          <dd>{detail?.id ? truncateMiddle(detail.id, 8) : '—'}</dd>
           <dt>{t('节点类型')}</dt>
           <dd>{node.nodeType ?? node.type ?? '—'}</dd>
           {span?.traceId ? (
             <>
               <dt>trace</dt>
-              <dd className="mono" style={{ fontSize: 10 }}>{span.traceId.slice(0, 16)}…</dd>
+              <dd className="mono" style={{ fontSize: 10 }}>{truncateMiddle(span.traceId, 8)}</dd>
             </>
           ) : null}
         </dl>
@@ -932,11 +1068,11 @@ function NodeInspector({
       </div>
       <div className="flow-insp-section">
         <div className="lbl">{t('日志')}</div>
-        {metrics && metrics.logs.length > 0 ? (
+            {metrics && metrics.logs.length > 0 ? (
           <div className="log" style={{ maxHeight: 220 }}>
             {metrics.logs.map((l, i) => (
               <div className="log-line" key={i}>
-                <span className="log-ts">{l.ts.slice(11, 19)}</span>
+                <span className="log-ts">{isoTime(l.ts)}</span>
                 <span className={`log-lvl ${l.level}`}>{l.level.toUpperCase()}</span>
                 <span className="log-msg">{l.msg}</span>
               </div>
@@ -979,9 +1115,9 @@ function FlowOverview({ detail }: { detail: FlowDetailView | null }): React.Reac
           <dt>{t('节点数')}</dt>
           <dd>{detail.nodes.length}</dd>
           <dt>{t('最近 run')}</dt>
-          <dd>{detail.latestExecutionId?.slice(0, 8) ?? '—'}{detail.latestExecutionId ? '…' : ''}</dd>
+          <dd>{detail.latestExecutionId ? truncateMiddle(detail.latestExecutionId, 8) : '—'}</dd>
           <dt>{t('更新时间')}</dt>
-          <dd>{detail.updatedAt.slice(11, 19)}</dd>
+          <dd>{formatDateTime(detail.updatedAt)}</dd>
         </dl>
       </div>
       <div className="flow-insp-section">
@@ -998,9 +1134,7 @@ function FlowOverview({ detail }: { detail: FlowDetailView | null }): React.Reac
       <div className="flow-insp-section">
         <div className="lbl">{t('提示')}</div>
         <p className="muted" style={{ fontSize: 11, lineHeight: 1.6 }}>
-          {t('点击 DAG 中的节点查看其状态与日志。画布只读浏览；编排请在')}
-          <code className="mono"> Workflow </code>
-          {t('画布完成。')}
+          {t('点击 DAG 中的节点查看其状态与日志。画布只读浏览；编排请到 Workflow 画布完成。')}
         </p>
       </div>
     </>
@@ -1036,15 +1170,13 @@ function sumTokens(tokens: unknown): number | null {
   return seen ? total : null
 }
 
-function formatTokens(n: number): string {
-  if (n >= 1000) return `${(n / 1000).toFixed(1)}K`
-  return String(n)
-}
-
-function formatDuration(ms: number): string {
-  if (ms < 1000) return `${ms}ms`
-  if (ms < 60_000) return `${(ms / 1000).toFixed(1)}s`
-  return `${(ms / 60_000).toFixed(1)}m`
+function formatJson(obj: unknown): string {
+  try {
+    const s = JSON.stringify(obj, null, 2)
+    return s.length > 2000 ? s.slice(0, 2000) + '\n…' : s
+  } catch {
+    return String(obj)
+  }
 }
 
 /**
@@ -1065,15 +1197,3 @@ function extractIo(span: RunNodeSpan | undefined): { input: string; output: stri
   return { input: inputStr, output: outputStr }
 }
 
-function formatJson(obj: unknown): string {
-  try {
-    const s = JSON.stringify(obj, null, 2)
-    return s.length > 2000 ? s.slice(0, 2000) + '\n…' : s
-  } catch {
-    return String(obj)
-  }
-}
-
-function readNum(v: unknown): number | null {
-  return typeof v === 'number' && Number.isFinite(v) ? v : null
-}

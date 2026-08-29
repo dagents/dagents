@@ -15,23 +15,30 @@
  *   - ARIA live region for screen readers
  */
 
-import { createContext, useCallback, useContext, useState, type ReactNode } from 'react'
+import { createContext, useCallback, useContext, useMemo, useState, type ReactNode } from 'react'
 import { Icon } from '@/components/icon'
 import '@/styles/toast.css'
 import { useI18n } from '@/i18n'
 
 type ToastKind = 'success' | 'error' | 'info' | 'warning'
 
+/** 可选动作按钮（如 @workflow 生成完成的「去画布」直达）。 */
+export interface ToastAction {
+  label: string
+  onClick: () => void
+}
+
 interface ToastItem {
   id: string
   kind: ToastKind
   message: string
   duration: number
+  action?: ToastAction
 }
 
 interface ToastAPI {
-  show: (message: string, kind?: ToastKind, duration?: number) => void
-  success: (message: string, duration?: number) => void
+  show: (message: string, kind?: ToastKind, duration?: number, action?: ToastAction) => void
+  success: (message: string, opts?: { duration?: number; action?: ToastAction }) => void
   error: (message: string, duration?: number) => void
   info: (message: string, duration?: number) => void
   warning: (message: string, duration?: number) => void
@@ -64,10 +71,10 @@ export function ToastProvider({ children }: { children: ReactNode }): React.Reac
     setToasts((prev) => prev.filter((t) => t.id !== id))
   }, [])
 
-  const show = useCallback((message: string, kind: ToastKind = 'info', duration = 4000) => {
+  const show = useCallback((message: string, kind: ToastKind = 'info', duration = 4000, action?: ToastAction) => {
     const id = `toast-${Date.now()}-${Math.random().toString(36).slice(2, 6)}`
     setToasts((prev) => {
-      const next = [...prev, { id, kind, message, duration }]
+      const next = [...prev, { id, kind, message, duration, action }]
       // Keep only the most recent MAX_VISIBLE toasts
       return next.slice(-MAX_VISIBLE)
     })
@@ -76,13 +83,17 @@ export function ToastProvider({ children }: { children: ReactNode }): React.Reac
     }
   }, [dismiss])
 
-  const api: ToastAPI = {
+  // Stable identity across renders — consumers that put `toast.x` in effect
+  // deps (e.g. first-reply celebration) would otherwise re-run every frame.
+  // success 的第二参为对象形状（带 action 时 duration 也要更长，捆绑传递）。
+  const api: ToastAPI = useMemo(() => ({
     show,
-    success: (msg, d) => show(msg, 'success', d),
-    error: (msg, d) => show(msg, 'error', d ?? 6000),
-    info: (msg, d) => show(msg, 'info', d),
-    warning: (msg, d) => show(msg, 'warning', d),
-  }
+    success: (msg: string, opts?: { duration?: number; action?: ToastAction }) =>
+      show(msg, 'success', opts?.duration ?? (opts?.action ? 8000 : 4000), opts?.action),
+    error: (msg: string, d?: number) => show(msg, 'error', d ?? 6000),
+    info: (msg: string, d?: number) => show(msg, 'info', d),
+    warning: (msg: string, d?: number) => show(msg, 'warning', d),
+  }), [show])
 
   const iconMap: Record<ToastKind, 'check' | 'alertTriangle' | 'info' | 'alertCircle'> = {
     success: 'check',
@@ -102,6 +113,18 @@ export function ToastProvider({ children }: { children: ReactNode }): React.Reac
               <Icon name={iconMap[item.kind]} style={{ width: 14, height: 14 }} />
             </div>
             <span className="toast-message">{item.message}</span>
+            {item.action ? (
+              <button
+                type="button"
+                className="btn btn-primary btn-sm toast-action"
+                onClick={() => {
+                  item.action?.onClick()
+                  dismiss(item.id)
+                }}
+              >
+                {item.action.label}
+              </button>
+            ) : null}
             <button
               type="button"
               className="toast-dismiss"

@@ -16,6 +16,14 @@ export const flows: Record<string, string> = {
   '新建 Flow': 'New flow',
   '加载 flow 列表…': 'Loading flows…',
 
+  // ── 新建 Flow 对话框 ──
+  '基本信息': 'Basics',
+  '例如 代码审查流程': 'e.g. Code review pipeline',
+  '一句话说明这个 Flow 做什么': 'One line on what this flow does',
+  '创建后会自动跳转到画布编辑器，可在其中添加节点和连线。':
+    'After creation you jump straight into the canvas editor to add nodes and edges.',
+  '创建并编辑': 'Create & edit',
+
   // ── 列表页：空态 ──
   '还没有 Flow': 'No flows yet',
   '没有匹配的 Flow': 'No matching flows',
@@ -25,7 +33,9 @@ export const flows: Record<string, string> = {
 
   // ── 列表页：flow 卡片 ──
   '展开 flow {name} 的运行记录': 'Expand run history of flow {name}',
+  '1 节点': '1 node',
   '{n} 节点': '{n} nodes',
+  '1 次运行': '1 run',
   '{n} 次运行': '{n} runs',
   '尚无运行状态数据': 'No run status data yet',
   '在画布中编辑': 'Edit on the canvas',
@@ -163,4 +173,35 @@ export const flows: Record<string, string> = {
   '已保存，但该流程当前无法运行': 'Saved — but this flow cannot run in its current state',
   '已保存，流程有可疑之处': 'Saved — the flow looks suspicious',
   '等 {n} 条': '{n} issues in total',
+
+  // ── 2026-08-26 全站 UX 优化新增词条 ──
+  'Flow 列表加载失败（HTTP {status}）': 'Flow list failed to load (HTTP {status})',
+  'Flow 详情加载失败（HTTP {status}）': 'Flow detail failed to load (HTTP {status})',
+  '运行失败（HTTP {status}）': 'Run failed (HTTP {status})',
+  '运行已提交，但未能获取运行 ID': 'Run submitted, but no run id was returned',
+  'Flow 已删除': 'Flow deleted',
+  '删除 Flow 失败：{error}': 'Failed to delete flow: {error}',
+  '删除 Flow「{name}」？此操作不可撤销。': 'Delete flow “{name}”? This cannot be undone.',
+  '暂无运行记录 — 点「运行」或到画布中触发': 'No runs yet — press “Run” or trigger from the canvas',
+  '创建失败（HTTP {status}）': 'Create failed (HTTP {status})',
+  '执行进度加载失败：{error}': 'Failed to load run progress: {error}',
+  '未命名 Flow': 'Untitled Flow',
+  '找不到这个 Flow': 'Flow not found',
+  '工作流加载失败': 'Failed to load workflow',
+  'Flow 列表加载失败：{error}': 'Flow list failed to load: {error}',
+  '确认删除？': 'Delete?',
+  '点击 DAG 中的节点查看其状态与日志。画布只读浏览；编排请到 Workflow 画布完成。': 'Click a node in the DAG to inspect its status and logs. This canvas is read-only — edit in the Workflow canvas.',
+
+// ── /runs 运行历史页（PRD F5）──
+'触发源': 'Source',
+'开始时间': 'Started',
+'失败原因': 'Failure reason',
+'聊天': 'Chat',
+'画布': 'Canvas',
+'画布旁观': 'Watch on canvas',
+'状态筛选': 'Status filter',
+'还没有运行记录': 'No runs yet',
+'从工作流页或聊天触发一次运行，记录会出现在这里': 'Trigger a run from the workflows page or chat — records land here',
+'加载运行历史…': 'Loading run history…',
+'（已删除的 Flow）': '(deleted flow)',
 }

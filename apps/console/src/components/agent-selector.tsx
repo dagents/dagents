@@ -19,12 +19,16 @@ import { useEffect, useId, useRef, useState } from 'react'
 import Link from 'next/link'
 import { Icon } from '@/components/icon'
 import { fetchAgents, AGENT_KINDS } from '@/lib/agents-catalog'
+import { useToast } from '@/components/toast'
 import { useI18n } from '@/i18n'
 import '@/styles/agent-selector.css'
 
 export interface AgentOption {
   id: string
   name: string
+  /** Agent kind — powers exact CLI dedup (name-matching missed renamed
+   * agents and offered duplicate creates). */
+  kind: string
 }
 
 /** A CLI runtime detected on the host machine. */
@@ -46,8 +50,10 @@ interface AgentSelectorProps {
 
 export function AgentSelector({ value, onChange, disabled }: AgentSelectorProps): React.ReactElement {
   const { t } = useI18n()
+  const toast = useToast()
   const [agents, setAgents] = useState<AgentOption[]>([])
   const [loaded, setLoaded] = useState(false)
+  const [agentsError, setAgentsError] = useState<string | null>(null)
   const [open, setOpen] = useState(false)
   /** CLI runtimes detected by the gateway (always fetched, regardless of agents.length). */
   const [runtimes, setRuntimes] = useState<CliRuntime[]>([])
@@ -65,10 +71,11 @@ export function AgentSelector({ value, onChange, disabled }: AgentSelectorProps)
       try {
         const { agents: rows } = await fetchAgents()
         if (!cancelled) {
-          setAgents(rows.map((a) => ({ id: a.id, name: a.name })))
+          setAgents(rows.map((a) => ({ id: a.id, name: a.name, kind: a.kind })))
         }
-      } catch {
-        // silent — selector shows just "auto" on failure
+      } catch (err) {
+        // The dropdown must not silently pretend the user has no agents.
+        if (!cancelled) setAgentsError(err instanceof Error ? err.message : String(err))
       } finally {
         if (!cancelled) setLoaded(true)
       }
@@ -93,15 +100,10 @@ export function AgentSelector({ value, onChange, disabled }: AgentSelectorProps)
     return () => { cancelled = true }
   }, [])
 
-  /** Set of agent kinds already created in the DB (so we don't duplicate). */
-  const dbKinds = new Set(
-    agents.map((a) => {
-      // AgentOption only has id+name; we can't get kind directly.
-      // But we match runtimes by checking if any agent name contains the CLI label.
-      // This is a best-effort dedup; the real dedup happens server-side on create.
-      return a.name
-    }),
-  )
+  /** Set of agent kinds already created in the DB — exact dedup against the
+   *  CLI list (previously name-guessed, so a renamed `claude-code` agent
+   *  still offered a duplicate create). */
+  const dbKinds = new Set(agents.map((a) => a.kind))
 
   /** All installed CLIs (available=true), for display in the dropdown. */
   const installedCLIs = runtimes.filter((r) => r.available)
@@ -136,8 +138,9 @@ export function AgentSelector({ value, onChange, disabled }: AgentSelectorProps)
       // Refresh agent list, then select the created agent by its real id
       // (POST /api/agents returns { success, data: { id } }).
       const { agents: rows } = await fetchAgents()
-      setAgents(rows.map((a) => ({ id: a.id, name: a.name })))
+      setAgents(rows.map((a) => ({ id: a.id, name: a.name, kind: a.kind })))
       onChange(json.data.id)
+      toast.success(t('已创建 Agent「{name}」', { name: `${label} 助手` }))
     } catch (err) {
       setCreateError(err instanceof Error ? err.message : String(err))
     } finally {
@@ -177,11 +180,7 @@ export function AgentSelector({ value, onChange, disabled }: AgentSelectorProps)
    *
    * Uninstalled CLIs are shown but NOT in the keyboard nav (greyed out = display only).
    */
-  const installedNotInDb = installedCLIs.filter((r) => {
-    const meta = AGENT_KINDS.find((k) => k.kind === r.kind)
-    const lbl = meta?.label ?? r.kind
-    return !dbKinds.has(`${lbl} 助手`)
-  })
+  const installedNotInDb = installedCLIs.filter((r) => !dbKinds.has(r.kind))
 
   // Total keyboard-navigable options: 1 (auto) + agents.length + installedNotInDb.length
   const optionCount = 1 + agents.length + installedNotInDb.length
@@ -317,8 +316,17 @@ export function AgentSelector({ value, onChange, disabled }: AgentSelectorProps)
               <span>{t('已安装的 CLI · 选中即自动创建')}</span>
             </div>
           )}
+          {agentsError && (
+            <div className="agent-selector-error" role="alert">
+              <Icon name="alertTriangle" style={{ width: 12, height: 12 }} />
+              <span>{t('Agent 列表加载失败：{error}', { error: agentsError })}</span>
+            </div>
+          )}
           {createError && (
-            <div className="agent-selector-error">⚠️ {createError}</div>
+            <div className="agent-selector-error" role="alert">
+              <Icon name="alertTriangle" style={{ width: 12, height: 12 }} />
+              <span>{createError}</span>
+            </div>
           )}
           {installedNotInDb.map((cli, i) => {
             const idx = 1 + agents.length + i

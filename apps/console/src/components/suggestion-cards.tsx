@@ -7,11 +7,17 @@ import '@/styles/suggestion-cards.css'
 
 interface SuggestionCardsProps {
   onPick?: (text: string) => void
+  /** Disable all cards (e.g. while a send is in-flight) — prevents
+   *  double-click creating two chats. */
+  disabled?: boolean
 }
 
 interface Suggestion {
   icon: IconName
+  /** i18n key — rendered via t(text, params). */
   text: string
+  /** Optional interpolation params for keys like 查看 Agent「{name}」…. */
+  params?: Record<string, string>
 }
 
 /** Starter suggestions for users who finished onboarding but haven't started
@@ -47,7 +53,7 @@ const DEFAULT_SUGGESTIONS: readonly Suggestion[] = [
   { icon: 'pencil', text: '这个项目有哪些可以改进的地方？' },
 ] as const
 
-export function SuggestionCards({ onPick }: SuggestionCardsProps): React.ReactElement {
+export function SuggestionCards({ onPick, disabled = false }: SuggestionCardsProps): React.ReactElement {
   const { t } = useI18n()
   const [suggestions, setSuggestions] = useState<readonly Suggestion[]>(DEFAULT_SUGGESTIONS)
 
@@ -108,7 +114,9 @@ export function SuggestionCards({ onPick }: SuggestionCardsProps): React.ReactEl
             const agentName = runningAgent ? String(runningAgent.name ?? runningAgent.id ?? 'Agent') : ''
             if (runningAgent) {
               setSuggestions([
-                { icon: 'agents', text: `查看 Agent "${agentName}" 的运行状态` },
+                // Params live on the card so the label translates as one key
+                // (previously the finished Chinese string could never hit the dict).
+                { icon: 'agents', text: '查看 Agent「{name}」的运行状态', params: { name: agentName } },
                 { icon: 'zap', text: '@workflow 帮我生成一个代码审查工作流' },
                 { icon: 'brain', text: '帮我理解这个项目的架构' },
                 { icon: 'refresh', text: '审查最近的代码变更' },
@@ -135,12 +143,13 @@ export function SuggestionCards({ onPick }: SuggestionCardsProps): React.ReactEl
           type="button"
           className="suggestion-card enter-rise"
           style={{ '--enter-i': i } as React.CSSProperties}
-          onClick={() => onPick?.(t(s.text))}
+          disabled={disabled}
+          onClick={() => onPick?.(t(s.text, s.params))}
         >
           <div className="suggestion-card-icon">
             <Icon name={s.icon} style={{ width: 14, height: 14 }} />
           </div>
-          <span className="suggestion-card-text">{t(s.text)}</span>
+          <span className="suggestion-card-text">{t(s.text, s.params)}</span>
         </button>
       ))}
     </div>

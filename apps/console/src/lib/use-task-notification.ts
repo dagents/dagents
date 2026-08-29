@@ -241,7 +241,7 @@ export function useTaskNotification({
         }
         if (settings.soundEnabled) playSuccessSound()
         // Toast as a fallback / in-app acknowledgement.
-        toast.success(`${chatRef}：${body}`, 5000)
+        toast.success(`${chatRef}：${body}`, { duration: 5000 })
       } else {
         // chat:error
         const errMsg = frame.error || frame.content || '执行失败'

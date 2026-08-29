@@ -19,6 +19,9 @@ vi.mock('next/navigation', () => ({
 vi.mock('@/components/chat-nav-sidebar', () => ({
   ChatNavSidebar: () => <div data-testid="sidebar" />,
 }))
+vi.mock('@/components/app-nav-sidebar', () => ({
+  AppNavSidebar: () => <div data-testid="app-sidebar" />,
+}))
 vi.mock('@/components/command-palette', () => ({
   CommandPalette: ({ open }: { open: boolean }) =>
     open ? <div data-testid="palette" /> : null,

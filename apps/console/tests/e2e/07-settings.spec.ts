@@ -12,7 +12,7 @@ import { createSeedContext, type SeedContext } from './helpers/seed'
  * six tabs as the design's sub-nav renders them — 密钥 / 模型 / 治理 / 账户 —
  * and switches the visible `<section>`. Each tab button carries the long
  * design label as visible text and a short design name via `aria-label`
- * (TAB_A11Y); the active affordance is `aria-selected` + `aria-current`.
+ * (TAB_A11Y); the active affordance is `aria-selected`.
  *
  * ## UC range & status summary (from gap-analysis)
  *
@@ -96,11 +96,10 @@ test.describe('Settings module (UC-SET-01 ~ 06)', () => {
       await expect(tablist.getByRole('tab', { name: removed, exact: true })).toHaveCount(0)
     }
 
-    // LLM Provider is the default active tab — aria-selected + aria-current both
+    // LLM Provider is the default active tab — aria-selected is the tab
     // mark it active (settings-view.tsx:116-117).
     const keysTab = tablist.getByRole('tab', { name: 'LLM Provider', exact: true })
     await expect(keysTab).toHaveAttribute('aria-selected', 'true')
-    await expect(keysTab).toHaveAttribute('aria-current', 'true')
 
     // The keys <section> (aria-label="LLM Provider 管理") renders the live CRUD
     // surface — toolbar (search + status filter chips + new-token CTA) and
@@ -132,11 +131,10 @@ test.describe('Settings module (UC-SET-01 ~ 06)', () => {
     const tablist = page.getByRole('tablist', { name: '设置分组' })
     const modelsTab = tablist.getByRole('tab', { name: '默认模型', exact: true })
 
-    // Clicking the tab flips aria-selected / aria-current and swaps the
+    // Clicking the tab flips aria-selected and swaps the
     // visible section.
     await modelsTab.click()
     await expect(modelsTab).toHaveAttribute('aria-selected', 'true')
-    await expect(modelsTab).toHaveAttribute('aria-current', 'true')
 
     const section = page.getByRole('region', { name: '默认模型' })
     await expect(section).toBeVisible()
@@ -161,7 +159,6 @@ test.describe('Settings module (UC-SET-01 ~ 06)', () => {
 
     await usageTab.click()
     await expect(usageTab).toHaveAttribute('aria-selected', 'true')
-    await expect(usageTab).toHaveAttribute('aria-current', 'true')
 
     const section = page.getByRole('region', { name: '用量与成本' })
     await expect(section).toBeVisible()
@@ -186,7 +183,6 @@ test.describe('Settings module (UC-SET-01 ~ 06)', () => {
 
     await notifyTab.click()
     await expect(notifyTab).toHaveAttribute('aria-selected', 'true')
-    await expect(notifyTab).toHaveAttribute('aria-current', 'true')
 
     // 2026-08-19：隐藏 tab 的 section 也带同名 aria-label —— 取 active 的那个
     const section = page.getByRole('region', { name: '通知' }).first()
@@ -211,7 +207,6 @@ test.describe('Settings module (UC-SET-01 ~ 06)', () => {
 
     await plannedTab.click()
     await expect(plannedTab).toHaveAttribute('aria-selected', 'true')
-    await expect(plannedTab).toHaveAttribute('aria-current', 'true')
 
     const section = page.getByRole('region', { name: '规划中' })
     await expect(section).toBeVisible()

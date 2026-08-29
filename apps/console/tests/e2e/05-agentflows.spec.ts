@@ -27,7 +27,7 @@ import { createSeedContext, type SeedContext } from './helpers/seed'
  *       architecture §9.5 requires DELETE /api/v1/workflows/:id; no such
  *       route exists today.
  *   - UC-FLW-06  执行 flow (SSE 流式)           ⚠️ partial
- *       the run button (▶ 运行) on each flow card opens the detail view,
+ *       the run button (运行) on each flow card opens the detail view,
  *       but actual execution still goes through the old
  *       POST /api/v1/flows/:id/prediction (workflow proxy, forwarded by
  *       /api/chat); architecture §9.5 requires /api/v1/workflows/:id/run
@@ -174,13 +174,14 @@ test.describe('AgentFlows module (UC-FLW-01 ~ 07)', () => {
   // native workflow canvas today; (2) a `test.fixme()` for the workflow-
   // engine migration (PUT /api/v1/workflows/:id).
 
-  test('UC-FLW-03 (partial): /workflows/:id/canvas renders native workflow canvas', async ({ page }) => {
+  test('UC-FLW-03 (partial): /workflows/:id/canvas renders an honest error state for an unknown id', async ({ page }) => {
     await page.goto(`/workflows/${SYNTH_FLOW_ID}/canvas`)
 
-    // 2026-08-19：画布页改为全幅 flowise 编辑器（无 PageShell h1），
-    // ssr:false 动态加载 —— 等待 React Flow 容器挂载即证明画布渲染成功。
-    const canvasEl = page.locator('.react-flow')
-    await expect(canvasEl).toBeVisible({ timeout: 20_000 })
+    // 2026-08-26：加载失败/不存在不再渲染空画布（名为 Untitled 的空编辑器
+    // 会诱导用户保存空流程、覆盖真实数据）——改为显式错误卡 + 返回入口。
+    // 真实 flow 的画布渲染由 spec 15/17（save-as-template 旅程）覆盖。
+    await expect(page.getByText(/找不到这个 Flow|工作流加载失败/).first()).toBeVisible({ timeout: 20_000 })
+    await expect(page.getByRole('link', { name: '返回 Flow 列表' })).toBeVisible()
   })
 
   test.fixme('UC-FLW-03 (workflow engine): PUT /api/v1/workflows/:id persists flow definition', async ({
@@ -241,7 +242,7 @@ test.describe('AgentFlows module (UC-FLW-01 ~ 07)', () => {
   }) => {
     await page.goto('/flows')
 
-    // The run button (▶ 运行) is part of each flow card's action row
+    // The run button (运行) is part of each flow card's action row
     // (flows-view.tsx:469-482, data-action="run"). When the workflow engine has
     // AGENTFLOW chatflows, the button is visible on every card; when the
     // list is empty, the button template is not rendered. Either way the

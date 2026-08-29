@@ -1,64 +1,37 @@
 import { test, expect } from '@playwright/test'
 import { randomUUID } from 'node:crypto'
-import { createSeedContext, seedDirectory, seedChat, type SeedContext } from './helpers/seed'
+import {
+  createSeedContext,
+  seedDirectory,
+  seedChat,
+  type SeedContext,
+} from './helpers/seed'
 
 /**
- * Sidebar navigation e2e — UC-NAV-01 ~ UC-NAV-08.
+ * Sidebar navigation e2e — UC-NAV-01 ~ 07（Workflow-First IA 版，2026-08-29
+ * 重写，PRD docs/prd-workflow-first.md 评审 D2）。
  *
- * ## Module
+ * 新侧栏（app-nav-sidebar.tsx）：工作流 / 模板 / 运行历史 / 智能体 / 技能 /
+ * 守护进程 + 底部「最近对话」折叠区（默认收起）。旧「目录→会话树」用例
+ * （UC-NAV-03/04/05 旧义）由 FAB 历史抽屉与最近对话折叠区承接。
  *
- * The ChatNavSidebar is the global navigation surface for the Chat-First
- * console: it is rendered by `ChatLayout` (the root layout in `app/layout.tsx`),
- * so it is present on every route under `/` — not just Chat Home. These cases
- * drive it from `/` (Chat Home), which is the canonical entry point.
- *
- * ## UC range & status summary (from gap-analysis §2.3)
- *
- *   UC-NAV-01  折叠/展开 sidebar              ✅ implemented
- *   UC-NAV-02  切换主功能页面                  ✅ implemented
- *   UC-NAV-03  折叠/展开目录分组               ✅ implemented
- *   UC-NAV-04  点击 chat 跳转详情              ✅ implemented
- *   UC-NAV-05  看到 chat 状态点                ⚠️ partial  (dot only; msg-count + status text flagged missing)
- *   UC-NAV-06  通过"+ 添加项目目录"跳转         ✅ implemented
- *   UC-NAV-07  通过"New Chat"跳回 home         ✅ implemented
- *   UC-NAV-08  搜索 chat                       ❌ unimplemented
- *
- * Tally: 6 ✅ / 1 ⚠️ / 1 ❌. ✅ cases are real `test()`s with assertions +
- * interactions; the ⚠️ case has a real test for the implemented part plus a
- * `test.fixme` for the missing part; the ❌ case is `test.fixme` only.
- *
- * ## Prerequisites
- *
- * True end-to-end: the dagents dev stack must be up — Postgres (:15432),
- * Redis (:16479), gateway (:8080) + dispatch (:8081). The sidebar reads
- * directories/chats through the console's `/api/directories` + `/api/chats`
- * proxies, which hit the gateway, which reads the shared Postgres. The
- * `playwright.config.ts` webServer only owns the Next dev process (baseURL,
- * :3000 by default — override with `E2E_PORT`).
- *
- * Auth: none — login was removed (本机模式), the sidebar renders immediately;
- * assertions auto-wait on sidebar elements regardless.
- *
- * ## Seed
- *
- * `beforeAll` seeds one directory + one chat (default status 'idle',
- * message_count 0) so the directory-grouping + chat-item cases (03/04/05) have
- * deterministic data to locate. Names are tagged with a per-run UUID slice so
- * they never collide with other specs sharing the dev stack. `afterAll` calls
- * `ctx.dispose()` to delete the seeded rows in FK-safe order.
+ *   UC-NAV-01  折叠/展开侧栏（跨刷新持久化）——机制与旧侧栏一致
+ *   UC-NAV-02  主导航切换（工作流 → 运行历史 → 智能体）
+ *   UC-NAV-03  模板导航 → /templates（模板中心落点）
+ *   UC-NAV-04  当前页 aria-current 标记
+ *   UC-NAV-05  「最近对话」折叠区：展开列出种子会话，点击进入详情
+ *   UC-NAV-06  FAB 历史抽屉：搜索并载入会话
+ *   UC-NAV-07  设置入口可达
  */
 
-test.describe('Sidebar navigation (UC-NAV-01 ~ 08)', () => {
-  let ctx: SeedContext
-  let seededDirId: string
-  let seededChatId: string
+let ctx!: SeedContext
+let seededDirId = ''
+let seededChatId = ''
+const runTag = randomUUID().slice(0, 8)
+const dirName = `NAV-Dir-${runTag}`
+const chatTitle = `NAV-Chat-${runTag}`
 
-  // Unique per-run tags so the seeded rows are locatable by exact text and
-  // never collide with other e2e runs sharing the dev-stack DB.
-  const runTag = randomUUID().slice(0, 8)
-  const dirName = `NAV-Dir-${runTag}`
-  const chatTitle = `NAV-Chat-${runTag}`
-
+test.describe('Sidebar navigation — Workflow-First IA (UC-NAV-01 ~ 07)', () => {
   test.beforeAll(async () => {
     ctx = await createSeedContext()
     seededDirId = await seedDirectory(ctx, { name: dirName })
@@ -70,196 +43,104 @@ test.describe('Sidebar navigation (UC-NAV-01 ~ 08)', () => {
   })
 
   test.beforeEach(async ({ page }) => {
-    // Chat Home renders the sidebar (ChatLayout is the root layout).
     await page.goto('/')
   })
 
-  // ── UC-NAV-01: 折叠/展开 sidebar ─────────────────────────────────────────
-  test('UC-NAV-01: collapse and expand the sidebar (persists across reload)', async ({
-    page,
-  }) => {
+  // ── UC-NAV-01: 折叠/展开（持久化）───────────────────────────────────────
+
+  test('UC-NAV-01: collapse and expand the sidebar (persists across reload)', async ({ page }) => {
     const sidebar = page.locator('.chat-layout-sidebar')
-    // Expanded initially — toggle shows "折叠侧栏".
     const collapseBtn = page.getByLabel('折叠侧栏', { exact: true })
-    await expect(collapseBtn).toBeVisible()
-    await expect(sidebar).toBeVisible()
+    await expect(collapseBtn).toBeVisible({ timeout: 10_000 })
     await expect(sidebar).not.toHaveClass(/collapsed/)
 
-    // Collapse → class flips, toggle label flips to "展开侧栏".
     await collapseBtn.click()
     const expandBtn = page.getByLabel('展开侧栏', { exact: true })
     await expect(expandBtn).toBeVisible()
     await expect(sidebar).toHaveClass(/collapsed/)
 
-    // Persistence: ChatLayout reads localStorage('od:chat-sidebar') on mount,
-    // so a reload must keep the collapsed state.
     await page.reload()
     await expect(sidebar).toBeVisible()
     await expect(sidebar).toHaveClass(/collapsed/)
 
-    // Expand back → collapsed class drops, label flips back.
     await expandBtn.click()
     await expect(sidebar).not.toHaveClass(/collapsed/)
-    await expect(collapseBtn).toBeVisible()
   })
 
-  // ── UC-NAV-02: 切换主功能页面 ────────────────────────────────────────────
-  test('UC-NAV-02: switch primary nav page (Chat → Agents)', async ({ page }) => {
-    // 2026-08-19 重写：主导航已是 Chat-First 布局 ——「对话」不再是链接
-    // （首页即对话流），主导航链接为 智能体/技能/工作流/守护进程。
-    const agentsLink = page.getByRole('link', { name: '智能体', exact: true })
-    await expect(agentsLink).toBeVisible()
+  // ── UC-NAV-02: 主导航切换 ────────────────────────────────────────────────
 
-    // Clicking Agents navigates and flips aria-current.
-    await agentsLink.click()
-    await expect(page).toHaveURL(/\/agents\/?$/)
-    await expect(agentsLink).toHaveAttribute('aria-current', 'page')
+  test('UC-NAV-02: switch primary nav (workflows → run history → agents)', async ({ page }) => {
+    await expect(page.getByRole('navigation', { name: '主导航' })).toBeVisible({ timeout: 10_000 })
+
+    await page.getByRole('link', { name: '运行历史', exact: true }).click()
+    await expect(page).toHaveURL(/\/runs$/, { timeout: 15_000 })
+
+    await page.getByRole('link', { name: '智能体', exact: true }).click()
+    await expect(page).toHaveURL(/\/agents$/, { timeout: 15_000 })
   })
 
-  // ── UC-NAV-03: 折叠/展开目录分组 ─────────────────────────────────────────
-  test('UC-NAV-03: collapse and expand a directory group', async ({ page }) => {
-    const dirGroup = page.locator('.chat-nav-dir-group').filter({ hasText: dirName })
-    const dirHeader = dirGroup.locator('.chat-nav-dir-header')
-    const chatItem = dirGroup.locator('.chat-nav-chat-item').filter({ hasText: chatTitle })
+  // ── UC-NAV-03: 模板导航 → /templates ─────────────────────────────────────
 
-    await dirHeader.waitFor({ state: 'visible' })
-    // Wait until the directory's chats have loaded (count badge → '1').
-    await expect(dirHeader.locator('.chat-nav-dir-count')).toHaveText('1')
-
-    // Ensure the group is expanded: if the chat item isn't visible, click to
-    // expand. (Only the first directory auto-expands; the seeded dir may not
-    // be first.)
-    if (!(await chatItem.isVisible().catch(() => false))) {
-      await dirHeader.click()
-    }
-    await expect(chatItem).toBeVisible()
-
-    // Collapse → chat list disappears.
-    await dirHeader.click()
-    await expect(chatItem).toBeHidden()
-
-    // Expand again → chat list reappears.
-    await dirHeader.click()
-    await expect(chatItem).toBeVisible()
+  test('UC-NAV-03: templates nav opens the template center route', async ({ page }) => {
+    await page.getByRole('link', { name: '模板', exact: true }).click()
+    await expect(page).toHaveURL(/\/templates$/, { timeout: 15_000 })
+    // 落点自动挂载模板中心画廊（dialog 打开即本页语义）
+    await expect(page.locator('.ftpl-dialog')).toBeVisible({ timeout: 10_000 })
   })
 
-  // ── UC-NAV-04: 点击 chat 跳转详情 ────────────────────────────────────────
-  test('UC-NAV-04: click a chat to open its detail page', async ({ page }) => {
-    const dirGroup = page.locator('.chat-nav-dir-group').filter({ hasText: dirName })
-    const dirHeader = dirGroup.locator('.chat-nav-dir-header')
-    const chatItem = dirGroup.locator('.chat-nav-chat-item').filter({ hasText: chatTitle })
+  // ── UC-NAV-04: 当前页 aria-current ───────────────────────────────────────
 
-    await dirHeader.waitFor({ state: 'visible' })
-    await expect(dirHeader.locator('.chat-nav-dir-count')).toHaveText('1')
-    if (!(await chatItem.isVisible().catch(() => false))) {
-      await dirHeader.click()
-    }
-    await expect(chatItem).toBeVisible()
-
-    // Click the chat → URL becomes /chats/<id>, item becomes aria-selected.
-    await chatItem.click()
-    await expect(page).toHaveURL(new RegExp(`/chats/${seededChatId}/?$`))
-    await expect(chatItem).toHaveAttribute('aria-selected', 'true')
+  test('UC-NAV-04: active nav item carries aria-current=page', async ({ page }) => {
+    const agents = page.getByRole('link', { name: '智能体', exact: true })
+    await expect(agents).toBeVisible({ timeout: 10_000 })
+    await agents.click()
+    await expect(page.getByRole('link', { name: '智能体', exact: true })).toHaveAttribute(
+      'aria-current',
+      'page',
+    )
+    await expect(page.getByRole('link', { name: '技能', exact: true })).not.toHaveAttribute(
+      'aria-current',
+      'page',
+    )
   })
 
-  // ── UC-NAV-05: 看到 chat 状态点 (⚠️ partial) ─────────────────────────────
-  test('UC-NAV-05: see the chat status dot', async ({ page }) => {
-    const dirGroup = page.locator('.chat-nav-dir-group').filter({ hasText: dirName })
-    const dirHeader = dirGroup.locator('.chat-nav-dir-header')
-    const chatItem = dirGroup.locator('.chat-nav-chat-item').filter({ hasText: chatTitle })
+  // ── UC-NAV-05: 「最近对话」折叠区 ────────────────────────────────────────
 
-    await dirHeader.waitFor({ state: 'visible' })
-    await expect(dirHeader.locator('.chat-nav-dir-count')).toHaveText('1')
-    if (!(await chatItem.isVisible().catch(() => false))) {
-      await dirHeader.click()
-    }
-    await expect(chatItem).toBeVisible()
+  test('UC-NAV-05: recent-chats collapse lists seeded chat and opens its detail', async ({ page }) => {
+    const toggle = page.getByRole('button', { name: /最近对话/ })
+    await expect(toggle).toBeVisible({ timeout: 10_000 })
+    await toggle.click()
 
-    // The status dot renders with a class matching chat.status. A freshly
-    // seeded chat has status 'idle' (chats.status column default).
-    const statusDot = chatItem.locator('.chat-nav-chat-status')
-    await expect(statusDot).toBeVisible()
-    await expect(statusDot).toHaveClass(/idle/)
+    // truncateTitle(16) 会截断标题 —— 按唯一前缀匹配
+    const item = page.locator('.app-nav-recent-item').filter({ hasText: chatTitle.slice(0, 12) })
+    await expect(item).toBeVisible({ timeout: 10_000 })
+    await item.click()
+    await expect(page).toHaveURL(new RegExp(`/chats/${seededChatId}`), { timeout: 15_000 })
   })
 
-  test.fixme('UC-NAV-05: see chat message count + status text', async ({ page }) => {
-    // Gap-analysis §2.3: the chat-nav-chat-item renders only the status dot;
-    // the "+ 消息数 + 状态" (`.chat-nav-chat-item-count` messageCount +
-    // `.chat-nav-chat-item-status` status text) is flagged as not implemented.
-    // When confirmed at runtime, drop .fixme and assert both spans against the
-    // seeded chat (messageCount '0', status 'idle').
-    const dirGroup = page.locator('.chat-nav-dir-group').filter({ hasText: dirName })
-    const dirHeader = dirGroup.locator('.chat-nav-dir-header')
-    const chatItem = dirGroup.locator('.chat-nav-chat-item').filter({ hasText: chatTitle })
-    await dirHeader.waitFor({ state: 'visible' })
-    if (!(await chatItem.isVisible().catch(() => false))) {
-      await dirHeader.click()
-    }
-    await expect(chatItem.locator('.chat-nav-chat-item-count')).toHaveText('0')
-    await expect(chatItem.locator('.chat-nav-chat-item-status')).toHaveText('idle')
+  // ── UC-NAV-06: FAB 历史抽屉搜索并载入会话 ────────────────────────────────
+
+  test('UC-NAV-06: FAB history drawer searches chats and loads one', async ({ page }) => {
+    await page.getByRole('button', { name: '打开聊天' }).click()
+    const win = page.locator('.floating-chat-window')
+    await expect(win).toBeVisible({ timeout: 10_000 })
+
+    await win.getByRole('button', { name: '历史对话' }).click()
+    const search = win.locator('.fab-history-search')
+    await expect(search).toBeVisible()
+    await search.fill(chatTitle)
+
+    const row = win.locator('.fab-history-item').filter({ hasText: chatTitle })
+    await expect(row).toBeVisible({ timeout: 10_000 })
+    await row.click()
+    // 抽屉关闭（载入该会话）
+    await expect(win.locator('.fab-history-drawer')).toHaveCount(0)
   })
 
-  // ── UC-NAV-06: 通过"+ 添加项目目录"跳转 ──────────────────────────────────
-  test('UC-NAV-06: "+ 添加项目目录" opens the add-directory dialog', async ({ page }) => {
-    // 2026-08-19 重写：/directories 页面已移除 —— 添加目录改为侧栏按钮
-    // 直接弹对话框（不再有独立目录管理页）。
-    const addDirBtn = page.getByRole('button', { name: '添加项目目录' })
-    await expect(addDirBtn).toBeVisible()
+  // ── UC-NAV-07: 设置入口 ──────────────────────────────────────────────────
 
-    // 点击触发 GET /api/directories/pick（服务端目录选择）—— 无 DOM 弹窗，
-    // 断言请求已发出（拦截并返回取消，按钮回到可用态）。
-    let picked = false
-    await page.route(/\/api\/directories\/pick/, async (route) => {
-      picked = true
-      await route.fulfill({
-        status: 200,
-        contentType: 'application/json',
-        body: JSON.stringify({ success: true, data: { path: null } }),
-      })
-    })
-    await addDirBtn.click()
-    await expect
-      .poll(() => picked, { timeout: 5_000 })
-      .toBe(true)
-  })
-
-  // ── UC-NAV-07: 通过"New Chat"跳回 home ───────────────────────────────────
-  test('UC-NAV-07: "New Chat" button navigates back to home', async ({ page }) => {
-    // Start on a non-home route so the home navigation is observable.
-    await page.goto('/agents')
-    await expect(page).toHaveURL(/\/agents\/?$/)
-
-    const newChatBtn = page.getByRole('button', { name: '新建对话', exact: true })
-    await expect(newChatBtn).toBeVisible()
-
-    // handleNewChat → router.push('/').
-    await newChatBtn.click()
-    await expect(page).toHaveURL(/^http:\/\/127\.0\.0\.1:\d+\/?$/)
-  })
-
-  // ── UC-NAV-08: 搜索 chat (❌ unimplemented) ───────────────────────────────
-  test.fixme('UC-NAV-08: search chats by title', async ({ page }) => {
-    // Gap-analysis §2.3: the sidebar structure lists "Search", but
-    // chat-nav-sidebar was flagged as rendering only the New Chat button — no
-    // Search input. When confirmed at runtime, drop .fixme and drive
-    // `.chat-nav-search-input`: type a fragment of `chatTitle`, assert the
-    // seeded chat remains visible, then type a non-matching string and assert
-    // it is hidden.
-    const searchInput = page.locator('.chat-nav-search-input')
-    await expect(searchInput).toBeVisible()
-
-    const dirGroup = page.locator('.chat-nav-dir-group').filter({ hasText: dirName })
-    const dirHeader = dirGroup.locator('.chat-nav-dir-header')
-    const chatItem = dirGroup.locator('.chat-nav-chat-item').filter({ hasText: chatTitle })
-    await dirHeader.waitFor({ state: 'visible' })
-    if (!(await chatItem.isVisible().catch(() => false))) {
-      await dirHeader.click()
-    }
-
-    await searchInput.fill(runTag)
-    await expect(chatItem).toBeVisible()
-
-    await searchInput.fill('zzz-no-such-chat-zzz')
-    await expect(chatItem).toBeHidden()
+  test('UC-NAV-07: settings entry navigates to /settings', async ({ page }) => {
+    await page.getByRole('link', { name: '设置', exact: true }).click()
+    await expect(page).toHaveURL(/\/settings$/, { timeout: 15_000 })
   })
 })

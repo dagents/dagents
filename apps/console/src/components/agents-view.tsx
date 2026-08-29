@@ -29,6 +29,7 @@ import {
   type AgentStatus,
   type CatalogAgent,
   AGENT_KINDS,
+  AGENT_STATUS_LABEL,
   NO_FILTERS,
   filterAgents,
   fetchAgents,
@@ -36,15 +37,6 @@ import {
   kindGlyph,
 } from '@/lib/agents-catalog'
 
-// Status display maps are still view-local (no shared source yet).
-const STATUS_LABEL: Record<AgentStatus, string> = {
-  running: '运行',
-  queued: '排队',
-  idle: '空闲',
-  failed: '失败',
-  paused: '人工暂停',
-  done: '完成',
-}
 
 const STATUS_DOT_CLASS: Record<AgentStatus, string> = {
   running: 'dot-running',
@@ -193,14 +185,19 @@ export function AgentsView(): React.ReactElement {
           ))}
         </div>
         <div className="grow" />
-        <span className="result-count">
-          {t('{n} / {total} 个 agent', { n: visibleSorted.length, total: scoped.length })}
-        </span>
+        {!error ? (
+          <span className="result-count">
+            {t('{n} / {total} 个 agent', { n: visibleSorted.length, total: scoped.length })}
+          </span>
+        ) : null}
         <button
           type="button"
           className="btn btn-secondary btn-sm"
           onClick={() => void load()}
+          disabled={loading}
+          title={t('刷新列表')}
         >
+          <Icon name={loading ? 'loader' : 'refresh'} style={{ width: 14, height: 14 }} />
           {t('刷新')}
         </button>
         <button
@@ -252,10 +249,43 @@ export function AgentsView(): React.ReactElement {
             aria-pressed={filters.status === s}
             onClick={() => toggleFilter('status', s)}
           >
-            {t(STATUS_LABEL[s])}
+            {t(AGENT_STATUS_LABEL[s])}
           </button>
         ))}
         <div className="grow" />
+        {/* Sort toggle — clicking the active field flips the direction. */}
+        <button
+          type="button"
+          className="filter-chip"
+          aria-pressed={sort.field === 'name'}
+          title={t('按名称排序')}
+          onClick={() =>
+            setSort((p) =>
+              p.field === 'name'
+                ? { field: 'name', dir: p.dir === 'asc' ? 'desc' : 'asc' }
+                : { field: 'name', dir: 'asc' },
+            )
+          }
+        >
+          {t('名称')}
+          {sort.field === 'name' ? (sort.dir === 'asc' ? ' ↑' : ' ↓') : ''}
+        </button>
+        <button
+          type="button"
+          className="filter-chip"
+          aria-pressed={sort.field === 'load'}
+          title={t('按负载排序')}
+          onClick={() =>
+            setSort((p) =>
+              p.field === 'load'
+                ? { field: 'load', dir: p.dir === 'asc' ? 'desc' : 'asc' }
+                : { field: 'load', dir: 'desc' },
+            )
+          }
+        >
+          {t('负载')}
+          {sort.field === 'load' ? (sort.dir === 'asc' ? ' ↑' : ' ↓') : ''}
+        </button>
       </div>
 
       {error ? (
@@ -274,29 +304,39 @@ export function AgentsView(): React.ReactElement {
         ) : visibleSorted.length === 0 && !error ? (
           <div className="empty-state">
             <div className="empty-state-icon" aria-hidden="true">🤖</div>
-            <div className="h">{agents.length === 0 ? t('还没有 Agent') : t('没有匹配的 Agent')}</div>
-            <div className="d">
-              {agents.length === 0
-                ? t('创建你的第一个 Agent，定义它的提示词、工具和模型。')
-                : t('试试调整筛选条件或清除搜索。')}
-            </div>
-            {agents.length === 0 ? (
-              <button
-                type="button"
-                className="btn btn-primary"
-                onClick={() => setCreateOpen(true)}
-              >
-                <Icon name="plus" style={{ width: 14, height: 14 }} />
-                {t('新建 Agent')}
-              </button>
+            {/* Empty decision uses the SCOPED count — 3 active + 0 archived
+             * must not show "adjust filters" under the 已归档 tab. */}
+            {scoped.length === 0 ? (
+              <>
+                <div className="h">{scope === 'archived' ? t('还没有归档的 Agent') : t('还没有 Agent')}</div>
+                <div className="d">
+                  {scope === 'archived'
+                    ? t('归档的 Agent 会显示在这里，可在详情页归档。')
+                    : t('创建你的第一个 Agent，定义它的提示词、工具和模型。')}
+                </div>
+                {scope !== 'archived' ? (
+                  <button
+                    type="button"
+                    className="btn btn-primary"
+                    onClick={() => setCreateOpen(true)}
+                  >
+                    <Icon name="plus" style={{ width: 14, height: 14 }} />
+                    {t('新建 Agent')}
+                  </button>
+                ) : null}
+              </>
             ) : (
-              <button
-                type="button"
-                className="btn btn-ghost btn-sm"
-                onClick={() => setFilters(NO_FILTERS)}
-              >
-                {t('清除过滤器')}
-              </button>
+              <>
+                <div className="h">{t('没有匹配的 Agent')}</div>
+                <div className="d">{t('试试调整筛选条件或清除搜索。')}</div>
+                <button
+                  type="button"
+                  className="btn btn-ghost btn-sm"
+                  onClick={() => setFilters(NO_FILTERS)}
+                >
+                  {t('清除过滤器')}
+                </button>
+              </>
             )}
           </div>
         ) : (
@@ -329,7 +369,7 @@ export function AgentsView(): React.ReactElement {
                 <div className="agent-card-meta">
                   <span className={`agent-status ${a.status}`}>
                     <span className={`status-dot ${STATUS_DOT_CLASS[a.status]}`} />
-                    {t(STATUS_LABEL[a.status])}
+                    {t(AGENT_STATUS_LABEL[a.status])}
                   </span>
                   {/* load 仍是前端按运行时长的推算（带「估」标记）；cost 自
                       2026-08-22 方案 D 起只显示实测值（usage.cost），无计价
@@ -354,16 +394,19 @@ export function AgentsView(): React.ReactElement {
                   ) : null}
                 </div>
                 <div className="card-actions">
+                  {/* Whole card already navigates to the detail page — this
+                   * shortcut goes one step further to the EDIT form. */}
                   <button
                     type="button"
                     className="btn btn-secondary btn-sm"
-                    title={t('查看详情')}
+                    title={t('编辑 Agent')}
                     onClick={(e) => {
                       e.stopPropagation()
-                      onRowClick(a.id)
+                      router.push(`/agents/${a.id}/edit`)
                     }}
                   >
-                    {t('查看详情')}
+                    <Icon name="pencil" style={{ width: 12, height: 12 }} />
+                    {t('编辑')}
                   </button>
                 </div>
               </div>

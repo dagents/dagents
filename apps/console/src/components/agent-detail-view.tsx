@@ -58,11 +58,20 @@ import {
 } from '@/lib/agent-detail'
 import { AgentActivitySparkline } from '@/components/agent-activity-sparkline'
 import { useWsFrame } from '@/lib/ws-client'
-import { kindLabel, kindGlyph } from '@/lib/agents-catalog'
+import { kindLabel, kindGlyph, AGENT_STATUS_LABEL } from '@/lib/agents-catalog'
 import { fetchSkills, type SkillSummary } from '@/lib/skills'
 import { Icon } from '@/components/icon'
+import { useToast } from '@/components/toast'
 import { useI18n } from '@/i18n'
+import { formatDateTime, formatClockSeconds } from '@/lib/format'
 import '@/styles/agent-detail.css'
+
+/** Log timestamps come from the gateway as ISO strings — render in the
+ *  user's LOCAL timezone (never slice the raw ISO: that shows UTC). */
+function logTime(ts: string): string {
+  const d = new Date(ts)
+  return Number.isNaN(d.getTime()) ? ts : formatClockSeconds(ts)
+}
 
 type TabKey = 'activity' | 'instructions' | 'skills' | 'logs'
 
@@ -88,6 +97,7 @@ const POLL_INTERVAL_MS = 5_000
 
 export function AgentDetailView({ id, nowMs }: AgentDetailViewProps): React.ReactElement {
   const { t } = useI18n()
+  const toast = useToast()
   const [detail, setDetail] = useState<AgentDetail | null>(null)
   const [logs, setLogs] = useState<AgentLogLine[]>([])
   const [logsError, setLogsError] = useState<string | null>(null)
@@ -96,6 +106,12 @@ export function AgentDetailView({ id, nowMs }: AgentDetailViewProps): React.Reac
   const [error, setError] = useState<string | null>(null)
   const [activeTab, setActiveTab] = useState<TabKey>('activity')
   const [showDeleteConfirm, setShowDeleteConfirm] = useState(false)
+  // In-flight guards for the destructive actions (no double-PATCH/DELETE,
+  // and failures surface instead of silently keeping the user on the page).
+  const [archiving, setArchiving] = useState(false)
+  const [deleting, setDeleting] = useState(false)
+  // Retry tick for the page-level error card — bumps re-run the load effect.
+  const [reloadTick, setReloadTick] = useState(0)
   const router = useRouter()
 
   useEffect(() => {
@@ -140,11 +156,15 @@ export function AgentDetailView({ id, nowMs }: AgentDetailViewProps): React.Reac
     return () => {
       cancelled = true
     }
-  }, [id])
+  }, [id, reloadTick])
 
   // WS live status: a matching `agent-updated` frame patches the in-memory
   // detail's daemon status (availability) + lifecycle status without a refetch
   // (architecture §6.8). `setDetail` is functional so the closure is stable.
+  // We overwrite BOTH daemonStatus and the top-level availability —
+  // derivePageModel prefers a stale REST `availability` over the derived
+  // daemon value, so patching only daemonStatus left inline agents frozen at
+  // their first-fetch availability forever.
   const wsId = id
   useWsFrame((frame) => {
     if (frame.type !== 'agent-updated') return
@@ -153,6 +173,7 @@ export function AgentDetailView({ id, nowMs }: AgentDetailViewProps): React.Reac
       if (!prev) return prev
       return {
         ...prev,
+        availability: frame.availability,
         agent: {
           ...prev.agent,
           // presence → daemon_status so derivePageModel's deriveAvailability
@@ -169,7 +190,9 @@ export function AgentDetailView({ id, nowMs }: AgentDetailViewProps): React.Reac
   // flips to the not-found card (an agent archived mid-view should not stay
   // showing stale online status). Cleared when the socket (re)connects or on
   // unmount / id change.
-  const { connected } = useWsFrame(() => {})
+  // No-arg call reads { connected } only — a no-op listener would needlessly
+  // subscribe to every frame and bump the socket's refcount.
+  const { connected } = useWsFrame()
   useEffect(() => {
     if (connected) return // live socket owns the refresh
     if (notFound) return // nothing to poll once the agent is gone
@@ -235,23 +258,42 @@ export function AgentDetailView({ id, nowMs }: AgentDetailViewProps): React.Reac
         ) : notFound ? (
           <NotFound id={id} />
         ) : error ? (
-          <div className="detail-error card-flat" style={{ padding: 'var(--space-4)', color: 'var(--danger)', gridColumn: '1 / -1' }}>
-            {t('加载失败：{error}', { error })}
+          <div className="detail-error card-flat" style={{ padding: 'var(--space-4)', color: 'var(--danger)', gridColumn: '1 / -1', display: 'flex', alignItems: 'center', gap: 'var(--space-3)' }}>
+            <span>{t('加载失败：{error}', { error })}</span>
+            <button
+              type="button"
+              className="btn btn-ghost btn-sm"
+              onClick={() => setReloadTick((n) => n + 1)}
+            >
+              <Icon name="refresh" style={{ width: 12, height: 12 }} />
+              {t('重试')}
+            </button>
           </div>
         ) : model ? (
           <>
             <Inspector
               model={model}
+              archiving={archiving}
               onEdit={() => { router.push(`/agents/${encodeURIComponent(id)}/edit`) }}
               onArchive={async () => {
+                if (archiving) return
+                setArchiving(true)
                 try {
                   const resp = await fetch(`/api/agents/${encodeURIComponent(id)}`, {
                     method: 'PATCH',
                     headers: { 'Content-Type': 'application/json' },
                     body: JSON.stringify({ visibility: 'archived' }),
                   })
-                  if (resp.ok) router.push('/agents')
-                } catch { /* silent */ }
+                  if (resp.ok) {
+                    router.push('/agents')
+                    return
+                  }
+                  toast.error(t('归档失败（HTTP {status}）', { status: resp.status }))
+                } catch (err) {
+                  toast.error(err instanceof Error ? err.message : String(err))
+                } finally {
+                  setArchiving(false)
+                }
               }}
               onDelete={() => setShowDeleteConfirm(true)}
             />
@@ -277,27 +319,66 @@ export function AgentDetailView({ id, nowMs }: AgentDetailViewProps): React.Reac
               }}
             />
             {showDeleteConfirm && (
-              <div className="agent-delete-overlay" onClick={() => setShowDeleteConfirm(false)}>
-                <div className="agent-delete-dialog" onClick={(e) => e.stopPropagation()}>
+              <div
+                className="agent-delete-overlay"
+                role="presentation"
+                onClick={() => { if (!deleting) setShowDeleteConfirm(false) }}
+                onKeyDown={(e) => {
+                  if (e.key === 'Escape' && !deleting) setShowDeleteConfirm(false)
+                }}
+              >
+                <div
+                  className="agent-delete-dialog"
+                  role="dialog"
+                  aria-modal="true"
+                  aria-label={t('删除 Agent')}
+                  onClick={(e) => e.stopPropagation()}
+                >
                   <div className="agent-delete-title">{t('删除 Agent')}</div>
                   <div className="agent-delete-desc">
                     {t('确定要删除「{name}」吗？此操作不可撤销。', { name: model.name })}
                   </div>
                   <div className="agent-delete-actions">
-                    <button type="button" className="btn btn-ghost btn-sm" onClick={() => setShowDeleteConfirm(false)}>{t('取消')}</button>
+                    <button
+                      type="button"
+                      className="btn btn-ghost btn-sm"
+                      disabled={deleting}
+                      ref={(el) => {
+                        // Focus the SAFE action first — keyboard users must not
+                        // Enter-through into the destructive default.
+                        if (el && !el.dataset.focused) {
+                          el.dataset.focused = '1'
+                          el.focus()
+                        }
+                      }}
+                      onClick={() => setShowDeleteConfirm(false)}
+                    >
+                      {t('取消')}
+                    </button>
                     <button
                       type="button"
                       className="btn btn-danger btn-sm"
+                      disabled={deleting}
                       onClick={async () => {
+                        if (deleting) return
+                        setDeleting(true)
                         try {
                           const resp = await fetch(`/api/agents/${encodeURIComponent(id)}`, { method: 'DELETE' })
-                          if (resp.ok) router.push('/agents')
-                        } catch { /* silent */ }
-                      setShowDeleteConfirm(false)
-                    }}
-                  >
-                    {t('确认删除')}
-                  </button>
+                          if (resp.ok) {
+                            router.push('/agents')
+                            return
+                          }
+                          toast.error(t('删除失败（HTTP {status}）', { status: resp.status }))
+                        } catch (err) {
+                          toast.error(err instanceof Error ? err.message : String(err))
+                        } finally {
+                          setDeleting(false)
+                          setShowDeleteConfirm(false)
+                        }
+                      }}
+                    >
+                      {deleting ? t('删除中…') : t('确认删除')}
+                    </button>
                   </div>
                 </div>
               </div>
@@ -359,12 +440,13 @@ function NotFound({ id }: { id: string }): React.ReactElement {
 
 interface InspectorProps {
   model: AgentDetailPageModel
+  archiving?: boolean
   onEdit?: () => void
   onArchive?: () => void
   onDelete?: () => void
 }
 
-function Inspector({ model, onEdit, onArchive, onDelete }: InspectorProps): React.ReactElement {
+function Inspector({ model, archiving, onEdit, onArchive, onDelete }: InspectorProps): React.ReactElement {
   const { t } = useI18n()
   return (
     <aside className="inspector" id="inspector" data-od-id="inspector">
@@ -393,9 +475,9 @@ function Inspector({ model, onEdit, onArchive, onDelete }: InspectorProps): Reac
             </button>
           )}
           {onArchive && (
-            <button type="button" className="btn btn-ghost btn-sm" onClick={onArchive}>
-              <Icon name="folder" style={{ width: 12, height: 12 }} />
-              <span>{t('归档')}</span>
+            <button type="button" className="btn btn-ghost btn-sm" onClick={onArchive} disabled={archiving}>
+              <Icon name={archiving ? 'loader' : 'folder'} style={{ width: 12, height: 12 }} />
+              <span>{archiving ? t('归档中…') : t('归档')}</span>
             </button>
           )}
           {onDelete && (
@@ -412,13 +494,21 @@ function Inspector({ model, onEdit, onArchive, onDelete }: InspectorProps): Reac
         <PropRow label={t('类型')} value={t(kindLabel(model.kind))} pick />
         <PropRow label={t('模型')} value={model.model} pick />
         <PropRow label={t('运行时')} mono value={model.runtime} />
+        {/* Lifecycle status — same concept the list badges on every card;
+         * the detail page previously only showed availability, hiding
+         * running/failed state entirely. */}
+        <PropRow label={t('状态')} value={t(AGENT_STATUS_LABEL[model.status] ?? model.status)} />
         <PropRow label={t('并发')} value={model.concurrency} />
         <PropRow
           label={t('可见性')}
-          value={model.visibility === 'public' ? t('公开') : t('工作区')}
+          value={
+            model.visibility === 'public' ? t('公开')
+            : model.visibility === 'archived' ? t('已归档')
+            : t('工作区')
+          }
         />
         <PropRow label={t('负责人')} value={model.owner} />
-        <PropRow label={t('创建于')} mono value={model.createdAt.slice(0, 10)} />
+        <PropRow label={t('创建于')} mono value={formatDateTime(model.createdAt)} />
       </div>
       <div>
         <div className="ins-section-label">Skills</div>
@@ -598,8 +688,8 @@ function ActivityPanel({ model }: { model: AgentDetailPageModel }): React.ReactE
         {model.logs.length > 0 ? (
           [...model.logs].reverse().map((l, i) => (
             <div className="act-recent-item" key={`${l.ts}-${i}`}>
-              <span className="mono meta" style={{ width: 48, fontSize: 11 }}>
-                {l.ts.slice(11, 19)}
+              <span className="mono meta" style={{ width: 64, fontSize: 11 }}>
+                {logTime(l.ts)}
               </span>
               <span className={`log-lvl ${l.level}`} style={{ width: 40 }}>
                 {l.level.toUpperCase()}
@@ -655,6 +745,8 @@ function SkillsPanel({
   const [saving, setSaving] = useState(false)
   const [saveError, setSaveError] = useState<string | null>(null)
   const [savedAt, setSavedAt] = useState(0)
+  const savedHideRef = useRef<number | undefined>(undefined)
+  useEffect(() => () => window.clearTimeout(savedHideRef.current), [])
 
   // 面板随 tab 挂载/卸载，目录在挂载时拉一次（gateway 侧有 60s TTL 缓存）。
   useEffect(() => {
@@ -699,6 +791,10 @@ function SkillsPanel({
       if (!res.ok) throw new Error(t('保存失败（HTTP {status}）', { status: res.status }))
       onSkillsSaved(selected)
       setSavedAt(Date.now())
+      // The "已保存" marker is a transient confirmation — clear it after 2s
+      // so it can't sit there contradicting a later dirty state.
+      window.clearTimeout(savedHideRef.current)
+      savedHideRef.current = window.setTimeout(() => setSavedAt(0), 2000)
     } catch (err) {
       setSaveError(err instanceof Error ? err.message : String(err))
     } finally {
@@ -844,7 +940,7 @@ function LogsPanel({
         {model.logs.length > 0 ? (
           [...model.logs].reverse().map((l, i) => (
             <div className="log-line" key={`${l.ts}-${i}`}>
-              <span className="log-ts">{l.ts.slice(11, 19)}</span>
+              <span className="log-ts">{logTime(l.ts)}</span>
               <span className={`log-lvl ${l.level}`}>{l.level.toUpperCase()}</span>
               <span className="log-msg">{l.msg}</span>
             </div>

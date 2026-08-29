@@ -1,76 +1,76 @@
 'use client'
 
 /**
- * FloatingChat — multica-style floating chat overlay.
+ * FloatingChat —— 全局悬浮副驾（PRD F3，docs/prd-workflow-first.md）。
  *
- * Two parts:
- *   1. ChatFab: round button pinned to the bottom-right corner. Click to
- *      open the chat window. Hidden on /chats/[id] (the full-page chat
- *      owns the conversation there) and hidden while the window is open.
- *   2. ChatWindow: a 380×560 panel anchored above the FAB. Contains a
- *      header (directory + close), a message list, and a composer. All
- *      inbound assistant tokens arrive via WebSocket (`useWsChat`) — the
- *      HTTP POST /chats/:id/messages returns immediately with mode='json'
- *      once the gateway's InlineAgentExecutor has spawned claude.
+ * Workflow-First IA 下的 Chat 形态：右下角 FAB + 窗口，**除 /chats/[id]
+ * （聊天本体页）外全路由常驻**。执行核心来自 useChatExecution（F0 单一实
+ * 现），本组件只管窗口交互：
  *
- * State machine:
- *   - activeChatId == null → composer-only "new chat" state. The first
- *     send creates a chat row + writes the user message, then subscribes
- *     to its WS channel for the assistant reply.
- *   - activeChatId != null → live conversation. Subsequent sends append
- *     to the same chat; WS frames patch the trailing assistant bubble.
+ *   - 拖动（标题栏）+ 拉大（右下角把手）+ 位置尺寸记忆（D5）
+ *   - 画布页避让 React Flow minimap（D5：默认停靠上移）
+ *   - 历史抽屉：最近会话列表 + 搜索 + 点入续聊（旧 IA 会话树的承接面）
+ *   - 「在详情页打开」→ /chats/[id] 看长回复
+ *   - @workflow 生成 done → toast + 「去画布」直达（F7 落点）
  *
- * Why WS over SSE here: multica's design has the floating window live
- * across route changes (it's mounted in the dashboard layout), so a
- * per-message SSE connection would tear down on every navigation. The
- * WS hub keeps the channel open for the lifetime of the chat, regardless
- * of which page the user is on.
+ * 旧 IA（dagents.ia.workflow-first=off）保持旧行为：管理页隐藏。
  */
 import { useCallback, useEffect, useRef, useState } from 'react'
-import { usePathname } from 'next/navigation'
+import { usePathname, useRouter } from 'next/navigation'
 import { Icon } from '@/components/icon'
 import { ChatComposer } from '@/components/chat-composer'
 import { DirectorySelector } from '@/components/directory-selector'
-import { AssistantContent, extractMeta, type AssistantMessageMeta } from '@/components/assistant-content'
-import {
-  createChat,
-  createMessage,
-  fetchMessages,
-} from '@/lib/chats'
+import { AssistantContent } from '@/components/assistant-content'
+import { fetchChats, type Chat } from '@/lib/chats'
 import { fetchDirectories, type Directory } from '@/lib/directories'
-import { useWsChat } from '@/lib/use-ws-chat'
-import '@/styles/floating-chat.css'
-import '@/styles/assistant-content.css'
+import { formatClock } from '@/lib/format'
+import {
+  useChatExecution,
+  extractCanvasLink,
+} from '@/lib/use-chat-execution'
+import { isWorkflowFirstIA } from '@/lib/ia-flag'
+import { useToast } from '@/components/toast'
 import { useI18n } from '@/i18n'
+import '@/styles/floating-chat.css'
 
-/** Rendered message row (optimistic + persisted + streaming-assistant). */
-interface DisplayMessage {
-  id: string
-  role: 'user' | 'assistant' | 'system'
-  content: string
-  createdAt: string
-  /** True while the assistant bubble is still accumulating WS chunks. */
-  streaming?: boolean
-  /** True if this is a local-only optimistic bubble (not yet persisted). */
-  optimistic?: boolean
-  /** Run telemetry for the usage footer (tokens / duration / cost). */
-  meta?: AssistantMessageMeta
+const POS_KEY = 'dagents.fab-chat'
+
+interface WindowPos {
+  x: number
+  y: number
+  w: number
+  h: number
 }
 
-function formatTime(dateStr: string): string {
-  return new Date(dateStr).toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' })
+const DEFAULT_POS: WindowPos = { x: 0, y: 0, w: 380, h: 560 }
+
+function readPos(): WindowPos {
+  try {
+    const raw = localStorage.getItem(POS_KEY)
+    if (!raw) return DEFAULT_POS
+    const p = JSON.parse(raw) as Partial<WindowPos>
+    return {
+      x: typeof p.x === 'number' ? p.x : 0,
+      y: typeof p.y === 'number' ? p.y : 0,
+      w: Math.min(Math.max(p.w ?? 380, 320), 640),
+      h: Math.min(Math.max(p.h ?? 560, 420), 860),
+    }
+  } catch {
+    return DEFAULT_POS
+  }
 }
 
 export function FloatingChat(): React.ReactElement {
-  const { t } = useI18n()
   const pathname = usePathname() ?? '/'
+  const [wfIA, setWfIA] = useState<boolean | null>(null)
+  useEffect(() => {
+    setWfIA(isWorkflowFirstIA())
+  }, [])
 
-  // ─── Window open/close state ───
-  // Persisted to localStorage so a reload keeps the user's preference.
+  // 窗口开合记忆
   const [open, setOpen] = useState(false)
   useEffect(() => {
-    const stored = localStorage.getItem('od:floating-chat-open')
-    if (stored === '1') setOpen(true)
+    if (localStorage.getItem('od:floating-chat-open') === '1') setOpen(true)
   }, [])
   const toggleOpen = useCallback(() => {
     setOpen((prev) => {
@@ -80,37 +80,34 @@ export function FloatingChat(): React.ReactElement {
     })
   }, [])
 
-  // Hide on /chats/[id] — the full-page chat owns the conversation there.
-  // Also hide on / (chat home) — that page already has its own composer, so
-  // the floating FAB would only overlap the home send button.
-  // Also hide on management modules (Agent/Flow/Daemon/Directory/Settings):
-  // those pages have no "chat now" mental model; the FAB only obscures
-  // detail panels, action buttons and list rows there.
+  // 聊天本体页永远隐藏；旧 IA 沿用「管理页隐藏」行为
   const onChatDetail = pathname.startsWith('/chats/')
-  const onChatHome = pathname === '/'
   const onManagementPage =
     pathname.startsWith('/agents') ||
     pathname.startsWith('/flows') ||
     pathname.startsWith('/workflows') ||
     pathname.startsWith('/daemons') ||
     pathname.startsWith('/settings')
-  const shouldHide = onChatDetail || onChatHome || onManagementPage
+  const shouldHide = wfIA === null ? true : onChatDetail || (wfIA ? false : onManagementPage || pathname === '/')
+  // wfIA 为 null（首帧未定）时保守隐藏，避免水合闪烁
 
   return (
     <>
-      {open && !shouldHide ? <FloatingChatWindow onClose={() => setOpen(false)} /> : null}
+      {open && !shouldHide ? <FloatingChatWindow onClose={toggleOpen} /> : null}
       {!open && !shouldHide ? <ChatFab onClick={toggleOpen} /> : null}
     </>
   )
 }
 
-/** Floating action button — round, bottom-right, opens the chat window. */
+/** FAB —— 画布页避让 minimap（D5）。 */
 function ChatFab({ onClick }: { onClick: () => void }): React.ReactElement {
   const { t } = useI18n()
+  const pathname = usePathname() ?? '/'
+  const onCanvas = pathname.startsWith('/workflows/')
   return (
     <button
       type="button"
-      className="floating-chat-fab"
+      className={`floating-chat-fab${onCanvas ? ' fab-canvas-offset' : ''}`}
       onClick={onClick}
       aria-label={t('打开聊天')}
       title={t('打开聊天')}
@@ -126,30 +123,101 @@ interface FloatingChatWindowProps {
 
 function FloatingChatWindow({ onClose }: FloatingChatWindowProps): React.ReactElement {
   const { t } = useI18n()
+  const toast = useToast()
+  const router = useRouter()
   const [directories, setDirectories] = useState<Directory[]>([])
   const [selectedDirId, setSelectedDirId] = useState<string | null>(null)
   const [selectedAgentId, setSelectedAgentId] = useState<string | null>(null)
-  const [activeChatId, setActiveChatId] = useState<string | null>(null)
-  const [messages, setMessages] = useState<DisplayMessage[]>([])
-  const [sending, setSending] = useState(false)
-  const [error, setError] = useState<string | null>(null)
-  const [loadingMessages, setLoadingMessages] = useState(false)
+  const [drawerOpen, setDrawerOpen] = useState(false)
+  const [drawerChats, setDrawerChats] = useState<Chat[]>([])
+  const [drawerQuery, setDrawerQuery] = useState('')
+  const [pos, setPos] = useState<WindowPos>(DEFAULT_POS)
+  const windowRef = useRef<HTMLDivElement>(null)
 
-  // We don't track the streaming bubble by id/ref — that requires a side
-  // effect inside the setMessages updater, which React 18 StrictMode
-  // double-invokes in dev, corrupting the result. Instead we find the
-  // streaming bubble by its `streaming: true` flag each time (pure +
-  // idempotent — safe to call twice).
-  const messagesEndRef = useRef<HTMLDivElement>(null)
+  // ─── 窗口几何：位置/尺寸记忆（D5）───
+  useEffect(() => {
+    setPos(readPos())
+  }, [])
+  const persistPos = useCallback((p: WindowPos) => {
+    localStorage.setItem(POS_KEY, JSON.stringify(p))
+  }, [])
 
-  // Set true by handleSend right before setActiveChatId so the load-on-
-  // chatId-change effect knows to skip the fetch (handleSend owns the
-  // message list during a send — fetching would clobber the optimistic
-  // bubble + in-flight streaming frames, since the user message isn't
-  // persisted yet when the effect fires).
-  const justCreatedChatRef = useRef(false)
+  // 拖动（标题栏 pointer 事件）
+  const dragStateRef = useRef<{ startX: number; startY: number; baseX: number; baseY: number } | null>(null)
+  const onHeaderPointerDown = useCallback(
+    (e: React.PointerEvent) => {
+      if ((e.target as HTMLElement).closest('button')) return // 按钮不拖
+      dragStateRef.current = {
+        startX: e.clientX,
+        startY: e.clientY,
+        baseX: pos.x,
+        baseY: pos.y,
+      }
+      ;(e.currentTarget as HTMLElement).setPointerCapture(e.pointerId)
+    },
+    [pos.x, pos.y],
+  )
+  const onHeaderPointerMove = useCallback(
+    (e: React.PointerEvent) => {
+      const d = dragStateRef.current
+      if (!d) return
+      const el = windowRef.current
+      const w = el?.offsetWidth ?? pos.w
+      const maxX = window.innerWidth - w - 8
+      const maxY = window.innerHeight - 60
+      setPos((p) => ({
+        ...p,
+        x: Math.min(0, Math.max(maxX, d.baseX + e.clientX - d.startX)),
+        y: Math.min(0, Math.max(maxY, d.baseY + e.clientY - d.startY)),
+      }))
+    },
+    [pos.w],
+  )
+  const onHeaderPointerUp = useCallback(
+    (e: React.PointerEvent) => {
+      if (dragStateRef.current) {
+        dragStateRef.current = null
+        persistPos(pos)
+      }
+      const target = e.currentTarget as HTMLElement
+      target.releasePointerCapture?.(e.pointerId)
+    },
+    [persistPos, pos],
+  )
 
-  // Load directory list + remember the user's last pick.
+  // 拉大（右下角把手）
+  const resizeStateRef = useRef<{ startX: number; startY: number; baseW: number; baseH: number } | null>(null)
+  const onResizePointerDown = useCallback(
+    (e: React.PointerEvent) => {
+      e.preventDefault()
+      e.stopPropagation()
+      resizeStateRef.current = { startX: e.clientX, startY: e.clientY, baseW: pos.w, baseH: pos.h }
+      ;(e.currentTarget as HTMLElement).setPointerCapture(e.pointerId)
+    },
+    [pos.w, pos.h],
+  )
+  const onResizePointerMove = useCallback((e: React.PointerEvent) => {
+    const r = resizeStateRef.current
+    if (!r) return
+    setPos((p) => ({
+      ...p,
+      w: Math.min(Math.max(r.baseW + e.clientX - r.startX, 320), Math.min(720, window.innerWidth - 24)),
+      h: Math.min(Math.max(r.baseH + e.clientY - r.startY, 420), Math.min(880, window.innerHeight - 24)),
+    }))
+  }, [])
+  const onResizePointerUp = useCallback(
+    (e: React.PointerEvent) => {
+      if (resizeStateRef.current) {
+        resizeStateRef.current = null
+        persistPos(pos)
+      }
+      const target = e.currentTarget as HTMLElement
+      target.releasePointerCapture?.(e.pointerId)
+    },
+    [persistPos, pos],
+  )
+
+  // ─── 目录加载（发送前置）───
   useEffect(() => {
     let cancelled = false
     void (async () => {
@@ -158,264 +226,135 @@ function FloatingChatWindow({ onClose }: FloatingChatWindowProps): React.ReactEl
         if (cancelled) return
         setDirectories(dirs)
         const stored = localStorage.getItem('od:floating-chat-dir')
-        if (stored && dirs.some((d) => d.id === stored)) {
-          setSelectedDirId(stored)
-        } else if (dirs.length > 0) {
-          setSelectedDirId(dirs[0]!.id)
-        }
-      } catch (err) {
-        if (!cancelled) setError(err instanceof Error ? err.message : String(err))
+        if (stored && dirs.some((d) => d.id === stored)) setSelectedDirId(stored)
+        else if (dirs.length > 0) setSelectedDirId(dirs[0]!.id)
+      } catch {
+        // 目录加载失败 → 首发时 onReject 提示
       }
     })()
-    return () => { cancelled = true }
+    return () => {
+      cancelled = true
+    }
   }, [])
-
-  // Persist directory selection across sessions.
   useEffect(() => {
     if (selectedDirId) localStorage.setItem('od:floating-chat-dir', selectedDirId)
   }, [selectedDirId])
 
-  // Auto-scroll to the latest message on updates.
-  useEffect(() => {
-    messagesEndRef.current?.scrollIntoView({ behavior: 'smooth' })
-  }, [messages])
+  const dirListRef = useRef<Directory[]>([])
+  dirListRef.current = directories
+  const agentRef = useRef<string | null>(null)
+  agentRef.current = selectedAgentId
 
-  // ─── WebSocket subscription for the active chat ───
-  // The hook handles subscribe on mount + unsubscribe on chatId change;
-  // we just patch the local message list here. Frames for other chats
-  // (e.g. a previous conversation) are filtered out by the hook.
-  const handleWsFrame = useCallback((frame: import('@dagents/contracts').ChatWsFrame) => {
-    if (frame.type === 'chat:message') {
-      // Append to or create the streaming assistant bubble. Pure updater —
-      // safe under React 18 StrictMode double-invoke (no ref writes inside).
-      setMessages((prev) => {
-        const existing = prev.find((m) => m.streaming)
-        if (existing) {
-          return prev.map((m) =>
-            m.id === existing.id ? { ...m, content: m.content + frame.content } : m,
-          )
-        }
-        return [
-          ...prev,
-          {
-            id: `stream-${Date.now()}`,
-            role: 'assistant',
-            content: frame.content,
-            createdAt: new Date().toISOString(),
-            streaming: true,
-          },
-        ]
-      })
-      setSending(false) // WS chunk arrived → request succeeded, hide "sending"
-    } else if (frame.type === 'chat:done') {
-      // Seal the streaming bubble (or append a complete message if no chunk
-      // arrived before the executor finished). Carry the run's telemetry
-      // (tokens / duration / cost) so the usage footer can render.
-      const doneMeta: AssistantMessageMeta | undefined =
-        frame.usage || frame.durationMs != null || frame.cost != null
-          ? {
-              usage: frame.usage
-                ? {
-                    inputTokens: frame.usage.inputTokens,
-                    outputTokens: frame.usage.outputTokens,
-                    cacheReadTokens: frame.usage.cacheReadTokens,
-                    cacheWriteTokens: frame.usage.cacheWriteTokens,
-                  }
-                : undefined,
-              durationMs: frame.durationMs,
-              cost: frame.cost,
-            }
-          : undefined
-      setMessages((prev) => {
-        const existing = prev.find((m) => m.streaming)
-        if (existing) {
-          return prev.map((m) =>
-            m.id === existing.id
-              ? { ...m, content: frame.content || m.content, streaming: false, meta: doneMeta }
-              : m,
-          )
-        }
-        return [
-          ...prev,
-          {
-            id: `done-${Date.now()}`,
-            role: 'assistant',
-            content: frame.content,
-            createdAt: new Date().toISOString(),
-            meta: doneMeta,
-          },
-        ]
-      })
-      setSending(false)
-    } else if (frame.type === 'chat:error') {
-      setMessages((prev) => {
-        const existing = prev.find((m) => m.streaming)
-        if (existing) {
-          return prev.map((m) =>
-            m.id === existing.id
-              ? { ...m, content: frame.content || m.content, streaming: false }
-              : m,
-          )
-        }
-        return [
-          ...prev,
-          {
-            id: `err-${Date.now()}`,
-            role: 'assistant',
-            content: frame.content,
-            createdAt: new Date().toISOString(),
-          },
-        ]
-      })
-      setError(frame.error ?? frame.content)
-      setSending(false)
-    }
-  }, [])
-
-  const { connected } = useWsChat(activeChatId, handleWsFrame)
-
-  // ─── Send handler ───
-  // Creates a chat on first send, writes the user message, and lets the
-  // gateway's InlineAgentExecutor push the reply via WS. The HTTP response
-  // returns immediately (mode='json') so we don't block on a stream.
-  const handleSend = useCallback(async (text: string) => {
-    if (sending) return
-    const directoryId = selectedDirId ?? directories[0]?.id
-    if (!directoryId) {
-      setError(t('请先选择项目目录'))
-      return
-    }
-    setSending(true)
-    setError(null)
-
-    // Optimistic user bubble — gives instant feedback before the HTTP
-    // roundtrip completes.
-    const optimisticId = `opt-${Date.now()}`
-    const optimisticMsg: DisplayMessage = {
-      id: optimisticId,
-      role: 'user',
-      content: text,
-      createdAt: new Date().toISOString(),
-      optimistic: true,
-    }
-    setMessages((prev) => [...prev, optimisticMsg])
-
-    try {
-      let chatId = activeChatId
-      if (!chatId) {
-        // First message in this floating session → create the chat row.
-        const chat = await createChat({
-          directoryId,
-          title: text.slice(0, 50),
-          ...(selectedAgentId ? { agentId: selectedAgentId } : {}),
+  // ─── F0：执行核心 ───
+  const exec = useChatExecution({
+    resolveDirectoryId: () => selectedDirId ?? dirListRef.current[0]?.id,
+    resolveAgentId: () => agentRef.current,
+    stoppedLabel: t('_(已停止)_'),
+    onDone: (content) => {
+      // @workflow 生成落点（F7）：done 帧带画布链接 → toast 直达
+      const link = extractCanvasLink(content)
+      if (link) {
+        toast.success(t('工作流已创建'), {
+          action: { label: t('去画布'), onClick: () => router.push(link) },
         })
-        chatId = chat.id
-        // Tell the load-on-chatId effect to skip — we own the message list
-        // during this send (optimistic bubble + WS frames).
-        justCreatedChatRef.current = true
-        setActiveChatId(chatId)
       }
+    },
+  })
 
-      // Write the user message + trigger routing. The gateway's
-      // routeMessage sees agentId and spawns the inline executor.
-      const result = await createMessage(chatId, {
-        content: text,
-        role: 'user',
-        ...(selectedAgentId ? { agentIdOverride: selectedAgentId } : {}),
-      })
-
-      // Replace optimistic bubble with the persisted row.
-      setMessages((prev) =>
-        prev.map((m) =>
-          m.id === optimisticId
-            ? {
-                id: result.id,
-                role: 'user',
-                content: result.content,
-                createdAt: result.createdAt,
-              }
-            : m,
-        ),
-      )
-
-      // Note: we do NOT clear `sending` here — the assistant bubble is
-      // still pending. The first WS chunk (or chat:done / chat:error)
-      // clears it. Safety: always arm a fallback timeout so the user is
-      // never permanently locked (e.g. no agent selected → executor
-      // never runs → no WS frames → sending stuck forever).
-      setTimeout(() => setSending(false), 30000)
-    } catch (err) {
-      // eslint-disable-next-line no-console
-      console.error('[floating-chat] handleSend error', err)
-      setError(err instanceof Error ? err.message : String(err))
-      setSending(false)
-      // Roll back the optimistic bubble.
-      setMessages((prev) => prev.filter((m) => m.id !== optimisticId))
-    }
-  }, [sending, selectedDirId, directories, selectedAgentId, activeChatId])
-
-  // ─── New chat (reset) ───
-  const handleNewChat = useCallback(() => {
-    setActiveChatId(null)
-    setMessages([])
-    setError(null)
-  }, [])
-
-  // ─── Load messages when activeChatId changes (e.g. restored from storage) ───
-  // Currently we don't restore activeChatId across reloads (each new
-  // floating session starts fresh), but this effect is here for when we do.
+  // 历史抽屉数据（打开时拉各目录第一页合并）
   useEffect(() => {
-    if (!activeChatId) {
-      setMessages([])
-      return
-    }
-    // handleSend just created this chat and owns the message list (optimistic
-    // bubble + WS streaming frames). Skip the fetch — it would return before
-    // the user message is persisted and clobber the local state with [].
-    if (justCreatedChatRef.current) {
-      justCreatedChatRef.current = false
-      return
-    }
+    if (!drawerOpen) return
     let cancelled = false
-    setLoadingMessages(true)
     void (async () => {
       try {
-        const msgs = await fetchMessages(activeChatId)
-        if (cancelled) return
-        setMessages(
-          msgs.map((m) => ({
-            id: m.id,
-            role: m.role as 'user' | 'assistant' | 'system',
-            content: m.content,
-            createdAt: m.createdAt,
-            meta: extractMeta(m.metadata),
-          })),
+        const dirs = await fetchDirectories()
+        const pages = await Promise.all(
+          dirs.map((d) => fetchChats(d.id).catch(() => [] as Chat[])),
         )
-      } catch (err) {
-        if (!cancelled) setError(err instanceof Error ? err.message : String(err))
-      } finally {
-        if (!cancelled) setLoadingMessages(false)
+        if (cancelled) return
+        setDrawerChats(pages.flat().sort((a, b) => (a.updatedAt < b.updatedAt ? 1 : -1)))
+      } catch {
+        // 静默
       }
     })()
-    return () => { cancelled = true }
-  }, [activeChatId])
+    return () => {
+      cancelled = true
+    }
+  }, [drawerOpen])
+
+  const filteredDrawerChats = drawerQuery.trim()
+    ? drawerChats.filter((c) => c.title.toLowerCase().includes(drawerQuery.trim().toLowerCase()))
+    : drawerChats
+
+  // Escape：优先关抽屉
+  useEffect(() => {
+    const onKey = (e: KeyboardEvent) => {
+      if (e.key === 'Escape') {
+        if (drawerOpen) setDrawerOpen(false)
+        else onClose()
+      }
+    }
+    document.addEventListener('keydown', onKey)
+    return () => document.removeEventListener('keydown', onKey)
+  }, [onClose, drawerOpen])
+
+  // 自动滚动
+  const messagesEndRef = useRef<HTMLDivElement>(null)
+  useEffect(() => {
+    messagesEndRef.current?.scrollIntoView({ behavior: 'smooth' })
+  }, [exec.messages])
+
+  // F6：末条为 human_input 系统消息 = 有挂起中的 HITL
+  const lastMsg = exec.messages[exec.messages.length - 1]
+  const hitlPending = !!lastMsg?.humanInput
 
   return (
-    <div className="floating-chat-window" role="dialog" aria-label={t('聊天')}>
-      {/* Header — directory selector + new chat + close */}
-      <div className="floating-chat-header">
+    <div
+      ref={windowRef}
+      className="floating-chat-window fab-draggable"
+      role="dialog"
+      aria-label={t('聊天')}
+      style={{ right: -pos.x, bottom: -pos.y, width: pos.w, height: pos.h }}
+    >
+      {/* 标题栏 —— 拖动把手 + 操作 */}
+      <div
+        className="floating-chat-header fab-drag-handle"
+        onPointerDown={onHeaderPointerDown}
+        onPointerMove={onHeaderPointerMove}
+        onPointerUp={onHeaderPointerUp}
+      >
         <div className="floating-chat-header-left">
           <DirectorySelector value={selectedDirId} onChange={setSelectedDirId} />
         </div>
         <div className="floating-chat-header-right">
+          {exec.activeChatId ? (
+            <button
+              type="button"
+              className="floating-chat-header-btn"
+              onClick={() => router.push(`/chats/${exec.activeChatId}`)}
+              aria-label={t('在详情页打开')}
+              title={t('在详情页打开')}
+            >
+              <Icon name="arrow" style={{ width: 15, height: 15 }} />
+            </button>
+          ) : null}
           <button
             type="button"
             className="floating-chat-header-btn"
-            onClick={handleNewChat}
+            onClick={() => setDrawerOpen((v) => !v)}
+            aria-label={t('历史对话')}
+            title={t('历史对话')}
+          >
+            <Icon name="menu" style={{ width: 15, height: 15 }} />
+          </button>
+          <button
+            type="button"
+            className="floating-chat-header-btn"
+            onClick={exec.newChat}
             aria-label={t('新对话')}
             title={t('新对话')}
           >
-            <Icon name="plus" style={{ width: 16, height: 16 }} />
+            <Icon name="plus" style={{ width: 15, height: 15 }} />
           </button>
           <button
             type="button"
@@ -424,32 +363,67 @@ function FloatingChatWindow({ onClose }: FloatingChatWindowProps): React.ReactEl
             aria-label={t('关闭')}
             title={t('关闭')}
           >
-            <Icon name="close" style={{ width: 16, height: 16 }} />
+            <Icon name="close" style={{ width: 15, height: 15 }} />
           </button>
         </div>
       </div>
 
-      {/* Connection indicator — dimmed pill when WS is down. */}
-      {!connected ? (
-        <div className="floating-chat-conn-warning" title={t('实时连接断开，回退到轮询')}>
+      {/* 历史抽屉 */}
+      {drawerOpen ? (
+        <div className="fab-history-drawer" role="list" aria-label={t('历史对话')}>
+          <input
+            type="search"
+            className="fab-history-search"
+            placeholder={t('搜索会话…')}
+            value={drawerQuery}
+            onChange={(e) => setDrawerQuery(e.target.value)}
+            aria-label={t('搜索会话…')}
+          />
+          <div className="fab-history-list">
+            {filteredDrawerChats.length === 0 ? (
+              <span className="fab-history-empty">{t('没有匹配的会话')}</span>
+            ) : (
+              filteredDrawerChats.map((c) => (
+                <button
+                  key={c.id}
+                  type="button"
+                  role="listitem"
+                  className={`fab-history-item${c.id === exec.activeChatId ? ' active' : ''}`}
+                  onClick={() => {
+                    exec.openChat(c.id)
+                    setDrawerOpen(false)
+                  }}
+                >
+                  <span className={`status-dot ${c.status === 'running' ? 'dot-running' : 'dot-done'}`} />
+                  <span className="fab-history-title">{c.title}</span>
+                  <span className="fab-history-time">{formatClock(c.updatedAt)}</span>
+                </button>
+              ))
+            )}
+          </div>
+        </div>
+      ) : null}
+
+      {!exec.connected ? (
+        <div className="floating-chat-conn-warning" title={t('实时连接断开 — 助手回复可能无法实时收到，正在尝试重连…')}>
           {t('实时连接断开')}
         </div>
       ) : null}
 
-      {/* Messages */}
+      {/* 消息区 */}
       <div className="floating-chat-messages">
-        {messages.length === 0 && !loadingMessages ? (
+        {exec.messages.length === 0 && !exec.loadingMessages ? (
           <div className="floating-chat-empty">
             <div className="floating-chat-empty-icon">
               <Icon name="bot" style={{ width: 28, height: 28, color: 'var(--accent)' }} />
             </div>
             <div className="floating-chat-empty-title">{t('开始一段对话')}</div>
             <div className="floating-chat-empty-desc">
-              {t('选择目录与 Agent，发送消息即可触发任务')}
+              {t('选择目录与 Agent，发送消息即可触发任务；@workflow 可一句话生成流程')}
             </div>
           </div>
         ) : (
-          messages.map((m) => (
+          exec.messages.map((m) => (
             <div
               key={m.id}
               className={`floating-chat-msg floating-chat-msg-${m.role}${m.role === 'assistant' ? ' floating-chat-msg-flat' : ''}`}
@@ -457,33 +431,60 @@ function FloatingChatWindow({ onClose }: FloatingChatWindowProps): React.ReactEl
               {m.role === 'assistant' ? (
                 <AssistantContent content={m.content} streaming={m.streaming} meta={m.meta} />
               ) : (
-                <div className="floating-chat-msg-content">
-                  {m.content}
-                  {m.streaming ? <span className="floating-chat-cursor">▋</span> : null}
-                </div>
+                <div className="floating-chat-msg-content">{m.content}</div>
               )}
               {m.role !== 'system' ? (
-                <div className="floating-chat-msg-meta">{formatTime(m.createdAt)}</div>
+                <div className="floating-chat-msg-meta">{formatClock(m.createdAt)}</div>
               ) : null}
             </div>
           ))
         )}
-        {loadingMessages ? (
+        {exec.loadingMessages ? (
           <div className="floating-chat-empty">{t('加载历史消息…')}</div>
         ) : null}
         <div ref={messagesEndRef} />
       </div>
 
-      {/* Error toast */}
-      {error ? <div className="floating-chat-error">{error}</div> : null}
+      {/* 错误条 */}
+      {exec.error ? (
+        <div className="floating-chat-error" role="alert">
+          <span className="floating-chat-error-text">{exec.error}</span>
+          <button
+            type="button"
+            className="floating-chat-error-close"
+            onClick={() => exec.newChat()}
+            aria-label={t('关闭错误提示')}
+          >
+            <Icon name="close" style={{ width: 10, height: 10 }} />
+          </button>
+        </div>
+      ) : null}
 
-      {/* Composer */}
+      {/* HITL 内联应答条（F6）：末条为 human_input 系统消息 = 流程在等输入。
+       * 应答 = 直接在下方输入框发送（exec.send → 消息端点，与聊天详情页
+       * 同一通道，ack 路由语义唯一）。 */}
+      {hitlPending && !exec.sending ? (
+        <div className="fab-hitl-bar" role="status">
+          <span className="fab-hitl-label">⏸ {t('流程在等待你的输入 — 在下方输入并发送即可继续')}</span>
+        </div>
+      ) : null}
+
       <ChatComposer
-        onSend={handleSend}
-        disabled={sending}
+        onSend={exec.send}
+        onStop={exec.stop}
+        stopping={exec.sending}
         agentId={selectedAgentId}
         onAgentChange={setSelectedAgentId}
-        placeholder={sending ? t('Agent 执行中…') : t('发送消息给 Agent…')}
+        placeholder={exec.sending ? t('Agent 执行中…') : t('发送消息给 Agent…')}
+      />
+
+      {/* 拉大把手（D5） */}
+      <div
+        className="fab-resize-handle"
+        onPointerDown={onResizePointerDown}
+        onPointerMove={onResizePointerMove}
+        onPointerUp={onResizePointerUp}
+        aria-label={t('调整窗口大小')}
       />
     </div>
   )

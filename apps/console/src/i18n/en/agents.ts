@@ -215,4 +215,23 @@ export const agents: Record<string, string> = {
   // ── 人格库运行时选择（模板体系退役后） ──
   '模型档位': 'Model tier',
   '默认模型': 'Default model',
+
+  // ── 2026-08-26 全站 UX 优化新增词条 ──
+  '名称需 1–128 个字符': 'Name must be 1–128 characters',
+  '名称需 1–200 个字符': 'Name must be 1–200 characters',
+  '加载失败（HTTP {status}）': 'Load failed (HTTP {status})',
+  '归档失败（HTTP {status}）': 'Archive failed (HTTP {status})',
+  '删除失败（HTTP {status}）': 'Delete failed (HTTP {status})',
+  '归档中…': 'Archiving…',
+  '还没有归档的 Agent': 'No archived agents yet',
+  '归档的 Agent 会显示在这里，可在详情页归档。': 'Archived agents appear here — archive from the detail page.',
+  'Daemon 列表加载失败：{error}': 'Daemon list failed to load: {error}',
+  '仍可创建（默认本机执行）': 'You can still create (runs locally by default)',
+  '未检测到已注册的 daemon — Agent 将在本机 inline 执行。': 'No registered daemon detected — the agent will run inline on this machine.',
+  'Agent 列表加载失败：{error}': 'Agent list failed to load: {error}',
+  '已创建 Agent「{name}」': 'Agent “{name}” created',
+  '按名称排序': 'Sort by name',
+  '按负载排序': 'Sort by load',
+  'id “{id}” 不存在，可能已被删除。': 'id “{id}” does not exist — it may have been deleted.',
+  '编辑 Agent': 'Edit agent',
 }

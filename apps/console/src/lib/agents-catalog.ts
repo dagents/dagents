@@ -123,6 +123,17 @@ export function kindBinary(kind: AgentKind): string {
  *  so the kanban's 5th column + the design's status labels map 1:1. */
 export type AgentStatus = 'running' | 'queued' | 'idle' | 'failed' | 'paused' | 'done'
 
+/** 状态中文词条（t() 的 key，en 词典翻译）—— 列表卡片与详情 Inspector
+ *  共用的单一来源，此前两处各抄一份。 */
+export const AGENT_STATUS_LABEL: Record<AgentStatus, string> = {
+  running: '运行',
+  queued: '排队',
+  idle: '空闲',
+  failed: '失败',
+  paused: '人工暂停',
+  done: '完成',
+}
+
 /** One row in the agents list. */
 export interface CatalogAgent {
   id: string

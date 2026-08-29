@@ -14,6 +14,7 @@
 
 import { useEffect, useState } from 'react'
 import { Icon } from '@/components/icon'
+import { useI18n } from '@/i18n'
 import '@/styles/dialog.css'
 
 // POST /api/workflows 网关封套是 {success, data:{flow:{id,name}}}（console
@@ -34,6 +35,7 @@ export function CreateFlowDialog({
   onClose,
   onCreated,
 }: CreateFlowDialogProps): React.ReactElement | null {
+  const { t } = useI18n()
   const [submitting, setSubmitting] = useState(false)
   const [error, setError] = useState<string | null>(null)
   const [name, setName] = useState('')
@@ -78,7 +80,7 @@ export function CreateFlowDialog({
       })
       const json = (await res.json()) as { success: boolean; data?: CreateFlowResponse; error?: string }
       if (!res.ok || !json.success || !json.data) {
-        throw new Error(json.error ?? `创建失败 (${res.status})`)
+        throw new Error(json.error ?? t('创建失败（HTTP {status}）', { status: res.status }))
       }
       onCreated(json.data.flow.id)
     } catch (err) {
@@ -90,19 +92,23 @@ export function CreateFlowDialog({
 
   return (
     <>
-      <div className="drawer-backdrop open" onClick={onClose} aria-hidden="true" />
+      <div
+        className="drawer-backdrop open"
+        onClick={submitting ? undefined : onClose}
+        aria-hidden="true"
+      />
       <div
         className="modal-dialog open"
         role="dialog"
         aria-modal="true"
-        aria-label="新建 Flow"
+        aria-label={t('新建 Flow')}
       >
         <div className="modal-head">
-          <h2 className="modal-title">新建 Flow</h2>
+          <h2 className="modal-title">{t('新建 Flow')}</h2>
           <button
             type="button"
             className="icon-btn"
-            aria-label="关闭"
+            aria-label={t('关闭')}
             onClick={onClose}
             disabled={submitting}
           >
@@ -110,61 +116,76 @@ export function CreateFlowDialog({
           </button>
         </div>
 
-        <div className="modal-body">
-          <div className="form-section">
-            <div className="form-section-label">基本信息</div>
-            <div className="field">
-              <label htmlFor="flow-name">名称 *</label>
-              <input
-                id="flow-name"
-                type="text"
-                className={`input${name.length === 0 ? '' : nameValid ? '' : ' invalid'}`}
-                value={name}
-                onChange={(e) => setName(e.target.value)}
-                placeholder="例如 代码审查流程"
-                maxLength={200}
-                autoFocus
-              />
+        {/* Real <form> so Enter in the name field submits (previously Enter
+            did nothing — no form element, no keydown handler). */}
+        <form
+          onSubmit={(e) => {
+            e.preventDefault()
+            void handleSubmit()
+          }}
+        >
+          <div className="modal-body">
+            <div className="form-section">
+              <div className="form-section-label">{t('基本信息')}</div>
+              <div className="field">
+                <label htmlFor="flow-name">{t('名称 *')}</label>
+                <input
+                  id="flow-name"
+                  type="text"
+                  className={`input${name.length === 0 ? '' : nameValid ? '' : ' invalid'}`}
+                  value={name}
+                  onChange={(e) => setName(e.target.value)}
+                  placeholder={t('例如 代码审查流程')}
+                  maxLength={200}
+                  autoFocus
+                  aria-invalid={name.length > 0 && !nameValid}
+                  aria-describedby={name.length > 0 && !nameValid ? 'flow-name-error' : undefined}
+                />
+                {name.length > 0 && !nameValid ? (
+                  <div id="flow-name-error" className="field-error" role="alert">
+                    {t('名称需 1–200 个字符')}
+                  </div>
+                ) : null}
+              </div>
+              <div className="field">
+                <label htmlFor="flow-desc">{t('描述')}</label>
+                <textarea
+                  id="flow-desc"
+                  className="textarea"
+                  value={description}
+                  onChange={(e) => setDescription(e.target.value)}
+                  placeholder={t('一句话说明这个 Flow 做什么')}
+                  rows={2}
+                  maxLength={2000}
+                />
+              </div>
             </div>
-            <div className="field">
-              <label htmlFor="flow-desc">描述</label>
-              <textarea
-                id="flow-desc"
-                className="textarea"
-                value={description}
-                onChange={(e) => setDescription(e.target.value)}
-                placeholder="一句话说明这个 Flow 做什么"
-                rows={2}
-                maxLength={2000}
-              />
+
+            <div className="modal-hint" style={{ fontSize: 'var(--text-xs)', color: 'var(--meta)', padding: 'var(--space-2) 0' }}>
+              {t('创建后会自动跳转到画布编辑器，可在其中添加节点和连线。')}
             </div>
+
+            {error ? <div className="modal-error">{error}</div> : null}
           </div>
 
-          <div className="modal-hint" style={{ fontSize: 'var(--text-xs)', color: 'var(--meta)', padding: 'var(--space-2) 0' }}>
-            创建后会自动跳转到画布编辑器，可在其中添加节点和连线。
+          <div className="modal-foot">
+            <button
+              type="button"
+              className="btn btn-secondary btn-sm"
+              onClick={onClose}
+              disabled={submitting}
+            >
+              {t('取消')}
+            </button>
+            <button
+              type="submit"
+              className="btn btn-primary btn-sm"
+              disabled={!canSubmit}
+            >
+              {submitting ? t('创建中…') : t('创建并编辑')}
+            </button>
           </div>
-
-          {error ? <div className="modal-error">{error}</div> : null}
-        </div>
-
-        <div className="modal-foot">
-          <button
-            type="button"
-            className="btn btn-secondary btn-sm"
-            onClick={onClose}
-            disabled={submitting}
-          >
-            取消
-          </button>
-          <button
-            type="button"
-            className="btn btn-primary btn-sm"
-            onClick={() => void handleSubmit()}
-            disabled={!canSubmit}
-          >
-            {submitting ? '创建中…' : '创建并编辑'}
-          </button>
-        </div>
+        </form>
       </div>
     </>
   )

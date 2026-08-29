@@ -27,6 +27,16 @@ import {
   writeNotificationSettings,
   type NotificationSettings as NotificationSettingsState,
 } from '@/lib/use-task-notification'
+
+/** SSR-safe defaults — the REAL stored values load in an effect below.
+ *  Reading localStorage during render caused hydration mismatches whenever
+ *  the user had changed any switch (server renders defaults, client's first
+ *  render renders the stored values). */
+const SSR_DEFAULT_SETTINGS: NotificationSettingsState = {
+  desktopEnabled: true,
+  soundEnabled: true,
+  onlyWhenHidden: false,
+}
 import {
   playSuccessSound,
   playSoftBeep,
@@ -50,12 +60,15 @@ const PERMISSION_LABEL: Record<PermissionState, string> = {
 
 export function NotificationSettings(): React.ReactElement {
   const { t } = useI18n()
-  const [settings, setSettings] = useState<NotificationSettingsState>(() =>
-    readNotificationSettings(),
-  )
-  const [permission, setPermission] = useState<PermissionState>(() =>
-    getPermission(),
-  )
+  const [settings, setSettings] = useState<NotificationSettingsState>(SSR_DEFAULT_SETTINGS)
+  const [permission, setPermission] = useState<PermissionState>('unsupported')
+  const [testHint, setTestHint] = useState<string | null>(null)
+
+  // Hydrate from storage / browser AFTER mount (see SSR_DEFAULT_SETTINGS).
+  useEffect(() => {
+    setSettings(readNotificationSettings())
+    setPermission(getPermission())
+  }, [])
 
   // Re-sync permission state when the tab regains focus (the browser's
   // permission prompt may have been answered in another tab / window).
@@ -90,8 +103,9 @@ export function NotificationSettings(): React.ReactElement {
     } catch {
       // Some browsers throw if called outside a user gesture — the click
       // handler guarantees one, but be defensive.
+      setTestHint(t('权限请求失败 — 请在浏览器站点设置中手动允许通知'))
     }
-  }, [])
+  }, [t])
 
   const handleTest = useCallback((): void => {
     // Fire a desktop notification (if enabled + granted) so the user can
@@ -114,6 +128,16 @@ export function NotificationSettings(): React.ReactElement {
       } catch {
         // ignore — fall through to sound
       }
+    }
+    // Desktop requested but NOT granted — say so; a silent "nothing happened"
+    // is indistinguishable from a broken config.
+    if (
+      settings.desktopEnabled &&
+      (typeof Notification === 'undefined' || Notification.permission !== 'granted')
+    ) {
+      setTestHint(t('桌面通知未授权 — 本次仅播放声音'))
+    } else {
+      setTestHint(null)
     }
     // Play a chime so the user can also verify the sound.
     if (settings.soundEnabled) {
@@ -196,6 +220,9 @@ export function NotificationSettings(): React.ReactElement {
         >
           {t('测试通知')}
         </button>
+        {testHint ? (
+          <span className="notif-perm-hint" role="status" style={{ marginTop: 'var(--space-2)' }}>{testHint}</span>
+        ) : null}
       </div>
     </div>
   )

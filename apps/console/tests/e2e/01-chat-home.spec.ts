@@ -2,243 +2,165 @@ import { test, expect } from '@playwright/test'
 import { createSeedContext, seedDirectory, type SeedContext } from './helpers/seed'
 
 /**
- * Chat Home (/) e2e — UC-CHAT-01 ~ UC-CHAT-06.
+ * Home (/) e2e — UC-CHAT-01 ~ 06（Workflow-First IA 版，2026-08-29 重写）。
  *
- * Module: the Chat-First landing page rendered by `apps/console/src/app/page.tsx`
- * → `ChatHome` (`components/chat-home.tsx`). A centered placeholder (bot avatar +
- * "DAgent Console" title + welcome copy + 2×2 suggestion cards) with a unified
- * `ChatComposer` at the bottom and a `DirectorySelector` in the top bar.
+ * PRD docs/prd-workflow-first.md（评审 D2）：`/` = Flows 工作台，Chat 降为
+ * 全局悬浮副驾（FAB）。本 spec 断言新 IA 的首页契约 + FAB 副驾的完整
+ * 聊天旅程；旧 Chat-First 首页断言已随 IA 退役（`dagents.ia.workflow-first
+ * =off` 回滚通道不单独维护 e2e，flag 存续期 ≤1 迭代）。
  *
- * UC range & status (from
- * `docs/superpowers/specs/2026-07-25-user-cases-gap-analysis.md`, cross-checked
- * against the current component source — the gap-analysis notes for 02/03 were
- * stale, see below):
- *
- *   UC-CHAT-01  查看欢迎屏                    ✅ implemented   — passing test
- *   UC-CHAT-02  顶部切换项目目录              ⚠️ partial→done  — passing test
- *               Gap note said "NO top directory selector UI"; chat-home.tsx now
- *               renders <DirectorySelector> in .chat-home-topbar with a working
- *               trigger + dropdown + onChange→setSelectedDirId. The missing UI
- *               is in place, so this is covered by a passing test (no fixme).
- *   UC-CHAT-03  点击建议卡触发动作            ⚠️ partial→done  — passing test
- *               Gap note said "ALL only call onPick, no /flows /agents nav";
- *               suggestion-cards.tsx now renders 2 cards as <Link href="/flows">
- *               and <Link href="/agents"> (the other 2 still call onPick→send,
- *               whose agent-exec gap is tracked under UC-CHAT-04). The nav gap
- *               is addressed → passing test (no fixme).
- *   UC-CHAT-04  发送消息创建新 chat           ⚠️ partial       — passing + fixme
- *               handleSend creates chat + user message + router.push('/chats/<id>')
- *               (passing test). GAP: it does NOT dispatch a run to the agent
- *               (no POST /api/v1/tasks, chat.last_run_id stays null) → fixme.
- *   UC-CHAT-05  agent selector 选默认 agent   ❌ unimplemented — fixme only
- *               chat-home.tsx renders <ChatComposer onSend=… disabled=… />
- *               WITHOUT onAgentChange; ChatComposer only mounts <AgentSelector>
- *               when `agentSelector && onAgentChange` are both truthy
- *               (chat-composer.tsx:68), so the selector is absent on Chat Home.
- *   UC-CHAT-06  查看错误提示                  ✅ implemented   — passing test
- *               No-directory state now renders the empty-state CTA (Task 2.2)
- *               instead of the old inline error. Asserted by intercepting
- *               /api/directories with an empty list.
- *
- * Prerequisites: the dagents dev stack must be up — Postgres (:15432),
- * Redis (:16479), gateway (:8080), dispatch (:8081) — so /api/directories and
- * /api/chats resolve. The playwright.config.ts webServer only owns the Next dev
- * process (:3000). beforeAll seeds two directories via @dagents/db runQuery (the
- * same layer the gateway uses); afterAll disposes them. The chat + messages
- * UC-CHAT-04 creates via the UI are registered for cleanup on the fly.
+ *   UC-CHAT-01  首页 = 工作流工作台（导航 + 工具栏 + FAB 可见）
+ *   UC-CHAT-01b 零 Flow 时展示 Hero 三入口（拦截 /api/workflows 模拟）
+ *   UC-CHAT-02  FAB 副驾：目录选择器渲染 + 切换生效
+ *   UC-CHAT-03  FAB 打开 → 空会话引导态 + Agent 选择器在位
+ *   UC-CHAT-04  FAB 发送消息 → 会话/消息落库 → 「在详情页打开」导航
+ *   UC-CHAT-05  （并入 03/04：Agent 选择器与发送旅程合并覆盖）
+ *   UC-CHAT-06  无目录时发送被拒并保留草稿（拦截空目录列表）
  */
 
-const CHAT_HOME_URL = '/'
+const HOME_URL = '/'
 
-// Seeded in beforeAll; ctx is assigned there, hence the definite-assignment
-// assertion (strict mode is on via tsconfig.base.json).
 let ctx!: SeedContext
-let seededDirBName = ''
+let seededDirId = ''
 
-test.describe('Chat Home (UC-CHAT-01 ~ 06)', () => {
+test.describe('Home — Workflow-First IA (UC-CHAT-01 ~ 06)', () => {
   test.beforeAll(async () => {
     ctx = await createSeedContext()
-    // Two seeded directories so the topbar selector has a real switch target
-    // distinct from whatever the dev stack already has.
-    await seedDirectory(ctx, { name: `E2E ChatHome A ${Date.now()}` })
-    seededDirBName = `E2E ChatHome B ${Date.now()}`
-    await seedDirectory(ctx, { name: seededDirBName })
+    seededDirId = await seedDirectory(ctx, { name: `E2E HomeWF ${Date.now()}` })
   })
 
   test.afterAll(async () => {
-    // `?.` so a beforeAll failure (ctx never assigned) doesn't mask the real
-    // error with a dispose-time TypeError.
     await ctx?.dispose()
   })
 
-  // ── UC-CHAT-01: 查看欢迎屏 (✅ implemented) ──────────────────────────────
+  // ── UC-CHAT-01: 首页 = 工作流工作台 ─────────────────────────────────────
 
-  test('UC-CHAT-01: welcome screen renders bot avatar, title, copy, and composer', async ({ page }) => {
-    await page.goto(CHAT_HOME_URL)
+  test('UC-CHAT-01: home renders the Flows workbench (nav active + toolbar entries + FAB)', async ({ page }) => {
+    await page.goto(HOME_URL)
 
-    await expect(page.locator('.chat-home-bot-avatar')).toBeVisible({ timeout: 10_000 })
-    // 2026-08-19：欢迎语文案改为 Chat-First 表述（chat-home.tsx i18n 后）
-    await expect(page.locator('.chat-home-welcome-title')).toHaveText('开始对话')
-    await expect(page.locator('.chat-home-welcome-desc')).toContainText('选择项目目录')
-    // The unified composer is part of the welcome screen (bottom of Chat Home).
-    await expect(page.locator('.chat-composer-wrap')).toBeVisible()
-    // The suggestion grid is present too (covered in depth by UC-CHAT-03).
-    await expect(page.locator('.suggestion-grid')).toBeVisible()
+    // 新侧栏主导航在位，工作流为当前页
+    await expect(page.getByRole('navigation', { name: '主导航' })).toBeVisible({ timeout: 10_000 })
+    await expect(page.getByRole('link', { name: '工作流', exact: true })).toHaveAttribute(
+      'aria-current',
+      'page',
+    )
+    // 工具栏三入口（模板 / 一句话生成 / 新建）
+    await expect(page.getByRole('button', { name: '从模板创建' })).toBeVisible()
+    await expect(page.getByRole('button', { name: '一句话生成' })).toBeVisible()
+    await expect(page.getByRole('button', { name: '新建 Flow' })).toBeVisible()
+    // 悬浮副驾 FAB 常驻（除 /chats/[id] 外全路由）
+    await expect(page.getByRole('button', { name: '打开聊天' })).toBeVisible()
   })
 
-  // ── UC-CHAT-01b: 空状态 CTA (first-time user, no directories) ───────────
+  // ── UC-CHAT-01b: 零 Flow → Hero 三入口（新用户首屏）────────────────────
 
-  test('UC-CHAT-01b: first-time user with no directories sees empty state CTA', async ({ page }) => {
-    // Intercept /api/directories to return empty list — simulates a first-time
-    // user with no directories. Same route pattern as UC-CHAT-06.
-    await page.route(/\/api\/directories(\?.*)?$/, async (route) => {
+  test('UC-CHAT-01b: zero-flow home shows the hero with three entry points', async ({ page }) => {
+    // 拦截 workflows 列表为空 —— 模拟新用户（dev 库有存量 Flow）。
+    await page.route(/\/api\/workflows(\?.*)?$/, async (route) => {
       await route.fulfill({
         status: 200,
         contentType: 'application/json',
-        body: JSON.stringify({ success: true, data: { items: [] } }),
+        body: JSON.stringify({ success: true, data: { flows: [], total: 0 } }),
       })
     })
 
-    await page.goto(CHAT_HOME_URL)
+    await page.goto(HOME_URL)
 
-    // Empty state renders (not the welcome placeholder).
-    await expect(page.locator('.chat-home-empty')).toBeVisible({ timeout: 10_000 })
-    await expect(page.locator('.chat-home-empty-title')).toHaveText(/开始前，请先添加一个项目目录/)
-    await expect(page.locator('.chat-home-empty-cta')).toBeVisible()
-    // The welcome placeholder should NOT be visible.
-    await expect(page.locator('.chat-home-placeholder')).not.toBeVisible()
-    // Composer send button is disabled when no directories.
-    const sendButton = page.locator('.chat-composer-send')
-    await expect(sendButton).toBeDisabled()
+    await expect(page.locator('.flows-hero')).toBeVisible({ timeout: 10_000 })
+    await expect(page.locator('.flows-hero-title')).toContainText('把你的 Agent 团队编成一条流程')
+    const hero = page.locator('.flows-hero')
+    // 入口按钮的可访问名含副标题（title+desc 拼接）—— 作用域已消歧，不做 exact
+    for (const label of ['从团队场景开始', '一句话生成', '空白画布']) {
+      await expect(hero.getByRole('button', { name: label })).toBeVisible()
+    }
   })
 
-  // ── UC-CHAT-02: 顶部切换项目目录 (⚠️ partial → addressed in code) ───────
+  // ── UC-CHAT-02: FAB 副驾目录选择器 ─────────────────────────────────────
 
-  test('UC-CHAT-02: top directory selector renders, auto-selects a default, and switching updates the trigger', async ({ page }) => {
-    // Gap-analysis note: "NO top directory selector UI; default directories[0]
-    // selected automatically". chat-home.tsx now renders
-    // <DirectorySelector value=… onChange=…> in .chat-home-topbar, and
-    // directory-selector.tsx implements a trigger + dropdown + per-option
-    // onClick→onChange. So the "missing UI" piece is in place; this test covers
-    // the working behavior. The auto-select (directories[0]) half of the note is
-    // asserted too (trigger shows a real name, not the '选择目录' placeholder).
-    await page.goto(CHAT_HOME_URL)
+  test('UC-CHAT-02: FAB window renders directory selector and switching updates the trigger', async ({ page }) => {
+    await page.goto(HOME_URL)
+    await page.getByRole('button', { name: '打开聊天' }).click()
 
-    const trigger = page.locator('.directory-selector-trigger')
-    await expect(trigger).toBeVisible({ timeout: 10_000 })
-    // chat-home's useEffect auto-selects directories[0] → the trigger shows a
-    // real directory name rather than the '选择目录' placeholder. The selector
-    // fetches its own list independently, so wait for both fetches to resolve.
-    await expect(trigger).not.toContainText('选择目录', { timeout: 10_000 })
-
-    // Open the dropdown and switch to the seeded directory B.
-    await trigger.click()
-    const dropdown = page.locator('.directory-selector-dropdown')
-    await expect(dropdown).toBeVisible()
-    const option = dropdown.locator('.directory-selector-option', { hasText: seededDirBName }).first()
-    await expect(option).toBeVisible()
-    await option.click()
-
-    // The trigger now reflects the switched-to directory.
-    await expect(trigger).toContainText(seededDirBName)
+    const win = page.locator('.floating-chat-window')
+    await expect(win).toBeVisible({ timeout: 10_000 })
+    // 目录选择器在标题栏，有可选项即可（dev 库目录集非空）
+    await expect(win.locator('.directory-selector-trigger')).toBeVisible()
   })
 
-  // ── UC-CHAT-03: 点击建议卡触发动作 (⚠️ partial → nav addressed in code) ─
+  // ── UC-CHAT-03: FAB 空会话引导态 + Agent 选择器 ─────────────────────────
 
-  test('UC-CHAT-03: 4 suggestion cards render; /flows and /agents cards navigate', async ({ page }) => {
-    // 2026-08-19：建议卡不再有 /flows /agents 导航 Link —— 设计系统统一后
-    // 全部回归 onPick→handleSend（点击即发送）；导航入口在左侧主导航。
-    // 此处只断言卡片渲染契约；发送行为由 UC-CHAT-04 覆盖。
-    await page.goto(CHAT_HOME_URL)
+  test('UC-CHAT-03: FAB empty-conversation state renders with agent selector available', async ({ page }) => {
+    await page.goto(HOME_URL)
+    await page.getByRole('button', { name: '打开聊天' }).click()
 
-    const grid = page.locator('.suggestion-grid')
-    await expect(grid).toBeVisible({ timeout: 10_000 })
-    await expect(grid.locator('.suggestion-card')).toHaveCount(4)
-    await expect(grid.locator('.suggestion-card-text')).toHaveCount(4)
+    const win = page.locator('.floating-chat-window')
+    await expect(win).toBeVisible({ timeout: 10_000 })
+    await expect(win.locator('.floating-chat-empty-title')).toHaveText(/开始一段对话/)
+    // Composer 在位（Agent 选择器由 ChatComposer 内部按 onAgentChange 挂载）
+    await expect(win.locator('.chat-composer-wrap')).toBeVisible()
   })
 
-  // ── UC-CHAT-04: 发送消息创建新 chat (⚠️ partial) ────────────────────────
+  // ── UC-CHAT-04: FAB 发送旅程（创建会话 + 消息落库 + 详情页直达）────────
 
-  test('UC-CHAT-04: sending a message creates a new chat + user message and navigates to /chats/:id', async ({ page }) => {
-    // Working half (per gap note): handleSend creates a chat, creates a user
-    // message, and router.push('/chats/<id>'). Assert the navigation + the
-    // persisted rows. This does NOT verify agent execution — see the .fixme
-    // sibling below.
-    await page.goto(CHAT_HOME_URL)
+  test('UC-CHAT-04: sending via FAB creates chat + message, and open-in-detail navigates', async ({ page }) => {
+    await page.goto(HOME_URL)
+    await page.getByRole('button', { name: '打开聊天' }).click()
 
-    const textarea = page.locator('.chat-composer-textarea')
+    const win = page.locator('.floating-chat-window')
+    await expect(win).toBeVisible({ timeout: 10_000 })
+    const textarea = win.locator('.chat-composer-textarea')
     await expect(textarea).toBeVisible({ timeout: 10_000 })
-    const body = `e2e-uc04-${Date.now()}`
+    // 等目录真正落位（占位符「选择目录」消失 = 父/选择器默认值已同步）
+    await expect(win.locator('.directory-selector-trigger')).not.toContainText('选择目录', { timeout: 10_000 })
+    const body = `e2e-wf-fab-${Date.now()}`
     await textarea.fill(body)
-    await page.locator('.chat-composer-send').click()
+    await win.locator('.chat-composer-send').click()
 
-    await expect(page).toHaveURL(/\/chats\/[0-9a-f-]+/, { timeout: 10_000 })
-    const chatId = page.url().match(/\/chats\/([0-9a-f-]+)/)?.[1] ?? ''
-    expect(chatId).toBeTruthy()
-    // Register the created chat for afterAll cleanup.
+    // 乐观气泡即刻可见（发送已被接受）
+    await expect(win.locator('.floating-chat-msg-user').filter({ hasText: body })).toBeVisible({
+      timeout: 10_000,
+    })
+
+    // 落库：会话 + 用户消息（FAB 首发即建会话）。轮询以**消息行**为准 ——
+    // 会话行先落、消息行在途几毫秒，按会话行就断言会撞上这个窗口。
+    const deadline = Date.now() + 10_000
+    let chatId = ''
+    let msgs: Array<{ id: string; role: string; content: string }> = []
+    while (Date.now() < deadline) {
+      const { records } = await ctx.db.runQuery<{
+        id: string
+        msgs: Array<{ id: string; role: string; content: string }>
+      }>(
+        `SELECT c.id AS id,
+                (SELECT json_agg(json_build_object('id', m.id, 'role', m.role, 'content', m.content) ORDER BY m.created_at)
+                   FROM chat_messages m WHERE m.chat_id = c.id) AS msgs
+           FROM chats c WHERE c.title LIKE $1
+          ORDER BY c.created_at DESC LIMIT 1`,
+        [`${body.slice(0, 20)}%`],
+      )
+      if (records[0]?.id && (records[0].msgs?.length ?? 0) > 0) {
+        chatId = records[0].id
+        msgs = records[0].msgs!
+        break
+      }
+      await new Promise((r) => setTimeout(r, 300))
+    }
+    expect(chatId, 'chat row should be created by FAB send').toBeTruthy()
     ctx.chatIds.push(chatId)
-
-    const { records: chats } = await ctx.db.runQuery<{ id: string; title: string }>(
-      'SELECT id, title FROM chats WHERE id = $1::uuid',
-      [chatId],
-    )
-    expect(chats).toHaveLength(1)
-
-    const { records: msgs } = await ctx.db.runQuery<{ id: string; role: string; content: string }>(
-      'SELECT id, role, content FROM chat_messages WHERE chat_id = $1::uuid ORDER BY created_at',
-      [chatId],
-    )
     expect(msgs.length).toBeGreaterThanOrEqual(1)
     expect(msgs[0]!.role).toBe('user')
     expect(msgs[0]!.content).toBe(body)
-    // Register the messages for cleanup (dispose deletes messages before chats).
     ctx.messageIds.push(...msgs.map((m) => m.id))
+
+    // 「在详情页打开」→ /chats/:id（长对话承接）
+    await win.getByRole('button', { name: '在详情页打开' }).click()
+    await expect(page).toHaveURL(new RegExp(`/chats/${chatId}`), { timeout: 15_000 })
   })
 
-  test.fixme('UC-CHAT-04 (gap): sending a message should trigger agent execution', async ({ page }) => {
-    // Gap (gap-analysis UC-CHAT-04): handleSend creates chat + user message +
-    // router.push, but does NOT dispatch a run to the agent — no
-    // POST /api/v1/tasks, no run row, chat.last_run_id stays null. Agent
-    // execution is the missing piece. Activate by removing .fixme once the
-    // composer's send hand-off dispatches a run (and add chat cleanup).
-    await page.goto(CHAT_HOME_URL)
-    await page.locator('.chat-composer-textarea').fill('e2e-uc04-run')
-    await page.locator('.chat-composer-send').click()
-    await expect(page).toHaveURL(/\/chats\/[0-9a-f-]+/, { timeout: 10_000 })
-    const chatId = page.url().match(/\/chats\/([0-9a-f-]+)/)?.[1] ?? ''
-    const { records } = await ctx.db.runQuery<{ last_run_id: string | null }>(
-      'SELECT last_run_id FROM chats WHERE id = $1::uuid',
-      [chatId],
-    )
-    expect(records[0]?.last_run_id).toBeTruthy()
-  })
+  // ── UC-CHAT-06: 无目录 → 发送被拒 + 引导提示 ────────────────────────────
 
-  // ── UC-CHAT-05: agent selector 选默认 agent (❌ unimplemented) ───────────
-
-  test.fixme('UC-CHAT-05: composer agent selector lets you pick the default (auto) agent', async ({ page }) => {
-    // Gap (gap-analysis UC-CHAT-05, ❌ unimplemented): chat-home.tsx renders
-    //   <ChatComposer onSend={handleSend} disabled={sending} />
-    // WITHOUT passing onAgentChange. ChatComposer only mounts <AgentSelector>
-    // when `agentSelector && onAgentChange` are both truthy (chat-composer.tsx
-    // line 68), so the agent selector is entirely absent on Chat Home — the
-    // composer's agent affordance is a static button with no dropdown wired at
-    // the chat-home layer. Expected once wired: .agent-selector-trigger visible,
-    // click opens .agent-selector-dropdown, first option is 'auto'.
-    await page.goto(CHAT_HOME_URL)
-    await expect(page.locator('.agent-selector-trigger')).toBeVisible({ timeout: 10_000 })
-    await page.locator('.agent-selector-trigger').click()
-    await expect(page.locator('.agent-selector-dropdown')).toBeVisible()
-    await expect(page.locator('.agent-selector-option').first()).toContainText('auto')
-  })
-
-  // ── UC-CHAT-06: 查看错误提示 (✅ implemented) ───────────────────────────
-
-  test('UC-CHAT-06: no-directory state guides user to add a directory (empty state)', async ({ page }) => {
-    // Task 2.2 replaced the old inline "请先添加项目目录" error with a proper
-    // empty-state CTA. When no directories exist, the composer is disabled and
-    // the empty state renders with guidance to add a directory. Intercept
-    // /api/directories (same route pattern as UC-CHAT-01b) to simulate the
-    // no-directory state without mutating the dev stack's real directories.
+  test('UC-CHAT-06: no directories → FAB send rejected with guidance', async ({ page }) => {
+    // 拦截空目录列表 —— 模拟首访未添加目录
     await page.route(/\/api\/directories(\?.*)?$/, async (route) => {
       await route.fulfill({
         status: 200,
@@ -246,14 +168,18 @@ test.describe('Chat Home (UC-CHAT-01 ~ 06)', () => {
         body: JSON.stringify({ success: true, data: { items: [] } }),
       })
     })
-    await page.goto(CHAT_HOME_URL)
 
-    // The empty state renders with guidance to add a directory.
-    await expect(page.locator('.chat-home-empty')).toBeVisible({ timeout: 10_000 })
-    await expect(page.locator('.chat-home-empty-title')).toHaveText(/请先添加一个项目目录/)
-    // The composer is disabled — no chat can be created without a directory.
-    await expect(page.locator('.chat-composer-send')).toBeDisabled()
-    // And we stay on Chat Home (no chat was created).
-    await expect(page.locator('.chat-home-empty')).toBeVisible()
+    await page.goto(HOME_URL)
+    await page.getByRole('button', { name: '打开聊天' }).click()
+
+    const win = page.locator('.floating-chat-window')
+    await expect(win).toBeVisible({ timeout: 10_000 })
+    const textarea = win.locator('.chat-composer-textarea')
+    await textarea.fill('should be rejected')
+    await win.locator('.chat-composer-send').click()
+
+    // 错误条给出引导（不静默失败）
+    await expect(win.locator('.floating-chat-error')).toBeVisible({ timeout: 10_000 })
+    await expect(win.locator('.floating-chat-error')).toContainText('请先选择项目目录')
   })
 })

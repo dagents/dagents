@@ -172,7 +172,7 @@ describe('FlowsView — list↔detail swap (M2.2)', () => {
 
     // the run button is the list page's entry into the detail page now that
     // the fabricated run-rows are gone
-    const runBtn = await screen.findByRole('button', { name: /▶ 运行/ })
+    const runBtn = await screen.findByRole('button', { name: /^运行$/ })
     expect(runBtn).toBeInTheDocument()
 
     // click 运行 → runFlow → showDetail → detail page becomes active
@@ -191,7 +191,7 @@ describe('FlowsView — list↔detail swap (M2.2)', () => {
     await renderView()
 
     // run → enter detail
-    const runBtn = await screen.findByRole('button', { name: /▶ 运行/ })
+    const runBtn = await screen.findByRole('button', { name: /^运行$/ })
     await user.click(runBtn)
     expect(document.querySelector('.flow-detail-page')?.classList.contains('active')).toBe(true)
 
@@ -208,7 +208,7 @@ describe('FlowsView — list↔detail swap (M2.2)', () => {
     await renderView()
 
     // enter detail
-    const runBtn = await screen.findByRole('button', { name: /▶ 运行/ })
+    const runBtn = await screen.findByRole('button', { name: /^运行$/ })
     await user.click(runBtn)
 
     // legend: all 6 statuses present in the detail page

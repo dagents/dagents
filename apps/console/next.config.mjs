@@ -5,6 +5,10 @@ const nextConfig = {
   // build step.
   transpilePackages: ['@dagents/shared', '@dagents/contracts', '@dagents/agentflow'],
   reactStrictMode: true,
+  // 关闭 dev 浮动指示器：它停靠左下角，与侧栏页脚（设置/主题/语言）重叠
+  // 并拦截指针事件 —— e2e 点击「设置」被 nextjs-portal 遮挡（2026-08-29
+  // Workflow-First IA 的 UC-NAV-07 定位）。仅影响 dev，生产无此浮层。
+  devIndicators: false,
   // Standalone build: bundles a self-contained server.js + only the node_modules
   // it traces, under .next/standalone. Required for the Docker image, which
   // copies that server (not the full node_modules) into the runtime stage.

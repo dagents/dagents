@@ -98,4 +98,21 @@ export const daemons: Record<string, string> = {
   '可多选 — 每种类型生成一条启动命令（一个 daemon 进程对应一种 agent）':
     'Multi-select — one start command per type (one daemon process per agent)',
   '生成启动命令': 'Generate start commands',
+
+  // ── 2026-08-26 全站 UX 优化新增词条 ──
+  '任务队列（全局）': 'Task queue (global)',
+  '当前为全平台任务视图，暂无按 daemon 过滤': 'Platform-wide task view — per-daemon filtering not available yet',
+  '任务加载失败：{error}': 'Failed to load tasks: {error}',
+  'CLI 检测失败：{error} — 下方「未安装」状态不可信': 'CLI detection failed: {error} — “not installed” below is unreliable',
+  'CLI 检测失败：{error} — 表内「未安装」状态不可信': 'CLI detection failed: {error} — “not installed” in the table is unreliable',
+  '已复制': 'Copied',
+
+  // ── CLI 运行时卡片 tooltip（tiers.ts note + agents-catalog hint，2026-08-27）──
+  '按官方文档实现，待真机回归（方案 C）':
+    'Implemented from official docs; real-CLI regression pending',
+  '通义千问编码助手': 'Tongyi Qwen coding assistant',
+  '开源编码 agent': 'Open-source coding agent',
+  '腾讯 CodeBuddy（Claude fork）': 'Tencent CodeBuddy (Claude fork)',
+  '华为鸿蒙编码助手': 'Huawei HarmonyOS coding assistant',
+  '字节 TRAE CLI': 'ByteDance TRAE CLI',
 }

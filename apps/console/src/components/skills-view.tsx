@@ -14,7 +14,7 @@
  * text-sm primary size, spacing over borders.
  */
 
-import { useCallback, useEffect, useMemo, useState } from 'react'
+import { useCallback, useEffect, useMemo, useRef, useState } from 'react'
 import { PageShell } from '@/components/page-shell'
 import { Icon } from '@/components/icon'
 import { SkeletonList } from '@/components/skeleton'
@@ -112,6 +112,11 @@ export function SkillsView(): React.ReactElement {
   const [detailLoading, setDetailLoading] = useState(false)
   const [detailError, setDetailError] = useState<string | null>(null)
   const [footerAdding, setFooterAdding] = useState(false)
+  // Two-step remove confirmation for a configured root directory.
+  const [confirmRemoveDir, setConfirmRemoveDir] = useState<string | null>(null)
+  // Monotonic toggle sequence — expanding A then quickly B drops A's late
+  // detail/error responses (previously they landed under B's row).
+  const detailSeqRef = useRef(0)
 
   const load = useCallback(async (refresh = false) => {
     setLoading(true)
@@ -150,9 +155,14 @@ export function SkillsView(): React.ReactElement {
       setDetail(null)
       setDetailError(null)
       setDetailLoading(true)
+      const seq = ++detailSeqRef.current
       fetchSkillDetail(name)
-        .then(setDetail)
+        .then((d) => {
+          if (detailSeqRef.current !== seq) return // superseded by a newer expand
+          setDetail(d)
+        })
         .catch((err: Error) => {
+          if (detailSeqRef.current !== seq) return
           // 列表来自 60s TTL 缓存而详情每次现扫磁盘 —— 404 意味着这行是
           // 残影（技能已被删除）。自动刷新目录让残影消失，不甩原始错误。
           if (err.message.includes('404')) {
@@ -162,7 +172,9 @@ export function SkillsView(): React.ReactElement {
             setDetailError(t('加载失败：{msg}', { msg: err.message }))
           }
         })
-        .finally(() => setDetailLoading(false))
+        .finally(() => {
+          if (detailSeqRef.current === seq) setDetailLoading(false)
+        })
     },
     [expanded, load, t],
   )
@@ -214,8 +226,14 @@ export function SkillsView(): React.ReactElement {
         <span className="result-count">
           {t('{n} / {total} 个技能', { n: visible.length, total: skills.length })}
         </span>
-        <button type="button" className="btn btn-secondary btn-sm" onClick={() => void load(true)}>
-          <Icon name="refresh" style={{ width: 14, height: 14 }} />
+        <button
+          type="button"
+          className="btn btn-secondary btn-sm"
+          onClick={() => void load(true)}
+          disabled={loading}
+          title={t('强制重扫技能目录')}
+        >
+          <Icon name={loading ? 'loader' : 'refresh'} style={{ width: 14, height: 14 }} />
           {t('刷新')}
         </button>
       </div>
@@ -223,7 +241,7 @@ export function SkillsView(): React.ReactElement {
       {error ? (
         <div className="skills-error">
           {t('加载失败：{msg}', { msg: error })}
-          <button type="button" className="btn btn-ghost btn-sm" onClick={() => void load()}>
+          <button type="button" className="btn btn-ghost btn-sm" onClick={() => void load(true)}>
             {t('重试')}
           </button>
         </div>
@@ -236,17 +254,7 @@ export function SkillsView(): React.ReactElement {
           <div className="skills-empty skills-add-state">
             <div className="h">{t('添加自定义技能目录')}</div>
             <div className="d">
-              {t('输入本机目录路径，立即加载其中的技能包（')}
-              <code>&lt;名称&gt;/SKILL.md</code>
-              {t(' 或 ')}
-              <code>&lt;名称&gt;.md</code>
-              {t('，frontmatter 含 ')}
-              <code>name</code>
-              {t(' 与 ')}
-              <code>description</code>
-              {t('）。支持 ')}
-              <code>~/</code>
-              {t(' 展开，保存后无需重启。')}
+              {t('输入本机目录路径，立即加载其中的技能包（<名称>/SKILL.md 或 <名称>.md，frontmatter 含 name 与 description）。支持 ~/ 展开，保存后无需重启。')}
             </div>
             <AddDirInput onCatalog={applyCatalog} />
           </div>
@@ -254,9 +262,7 @@ export function SkillsView(): React.ReactElement {
           <div className="skills-empty">
             <div className="h">{skills.length === 0 ? t('没有发现技能') : t('没有匹配的技能')}</div>
             <div className="d">
-              {t('技能来自运行时目录（不落库）：在 ')}
-              <code>~/.agents/skills/&lt;name&gt;/SKILL.md</code>
-              {t(' 或 自定义目录放置 Agent Skills 标准格式的技能包后刷新。')}
+              {t('技能来自运行时目录（不落库）：在 ~/.agents/skills/<name>/SKILL.md 或自定义目录放置 Agent Skills 标准格式的技能包后刷新。')}
             </div>
             {sourceFilter === 'custom' && hasCustomRoots ? (
               <div className="d mono">
@@ -312,12 +318,24 @@ export function SkillsView(): React.ReactElement {
             {r.removable ? (
               <button
                 type="button"
-                className="skills-root-remove"
+                className={`skills-root-remove${confirmRemoveDir === r.dir ? ' danger' : ''}`}
                 aria-label={t('移除目录 {dir}', { dir: r.dir })}
-                title={r.removable ? t('从列表移除（不删除磁盘文件）') : undefined}
-                onClick={() => void removeRoot(r.dir)}
+                title={t('从列表移除（不删除磁盘文件）')}
+                onClick={() => {
+                  // Two-step confirm — removing edits a user-level config file.
+                  if (confirmRemoveDir !== r.dir) {
+                    setConfirmRemoveDir(r.dir)
+                    return
+                  }
+                  setConfirmRemoveDir(null)
+                  void removeRoot(r.dir)
+                }}
+                onBlur={() => {
+                  if (confirmRemoveDir === r.dir) setConfirmRemoveDir(null)
+                }}
               >
                 <Icon name="close" />
+                {confirmRemoveDir === r.dir ? <span style={{ fontSize: 10 }}>{t('确认？')}</span> : null}
               </button>
             ) : null}
           </div>

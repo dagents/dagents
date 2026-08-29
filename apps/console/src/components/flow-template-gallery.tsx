@@ -54,6 +54,7 @@ export function FlowTemplateGallery({
   const [tab, setTab] = useState<Tab>('builtin')
   const [templates, setTemplates] = useState<FlowTemplateSummary[]>([])
   const [teamTemplates, setTeamTemplates] = useState<TeamTemplateSummary[] | null>(null)
+  const [teamError, setTeamError] = useState<string | null>(null)
   const [loading, setLoading] = useState(false)
   const [error, setError] = useState<string | null>(null)
   const [confirmTpl, setConfirmTpl] = useState<FlowTemplateSummary | null>(null)
@@ -61,17 +62,26 @@ export function FlowTemplateGallery({
   const [paramAnswers, setParamAnswers] = useState<Record<string, string>>({})
   const [submitting, setSubmitting] = useState(false)
   const [deleting, setDeleting] = useState<string | null>(null)
+  // Two-step delete confirmation — the armed template id awaiting a second click.
+  const [confirmDeleteId, setConfirmDeleteId] = useState<string | null>(null)
 
   const load = useCallback(async () => {
     setLoading(true)
     setError(null)
+    setTeamError(null)
     try {
-      const [all, teams] = await Promise.all([
+      // Team templates fail INDEPENDENTLY — swallowing the error here used to
+      // dress a gateway failure up as "暂无虚拟团队场景".
+      const [all, teamsRes] = await Promise.all([
         fetchFlowTemplates(),
-        fetchTeamTemplates().catch(() => [] as TeamTemplateSummary[]),
+        fetchTeamTemplates().then(
+          (list) => ({ list, err: null as string | null }),
+          (err: unknown) => ({ list: [] as TeamTemplateSummary[], err: err instanceof Error ? err.message : String(err) }),
+        ),
       ])
       setTemplates(all)
-      setTeamTemplates(teams)
+      setTeamTemplates(teamsRes.list)
+      setTeamError(teamsRes.err)
     } catch (err) {
       setError(err instanceof Error ? err.message : String(err))
       setTemplates([])
@@ -96,6 +106,8 @@ export function FlowTemplateGallery({
     setConfirmTpl(null)
     setConfirmTeam(null)
     setError(null)
+    setTeamError(null)
+    setConfirmDeleteId(null)
   }, [open])
 
   useEffect(() => {
@@ -201,13 +213,24 @@ export function FlowTemplateGallery({
       {deletable && (
         <button
           type="button"
-          className="btn btn-ghost btn-sm ftpl-delete"
+          className={`btn btn-ghost btn-sm ftpl-delete${confirmDeleteId === tpl.id ? ' btn-danger' : ''}`}
           aria-label={t('删除模板 {name}', { name: tpl.name })}
-          onClick={() => void handleDelete(tpl)}
+          onClick={() => {
+            // Two-step confirm — first click arms, second click deletes.
+            if (confirmDeleteId !== tpl.id) {
+              setConfirmDeleteId(tpl.id)
+              return
+            }
+            setConfirmDeleteId(null)
+            void handleDelete(tpl)
+          }}
+          onBlur={() => {
+            if (confirmDeleteId === tpl.id) setConfirmDeleteId(null)
+          }}
           disabled={deleting === tpl.id}
         >
           <Icon name="close" style={{ width: 12, height: 12 }} />
-          {deleting === tpl.id ? t('删除中…') : t('删除')}
+          {deleting === tpl.id ? t('删除中…') : confirmDeleteId === tpl.id ? t('确认删除？') : t('删除')}
         </button>
       )}
     </div>
@@ -217,7 +240,11 @@ export function FlowTemplateGallery({
 
   return (
     <>
-      <div className="drawer-backdrop open" onClick={onClose} aria-hidden="true" />
+      <div
+        className="drawer-backdrop open"
+        onClick={submitting ? undefined : onClose}
+        aria-hidden="true"
+      />
       <div
         className="modal-dialog open alib-dialog ftpl-dialog"
         role="dialog"
@@ -356,7 +383,14 @@ export function FlowTemplateGallery({
                   </button>
                 </div>
               ) : tab === 'teams' ? (
-                (teamTemplates ?? []).length === 0 ? (
+                teamError ? (
+                  <div className="atg-error">
+                    <div>{t('加载团队场景失败：{error}', { error: teamError })}</div>
+                    <button type="button" className="btn btn-secondary btn-sm" onClick={() => void load()}>
+                      {t('重试')}
+                    </button>
+                  </div>
+                ) : (teamTemplates ?? []).length === 0 ? (
                   <div className="atg-empty">{t('暂无虚拟团队场景。')}</div>
                 ) : (
                   <div className="atg-grid alib-team-grid">
@@ -420,10 +454,7 @@ export function FlowTemplateGallery({
                 onClick={() =>
                   confirmTeam ? void handleTeamInstantiate() : void handleInstantiate()
                 }
-                disabled={
-                  submitting ||
-                  (!!confirmTeam && confirmTeam.members.some((m) => !m.available))
-                }
+                disabled={submitting}
               >
                 {submitting ? t('创建中…') : t('创建工作流')}
               </button>

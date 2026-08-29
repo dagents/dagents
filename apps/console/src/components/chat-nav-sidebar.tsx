@@ -22,7 +22,9 @@ import { Icon } from '@/components/icon'
 import { HoverCard } from '@/components/hover-card'
 import { NAV } from '@/components/nav'
 import { fetchDirectories, pickDirectory, createDirectory, updateDirectory, deleteDirectory, type Directory } from '@/lib/directories'
-import { fetchChats, createChat, updateChat, deleteChat, type Chat } from '@/lib/chats'
+import { fetchChats, createChat, updateChat, deleteChat, CHAT_STATUS_LABEL, type Chat } from '@/lib/chats'
+import { formatRelativeCompact } from '@/lib/format'
+import { useToast } from '@/components/toast'
 import { ThemeToggle } from '@/components/theme-toggle'
 import { LocaleToggle } from '@/components/locale-toggle'
 import { useI18n } from '@/i18n'
@@ -41,37 +43,26 @@ interface ChatNavSidebarProps {
  *  COLLAPSED_SESSION_LIMIT). */
 const CHAT_LIMIT = 5
 
-/** Render-time resolved labels — wrapped in t() at the call site so the
- *  sidebar re-renders in the active locale (constant map can't call hooks). */
-const CHAT_STATUS_KEYS: Record<string, string> = {
-  idle: '空闲',
-  running: '运行中',
-  done: '已完成',
-  failed: '失败',
-}
-
 function isActive(pathname: string, href: string): boolean {
   if (href === '/') return pathname === '/'
   return pathname === href || pathname.startsWith(href + '/')
 }
 
-/** Compact relative time (deepseek tree.ts relativeTime buckets) — single-
- *  char units fit the 32px row: 刚刚 / 5分 / 3时 / 2天 / 4月 / 1年.
- *  `t` comes from the caller's useI18n() so units localize (now / 5m / 3h…). */
-type TFn = (key: string, params?: Record<string, string | number>) => string
-function formatRelativeTime(dateStr: string, t: TFn): string {
-  const now = Date.now()
-  const then = new Date(dateStr).getTime()
-  const diff = Math.max(0, now - then)
-  const MIN = 60_000
-  const HOUR = 3_600_000
-  const DAY = 86_400_000
-  if (diff < MIN) return t('刚刚')
-  if (diff < HOUR) return t('{n}分', { n: Math.floor(diff / MIN) })
-  if (diff < DAY) return t('{n}时', { n: Math.floor(diff / HOUR) })
-  if (diff < 30 * DAY) return t('{n}天', { n: Math.floor(diff / DAY) })
-  if (diff < 365 * DAY) return t('{n}月', { n: Math.floor(diff / (30 * DAY)) })
-  return t('{n}年', { n: Math.floor(diff / (365 * DAY)) })
+/** Per-directory chat fetch shared by the mount effect and reloads. */
+async function fetchChatsByDirs(dirs: Directory[]): Promise<Record<string, Chat[]>> {
+  const entries = await Promise.all(
+    dirs.map(async (dir) => {
+      try {
+        const chats = await fetchChats(dir.id)
+        return [dir.id, chats] as const
+      } catch {
+        return [dir.id, [] as Chat[]] as const
+      }
+    }),
+  )
+  const map: Record<string, Chat[]> = {}
+  for (const [id, chats] of entries) map[id] = chats
+  return map
 }
 
 /**
@@ -79,12 +70,15 @@ function formatRelativeTime(dateStr: string, t: TFn): string {
  * 1. Strip HTML tags to block XSS payloads rendered as plain text
  * 2. Collapse excessive whitespace
  * 3. Hard-cap length to avoid layout breakage (CSS ellipsis handles the rest visually)
+ *
+ * Returns '' for an unusable title — the RENDERER supplies the localized
+ * 「新对话」 fallback (a module-level function can't call t()).
  */
 function sanitizeChatTitle(raw: string, max = 80): string {
-  if (!raw) return '新对话'
+  if (!raw) return ''
   const stripped = raw.replace(/<[^>]*>/g, '').replace(/&[a-z]+;/gi, ' ')
   const collapsed = stripped.replace(/\s+/g, ' ').trim()
-  if (collapsed.length === 0) return '新对话'
+  if (collapsed.length === 0) return ''
   return collapsed.length > max ? collapsed.slice(0, max) + '…' : collapsed
 }
 
@@ -92,6 +86,12 @@ export function ChatNavSidebar({ collapsed, onToggle }: ChatNavSidebarProps): Re
   const pathname = usePathname() ?? '/'
   const router = useRouter()
   const { t } = useI18n()
+  const toast = useToast()
+  // Localized display title (sanitize + fallback) — one helper for every row.
+  const displayTitle = useCallback(
+    (raw: string, max?: number) => sanitizeChatTitle(raw, max) || t('新对话'),
+    [t],
+  )
   const [directories, setDirectories] = useState<Directory[]>([])
   const [chatsByDir, setChatsByDir] = useState<Record<string, Chat[]>>({})
   const [expandedDirs, setExpandedDirs] = useState<Set<string>>(new Set())
@@ -139,30 +139,18 @@ export function ChatNavSidebar({ collapsed, onToggle }: ChatNavSidebarProps): Re
           setExpandedDirs(new Set([dirs[0]!.id]))
         }
       } catch {
-        // silent — sidebar shows empty state
+        toast.error(t('项目目录加载失败'))
       } finally {
         if (!cancelled) setLoading(false)
       }
     })()
     return () => { cancelled = true }
-  }, [])
+  }, [t, toast])
 
   // Fetch chats for all directories (lightweight — directories are few)
   const refreshChats = useCallback(async (): Promise<void> => {
     if (directories.length === 0) return
-    const entries = await Promise.all(
-      directories.map(async (dir) => {
-        try {
-          const chats = await fetchChats(dir.id)
-          return [dir.id, chats] as const
-        } catch {
-          return [dir.id, [] as Chat[]] as const
-        }
-      }),
-    )
-    const map: Record<string, Chat[]> = {}
-    for (const [id, chats] of entries) map[id] = chats
-    setChatsByDir(map)
+    setChatsByDir(await fetchChatsByDirs(directories))
   }, [directories])
 
   useEffect(() => {
@@ -219,28 +207,17 @@ export function ChatNavSidebar({ collapsed, onToggle }: ChatNavSidebarProps): Re
   }, [])
 
   // Reload directories after an inline action (add dir / new chat) so the
-  // sidebar reflects the new state without a full page refresh.
+  // sidebar reflects the new state without a full page refresh. Shares the
+  // per-dir chat fetch with refreshChats (was a verbatim duplicate).
   const reloadDirectories = useCallback(async () => {
     try {
       const dirs = await fetchDirectories()
       setDirectories(dirs)
-      const entries = await Promise.all(
-        dirs.map(async (dir) => {
-          try {
-            const chats = await fetchChats(dir.id)
-            return [dir.id, chats] as const
-          } catch {
-            return [dir.id, [] as Chat[]] as const
-          }
-        }),
-      )
-      const map: Record<string, Chat[]> = {}
-      for (const [id, chats] of entries) map[id] = chats
-      setChatsByDir(map)
+      setChatsByDir(await fetchChatsByDirs(dirs))
     } catch {
-      // silent — sidebar keeps stale data
+      toast.error(t('项目目录刷新失败'))
     }
-  }, [])
+  }, [toast, t])
 
   const handleNewChat = useCallback(() => {
     router.push('/')
@@ -250,6 +227,8 @@ export function ChatNavSidebar({ collapsed, onToggle }: ChatNavSidebarProps): Re
   const [renamingId, setRenamingId] = useState<string | null>(null)
   const [renameValue, setRenameValue] = useState('')
   const [deletingId, setDeletingId] = useState<string | null>(null)
+  // In-flight DELETE guard — the inline confirm buttons must not double-fire.
+  const [deletingChatPending, setDeletingChatPending] = useState(false)
   // IME guard for the inline rename's Enter (deepseek rename composingRef).
   const renameComposingRef = useRef(false)
 
@@ -275,12 +254,14 @@ export function ChatNavSidebar({ collapsed, onToggle }: ChatNavSidebarProps): Re
         return next
       })
     } catch {
-      // silent — keeps old title
+      toast.error(t('重命名失败'))
     }
     setRenamingId(null)
-  }, [renameValue])
+  }, [renameValue, toast, t])
 
   const confirmDelete = useCallback(async (chatId: string) => {
+    if (deletingChatPending) return
+    setDeletingChatPending(true)
     try {
       await deleteChat(chatId)
       setChatsByDir((prev) => {
@@ -295,10 +276,11 @@ export function ChatNavSidebar({ collapsed, onToggle }: ChatNavSidebarProps): Re
         router.push('/')
       }
     } catch {
-      // silent — chat stays in list
+      toast.error(t('删除对话失败'))
     }
+    setDeletingChatPending(false)
     setDeletingId(null)
-  }, [activeChatId, router])
+  }, [activeChatId, router, toast, t, deletingChatPending])
 
   // Create a fresh chat bound to a specific directory and navigate into it.
   // Used by the ➕ icon on each directory header. The directory auto-expands
@@ -318,12 +300,12 @@ export function ChatNavSidebar({ collapsed, onToggle }: ChatNavSidebarProps): Re
         setExpandedDirs((prev) => new Set(prev).add(dirId))
         router.push(`/chats/${chat.id}`)
       } catch {
-        // silent — the user can retry from the home composer
+        toast.error(t('新建对话失败'))
       } finally {
         setCreatingInDir(null)
       }
     },
-    [creatingInDir, router],
+    [creatingInDir, router, t, toast],
   )
 
   // ─── directory-level menu: rename (inline) / delete (confirm modal) ───
@@ -343,12 +325,19 @@ export function ChatNavSidebar({ collapsed, onToggle }: ChatNavSidebarProps): Re
     })
   }, [])
 
-  // Click-away closes the menu (deepseek Menu closeOnPointerLeave analogue).
+  // Click-away AND Escape close the menu (keyboard parity with the mouse).
   useEffect(() => {
     if (!dirMenu) return
     const close = () => setDirMenu(null)
+    const onKey = (e: KeyboardEvent) => {
+      if (e.key === 'Escape') close()
+    }
     window.addEventListener('click', close)
-    return () => window.removeEventListener('click', close)
+    window.addEventListener('keydown', onKey)
+    return () => {
+      window.removeEventListener('click', close)
+      window.removeEventListener('keydown', onKey)
+    }
   }, [dirMenu])
 
   const startRenameDir = useCallback((dir: Directory) => {
@@ -366,10 +355,10 @@ export function ChatNavSidebar({ collapsed, onToggle }: ChatNavSidebarProps): Re
       const updated = await updateDirectory(dirId, { name })
       setDirectories((prev) => prev.map((d) => (d.id === dirId ? { ...d, name: updated.name } : d)))
     } catch {
-      // silent — keeps old name
+      toast.error(t('重命名目录失败'))
     }
     setRenamingDirId(null)
-  }, [renameDirValue])
+  }, [renameDirValue, toast, t])
 
   const confirmDeleteDir = useCallback(async (dir: Directory) => {
     setDeletingDirPending(true)
@@ -386,13 +375,13 @@ export function ChatNavSidebar({ collapsed, onToggle }: ChatNavSidebarProps): Re
       const hadActive = (chatsByDir[dir.id] ?? []).some((c) => c.id === activeChatId)
       if (hadActive) router.push('/')
     } catch {
-      // silent — directory stays; the modal stays open for a retry
+      toast.error(t('删除目录失败'))
       setDeletingDirPending(false)
       return
     }
     setDeletingDirPending(false)
     setDeletingDir(null)
-  }, [activeChatId, chatsByDir, router])
+  }, [activeChatId, chatsByDir, router, toast, t])
 
   // Inline add-directory flow — same as ChatHome's, but lives in the sidebar
   // so the user can add a directory from anywhere without going to /directories.
@@ -406,11 +395,11 @@ export function ChatNavSidebar({ collapsed, onToggle }: ChatNavSidebarProps): Re
       await createDirectory({ path })
       await reloadDirectories()
     } catch {
-      // silent — keeps sidebar stable
+      toast.error(t('添加项目目录失败'))
     } finally {
       setAddingDir(false)
     }
-  }, [addingDir, reloadDirectories])
+  }, [addingDir, reloadDirectories, toast, t])
 
   return (
     <div
@@ -593,7 +582,7 @@ export function ChatNavSidebar({ collapsed, onToggle }: ChatNavSidebarProps): Re
             }}
           />
         ) : (
-        <div className="chat-nav-history" role="tree">
+        <div className="chat-nav-history" role="list" aria-label={t('对话列表')}>
         {loading ? (
           <div className="chat-nav-history-status" role="status">{t('加载中…')}</div>
         ) : directories.length === 0 ? (
@@ -602,9 +591,9 @@ export function ChatNavSidebar({ collapsed, onToggle }: ChatNavSidebarProps): Re
           </div>
         ) : (
           directories.map((dir) => {
-            const chats = (chatsByDir[dir.id] ?? []).filter((chat) =>
-              chat.title.toLowerCase().includes(search.toLowerCase()),
-            )
+            // This branch renders only when the search capsule is collapsed
+            // (the dropdown owns results while typing) — no title filter here.
+            const chats = chatsByDir[dir.id] ?? []
             const expanded = expandedDirs.has(dir.id)
             const isCreating = creatingInDir === dir.id
             const showAll = fullDirs.has(dir.id)
@@ -640,7 +629,6 @@ export function ChatNavSidebar({ collapsed, onToggle }: ChatNavSidebarProps): Re
                       onClick={() => toggleDir(dir.id)}
                       title={dir.path || dir.name}
                       aria-expanded={expanded}
-                      role="treeitem"
                     >
                       {/* Hover swap (deepseek ProjectRow): folder icon ↔
                           chevron, pure CSS. Chevron rotates open. */}
@@ -701,8 +689,8 @@ export function ChatNavSidebar({ collapsed, onToggle }: ChatNavSidebarProps): Re
                         disabled={renamingId === chat.id || deletingId === chat.id}
                         content={
                           <ChatHoverContent
-                            title={sanitizeChatTitle(chat.title, 120)}
-                            time={formatRelativeTime(chat.updatedAt, t)}
+                            title={displayTitle(chat.title, 120)}
+                            time={formatRelativeCompact(chat.updatedAt, t)}
                             dirName={dir.name}
                             dirPath={dir.path}
                             status={chat.status}
@@ -735,8 +723,8 @@ export function ChatNavSidebar({ collapsed, onToggle }: ChatNavSidebarProps): Re
                           // Delete confirmation
                           <div className="chat-nav-chat-delete-confirm">
                             <span>{t('删除此对话？')}</span>
-                            <button type="button" className="btn btn-danger btn-sm" onClick={() => void confirmDelete(chat.id)}>{t('删除')}</button>
-                            <button type="button" className="btn btn-ghost btn-sm" onClick={() => setDeletingId(null)}>{t('取消')}</button>
+                            <button type="button" className="btn btn-danger btn-sm" onClick={() => void confirmDelete(chat.id)} disabled={deletingChatPending}>{deletingChatPending ? t('删除中…') : t('删除')}</button>
+                            <button type="button" className="btn btn-ghost btn-sm" onClick={() => setDeletingId(null)} disabled={deletingChatPending}>{t('取消')}</button>
                           </div>
                         ) : (
                           <>
@@ -744,22 +732,25 @@ export function ChatNavSidebar({ collapsed, onToggle }: ChatNavSidebarProps): Re
                               href={`/chats/${chat.id}`}
                               className="chat-nav-chat-item"
                               aria-selected={activeChatId === chat.id}
-                              role="treeitem"
-                              title={sanitizeChatTitle(chat.title, 200)}
+                              aria-current={activeChatId === chat.id ? 'page' : undefined}
+                              title={displayTitle(chat.title, 200)}
                             >
                               {/* Status-dot slot — 16px, aligns titles under
                                   the group name (deepseek .slot). */}
-                              <span className={`chat-nav-chat-status ${chat.status}`} />
-                              <span className="chat-nav-chat-item-title">{sanitizeChatTitle(chat.title)}</span>
+                              <span
+                                className={`chat-nav-chat-status ${chat.status}`}
+                                title={t(CHAT_STATUS_LABEL[chat.status as keyof typeof CHAT_STATUS_LABEL] ?? chat.status)}
+                              />
+                              <span className="chat-nav-chat-item-title">{displayTitle(chat.title)}</span>
                               {/* Time yields its seat to the hover actions
                                   (deepseek .time swap). */}
-                              <span className="chat-nav-chat-item-time">{formatRelativeTime(chat.updatedAt, t)}</span>
+                              <span className="chat-nav-chat-item-time">{formatRelativeCompact(chat.updatedAt, t)}</span>
                               <span className="chat-nav-chat-actions">
                                 <button
                                   type="button"
                                   className="chat-nav-chat-action-btn"
                                   title={t('重命名')}
-                                  aria-label={t('重命名 {name}', { name: sanitizeChatTitle(chat.title, 20) })}
+                                  aria-label={t('重命名 {name}', { name: displayTitle(chat.title, 20) })}
                                   onClick={(e) => { e.preventDefault(); e.stopPropagation(); startRename(chat) }}
                                 >
                                   <Icon name="pencil" style={{ width: 12, height: 12 }} />
@@ -768,7 +759,7 @@ export function ChatNavSidebar({ collapsed, onToggle }: ChatNavSidebarProps): Re
                                   type="button"
                                   className="chat-nav-chat-action-btn chat-nav-chat-action-danger"
                                   title={t('删除')}
-                                  aria-label={t('删除 {name}', { name: sanitizeChatTitle(chat.title, 20) })}
+                                  aria-label={t('删除 {name}', { name: displayTitle(chat.title, 20) })}
                                   onClick={(e) => { e.preventDefault(); e.stopPropagation(); setDeletingId(chat.id) }}
                                 >
                                   <Icon name="close" style={{ width: 12, height: 12 }} />
@@ -854,7 +845,13 @@ export function ChatNavSidebar({ collapsed, onToggle }: ChatNavSidebarProps): Re
           modal open until the deletion settles. */}
       {deletingDir && typeof document !== 'undefined'
         ? createPortal(
-            <div className="chat-nav-confirm-overlay" onClick={() => { if (!deletingDirPending) setDeletingDir(null) }}>
+            <div
+              className="chat-nav-confirm-overlay"
+              onClick={() => { if (!deletingDirPending) setDeletingDir(null) }}
+              onKeyDown={(e) => {
+                if (e.key === 'Escape' && !deletingDirPending) setDeletingDir(null)
+              }}
+            >
               <div
                 className="chat-nav-confirm"
                 role="alertdialog"
@@ -870,6 +867,14 @@ export function ChatNavSidebar({ collapsed, onToggle }: ChatNavSidebarProps): Re
                   <button
                     type="button"
                     className="btn btn-ghost btn-sm"
+                    ref={(el) => {
+                      // Initial focus lands on the SAFE action so a keyboard
+                      // user can't Enter-through into the destructive one.
+                      if (el && !el.dataset.focused) {
+                        el.dataset.focused = '1'
+                        el.focus()
+                      }
+                    }}
                     disabled={deletingDirPending}
                     onClick={() => setDeletingDir(null)}
                   >
@@ -946,7 +951,7 @@ function ChatHoverContent({
       {dirPath ? <div className="hover-card-path">{dirPath}</div> : null}
       <div className={`hover-card-status ${status}`}>
         <span className="dot" aria-hidden="true" />
-        {t(CHAT_STATUS_KEYS[status] ?? status)}
+        {t(CHAT_STATUS_LABEL[status as keyof typeof CHAT_STATUS_LABEL] ?? status)}
       </div>
       <button
         type="button"

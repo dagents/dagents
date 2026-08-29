@@ -1,0 +1,151 @@
+/**
+ * AppNavSidebar —— Workflow-First 主导航样式（PRD F2）。
+ *
+ * 复用 chat-layout.css 的 chat-nav-sidebar 骨架与 token；这里只定义
+ * 导航项 / 最近对话折叠区的增量。双主题经 CSS 变量自动生效。
+ */
+
+.app-nav-section {
+  display: flex;
+  flex-direction: column;
+  gap: 2px;
+  padding: 6px 8px;
+}
+
+.app-nav-item {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  padding: 7px 10px;
+  border-radius: 8px;
+  color: var(--text-2, var(--text));
+  text-decoration: none;
+  font-size: 13px;
+  font-weight: 500;
+  transition: background 0.15s ease, color 0.15s ease;
+}
+
+.app-nav-item:hover {
+  background: var(--bg-2, var(--surface-hover, rgba(0, 0, 0, 0.05)));
+  color: var(--text);
+}
+
+.app-nav-item.active {
+  background: var(--accent-soft, rgba(99, 102, 241, 0.12));
+  color: var(--accent, #6366f1);
+}
+
+.app-nav-item-label {
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+
+/* 折叠态：只显示图标，居中 */
+.chat-layout-sidebar.collapsed .app-nav-section {
+  padding: 6px 6px;
+}
+
+.chat-layout-sidebar.collapsed .app-nav-item {
+  justify-content: center;
+  padding: 8px 0;
+}
+
+/* ── 最近对话折叠区 ── */
+.app-nav-recent {
+  margin-top: auto;
+  padding: 4px 8px 6px;
+  border-top: 1px solid var(--border, rgba(0, 0, 0, 0.08));
+  /* 弹性填充 + 内滚：展开多行时收缩自身而不是把页脚挤出可视区 */
+  flex: 1 1 auto;
+  min-height: 0;
+  overflow: hidden;
+  display: flex;
+  flex-direction: column;
+}
+
+.app-nav-recent-toggle {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  width: 100%;
+  padding: 6px 10px;
+  border: 0;
+  border-radius: 8px;
+  background: transparent;
+  color: var(--text-2, var(--text));
+  font-size: 12px;
+  cursor: pointer;
+}
+
+.app-nav-recent-toggle:hover {
+  background: var(--bg-2, var(--surface-hover, rgba(0, 0, 0, 0.05)));
+  color: var(--text);
+}
+
+.app-nav-chev {
+  margin-left: auto;
+  transition: transform 0.15s ease;
+}
+
+.app-nav-chev.open {
+  transform: rotate(90deg);
+}
+
+/* flex 列容器里限高 + 内滚 —— 展开多行时页脚（设置/主题）不被推出视口 */
+.app-nav-recent {
+  flex-shrink: 0;
+}
+
+.app-nav-recent-list {
+  display: flex;
+  flex-direction: column;
+  gap: 1px;
+  padding: 2px 0 4px;
+  flex: 1 1 auto;
+  min-height: 0;
+  overflow-y: auto;
+}
+
+.app-nav-recent-item {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  padding: 5px 10px;
+  border-radius: 7px;
+  color: var(--text-2, var(--text));
+  text-decoration: none;
+  font-size: 12px;
+}
+
+.app-nav-recent-item:hover {
+  background: var(--bg-2, var(--surface-hover, rgba(0, 0, 0, 0.05)));
+  color: var(--text);
+}
+
+.app-nav-recent-title {
+  flex: 1;
+  min-width: 0;
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+
+.app-nav-recent-status {
+  font-size: 10px;
+  opacity: 0.7;
+  white-space: nowrap;
+}
+
+.app-nav-recent-empty {
+  padding: 6px 10px;
+  font-size: 11px;
+  opacity: 0.55;
+}
+
+/* 暗色主题微调（黄警条教训：新组件默认双主题校验） */
+[data-theme='dark'] .app-nav-item:hover,
+[data-theme='dark'] .app-nav-recent-toggle:hover,
+[data-theme='dark'] .app-nav-recent-item:hover {
+  background: rgba(255, 255, 255, 0.06);
+}

@@ -28,18 +28,10 @@ import ReactFlow, {
 } from 'reactflow'
 import 'reactflow/dist/style.css'
 import type { FlowDetailView, FlowNodeView, NodeRunStatus } from '@/lib/flows'
+import { NODE_STATUS_CN as STATUS_CN } from '@/lib/flows'
 import { DagNode, type DagNodeData } from './dag-node'
 
 const NODE_TYPES = { dag: DagNode }
-
-const STATUS_CN: Record<NodeRunStatus, string> = {
-  running: '运行',
-  done: '完成',
-  failed: '失败',
-  queued: '排队',
-  paused: '人工暂停',
-  idle: '未触发',
-}
 
 /** True for statuses that indicate data has flowed along an edge. */
 function isFlowing(s: NodeRunStatus): boolean {

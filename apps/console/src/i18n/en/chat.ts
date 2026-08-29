@@ -167,4 +167,28 @@ export const chat: Record<string, string> = {
   '在画布中查看': 'View on canvas',
   '疑似权限受限': 'Possible permission refusal',
   'Agent': 'Agent',
+
+  // ── 2026-08-26 全站 UX 优化新增词条 ──
+  '输入消息，@ 呼出命令': 'Type a message, @ for commands',
+  '🚀 第一个 Agent 回复已收到！': '🚀 First agent reply received!',
+  '项目目录加载失败': 'Failed to load project directories',
+  '项目目录刷新失败': 'Failed to refresh project directories',
+  '添加项目目录失败': 'Failed to add project directory',
+  '重命名失败': 'Rename failed',
+  '删除对话失败': 'Failed to delete chat',
+  '新建对话失败': 'Failed to create chat',
+  '重命名目录失败': 'Failed to rename directory',
+  '删除目录失败': 'Failed to delete directory',
+  'Agent 绑定更新失败': 'Failed to update agent binding',
+  'Flow 绑定更新失败': 'Failed to update flow binding',
+  '取消请求发送失败，任务可能仍在后台执行': 'Cancel request failed — the task may still be running in the background',
+  '查看 Agent「{name}」的运行状态': 'Check agent “{name}” status',
+  '关闭错误提示': 'Dismiss error',
+  '对话列表': 'Chat list',
+
+'在详情页打开': 'Open in detail page',
+'历史对话': 'Chat history',
+'搜索会话…': 'Search chats…',
+'没有匹配的会话': 'No matching chats',
+'选择目录与 Agent，发送消息即可触发任务；@workflow 可一句话生成流程': 'Pick a directory and agent, then send; @workflow generates a flow in one sentence',
 }

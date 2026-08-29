@@ -8,7 +8,13 @@ import { useI18n } from '@/i18n'
 import '@/styles/chat-composer.css'
 
 interface ChatComposerProps {
-  onSend: (text: string) => void
+  /**
+   * Send the text. Return `false` (sync or via Promise) to REJECT the send —
+   * the composer then keeps the input so nothing is silently lost (e.g. the
+   * parent is mid-stream, directory missing, request failed). Anything else
+   * (void / true) clears the input as before.
+   */
+  onSend: (text: string) => boolean | void | Promise<boolean | void>
   /** When true the send button is replaced by a stop button that calls onStop. */
   onStop?: () => void
   /** True while a request is in-flight; swaps send → stop when onStop is set. */
@@ -118,10 +124,19 @@ export function ChatComposer({
     })
   }, [input])
 
-  const handleSend = useCallback(() => {
+  const handleSend = useCallback(async () => {
     const trimmed = input.trim()
     if (!trimmed || disabled) return
-    onSend(trimmed)
+    // Sync handlers (void / false) clear the field immediately — an async
+    // handler (Promise) clears only once it resolves with !== false, so a
+    // rejected send keeps the draft.
+    const result = onSend(trimmed)
+    if (result && typeof (result as Promise<unknown>).then === 'function') {
+      const accepted = await result
+      if (accepted === false) return // parent rejected — keep the draft
+    } else if (result === false) {
+      return
+    }
     setInput('')
     setShowCmdMenu(false)
     requestAnimationFrame(() => {
@@ -219,7 +234,7 @@ export function ChatComposer({
               </button>
             ))}
             <div className="cmd-menu-footer">
-              <kbd>↑↓</kbd> 选择 · <kbd>Tab</kbd> 确认 · <kbd>Esc</kbd> 关闭
+              <kbd>↑↓</kbd> {t('选择')} · <kbd>Tab</kbd> {t('确认')} · <kbd>Esc</kbd> {t('关闭')}
             </div>
           </div>
         )}
@@ -233,7 +248,7 @@ export function ChatComposer({
               checkCmdTrigger(e.target.value, e.target.selectionStart ?? e.target.value.length)
             }}
             onKeyDown={handleKeyDown}
-            placeholder={placeholder}
+            placeholder={placeholder ?? t('输入消息，@ 呼出命令')}
             className="chat-composer-textarea"
             rows={1}
             disabled={disabled}

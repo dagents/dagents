@@ -22,7 +22,11 @@ export default async function CanvasWorkflowPage({
     edges: [],
     viewport: { x: 0, y: 0, zoom: 1 },
   }
-  let flowName = 'Untitled'
+  let flowName = '未命名 Flow'
+  // Fetch failure previously rendered an EMPTY editable canvas named
+  // "Untitled" — indistinguishable from a brand-new flow, and saving it
+  // would blank the real one. Now it's an explicit error state.
+  let flowError: string | null = null
 
   try {
     const res = await fetch(`${gatewayUrl()}/api/v1/workflows/${id}`, {
@@ -43,21 +47,40 @@ export default async function CanvasWorkflowPage({
         if (flow?.name) {
           flowName = flow.name
         }
+      } else {
+        flowError = `HTTP ${res.status}`
       }
+    } else if (res.status === 404) {
+      flowError = 'not-found'
+    } else {
+      flowError = `HTTP ${res.status}`
     }
   } catch (error) {
     console.error('获取工作流数据失败:', error)
+    flowError = error instanceof Error ? error.message : String(error)
   }
 
   return (
     <PageShell fullBleed>
-      {/* CanvasTopBar：流程名 + 另存为模板（不侵入 vendor 画布） */}
-      <div className="ftpl-canvas-column">
-        <CanvasTopBar flowId={id} flowName={flowName} />
-        <div className="ftpl-canvas-body">
-          <FlowiseCanvasLoader flowId={id} flowName={flowName} initialFlow={flowData} watchRunId={watchRunId} />
+      {flowError ? (
+        <div className="not-found" style={{ gridColumn: '1 / -1' }}>
+          <div className="h">{flowError === 'not-found' ? '找不到这个 Flow' : '工作流加载失败'}</div>
+          <div className="d">
+            {flowError === 'not-found'
+              ? `id “${id}” 不存在，可能已被删除。`
+              : `加载失败：${flowError}。请刷新重试。`}
+          </div>
+          <a className="btn btn-secondary btn-sm" href="/flows">返回 Flow 列表</a>
         </div>
-      </div>
+      ) : (
+        <div className="ftpl-canvas-column">
+          {/* CanvasTopBar：流程名 + 另存为模板（不侵入 vendor 画布） */}
+          <CanvasTopBar flowId={id} flowName={flowName} />
+          <div className="ftpl-canvas-body">
+            <FlowiseCanvasLoader flowId={id} flowName={flowName} initialFlow={flowData} watchRunId={watchRunId} />
+          </div>
+        </div>
+      )}
     </PageShell>
   )
 }

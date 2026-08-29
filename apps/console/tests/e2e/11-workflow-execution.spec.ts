@@ -454,7 +454,27 @@ test.describe('工作流执行契约（Tier A：WF / OB）', () => {
     expect(res.status()).toBe(200)
 
     // mock 每次调用回报 usage {10,5,15}；PlatformAgent 单次调用 → span.tokens
-    // 落该值（runs 表无 token 列，span 层是 token 事实的载体）
+    // 落该值（runs 表无 token 列，span 层是 token 事实的载体）。
+    // 增量 span 落库是 fire-and-forget（不阻塞执行波），sync run 返回时行
+    // 可能尚未可见 —— 轮询等待而不是单次查询（此前 ~1/3 概率闪失败）。
+    const bothTokensReady = async (): Promise<boolean> => {
+      const { records: spans } = await ctx.db.runQuery<{ node_id: string; tokens: unknown }>(
+        `SELECT node_id, tokens FROM run_node_spans WHERE run_id = $1`,
+        [runId],
+      )
+      return ['a', 'b'].every((id) => {
+        const tokens = spans.find((s) => s.node_id === id)?.tokens as {
+          total_tokens?: number
+        } | null
+        return tokens?.total_tokens === 15
+      })
+    }
+    const deadline = Date.now() + 5_000
+    while (!(await bothTokensReady())) {
+      if (Date.now() > deadline) break
+      await new Promise((r) => setTimeout(r, 200))
+    }
+
     const { records: spans } = await ctx.db.runQuery<{ node_id: string; tokens: unknown }>(
       `SELECT node_id, tokens FROM run_node_spans WHERE run_id = $1`,
       [runId],
@@ -494,5 +514,128 @@ test.describe('工作流执行契约（Tier A：WF / OB）', () => {
     )
     expect(deleted[0]?.action).toBe('workflow.delete')
     // 注：run 路由不写 audit（审计只覆盖 CRUD 变更），与 docs/workflow-engine.md 一致
+  })
+
+  // ── WF-09 ~ WF-11：多上游合并 + 空产出守卫 ────────────────────────────────
+  // 2026-08-27 真实复跑「产品发现（并行）」暴露：mergeInputs 把 N 份上游拼进
+  // content，而 LLM 节点只读被 Object.assign 覆盖的 text（只剩最后一条），
+  // 汇总节点丢 3/4 简报；且空产出被标记 done。mock 单链路测不出——
+  // 必须 N 进 1 拓扑 + 断言 sink 的 prompt 含全部上游。
+
+  test('WF-09: 菱形合并 —— N 进 1 LLM 节点收到全部上游产出', async ({ request }) => {
+    await setMockLlmScript({
+      rules: [
+        { match: { systemContains: 'MERGE-A' }, respond: { text: 'WF07-BRIEF-A' } },
+        { match: { systemContains: 'MERGE-B' }, respond: { text: 'WF07-BRIEF-B' } },
+        { match: { systemContains: 'MERGE-SINK' }, respond: { text: 'WF07-MERGED' } },
+      ],
+    })
+    const flowId = await seedFlow(ctx, request, {
+      name: 'e2e-wf07-merge',
+      flowData: flow(
+        [
+          startNode('start', { input: 'merge-go' }),
+          llmNode('branchA', { systemPrompt: 'You are MERGE-A.', prompt: 'draft a' }),
+          llmNode('branchB', { systemPrompt: 'You are MERGE-B.', prompt: 'draft b' }),
+          llmNode('sink', { systemPrompt: 'You are MERGE-SINK.', prompt: 'integrate' }),
+          directReplyNode('reply', { text: 'WF07-FINAL' }),
+        ],
+        [
+          edge('start', 'branchA'),
+          edge('start', 'branchB'),
+          edge('branchA', 'sink'),
+          edge('branchB', 'sink'),
+          edge('sink', 'reply'),
+        ],
+      ),
+    })
+
+    const res = await request.post(`/api/workflows/${flowId}/run`, { data: {} })
+    expect(res.status()).toBe(200)
+    const runId = res.headers()['x-run-id'] as string
+    ctx.runIds.push(runId)
+
+    // 回归本体：sink 节点的 span input.prompt 必须同时含两份上游简报
+    const spansRes = await request.get(`/api/workflows/runs/${runId}/node-spans`)
+    const spans = ((await spansRes.json()).data?.spans ?? []) as Array<{
+      nodeId: string
+      status: string
+      input: unknown
+    }>
+    const sink = spans.find((s) => s.nodeId === 'sink')
+    expect(sink?.status).toBe('done')
+    const sinkPrompt = JSON.stringify(sink?.input ?? {})
+    expect(sinkPrompt).toContain('WF07-BRIEF-A')
+    expect(sinkPrompt).toContain('WF07-BRIEF-B')
+
+    // 双保险：mock 侧 sink 调用的 user 消息同样两份齐全
+    const calls = await mockLlmCalls()
+    const sinkCall = [...calls]
+      .reverse()
+      .find((c) => JSON.stringify(c).includes('MERGE-SINK'))
+    const sinkUser = JSON.stringify(sinkCall ?? {})
+    expect(sinkUser).toContain('WF07-BRIEF-A')
+    expect(sinkUser).toContain('WF07-BRIEF-B')
+  })
+
+  test('WF-10: LLM 空产出 —— 节点诚实失败而非空成功', async ({ request }) => {
+    await setMockLlmScript({ fallback: { text: '' } })
+    const flowId = await seedFlow(ctx, request, {
+      name: 'e2e-wf08-empty',
+      flowData: flow(
+        [
+          startNode('start', { input: 'go' }),
+          llmNode('llm1', { systemPrompt: 'You are WF-08.', prompt: 'say something' }),
+        ],
+        [edge('start', 'llm1')],
+      ),
+    })
+
+    const res = await request.post(`/api/workflows/${flowId}/run`, { data: {} })
+    ctx.runIds.push(res.headers()['x-run-id'] as string)
+    // 引擎失败 → 500 + error 指明原因（修复前：200 且 content 为空的假成功）
+    expect(res.status()).toBe(500)
+    const body = await res.json()
+    expect(body.success).toBe(false)
+    expect(String(body.error)).toContain('返回空内容')
+
+    const runId = ctx.runIds[ctx.runIds.length - 1]
+    const spansRes = await request.get(`/api/workflows/runs/${runId}/node-spans`)
+    const spans = ((await spansRes.json()).data?.spans ?? []) as Array<{
+      nodeId: string
+      status: string
+      error: string | null
+    }>
+    const bad = spans.find((s) => s.nodeId === 'llm1')
+    expect(bad?.status).toBe('failed')
+    expect(bad?.error ?? '').toContain('返回空内容')
+  })
+
+  test('WF-11: PlatformAgent 空产出 —— 同款诚实失败', async ({ request }) => {
+    // 与 WF-08 同契约但走 Agent 路径：mock 返回空正文 → 节点失败（此前
+    // 真实复跑中 Agent 0 字正文仍标 done 的假成功）。
+    await setMockLlmScript({ fallback: { text: '' } })
+    const agentId = await seedPlatformAgent(ctx, { name: 'wf09-empty', instructions: 'WF09-BASE' })
+    const flowId = await seedFlow(ctx, request, {
+      name: 'e2e-wf09-empty-agent',
+      flowData: linearFlow([platformAgentNode('agent1', { agentId })]),
+    })
+
+    const res = await request.post(`/api/workflows/${flowId}/run`, { data: { input: 'go' } })
+    ctx.runIds.push(res.headers()['x-run-id'] as string)
+    expect(res.status()).toBe(500)
+    const body = await res.json()
+    expect(String(body.error)).toContain('返回空内容')
+
+    const runId = ctx.runIds[ctx.runIds.length - 1]
+    const spansRes = await request.get(`/api/workflows/runs/${runId}/node-spans`)
+    const spans = ((await spansRes.json()).data?.spans ?? []) as Array<{
+      nodeId: string
+      status: string
+      error: string | null
+    }>
+    const bad = spans.find((s) => s.nodeId === 'agent1')
+    expect(bad?.status).toBe('failed')
+    expect(bad?.error ?? '').toContain('返回空内容')
   })
 })

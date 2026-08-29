@@ -151,4 +151,38 @@ export const common = {
   '加载历史消息…': 'Loading history…',
   'Agent 执行中…': 'Agent running…',
   '发送消息给 Agent…': 'Message the agent…',
+
+  // ── 2026-08-26 全站 UX 优化新增词条 ──
+  '确认': 'Confirm',
+  '页面不存在或已被移动。': 'This page does not exist or has been moved.',
+  '返回上一页': 'Go back',
+  '查看 Daemon': 'View Daemons',
+
+
+// ── Workflow-First IA（PRD docs/prd-workflow-first.md，2026-08-29）──
+'工作流': 'Workflows',
+'模板': 'Templates',
+'运行历史': 'Run history',
+'主导航': 'Main navigation',
+'最近对话': 'Recent chats',
+'暂无最近对话': 'No recent chats',
+'把你的 Agent 团队编成一条流程': 'Turn your agent team into a pipeline',
+'本地 CLI 执行 · 多 Agent 并行 · 运行可旁观': 'Local CLI execution · multi-agent parallel · observable runs',
+'从团队场景开始': 'Start from a team scenario',
+'内置多 Agent 模板，一键启用': 'Built-in multi-agent templates, one click to enable',
+'一句话生成': 'Generate in one sentence',
+'描述目标，自动编排画布': 'Describe the goal, the canvas is orchestrated for you',
+'空白画布': 'Blank canvas',
+'从零搭建节点与连线': 'Build nodes and edges from scratch',
+'内置模板': 'Built-in templates',
+'一句话生成工作流': 'Generate a workflow in one sentence',
+'描述你要的流程': 'Describe the workflow you want',
+'例如：claude a 做需求规划，claude b 做开发，最后审查': 'e.g. claude a plans, claude b develops, then review',
+'生成中（CLI 实跑可能需要 1-3 分钟）…': 'Generating (a real CLI run may take 1–3 min)…',
+'生成后自动进入画布，可继续编辑节点与连线。': 'You land on the canvas afterwards to refine nodes and edges.',
+'生成并进入画布': 'Generate & open canvas',
+'生成失败（HTTP {status}）': 'Generation failed (HTTP {status})',
+'未生成有效的流程节点，请换一种描述重试': 'No valid nodes generated — try another description',
+'模板中心': 'Template center',
+'内置模板 / 团队场景 / 我的模板 —— 选择一个开始': 'Built-in / team scenarios / mine — pick one to start',
 } as const

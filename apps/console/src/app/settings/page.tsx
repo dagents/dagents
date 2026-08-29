@@ -3,7 +3,7 @@ import { SettingsView } from '@/components/settings-view'
 /**
  * 设置页 (P1.10.T8 / M5a.4).
  *
- * Six tabs grouped 密钥/模型/治理/账户: LLM Provider 管理 / 默认模型 /
+ * Seven tabs grouped 密钥/模型/治理/账户: LLM Provider 管理 / 默认模型 /
  * 预算配额 / 通知 / 账户团队 / 危险区. The LLM Provider tab is the only
  * one with live CRUD (browser → /api/llm-providers → gateway); the
  * other five are faithful read-only shells of design/settings.html, surfaced

@@ -21,6 +21,7 @@ import { useCallback, useEffect, useLayoutEffect, useMemo, useRef, useState } fr
 import Link from 'next/link'
 import { Icon } from '@/components/icon'
 import { ChatComposer } from '@/components/chat-composer'
+import { SuggestionCards } from '@/components/suggestion-cards'
 import { AssistantContent, extractMeta } from '@/components/assistant-content'
 import { WorkflowRunCard, AgentSourceBadge } from '@/components/workflow-run-card'
 import { ChatDetailSkeleton } from '@/components/skeleton'
@@ -29,6 +30,7 @@ import { useFirstReplyCelebration } from '@/components/use-first-reply-celebrati
 import {
   type Chat,
   type ChatMessage,
+  CHAT_STATUS_LABEL,
   fetchChat,
   fetchMessages,
   sendMessageRouted,
@@ -37,6 +39,7 @@ import {
   updateChat,
   resetChat,
 } from '@/lib/chats'
+import { formatClock, truncateTitle } from '@/lib/format'
 import { subscribeChatStream } from '@/lib/chat-stream'
 import { fetchDirectory, type Directory } from '@/lib/directories'
 import { useWsChat } from '@/lib/use-ws-chat'
@@ -48,17 +51,6 @@ import '@/styles/assistant-content.css'
 
 interface ChatDetailProps {
   chatId: string
-}
-
-function formatTime(dateStr: string): string {
-  return new Date(dateStr).toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' })
-}
-
-const STATUS_LABEL: Record<string, string> = {
-  idle: '空闲',
-  running: '运行中',
-  done: '已完成',
-  failed: '失败',
 }
 
 export function ChatDetail({ chatId }: ChatDetailProps): React.ReactElement {
@@ -97,6 +89,20 @@ export function ChatDetail({ chatId }: ChatDetailProps): React.ReactElement {
   // Brief optimistic "重新连接中…" banner shown while a retry is in flight
   // (between clearing the error bubble and the first chunk arriving).
   const [reconnecting, setReconnecting] = useState(false)
+  // Deferred setTimeout handles (sending-release / reconnect-clear / copied
+  // reset). Tracked so switching chats or unmounting clears them — they must
+  // never setState into a different chat's freshly-reset state.
+  const timersRef = useRef<number[]>([])
+  const trackTimeout = useCallback((fn: () => void, ms: number) => {
+    const id = window.setTimeout(() => {
+      timersRef.current = timersRef.current.filter((x) => x !== id)
+      fn()
+    }, ms)
+    timersRef.current.push(id)
+  }, [])
+  useEffect(() => () => {
+    for (const id of timersRef.current) window.clearTimeout(id)
+  }, [])
 
   // First-reply celebration — fire a toast the first time an assistant
   // message appears in this chat. The hook self-guards with localStorage so
@@ -113,51 +119,64 @@ export function ChatDetail({ chatId }: ChatDetailProps): React.ReactElement {
   // stay pure — no ref writes inside — which is required for React 18
   // StrictMode (dev double-invokes updaters; a ref write inside would
   // corrupt the result on the second invoke).
-  useEffect(() => {
-    let cancelled = false
+  // Load chat + messages. Sequence-guarded so a retry or a chatId switch
+  // invalidates any in-flight load's state writes (the job the per-effect
+  // `cancelled` flag did before load became retryable).
+  // No AbortController here — React 18 StrictMode double-mounts effects in
+  // dev (mount → cleanup abort → remount), and the first mount's abort
+  // produces ERR_ABORTED console errors for /api/chats/:id and
+  // /api/chats/:id/messages. The stale check alone is sufficient: it
+  // prevents stale state updates from the first (abandoned) mount, and the
+  // requests are lightweight enough that cancelling the network call is not
+  // worth the console noise.
+  const loadSeqRef = useRef(0)
+  const loadChat = useCallback(async (): Promise<void> => {
+    const seq = ++loadSeqRef.current
+    const stale = () => seq !== loadSeqRef.current
     setLoading(true)
     setError(null)
+    try {
+      const chat = await fetchChat(chatId)
+      if (stale()) return
+      setChat(chat)
+      fetchDirectory(chat.directoryId)
+        .then((d) => {
+          if (!stale()) setDirectory(d)
+        })
+        .catch(() => {})
+      const msgs = await fetchMessages(chatId)
+      if (stale()) return
+      setMessages(msgs)
+    } catch (err) {
+      if (!stale()) setError(err instanceof Error ? err.message : String(err))
+    } finally {
+      if (!stale()) setLoading(false)
+    }
+  }, [chatId])
+
+  // App Router reuses this component across /chats/:id navigations — reset
+  // EVERY per-chat derived state, not just the obvious ones (the run map and
+  // workflow flags previously leaked from the previous chat).
+  useEffect(() => {
     setChat(null)
     setDirectory(null)
     setMessages([])
     setCopiedId(null)
     setShowScrollBtn(false)
+    setRunsInfo({})
+    setStreamIsWorkflow(false)
+    setFlowNameById({})
     lastSentTextRef.current = null
     stoppedRef.current = false
     atBottomRef.current = true
     retryCountRef.current = 0
     setRetryExhausted(false)
     setReconnecting(false)
-
-    // No AbortController here — React 18 StrictMode double-mounts effects in
-    // dev (mount → cleanup abort → remount), and the first mount's abort
-    // produces ERR_ABORTED console errors for /api/chats/:id and
-    // /api/chats/:id/messages. The `cancelled` flag alone is sufficient: it
-    // prevents stale state updates from the first (abandoned) mount, and the
-    // requests are lightweight enough that cancelling the network call is not
-    // worth the console noise.
-    Promise.all([
-      fetchChat(chatId).then((c) => {
-        if (!cancelled) setChat(c)
-        // Fetch directory after chat loads
-        return fetchDirectory(c.directoryId).then((d) => {
-          if (!cancelled) setDirectory(d)
-        }).catch(() => {})
-      }),
-      fetchMessages(chatId).then((m) => {
-        if (!cancelled) setMessages(m)
-      }),
-    ]).catch((err: unknown) => {
-      if (cancelled) return
-      setError(err instanceof Error ? err.message : String(err))
-    }).finally(() => {
-      if (!cancelled) setLoading(false)
-    })
-
-    return () => {
-      cancelled = true
-    }
-  }, [chatId])
+    // Deferred timers from the previous chat must not fire into this one.
+    for (const id of timersRef.current) window.clearTimeout(id)
+    timersRef.current = []
+    void loadChat()
+  }, [loadChat])
 
   // Sync selectors with chat's persisted agent/flow when chat loads/changes.
   useEffect(() => {
@@ -213,12 +232,14 @@ export function ChatDetail({ chatId }: ChatDetailProps): React.ReactElement {
   // the layout effect measures empty geometry, RO callbacks never deliver
   // (no rendering steps), and rAF is frozen. A cheap interval still runs in
   // background tabs, so while ownership is pinned it re-checks the gap and
-  // follows once real layout exists. Unpinned readers pay one comparison
-  // per tick; the interval is idempotent with the streaming follow.
+  // follows once real layout exists. Gated on busyRef (loading or an active
+  // run — synced in an effect below where runInProgress is in scope) so an
+  // idle conversation doesn't wake every 600ms forever.
+  const busyRef = useRef(false)
   useLayoutEffect(() => {
     const timer = window.setInterval(() => {
       const box = messagesScrollRef.current
-      if (!box || !atBottomRef.current) return
+      if (!box || !atBottomRef.current || !busyRef.current) return
       if (box.scrollHeight - box.scrollTop - box.clientHeight > FOLLOW_THRESHOLD) {
         followIfPinned('auto')
       }
@@ -287,6 +308,11 @@ export function ChatDetail({ chatId }: ChatDetailProps): React.ReactElement {
   // reads as frozen. The elapsed clock stays hidden until 15s so short runs
   // stay quiet.
   const runInProgress = sending || hasStreamBubble
+  // Sync the heal-interval gate ref (declared above the interval effect —
+  // keep the ref write in an effect so declaration order stays valid).
+  useEffect(() => {
+    busyRef.current = loading || runInProgress
+  }, [loading, runInProgress])
   const [elapsedSec, setElapsedSec] = useState(0)
   useEffect(() => {
     if (!runInProgress) {
@@ -571,8 +597,10 @@ export function ChatDetail({ chatId }: ChatDetailProps): React.ReactElement {
     }
   }, [chatId, handleWsFrame])
 
-  const handleSend = useCallback(async (text: string) => {
-    if (sending) return
+  /** Returns false while busy or on failure — the composer then keeps the
+   *  draft instead of silently discarding what the user typed. */
+  const handleSend = useCallback(async (text: string): Promise<boolean> => {
+    if (sending) return false
     setSending(true)
     setError(null)
     // Remember the text so the retry button can re-send on failure, and
@@ -659,18 +687,20 @@ export function ChatDetail({ chatId }: ChatDetailProps): React.ReactElement {
       // WS. Clear `sending` after a short timeout so the user can retry
       // or navigate. The next WS reconnect will pick up in-flight frames.
       if (!connected) {
-        setTimeout(() => setSending(false), 1500)
+        trackTimeout(() => setSending(false), 1500)
       }
       // Note: `sending` is cleared on the first WS chunk (or chat:done /
       // chat:error). Don't clear it here — the user should see the
       // "executing…" state while the agent runs.
+      return true
     } catch (err) {
       setError(err instanceof Error ? err.message : String(err))
       setMessages((prev) => prev.filter((m) => m.id !== optimisticId))
       setChat((prev) => (prev ? { ...prev, status: 'failed' } : prev))
       setSending(false)
+      return false
     }
-  }, [chatId, sending, selectedAgentId, connected])
+  }, [chatId, sending, selectedAgentId, connected, trackTimeout, pumpChatSse])
 
   // Stop the in-flight run: FIRST ask the gateway to actually cancel it
   // (execution-cancellation spec D5/D6 — kills the CLI child / aborts the
@@ -683,6 +713,9 @@ export function ChatDetail({ chatId }: ChatDetailProps): React.ReactElement {
     setSending(false)
     void fetch(`/api/chats/${chatId}/cancel`, { method: 'POST' }).catch(() => {
       // Network failure: the local seal stands; the run finishes on its own.
+      // Say so — a silent failure here leaves the UI claiming "(已停止)"
+      // while the backend keeps running.
+      toast.warning(t('取消请求发送失败，任务可能仍在后台执行'))
     })
     setMessages((prev) =>
       prev.map((m) =>
@@ -699,7 +732,7 @@ export function ChatDetail({ chatId }: ChatDetailProps): React.ReactElement {
         m.id.startsWith('stream-') ? { ...m, id: `stopped-${Date.now()}` } : m,
       ),
     )
-  }, [t, chatId])
+  }, [t, chatId, toast])
 
   // Retry the last user message after an error — clears ALL error/failure
   // state (chat status, error bubbles, optimistic stream bubbles), resets
@@ -749,12 +782,12 @@ export function ChatDetail({ chatId }: ChatDetailProps): React.ReactElement {
     // first WS chunk doesn't land quickly, we still want to release the
     // banner so the UI doesn't look stuck. The first chunk / error / done
     // frame also clears it.
-    setTimeout(() => setReconnecting(false), 2000)
+    trackTimeout(() => setReconnecting(false), 2000)
 
     // Re-send the stored text via the normal send path. handleSend clears
     // the remaining state and re-spawns the run.
     void handleSend(text)
-  }, [chatId, handleSend, toast, t])
+  }, [chatId, handleSend, toast, t, trackTimeout])
 
   // Copy an assistant message's raw content to the clipboard. Shows a
   // transient check mark for 1.5s so the user knows it landed.
@@ -762,24 +795,45 @@ export function ChatDetail({ chatId }: ChatDetailProps): React.ReactElement {
     try {
       await navigator.clipboard.writeText(content)
       setCopiedId(id)
-      setTimeout(() => setCopiedId((cur) => (cur === id ? null : cur)), 1500)
+      trackTimeout(() => setCopiedId((cur) => (cur === id ? null : cur)), 1500)
     } catch {
       // clipboard may be unavailable (non-secure context) — silent fail
     }
-  }, [])
+  }, [trackTimeout])
 
   // Persist flow selection to the backend when the user changes it via the
-  // composer's FlowSelector. Updates local state immediately for snappy UX.
+  // composer's FlowSelector. Updates local state immediately for snappy UX,
+  // rolls back + toasts if the persist fails (previously the UI kept showing
+  // a binding the backend never accepted).
   const handleFlowChange = useCallback(async (flowId: string | null) => {
+    const prev = selectedFlowId
     setSelectedFlowId(flowId)
     if (!chat) return
     try {
       await updateChat(chat.id, { flowId })
       window.dispatchEvent(new CustomEvent('chat-updated', { detail: { chatId: chat.id } }))
     } catch (err) {
+      setSelectedFlowId(prev)
+      toast.error(t('Flow 绑定更新失败'))
       console.warn('flow update failed', err)
     }
-  }, [chat])
+  }, [chat, selectedFlowId, toast, t])
+
+  // Persist the composer's agent selection — previously it was a send-time
+  // override only, so a refresh (or another surface) silently lost it.
+  const handleAgentChange = useCallback(async (agentId: string | null) => {
+    const prev = selectedAgentId
+    setSelectedAgentId(agentId)
+    if (!chat) return
+    try {
+      await updateChat(chat.id, { agentId })
+      window.dispatchEvent(new CustomEvent('chat-updated', { detail: { chatId: chat.id } }))
+    } catch (err) {
+      setSelectedAgentId(prev)
+      toast.error(t('Agent 绑定更新失败'))
+      console.warn('agent update failed', err)
+    }
+  }, [chat, selectedAgentId, toast, t])
 
   return (
     <div className="chat-detail-body">
@@ -799,11 +853,11 @@ export function ChatDetail({ chatId }: ChatDetailProps): React.ReactElement {
           className="chat-detail-breadcrumb-title"
           title={loading ? undefined : chat?.title}
         >
-          {loading ? t('加载中…') : (chat?.title && chat.title.length > 60 ? chat.title.slice(0, 60) + '…' : chat?.title ?? t('对话'))}
+          {loading ? t('加载中…') : (truncateTitle(chat?.title, 60) || t('对话'))}
         </span>
         {chat && (
           <span className={`chat-detail-breadcrumb-status status-${chat.status}`}>
-            {t(STATUS_LABEL[chat.status] ?? chat.status)}
+            {t(CHAT_STATUS_LABEL[chat.status] ?? chat.status)}
           </span>
         )}
       </div>
@@ -840,7 +894,16 @@ export function ChatDetail({ chatId }: ChatDetailProps): React.ReactElement {
               <ChatDetailSkeleton />
             ) : error && messages.length === 0 ? (
               <div className="chat-detail-empty" style={{ color: 'var(--danger)' }}>
-                {t('加载失败：{error}', { error })}
+                <div>{t('加载失败：{error}', { error })}</div>
+                <button
+                  type="button"
+                  className="chat-error-retry"
+                  onClick={() => void loadChat()}
+                  style={{ marginTop: 'var(--space-3)' }}
+                >
+                  <Icon name="refresh" style={{ width: 12, height: 12 }} />
+                  <span>{t('重试')}</span>
+                </button>
               </div>
             ) : messages.length === 0 ? (
               <div className="chat-detail-empty">
@@ -848,32 +911,10 @@ export function ChatDetail({ chatId }: ChatDetailProps): React.ReactElement {
                 <div className="chat-detail-empty-desc">
                   {t('发送消息，或试试以下建议：')}
                 </div>
-                <div className="chat-detail-suggestions" role="group" aria-label={t('建议提示')}>
-                  {(directory
-                    ? [
-                        '列出这个目录的文件结构',
-                        '解释这个项目的架构',
-                        '帮我写一个单元测试',
-                        '审查最近的代码变更',
-                      ]
-                    : [
-                        '帮我创建一个批量推理的 AgentFlow',
-                        '查看当前 agent 的状态',
-                        '解释这段代码的作用',
-                        '帮我调试一个错误',
-                      ]
-                  ).map((s) => (
-                    <button
-                      key={s}
-                      type="button"
-                      className="chat-detail-suggestion-chip"
-                      onClick={() => void handleSend(s)}
-                      disabled={sending}
-                    >
-                      {t(s)}
-                    </button>
-                  ))}
-                </div>
+                {/* Same suggestion component as the home page — one visual
+                 * language, one dynamic data source (previously two disjoint
+                 * hand-rolled chip sets). */}
+                <SuggestionCards disabled={sending} onPick={(s) => void handleSend(s)} />
               </div>
             ) : (
               messages.map((m) => {
@@ -906,7 +947,7 @@ export function ChatDetail({ chatId }: ChatDetailProps): React.ReactElement {
                         <div className="chat-error-card-header">
                           <Icon name="alertTriangle" style={{ width: 16, height: 16 }} />
                           <span className="chat-error-card-title">{t('执行失败')}</span>
-                          <span className="chat-error-card-time">{formatTime(errorMeta.at)}</span>
+                          <span className="chat-error-card-time">{formatClock(errorMeta.at)}</span>
                         </div>
                         <div className="chat-error-card-message">{errorMeta.message}</div>
                         <div className="chat-error-actions">
@@ -969,6 +1010,7 @@ export function ChatDetail({ chatId }: ChatDetailProps): React.ReactElement {
                                       flowId={fid}
                                       live={m.id.startsWith('stream-')}
                                       onTerminal={loadRuns}
+                                      defaultOpen
                                     />
                                   )
                                 }
@@ -982,7 +1024,7 @@ export function ChatDetail({ chatId }: ChatDetailProps): React.ReactElement {
                               />
                               {!isStreaming ? (
                                 <div className="chat-msg-footer">
-                                  <span className="chat-msg-meta">{formatTime(m.createdAt)}</span>
+                                  <span className="chat-msg-meta">{formatClock(m.createdAt)}</span>
                                   <button
                                     type="button"
                                     className="chat-msg-copy"
@@ -1004,7 +1046,7 @@ export function ChatDetail({ chatId }: ChatDetailProps): React.ReactElement {
                           <div className="chat-msg-user-stack">
                             <div className="chat-msg-user-bubble">{m.content}</div>
                             <div className="chat-msg-user-actions">
-                              <span className="chat-msg-meta">{formatTime(m.createdAt)}</span>
+                              <span className="chat-msg-meta">{formatClock(m.createdAt)}</span>
                               <button
                                 type="button"
                                 className="chat-msg-copy chat-msg-copy-icon"
@@ -1082,7 +1124,7 @@ export function ChatDetail({ chatId }: ChatDetailProps): React.ReactElement {
             disabled={loading}
             autoFocus
             agentId={selectedAgentId}
-            onAgentChange={setSelectedAgentId}
+            onAgentChange={handleAgentChange}
             flowId={selectedFlowId}
             onFlowChange={handleFlowChange}
           />

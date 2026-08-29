@@ -15,6 +15,7 @@
 
 import { useCallback, useEffect, useMemo, useState } from 'react'
 import { Icon } from '@/components/icon'
+import { SkeletonList } from '@/components/skeleton'
 import { useI18n } from '@/i18n'
 import {
   type UsageSummary,
@@ -79,8 +80,9 @@ export function UsageTab(props: { label: string }): React.ReactElement {
             type="button"
             className="btn btn-secondary btn-sm"
             onClick={() => void load(days)}
+            disabled={loading}
           >
-            <Icon name="refresh" style={{ width: 14, height: 14 }} />
+            <Icon name={loading ? 'loader' : 'refresh'} style={{ width: 14, height: 14 }} />
             {t('刷新')}
           </button>
         </div>
@@ -107,19 +109,17 @@ export function UsageTab(props: { label: string }): React.ReactElement {
           </button>
         </div>
       ) : loading && !summary ? (
-        <div className="muted" style={{ padding: 'var(--space-12)', fontSize: 13 }}>
-          {t('加载中…')}
-        </div>
+        <SkeletonList rows={4} />
       ) : !hasData ? (
         <div className="empty-state">
-          <div style={{ fontSize: 40, lineHeight: 1, opacity: 0.7 }} aria-hidden="true">🧾</div>
+          <Icon name="dashboard" style={{ width: 40, height: 40, opacity: 0.7 }} aria-hidden="true" />
           <div className="h">{t('还没有用量记录')}</div>
           <div className="d">
             {t('执行一次对话或工作流后，实测 token 与成本会出现在这里。账单自埋点上线起累计，历史执行不回填。')}
           </div>
         </div>
       ) : (
-        <>
+        <div style={loading ? { opacity: 0.55, transition: 'opacity .15s', pointerEvents: 'none' } : { transition: 'opacity .15s' }}>
           {/* 总览卡 */}
           <div className="usage-cards">
             <UsageCard
@@ -137,6 +137,7 @@ export function UsageTab(props: { label: string }): React.ReactElement {
               value={formatTokens(summary?.totals.unpricedTokens)}
               hint={t('单价未知的 token，价格表补齐后可回算')}
               warn
+              zero={(summary?.totals.unpricedTokens ?? 0) === 0}
             />
             <UsageCard
               label={t('事件数')}
@@ -253,7 +254,7 @@ export function UsageTab(props: { label: string }): React.ReactElement {
           <p className="muted mt-3" style={{ fontSize: 12, lineHeight: 1.6 }}>
             {t('成本 = 实测 token × 模型单价（内置参考价可用环境变量 DAGENTS_PRICE_OVERRIDES 校正）。单价未知的模型只记 token，不计成本。')}
           </p>
-        </>
+        </div>
       )}
     </section>
   )
@@ -264,8 +265,11 @@ function UsageCard(props: {
   value: string
   hint: string
   warn?: boolean
+  /** Numeric zero (the formatted string '$0.00' never matched the old
+   *  string check — 0 unpriced tokens still lit the warn color). */
+  zero?: boolean
 }): React.ReactElement {
-  const isZero = props.value === '—' || props.value === '0'
+  const isZero = props.zero === true || props.value === '—'
   return (
     <div className="card usage-card">
       <div className="muted" style={{ fontSize: 12 }}>{props.label}</div>

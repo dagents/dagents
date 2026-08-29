@@ -270,3 +270,146 @@
     bottom: var(--space-4);
   }
 }
+
+/* ── F3 全局副驾增量（PRD docs/prd-workflow-first.md，评审 D5）── */
+
+/* 画布页避让 React Flow minimap（右下角）：FAB 上移让位 */
+.floating-chat-fab.fab-canvas-offset {
+  bottom: 220px;
+}
+
+/* 拖动把手（标题栏） */
+.fab-drag-handle {
+  cursor: grab;
+  user-select: none;
+  touch-action: none;
+}
+
+.fab-drag-handle:active {
+  cursor: grabbing;
+}
+
+/* 拉大把手（右下角斜角） */
+.fab-resize-handle {
+  position: absolute;
+  right: 0;
+  bottom: 0;
+  width: 16px;
+  height: 16px;
+  cursor: nwse-resize;
+  touch-action: none;
+  z-index: 2;
+}
+
+.fab-resize-handle::after {
+  content: '';
+  position: absolute;
+  right: 3px;
+  bottom: 3px;
+  width: 7px;
+  height: 7px;
+  border-right: 2px solid var(--border-strong, rgba(0, 0, 0, 0.25));
+  border-bottom: 2px solid var(--border-strong, rgba(0, 0, 0, 0.25));
+}
+
+[data-theme='dark'] .fab-resize-handle::after {
+  border-right-color: rgba(255, 255, 255, 0.3);
+  border-bottom-color: rgba(255, 255, 255, 0.3);
+}
+
+/* 历史抽屉（标题栏下方覆盖消息区顶部） */
+.fab-history-drawer {
+  position: absolute;
+  top: 44px;
+  left: 8px;
+  right: 8px;
+  max-height: 55%;
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+  padding: 8px;
+  border: 1px solid var(--border, rgba(0, 0, 0, 0.12));
+  border-radius: 10px;
+  background: var(--bg-0, var(--bg, #fff));
+  box-shadow: 0 8px 24px rgba(0, 0, 0, 0.14);
+  z-index: 5;
+}
+
+[data-theme='dark'] .fab-history-drawer {
+  background: var(--bg-1, #1a1a22);
+}
+
+.fab-history-search {
+  padding: 6px 10px;
+  border: 1px solid var(--border, rgba(0, 0, 0, 0.12));
+  border-radius: 7px;
+  background: transparent;
+  color: var(--text);
+  font-size: 12px;
+}
+
+.fab-history-list {
+  overflow-y: auto;
+  display: flex;
+  flex-direction: column;
+  gap: 2px;
+  min-height: 0;
+}
+
+.fab-history-item {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  padding: 6px 8px;
+  border: 0;
+  border-radius: 7px;
+  background: transparent;
+  color: var(--text);
+  font-size: 12px;
+  cursor: pointer;
+  text-align: left;
+}
+
+.fab-history-item:hover,
+.fab-history-item.active {
+  background: var(--accent-soft, rgba(99, 102, 241, 0.12));
+}
+
+.fab-history-title {
+  flex: 1;
+  min-width: 0;
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+
+.fab-history-time {
+  font-size: 10px;
+  opacity: 0.55;
+  white-space: nowrap;
+}
+
+.fab-history-empty {
+  padding: 10px;
+  font-size: 11px;
+  opacity: 0.55;
+  text-align: center;
+}
+
+/* toast 动作按钮 */
+.toast-action {
+  flex-shrink: 0;
+  margin-left: 4px;
+}
+
+/* HITL 挂起应答条（F6） */
+.fab-hitl-bar {
+  padding: 6px 10px;
+  border-top: 1px solid var(--border, rgba(0, 0, 0, 0.08));
+  background: var(--accent-soft, rgba(99, 102, 241, 0.08));
+  font-size: 11.5px;
+}
+
+.fab-hitl-label {
+  color: var(--accent, #6366f1);
+}

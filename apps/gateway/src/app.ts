@@ -12,6 +12,7 @@ import { flowGeneratorRoutes } from './routes/flow-generator.js'
 import { chatCancelRoutes, runCancelRoutes } from './routes/execution-cancel.js'
 import { llmProviderRoutes } from './routes/llm-providers.js'
 import { workflowsRoutes } from './routes/workflows.js'
+import { runsRoutes } from './routes/runs.js'
 import { usageRoutes } from './routes/usage.js'
 import { cliRuntimeRoutes } from './routes/cli-runtimes.js'
 import { skillsRoutes } from './routes/skills.js'
@@ -206,6 +207,11 @@ app.route('/api/v1/llm-providers', llmProviderRoutes)
  * Workflows CRUD API: workflow list + detail + create + update + delete.
  */
 app.route('/api/v1/workflows', workflowsRoutes)
+
+/**
+ * 跨 Flow 运行历史（PRD F5）：runs 按时间倒序 + 流程名 + 失败摘要。
+ */
+app.route('/api/v1/runs', runsRoutes)
 
 /**
  * Usage & cost billing API (方案 D / AD-3): SQL aggregation over the

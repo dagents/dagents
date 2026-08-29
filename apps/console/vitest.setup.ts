@@ -27,3 +27,22 @@ if (!('ResizeObserver' in globalThis)) {
 afterEach(() => {
   cleanup()
 })
+
+// jsdom lacks window.matchMedia (a browser API); ThemeToggle reads it at
+// render to resolve the `auto` theme. Stub the minimal surface so any
+// component test can mount the real sidebar/footer without crashing.
+if (typeof window !== 'undefined' && typeof window.matchMedia !== 'function') {
+  Object.defineProperty(window, 'matchMedia', {
+    writable: true,
+    value: (query: string) => ({
+      matches: false,
+      media: query,
+      onchange: null,
+      addListener: () => {},
+      removeListener: () => {},
+      addEventListener: () => {},
+      removeEventListener: () => {},
+      dispatchEvent: () => false,
+    }),
+  })
+}

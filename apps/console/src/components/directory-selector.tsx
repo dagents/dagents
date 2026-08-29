@@ -71,6 +71,15 @@ export function DirectorySelector({
 
   const selected = directories.find((d) => d.id === value)
 
+  // 父组件 value 未落位（自己的目录 fetch 未完成）时回传默认 —— 否则
+  // 「选择器已显示默认目录但发送仍报『请先选择项目目录』」的竞态对
+  // 手快的真实用户同样成立（FAB 打开即发）。
+  useEffect(() => {
+    if (directories.length === 0 || value != null) return
+    onChange(directories[0]!.id)
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [directories, value])
+
   return (
     <div className="directory-selector" ref={ref}>
       <button

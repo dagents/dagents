@@ -22,33 +22,41 @@ import { DirectorySelector } from '@/components/directory-selector'
 import { useDirectories } from './use-directories'
 import { createChat, createMessage } from '@/lib/chats'
 import { pickDirectory, createDirectory } from '@/lib/directories'
+import { useToast } from '@/components/toast'
 import { useI18n } from '@/i18n'
 import '@/styles/chat-home.css'
 
 export function ChatHome(): React.ReactElement {
   const router = useRouter()
   const { t } = useI18n()
+  const toast = useToast()
   const { directories, loading, error, reload } = useDirectories()
   const { complete: onboardingComplete } = useOnboarding()
   const [selectedDirId, setSelectedDirId] = useState<string | null>(null)
   const [selectedAgentId, setSelectedAgentId] = useState<string | null>(null)
   const [sending, setSending] = useState(false)
-  const [sendError, setSendError] = useState<string | null>(null)
   const [addingDir, setAddingDir] = useState(false)
-  const [addError, setAddError] = useState<string | null>(null)
 
   useEffect(() => {
     if (directories.length > 0 && !selectedDirId) setSelectedDirId(directories[0]!.id)
   }, [directories, selectedDirId])
 
-  const handleSend = useCallback(async (text: string) => {
+  // Directory-list load failures surface as a transient toast (the inline
+  // bottom-of-page div used to be invisible next to the big welcome block).
+  useEffect(() => {
+    if (error) toast.error(t('项目目录加载失败'), 6000)
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [error])
+
+  /** Returns false to keep the composer draft (send rejected / failed). */
+  const handleSend = useCallback(async (text: string): Promise<boolean> => {
+    if (sending) return false
     const directoryId = selectedDirId ?? directories[0]?.id
     if (!directoryId) {
-      setSendError(t('请先添加项目目录'))
-      return
+      toast.warning(t('请先添加项目目录'))
+      return false
     }
     setSending(true)
-    setSendError(null)
     try {
       const chat = await createChat({
         directoryId,
@@ -57,14 +65,15 @@ export function ChatHome(): React.ReactElement {
       })
       await createMessage(chat.id, { content: text, role: 'user' })
       router.push(`/chats/${chat.id}`)
+      return true
     } catch (err) {
-      setSendError(err instanceof Error ? err.message : String(err))
+      toast.error(err instanceof Error ? err.message : String(err))
       setSending(false)
+      return false
     }
-  }, [selectedDirId, directories, selectedAgentId, router, t])
+  }, [sending, selectedDirId, directories, selectedAgentId, router, t, toast])
 
   const handleAddDirectory = useCallback(async (): Promise<void> => {
-    setAddError(null)
     setAddingDir(true)
     try {
       const path = await pickDirectory()
@@ -75,18 +84,33 @@ export function ChatHome(): React.ReactElement {
       setSelectedDirId(dir.id)
       await reload()
     } catch (err) {
-      setAddError(err instanceof Error ? err.message : String(err))
+      toast.error(err instanceof Error ? err.message : String(err))
     } finally {
       setAddingDir(false)
     }
-  }, [reload])
+  }, [reload, toast])
 
   return (
     <div className="chat-home-body">
       <div className="chat-home-topbar">
         <DirectorySelector value={selectedDirId} onChange={setSelectedDirId} />
       </div>
-      {directories.length === 0 && !loading && !selectedDirId ? (
+      {loading && directories.length === 0 ? (
+        /* First-paint skeleton — don't flash the welcome copy before the
+         * directory probe resolves (it decides empty-state vs welcome). */
+        <div className="chat-home-placeholder">
+          <div className="chat-home-placeholder-inner" style={{ display: 'flex', flexDirection: 'column', alignItems: 'center', gap: 'var(--space-3)', minHeight: 180 }}>
+            <div className="skeleton" style={{ width: 48, height: 48, borderRadius: '50%' }} />
+            <div className="skeleton-text" style={{ width: 160, height: 18 }} />
+            <div className="skeleton-text" style={{ width: 260, height: 12 }} />
+            <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: 'var(--space-3)', width: '100%', maxWidth: 560, marginTop: 'var(--space-2)' }}>
+              {Array.from({ length: 4 }, (_, i) => (
+                <div key={i} className="skeleton" style={{ height: 64, borderRadius: 'var(--radius-md)' }} />
+              ))}
+            </div>
+          </div>
+        </div>
+      ) : directories.length === 0 && !selectedDirId ? (
         <div className="chat-home-empty">
           <div className="chat-home-empty-icon">
             <Icon name="folder" style={{ width: 48, height: 48, color: 'var(--accent)' }} />
@@ -104,9 +128,6 @@ export function ChatHome(): React.ReactElement {
             <Icon name="plus" style={{ width: 14, height: 14 }} />
             <span>{addingDir ? t('等待选择…') : t('浏览本地目录…')}</span>
           </button>
-          {addError ? (
-            <div className="chat-home-empty-error">{addError}</div>
-          ) : null}
           <div className="chat-home-empty-steps">
             <div className="chat-home-empty-step">
               <div className="chat-home-empty-step-num">1</div>
@@ -134,7 +155,7 @@ export function ChatHome(): React.ReactElement {
             </p>
             <OnboardingChecklist />
             <OnboardingCompleteBanner complete={onboardingComplete} />
-            <SuggestionCards onPick={(text) => void handleSend(text)} />
+            <SuggestionCards disabled={sending} onPick={(text) => void handleSend(text)} />
           </div>
         </div>
       )}
@@ -147,11 +168,6 @@ export function ChatHome(): React.ReactElement {
         onAgentChange={setSelectedAgentId}
         autoFocus
       />
-      {(error ?? sendError) && (
-        <div style={{ textAlign: 'center', color: 'var(--danger)', fontSize: 'var(--text-sm)', paddingBottom: 'var(--space-4)' }}>
-          {error ?? sendError}
-        </div>
-      )}
     </div>
   )
 }

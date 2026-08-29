@@ -25,6 +25,7 @@ import {
   type FleetStats,
 } from '@/lib/daemons'
 import { useI18n } from '@/i18n'
+import { timeAgo, formatClock } from '@/lib/format'
 import '@/styles/daemons.css'
 
 // ─── local CLI runtimes (auto-detected) ──────────────────────────────
@@ -69,21 +70,6 @@ const POLL_BASE_MS = 5000
 /** Cap for exponential backoff when polls keep failing. */
 const POLL_MAX_BACKOFF_MS = 60_000
 
-/** `t` comes from the caller's useI18n() so the relative units localize
- *  (module-level helpers can't call hooks). */
-type TFn = (key: string, params?: Record<string, string | number>) => string
-function timeAgo(dateStr: string | null, t: TFn): string {
-  if (!dateStr) return '—'
-  const diff = Date.now() - new Date(dateStr).getTime()
-  if (diff < 60_000) return t('刚刚')
-  if (diff < 3_600_000) return t('{n} 分钟前', { n: Math.floor(diff / 60_000) })
-  if (diff < 86_400_000) return t('{n} 小时前', { n: Math.floor(diff / 3_600_000) })
-  return new Date(dateStr).toLocaleDateString()
-}
-
-function formatTime(dateStr: string): string {
-  return new Date(dateStr).toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' })
-}
 
 export function DaemonsView(): React.ReactElement {
   const { t } = useI18n()
@@ -99,6 +85,9 @@ export function DaemonsView(): React.ReactElement {
   const [deleting, setDeleting] = useState(false)
   const [runtimes, setRuntimes] = useState<RuntimeDetection[]>([])
   const [runtimesLoading, setRuntimesLoading] = useState(true)
+  // Detection failure must NOT render as「未安装」— that would send the user
+  // off to install CLIs they already have.
+  const [runtimesError, setRuntimesError] = useState<string | null>(null)
 
   // Local CLI detection (gateway scans PATH). Once on mount + manual refresh —
   // unlike daemons this doesn't change on its own, no polling needed.
@@ -106,9 +95,14 @@ export function DaemonsView(): React.ReactElement {
     try {
       const resp = await fetch('/api/cli-runtimes')
       const json = (await resp.json()) as { success: boolean; data?: { runtimes: RuntimeDetection[] } }
-      if (json.success && json.data) setRuntimes(json.data.runtimes)
-    } catch {
-      // silent — the grid still renders with unknown (未检测) status
+      if (json.success && json.data) {
+        setRuntimes(json.data.runtimes)
+        setRuntimesError(null)
+      } else {
+        setRuntimesError(`HTTP ${resp.status}`)
+      }
+    } catch (err) {
+      setRuntimesError(err instanceof Error ? err.message : String(err))
     } finally {
       setRuntimesLoading(false)
     }
@@ -119,15 +113,24 @@ export function DaemonsView(): React.ReactElement {
   const backoffRef = useRef<number>(POLL_BASE_MS)
   const isVisibleRef = useRef<boolean>(true)
   const isInitialRef = useRef<boolean>(true)
+  // While the task view is mounted the parent list doesn't need polling —
+  // this ref lets the poll loop stand down without restarting on every
+  // selectedDaemon change.
+  const taskViewOpenRef = useRef(false)
+  taskViewOpenRef.current = selectedDaemon != null
 
-  const reload = async (): Promise<void> => {
-    const [d, s] = await Promise.all([
-      fetchDaemons(),
-      fetchFleetStats().catch(() => null),
-    ])
-    setDaemons(d)
-    if (s) setStats(s)
-  }
+  const reload = useCallback(async (): Promise<void> => {
+    try {
+      const [d, s] = await Promise.all([
+        fetchDaemons(),
+        fetchFleetStats().catch(() => null),
+      ])
+      setDaemons(d)
+      if (s) setStats(s)
+    } catch (err) {
+      setError(err instanceof Error ? err.message : String(err))
+    }
+  }, [])
 
   useEffect(() => {
     let cancelled = false
@@ -136,6 +139,7 @@ export function DaemonsView(): React.ReactElement {
 
     const load = async (): Promise<void> => {
       if (!isVisibleRef.current) return
+      if (taskViewOpenRef.current) return // task view owns the screen + its own poll
       try {
         const [d, s] = await Promise.all([
           fetchDaemons(),
@@ -201,7 +205,7 @@ export function DaemonsView(): React.ReactElement {
       document.removeEventListener('visibilitychange', handleVisibility)
     }
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [selectedDaemon])
+  }, [])
 
   // ─── task detail view ──────────────────────────────────────────────
   if (selectedDaemon) {
@@ -217,10 +221,12 @@ export function DaemonsView(): React.ReactElement {
   const filtered = daemons.filter((d) => {
     if (filter === 'all') return true
     if (filter === 'online') return d.status === 'online'
-    return d.status !== 'online'
+    // draining（排空中）不是离线 — 它仍连着网关
+    return d.status !== 'online' && d.status !== 'draining'
   })
 
   const onlineCount = daemons.filter((d) => d.status === 'online').length
+  const drainingCount = daemons.filter((d) => d.status === 'draining').length
 
   return (
     <div className="daemons-view">
@@ -236,7 +242,7 @@ export function DaemonsView(): React.ReactElement {
             >
               {t(f.label)}
               <span className="cnt">
-                {f.key === 'all' ? daemons.length : f.key === 'online' ? onlineCount : daemons.length - onlineCount}
+                {f.key === 'all' ? daemons.length : f.key === 'online' ? onlineCount : daemons.length - onlineCount - drainingCount}
               </span>
             </button>
           ))}
@@ -261,6 +267,15 @@ export function DaemonsView(): React.ReactElement {
           {t('注册 Daemon')}
         </button>
       </div>
+
+      {error ? (
+        <div className="daemons-error" role="alert" style={{ display: 'flex', alignItems: 'center', gap: 'var(--space-3)', marginBottom: 'var(--space-4)' }}>
+          <span>{t('加载失败：{error}', { error })}</span>
+          <button type="button" className="btn btn-ghost btn-sm" onClick={() => void reload()}>
+            {t('重试')}
+          </button>
+        </div>
+      ) : null}
 
       {showRegister ? (
         <RegisterDaemonDialog
@@ -302,20 +317,32 @@ export function DaemonsView(): React.ReactElement {
         <div className="local-cli-grid">
           {runtimesLoading && runtimes.length === 0 ? (
             <span className="local-cli-meta">{t('检测中…')}</span>
+          ) : runtimesError && runtimes.length === 0 ? (
+            <div className="daemons-error" role="alert" style={{ display: 'flex', alignItems: 'center', gap: 'var(--space-3)', width: '100%' }}>
+              <span>{t('CLI 检测失败：{error} — 下方「未安装」状态不可信', { error: runtimesError })}</span>
+              <button type="button" className="btn btn-ghost btn-sm" onClick={() => { setRuntimesLoading(true); void loadRuntimes() }}>
+                {t('重试')}
+              </button>
+            </div>
           ) : (
             CLI_KINDS.map((m) => {
               const det = runtimes.find((r) => r.kind === m.kind)
               const available = det?.available ?? false
               const isCore = det?.tier?.tier === 'core'
               const untested = det?.tier?.regression === 'docs-only'
+              // tier.note 来自网关 tiers.ts 的中文单源 —— 按自然键 i18n 惯例
+              // 包 t()：zh 显示原文，en 走词典（此前 EN 模式下中英混排）。
               const tierTitle = det?.tier?.note
-                ?? (untested ? t('社区适配器 — 按官方文档实现，未经真机回归') : undefined)
+                ? t(det.tier.note)
+                : untested
+                  ? t('社区适配器 — 按官方文档实现，未经真机回归')
+                  : undefined
               return (
                 <div
                   key={m.kind}
                   className={`local-cli-card${available ? '' : ' unavailable'}`}
                   title={[
-                    available ? det?.path ?? m.hint : t('未安装 — {hint}', { hint: m.hint }),
+                    available ? det?.path ?? m.hint : t('未安装 — {hint}', { hint: t(m.hint) }),
                     tierTitle,
                   ].filter(Boolean).join('\n')}
                 >
@@ -341,7 +368,7 @@ export function DaemonsView(): React.ReactElement {
       <div className="daemons-list">
         {loading && daemons.length === 0 ? (
           <SkeletonList rows={4} />
-        ) : daemons.length === 0 ? (
+        ) : error ? null : daemons.length === 0 ? (
           <div className="daemons-empty">
             <Icon name="info" style={{ width: 28, height: 28, color: 'var(--meta)' }} />
             <span className="daemons-empty-title">{t('没有已注册的 daemon')}</span>
@@ -442,18 +469,39 @@ export function DaemonsView(): React.ReactElement {
         )}
       </div>
 
-      {error ? <div className="daemons-error">{error}</div> : null}
-
       {deleteTarget && (
-        <div className="daemon-delete-overlay" onClick={() => setDeleteTarget(null)}>
-          <div className="daemon-delete-dialog" onClick={(e) => e.stopPropagation()}>
+        <div
+          className="daemon-delete-overlay"
+          onClick={() => { if (!deleting) setDeleteTarget(null) }}
+          onKeyDown={(e) => { if (e.key === 'Escape' && !deleting) setDeleteTarget(null) }}
+        >
+          <div
+            className="daemon-delete-dialog"
+            role="dialog"
+            aria-modal="true"
+            aria-label={t('删除 Daemon')}
+            onClick={(e) => e.stopPropagation()}
+          >
             <div className="daemon-delete-title">{t('删除 Daemon')}</div>
             <div className="daemon-delete-desc">
               {t('确定要删除「{name}」吗？此操作不可撤销。', { name: deleteTarget.label })}
             </div>
-            {deleteError ? <div className="daemon-dialog-error">⚠️ {deleteError}</div> : null}
+            {deleteError ? <div className="daemon-dialog-error" role="alert">{deleteError}</div> : null}
             <div className="daemon-delete-actions">
-              <button type="button" className="btn btn-ghost btn-sm" onClick={() => setDeleteTarget(null)}>{t('取消')}</button>
+              <button
+                type="button"
+                className="btn btn-ghost btn-sm"
+                disabled={deleting}
+                ref={(el) => {
+                  if (el && !el.dataset.focused) {
+                    el.dataset.focused = '1'
+                    el.focus()
+                  }
+                }}
+                onClick={() => setDeleteTarget(null)}
+              >
+                {t('取消')}
+              </button>
               <button
                 type="button"
                 className="btn btn-danger btn-sm"
@@ -464,9 +512,11 @@ export function DaemonsView(): React.ReactElement {
                   try {
                     const resp = await fetch(`/api/dispatch/daemons/${encodeURIComponent(deleteTarget.id)}`, { method: 'DELETE' })
                     if (resp.ok) {
-                      // 仅在删除成功后更新列表，失败时保留原列表并提示
+                      // 仅在删除成功后更新列表，失败时保留原列表并提示；
+                      // stats（在线数/活跃任务）一并刷新，避免页头计数失真
                       setDaemons((prev) => prev.filter((d) => d.id !== deleteTarget.id))
                       setDeleteTarget(null)
+                      void reload()
                     } else {
                       const body = (await resp.json().catch(() => null)) as { error?: string } | null
                       setDeleteError(body?.error
@@ -552,6 +602,7 @@ function DaemonTasksView({
   const [tasks, setTasks] = useState<DispatchTask[]>([])
   const [filter, setFilter] = useState<DispatchTaskStatus | 'all'>('all')
   const [loading, setLoading] = useState(true)
+  const [tasksError, setTasksError] = useState<string | null>(null)
   const [selectedTaskId, setSelectedTaskId] = useState<string | null>(null)
   const [taskEvents, setTaskEvents] = useState<TaskEvent[] | null>(null)
   const [eventsLoading, setEventsLoading] = useState(false)
@@ -589,16 +640,31 @@ function DaemonTasksView({
     let cancelled = false
     let timer: ReturnType<typeof setTimeout> | null = null
     let ticking = false
+    let visible = true
+
+    const onVisibility = (): void => {
+      const wasHidden = !visible
+      visible = document.visibilityState === 'visible'
+      if (wasHidden && visible && !cancelled && !ticking) {
+        if (timer) { clearTimeout(timer); timer = null }
+        tick()
+      }
+    }
 
     const load = async (): Promise<void> => {
+      if (!visible) return
       try {
         const statusFilter = filter === 'all' ? undefined : filter
         const t = await fetchDispatchTasks(statusFilter)
         if (cancelled) return
         setTasks(t)
+        setTasksError(null)
         setLoading(false)
-      } catch {
+      } catch (err) {
         if (cancelled) return
+        // A gateway failure must surface — an empty-state here reads as
+        // 「暂无派发任务」which is a lie.
+        setTasksError(err instanceof Error ? err.message : String(err))
         setLoading(false)
       }
     }
@@ -608,16 +674,18 @@ function DaemonTasksView({
       ticking = true
       void load().finally(() => {
         ticking = false
-        if (cancelled) return
+        if (cancelled || !visible) return
         timer = setTimeout(tick, POLL_BASE_MS)
       })
     }
 
     tick()
+    document.addEventListener('visibilitychange', onVisibility)
 
     return () => {
       cancelled = true
       if (timer) clearTimeout(timer)
+      document.removeEventListener('visibilitychange', onVisibility)
     }
   }, [filter])
 
@@ -625,6 +693,7 @@ function DaemonTasksView({
   const running = tasks.filter((t) => t.status === 'running').length
   const queued = tasks.filter((t) => t.status === 'queued').length
   const failed = tasks.filter((t) => t.status === 'failed').length
+  const done = tasks.filter((t) => t.status === 'done').length
 
   return (
     <div className="daemons-view">
@@ -659,7 +728,7 @@ function DaemonTasksView({
                   : f.key === 'running' ? running
                   : f.key === 'queued' ? queued
                   : f.key === 'failed' ? failed
-                  : 0}
+                  : done}
               </span>
             </button>
           ))}
@@ -674,16 +743,23 @@ function DaemonTasksView({
       <div className="daemons-grid">
         <div className="daemons-queue">
           <div className="daemons-queue-head">
-            <span>{t('任务队列')}</span>
+            {/* fetchDispatchTasks 是全局队列（/api/agents 投影，无 daemon 维度）——
+                如实命名，不冒充「该 daemon 的队列」 */}
+            <span title={t('当前为全平台任务视图，暂无按 daemon 过滤')}>{t('任务队列（全局）')}</span>
             <span className="daemons-count mono">{tasks.length}</span>
           </div>
+          {tasksError ? (
+            <div className="daemons-error" role="alert" style={{ display: 'flex', alignItems: 'center', gap: 'var(--space-2)', margin: '0 0 var(--space-2)' }}>
+              <span>{t('任务加载失败：{error}', { error: tasksError })}</span>
+            </div>
+          ) : null}
           <div className="daemons-queue-list">
             {loading && tasks.length === 0 ? (
               <div className="daemons-empty">
                 <Icon name="loader" style={{ width: 28, height: 28, color: 'var(--meta)' }} />
                 <span>{t('加载中…')}</span>
               </div>
-            ) : tasks.length === 0 ? (
+            ) : tasks.length === 0 && !tasksError ? (
               <div className="daemons-empty">
                 <Icon
                   name={filter === 'all' ? 'info' : 'check'}
@@ -725,7 +801,7 @@ function DaemonTasksView({
                   <div className="task-card-desc">{t.description ?? t.id.slice(0, 8)}</div>
                   <div className="task-card-meta">
                     {t.flow_id ? <span className="mono">{t.flow_id.slice(0, 8)}</span> : null}
-                    <span>{formatTime(t.created_at)}</span>
+                    <span>{formatClock(t.created_at)}</span>
                   </div>
                 </button>
               ))
@@ -842,11 +918,20 @@ function DaemonTasksView({
  * 对话框只做一件事：根据用户填的 label + agent 类型生成正确的启动命令，
  * 复制到任意机器的 dagents 仓库根目录运行即可。
  */
-const AGENT_TYPE_OPTIONS = [
-  'claude', 'codex', 'copilot', 'qwen', 'opencode',
-  'codebuddy', 'cursor', 'deveco', 'antigravity', 'openclaw',
-  'pi', 'hermes', 'kimi', 'kiro', 'grok', 'qoder', 'traecli',
-]
+/** Agent 类型选项从共享目录派生（此前手抄 17 项，随时漂移）。 */
+const AGENT_TYPE_OPTIONS = CLI_KINDS
+
+/**
+ * daemon 启动命令里的网关地址：本机访问就是默认 8080；从其他机器访问
+ * console 时用当前 hostname 推导（此前硬编码 localhost，复制到远程机器
+ * 的命令永远连不上网关）。
+ */
+function gatewayUrlForCommand(): string {
+  if (typeof window === 'undefined') return 'http://localhost:8080'
+  return window.location.hostname === 'localhost'
+    ? 'http://localhost:8080'
+    : `http://${window.location.hostname}:8080`
+}
 
 function RegisterDaemonDialog({
   onClose,
@@ -860,6 +945,29 @@ function RegisterDaemonDialog({
   const [selectedTypes, setSelectedTypes] = useState<string[]>([])
   const [error, setError] = useState<string | null>(null)
   const [cmds, setCmds] = useState<string[] | null>(null)
+  // 「已复制」确认 — 复制按钮此前点了毫无反馈。
+  const [copied, setCopied] = useState<string | null>(null)
+  useEffect(() => {
+    if (!copied) return
+    const timer = window.setTimeout(() => setCopied(null), 1500)
+    return () => window.clearTimeout(timer)
+  }, [copied])
+  const copy = (text: string, key: string): void => {
+    navigator.clipboard?.writeText(text).then(
+      () => setCopied(key),
+      () => {},
+    )
+  }
+
+  // Escape closes (document-level — the overlay never has focus, so an
+  // overlay onKeyDown handler never fires).
+  useEffect(() => {
+    const onKey = (e: KeyboardEvent) => {
+      if (e.key === 'Escape') onClose()
+    }
+    document.addEventListener('keydown', onKey)
+    return () => document.removeEventListener('keydown', onKey)
+  }, [onClose])
 
   function toggleType(t: string): void {
     setSelectedTypes((prev) =>
@@ -878,14 +986,21 @@ function RegisterDaemonDialog({
       return
     }
     // CLI 一次只接受一种 agentType — 每种类型生成一条命令。
-    setCmds(selectedTypes.map((t) => `pnpm --filter @dagents/daemon dev -- http://localhost:8080 ${label.trim()} ${t}`))
+    const base = gatewayUrlForCommand()
+    setCmds(selectedTypes.map((k) => `pnpm --filter @dagents/daemon dev -- ${base} ${label.trim()} ${k}`))
   }
 
   // Generated view — show the correct start commands
   if (cmds) {
     return createPortal(
       <div className="daemon-dialog-overlay" onClick={onClose}>
-        <div className="daemon-dialog" onClick={(e) => e.stopPropagation()}>
+        <div
+          className="daemon-dialog"
+          role="dialog"
+          aria-modal="true"
+          aria-label={t('启动命令已生成')}
+          onClick={(e) => e.stopPropagation()}
+        >
           <div className="daemon-dialog-header">
             <Icon name="check" style={{ width: 20, height: 20, color: 'var(--accent)' }} />
             <span className="daemon-dialog-title">{t('启动命令已生成')}</span>
@@ -900,10 +1015,10 @@ function RegisterDaemonDialog({
                 <button
                   type="button"
                   className="btn btn-ghost btn-sm"
-                  onClick={() => navigator.clipboard?.writeText(cmd).catch(() => {})}
+                  onClick={() => copy(cmd, cmd)}
                 >
-                  <Icon name="copy" style={{ width: 14, height: 14 }} />
-                  {t('复制')}
+                  <Icon name={copied === cmd ? 'check' : 'copy'} style={{ width: 14, height: 14 }} />
+                  {copied === cmd ? t('已复制') : t('复制')}
                 </button>
               </div>
             ))}
@@ -911,10 +1026,10 @@ function RegisterDaemonDialog({
               <button
                 type="button"
                 className="btn btn-ghost btn-sm"
-                onClick={() => navigator.clipboard?.writeText(cmds.join('\n')).catch(() => {})}
+                onClick={() => copy(cmds.join('\n'), '__all__')}
               >
-                <Icon name="copy" style={{ width: 14, height: 14 }} />
-                {t('全部复制')}
+                <Icon name={copied === '__all__' ? 'check' : 'copy'} style={{ width: 14, height: 14 }} />
+                {copied === '__all__' ? t('已复制') : t('全部复制')}
               </button>
             ) : null}
             <div className="daemon-dialog-info">
@@ -944,8 +1059,14 @@ function RegisterDaemonDialog({
 
   // Form view
   return createPortal(
-    <div className="daemon-dialog-overlay" onClick={onClose} onKeyDown={(e) => { if (e.key === 'Escape') onClose() }}>
-      <div className="daemon-dialog" onClick={(e) => e.stopPropagation()}>
+    <div className="daemon-dialog-overlay" onClick={onClose}>
+      <div
+        className="daemon-dialog"
+        role="dialog"
+        aria-modal="true"
+        aria-label={t('注册 Daemon')}
+        onClick={(e) => e.stopPropagation()}
+      >
         <div className="daemon-dialog-header">
           <Icon name="terminal" style={{ width: 20, height: 20, color: 'var(--accent)' }} />
           <span className="daemon-dialog-title">{t('注册 Daemon')}</span>
@@ -955,8 +1076,9 @@ function RegisterDaemonDialog({
         </div>
         <div className="daemon-dialog-body">
           <div className="daemon-dialog-field">
-            <label className="daemon-dialog-label">{t('名称')}</label>
+            <label className="daemon-dialog-label" htmlFor="daemon-label">{t('名称')}</label>
             <input
+              id="daemon-label"
               type="text"
               className="daemon-dialog-input"
               placeholder={t('如：dev-laptop')}
@@ -966,22 +1088,23 @@ function RegisterDaemonDialog({
             />
           </div>
           <div className="daemon-dialog-field">
-            <label className="daemon-dialog-label">{t('Agent 类型')}</label>
-            <div className="daemon-dialog-chips">
-              {AGENT_TYPE_OPTIONS.map((kind) => (
+            <span className="daemon-dialog-label" id="daemon-agent-types-label">{t('Agent 类型')}</span>
+            <div className="daemon-dialog-chips" role="group" aria-labelledby="daemon-agent-types-label">
+              {AGENT_TYPE_OPTIONS.map((m) => (
                 <button
-                  key={kind}
+                  key={m.kind}
                   type="button"
-                  className={`daemon-dialog-chip${selectedTypes.includes(kind) ? ' selected' : ''}`}
-                  onClick={() => toggleType(kind)}
+                  className={`daemon-dialog-chip${selectedTypes.includes(m.kind) ? ' selected' : ''}`}
+                  title={t(m.hint)}
+                  onClick={() => toggleType(m.kind)}
                 >
-                  {kind}
+                  {t(m.label)}
                 </button>
               ))}
             </div>
             <span className="daemon-dialog-hint">{t('可多选 — 每种类型生成一条启动命令（一个 daemon 进程对应一种 agent）')}</span>
           </div>
-          {error ? <div className="daemon-dialog-error">⚠️ {error}</div> : null}
+          {error ? <div className="daemon-dialog-error" role="alert">{error}</div> : null}
         </div>
         <div className="daemon-dialog-footer">
           <button type="button" className="btn btn-ghost btn-sm" onClick={onClose}>

@@ -13,9 +13,11 @@
  * 历史消息：挂载拉一次即定格。数据源与画布结果面板完全一致。
  */
 
-import { useCallback, useEffect, useRef, useState } from 'react'
+import { useCallback, useEffect, useMemo, useRef, useState } from 'react'
 import { useI18n } from '@/i18n'
 import { detectRefusal } from '@/lib/refusal-detect'
+import { SPAN_STATUS_CN } from '@/lib/flows'
+import { formatDuration } from '@/lib/format'
 import '@/styles/workflow-run-card.css'
 
 interface SpanRow {
@@ -37,6 +39,8 @@ export interface WorkflowRunCardProps {
   live?: boolean
   /** 终态回调（live 模式下触发一次，父组件刷新 runs 映射）。 */
   onTerminal?: () => void
+  /** 初始展开（PRD F4：聊天详情的执行记录默认可见）。 */
+  defaultOpen?: boolean
 }
 
 function spanText(sp: SpanRow | undefined): string {
@@ -59,25 +63,28 @@ function spanText(sp: SpanRow | undefined): string {
   return JSON.stringify(out).slice(0, 140)
 }
 
-function oneLine(s: string, max: number): string {
-  const flat = s.replace(/\s+/g, ' ').trim()
-  return flat.length > max ? flat.slice(0, max) + '…' : flat
-}
-
-export function WorkflowRunCard({ runId, flowName, flowId, live = false, onTerminal }: WorkflowRunCardProps): React.ReactElement | null {
+export function WorkflowRunCard({ runId, flowName, flowId, live = false, onTerminal, defaultOpen }: WorkflowRunCardProps): React.ReactElement | null {
   const { t } = useI18n()
   const [spans, setSpans] = useState<SpanRow[]>([])
   const [runStatus, setRunStatus] = useState<string | null>(null)
   const [durationMs, setDurationMs] = useState<number | null>(null)
-  const [open, setOpen] = useState(false)
+  // 默认展开（PRD F4）：聊天详情执行记录默认可见；live 卡保持自动展开 +
+  // 手动收起记忆的既有行为。
+  const [open, setOpen] = useState(defaultOpen ?? false)
   const [loaded, setLoaded] = useState(false)
+  // Set when every fetch attempt has failed so far — surfaced as a retryable
+  // inline error instead of an eternal spinner.
+  const [fetchError, setFetchError] = useState<string | null>(null)
   const terminalFiredRef = useRef(false)
   const pollRef = useRef<number | undefined>(undefined)
 
   const fetchOnce = useCallback(async (): Promise<string | null> => {
     try {
       const res = await fetch(`/api/workflows/runs/${encodeURIComponent(runId)}/node-spans`, { cache: 'no-store' })
-      if (!res.ok) return null
+      if (!res.ok) {
+        setFetchError(`HTTP ${res.status}`)
+        return null
+      }
       const body = (await res.json()) as {
         data?: { runStatus?: string | null; runDurationMs?: number | null; spans?: SpanRow[] }
       }
@@ -85,8 +92,10 @@ export function WorkflowRunCard({ runId, flowName, flowId, live = false, onTermi
       setRunStatus(body?.data?.runStatus ?? null)
       if (body?.data?.runDurationMs != null) setDurationMs(body.data.runDurationMs)
       setLoaded(true)
+      setFetchError(null)
       return body?.data?.runStatus ?? null
-    } catch {
+    } catch (err) {
+      setFetchError(err instanceof Error ? err.message : String(err))
       return null
     }
   }, [runId])
@@ -127,10 +136,19 @@ export function WorkflowRunCard({ runId, flowName, flowId, live = false, onTermi
 
   // 诚实标注：CLI 回复含权限拒绝话术时黄警 —— done 完成的是"放弃并解释"，
   // 不标注会把失败伪装成成功（2026-08-24 权限事故的教训）。
-  const refusedNodes = spans.filter((sp) => sp.status === 'done' && detectRefusal(spanText(sp))).map((sp) => sp.nodeLabel || sp.nodeId)
+  // 每条 span 只算一次（此前同一 span 在进度链/时间线/统计里重复检测 3 次）。
+  const spanFlags = useMemo(
+    () => spans.map((sp) => ({
+      sp,
+      refused: sp.status === 'done' && detectRefusal(spanText(sp)),
+      text: spanText(sp),
+    })),
+    [spans],
+  )
+  const refusedNodes = spanFlags.filter((f) => f.refused).map((f) => f.sp.nodeLabel || f.sp.nodeId)
   const hasRefusal = refusedNodes.length > 0
 
-  const dur = durationMs != null ? `${(durationMs / 1000).toFixed(1)}s` : null
+  const dur = durationMs != null ? formatDuration(durationMs) : null
   const title = flowName || runId.slice(0, 8)
 
   return (
@@ -143,14 +161,13 @@ export function WorkflowRunCard({ runId, flowName, flowId, live = false, onTermi
         <span className='wf-run-kind'>{t('工作流')}</span>
         <span className='wf-run-flow' title={title}>{title}</span>
         <span className='wf-run-chain' aria-hidden='true'>
-          {spans.map((sp) => {
-            let st = sp.status ?? ''
-            if (st === 'done' && detectRefusal(spanText(sp))) st = 'warn'
+          {spanFlags.map(({ sp, refused }) => {
+            const st = refused ? 'warn' : sp.status ?? ''
             return (
               <span
                 key={sp.nodeId ?? sp.node_id}
                 className={`wf-chain-node dot-${st || 'pending'}`}
-                title={`${sp.nodeLabel || sp.nodeId} · ${st === 'warn' ? t('疑似权限受限') : st}`}
+                title={`${sp.nodeLabel || sp.nodeId} · ${refused ? t('疑似权限受限') : t(SPAN_STATUS_CN[st] ?? st)}`}
               />
             )
           })}
@@ -165,19 +182,19 @@ export function WorkflowRunCard({ runId, flowName, flowId, live = false, onTermi
 
       {open ? (
         <div className='wf-run-timeline'>
-          {spans.map((sp) => {
+          {spanFlags.map(({ sp, refused, text }) => {
             const id = sp.nodeId ?? sp.node_id ?? '?'
-            const text = spanText(sp)
-            let st = sp.status ?? ''
-            if (st === 'done' && detectRefusal(text)) st = 'warn'
+            const st = refused ? 'warn' : sp.status ?? ''
             return (
               <details key={id} className={`wf-tl-row status-${st}`} open={st === 'failed' || undefined}>
                 <summary>
                   <span className={`wf-tl-dot dot-${st}`} aria-hidden='true' />
                   <span className='wf-tl-label'>{sp.nodeLabel || id}</span>
                   <span className='wf-tl-meta'>
-                    {st === 'warn' ? `⚠ ${t('疑似权限受限')}` : st === 'running' ? t('运行中') : st === 'done' || st === 'completed' ? t('完成') : st === 'failed' ? t('失败') : st}
-                    {sp.durationMs != null ? ` · ${(sp.durationMs / 1000).toFixed(1)}s` : ''}
+                    {st === 'warn'
+                      ? `⚠ ${t('疑似权限受限')}`
+                      : t(SPAN_STATUS_CN[st] ?? st) || st}
+                    {sp.durationMs != null ? ` · ${formatDuration(sp.durationMs)}` : ''}
                   </span>
                 </summary>
                 {sp.error ? <div className='wf-tl-error'>{sp.error}</div> : null}
@@ -185,7 +202,15 @@ export function WorkflowRunCard({ runId, flowName, flowId, live = false, onTermi
               </details>
             )
           })}
-          {spans.length === 0 ? <div className='wf-tl-empty'>{t('（尚无节点执行记录）')}</div> : null}
+          {spans.length === 0 && fetchError ? (
+            <div className='wf-tl-empty' style={{ color: 'var(--danger)' }}>
+              {t('执行进度加载失败：{error}', { error: fetchError })}{' '}
+              <button type='button' className='btn btn-ghost btn-sm' onClick={() => void fetchOnce()}>
+                {t('重试')}
+              </button>
+            </div>
+          ) : null}
+          {spans.length === 0 && !fetchError ? <div className='wf-tl-empty'>{t('（尚无节点执行记录）')}</div> : null}
           {flowId ? (
             <a className='wf-run-canvas-link' href={`/workflows/${flowId}/canvas?run=${runId}`}>
               {t('在画布中查看')} →

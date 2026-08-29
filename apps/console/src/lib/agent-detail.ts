@@ -58,7 +58,7 @@ export interface AgentDetailPageModel {
   // inspector 属性 rows
   model: string
   runtime: string
-  visibility: 'workspace' | 'public'
+  visibility: 'workspace' | 'public' | 'archived'
   owner: string
   createdAt: string
   concurrency: string
@@ -105,10 +105,11 @@ const KIND_RUNTIME_PREFIX: Record<AgentKind, string> = AGENT_KINDS.reduce(
   {} as Record<AgentKind, string>,
 )
 
-const VISIBILITY_LABEL: Record<string, 'workspace' | 'public'> = {
+const VISIBILITY_LABEL: Record<string, 'workspace' | 'public' | 'archived'> = {
   public: 'public',
   workspace: 'workspace',
   private: 'workspace',
+  archived: 'archived',
 }
 
 const AVAIL_LABEL: Record<AgentAvailability, string> = {
@@ -263,7 +264,7 @@ export function derivePageModel(
   const availability: AgentAvailability = isValidAvailability(agent.availability)
     ? agent.availability
     : deriveAvailability(agent.daemonStatus)
-  const visibility: 'workspace' | 'public' = agent.visibility
+  const visibility: 'workspace' | 'public' | 'archived' = agent.visibility
     ? (VISIBILITY_LABEL[agent.visibility] ?? 'workspace')
     : 'workspace'
   const runtime =

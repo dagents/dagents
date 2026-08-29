@@ -18,7 +18,7 @@
  * spans all 18 CLI agent types (grouped 主流 / 国产 / ACP / 特殊 / 其他).
  */
 
-import { useEffect, useMemo, useRef, useState } from 'react'
+import { useCallback, useEffect, useMemo, useRef, useState } from 'react'
 import { Icon } from '@/components/icon'
 import { useI18n } from '@/i18n'
 import '@/styles/dialog.css'
@@ -62,6 +62,7 @@ export function CreateAgentDialog({
   const { t } = useI18n()
   const [daemons, setDaemons] = useState<DaemonOption[]>([])
   const [loadingDaemons, setLoadingDaemons] = useState(false)
+  const [daemonError, setDaemonError] = useState<string | null>(null)
   const [submitting, setSubmitting] = useState(false)
   const [error, setError] = useState<string | null>(null)
 
@@ -79,29 +80,24 @@ export function CreateAgentDialog({
   // user-typed path (e.g. `/usr/local/bin/claude`) is never clobbered.
   const lastAutoFilled = useRef<string>('')
 
+  const loadDaemons = useCallback(async (): Promise<void> => {
+    setLoadingDaemons(true)
+    setDaemonError(null)
+    try {
+      setDaemons(await fetchDaemons())
+    } catch (err) {
+      // Daemon 列表加载失败不阻塞创建 — 默认"本机"不依赖它，但要如实说。
+      setDaemonError(err instanceof Error ? err.message : String(err))
+    } finally {
+      setLoadingDaemons(false)
+    }
+  }, [])
+
   // Fetch daemons when the dialog opens
   useEffect(() => {
     if (!open) return
-    let cancelled = false
-    setLoadingDaemons(true)
-    setError(null)
-    void (async () => {
-      try {
-        const list = await fetchDaemons()
-        if (cancelled) return
-        setDaemons(list)
-      } catch (err) {
-        // Daemon 列表加载失败不阻塞创建 — 默认"本机"不依赖它。
-        if (!cancelled) setError(err instanceof Error ? err.message : String(err))
-      } finally {
-        if (!cancelled) setLoadingDaemons(false)
-      }
-    })()
-    return () => {
-      cancelled = true
-    }
-    // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [open])
+    void loadDaemons()
+  }, [open, loadDaemons])
 
   // Escape to close
   useEffect(() => {
@@ -124,6 +120,7 @@ export function CreateAgentDialog({
     setExecutablePath('')
     lastAutoFilled.current = ''
     setError(null)
+    setDaemonError(null)
   }, [open])
 
   /** Kind-picker options bucketed by group, preserving KIND_GROUPS order.
@@ -158,7 +155,8 @@ export function CreateAgentDialog({
   // daemon 可选：默认"本机"走 inline 执行（gateway 直接 spawn CLI），只有绑定
   // 远程 daemon 时才选具体条目（gateway 端 daemonId 本就是 optional）。
   // workspace 同理不收集 — gateway 端默认 Default 工作区（...0001）。
-  const canSubmit = nameValid && !submitting && !loadingDaemons
+  // 创建不依赖 daemon 列表（哪怕它加载失败/为空）——本机 inline 是合法路径。
+  const canSubmit = nameValid && !submitting
 
   const handleSubmit = async () => {
     if (!canSubmit) return
@@ -184,7 +182,11 @@ export function CreateAgentDialog({
 
   return (
     <>
-      <div className="drawer-backdrop open" onClick={onClose} aria-hidden="true" />
+      <div
+        className="drawer-backdrop open"
+        onClick={submitting ? undefined : onClose}
+        aria-hidden="true"
+      />
       <div
         className="modal-dialog open"
         role="dialog"
@@ -205,124 +207,138 @@ export function CreateAgentDialog({
         </div>
 
         <div className="modal-body">
-          {loadingDaemons ? (
-            <div className="modal-loading">{t('加载 daemon 列表…')}</div>
-          ) : daemons.length === 0 ? (
-            <div className="modal-empty">
-              {t('暂无已注册的 daemon。请先注册一个 daemon，再创建 agent。')}
-            </div>
-          ) : (
-            <>
-              {/* Identity */}
-              <div className="form-section">
-                <div className="form-section-label">{t('身份')}</div>
-                <div className="field">
-                  <label htmlFor="agent-name">{t('名称 *')}</label>
-                  <input
-                    id="agent-name"
-                    type="text"
-                    className={`input${name.length === 0 ? '' : nameValid ? '' : ' invalid'}`}
-                    value={name}
-                    onChange={(e) => setName(e.target.value)}
-                    placeholder={t('例如 claude-code')}
-                    maxLength={128}
-                    autoFocus
-                  />
-                </div>
-                <div className="field">
-                  <label htmlFor="agent-summary">{t('描述')}</label>
-                  <textarea
-                    id="agent-summary"
-                    className="textarea"
-                    value={summary}
-                    onChange={(e) => setSummary(e.target.value)}
-                    placeholder={t('一句话说明这个 agent 做什么')}
-                    rows={2}
-                    maxLength={2000}
-                  />
-                </div>
-              </div>
-
-              {/* Execution */}
-              <div className="form-section">
-                <div className="form-section-label">{t('执行')}</div>
-                <div className="field">
-                  <label htmlFor="agent-kind">{t('类型')}</label>
-                  <div className="kind-options-grouped">
-                    {groupedOptions.map((g) => (
-                      <div key={g.group} className="kind-group">
-                        <div className="kind-group-label">{t(g.group)}</div>
-                        <div className="kind-options">
-                          {g.options.map((k) => (
-                            <button
-                              key={k.kind}
-                              type="button"
-                              className={`kind-option${kind === k.kind ? ' active' : ''}`}
-                              onClick={() => selectKind(k.kind)}
-                              title={t(k.hint)}
-                            >
-                              {t(k.label)}
-                            </button>
-                          ))}
-                        </div>
-                      </div>
-                    ))}
-                  </div>
-                </div>
-                <div className="field">
-                  <label htmlFor="agent-daemon">{t('执行位置')}</label>
-                  <select
-                    id="agent-daemon"
-                    className="select"
-                    value={daemonId}
-                    onChange={(e) => setDaemonId(e.target.value)}
-                  >
-                    <option value="">{t('本机（inline 直接执行，无需 daemon）')}</option>
-                    {daemons.map((d) => (
-                      <option key={d.id} value={d.id}>
-                        {t('Daemon · {label}（{status}）', { label: d.label, status: d.status })}
-                      </option>
-                    ))}
-                  </select>
-                </div>
-                {kind !== 'prompt' ? (
-                  <div className="field">
-                    <label htmlFor="agent-exec">{t('可执行路径')}</label>
-                    <input
-                      id="agent-exec"
-                      type="text"
-                      className="input"
-                      value={executablePath}
-                      onChange={(e) => setExecutablePath(e.target.value)}
-                      placeholder={t('例如 claude')}
-                    />
+          {/* The form is ALWAYS rendered — daemon 可选（本机 inline 执行是
+              合法路径），daemon 列表为空或加载失败都只在执行区提示。 */}
+          <>
+            {/* Identity */}
+            <div className="form-section">
+              <div className="form-section-label">{t('身份')}</div>
+              <div className="field">
+                <label htmlFor="agent-name">{t('名称 *')}</label>
+                <input
+                  id="agent-name"
+                  type="text"
+                  className={`input${name.length === 0 ? '' : nameValid ? '' : ' invalid'}`}
+                  value={name}
+                  onChange={(e) => setName(e.target.value)}
+                  placeholder={t('例如 claude-code')}
+                  maxLength={128}
+                  autoFocus
+                  aria-invalid={name.length > 0 && !nameValid}
+                  aria-describedby={name.length > 0 && !nameValid ? 'agent-name-error' : undefined}
+                />
+                {name.length > 0 && !nameValid ? (
+                  <div id="agent-name-error" className="field-error" role="alert">
+                    {t('名称需 1–128 个字符')}
                   </div>
                 ) : null}
               </div>
+              <div className="field">
+                <label htmlFor="agent-summary">{t('描述')}</label>
+                <textarea
+                  id="agent-summary"
+                  className="textarea"
+                  value={summary}
+                  onChange={(e) => setSummary(e.target.value)}
+                  placeholder={t('一句话说明这个 agent 做什么')}
+                  rows={2}
+                  maxLength={2000}
+                />
+              </div>
+            </div>
 
-              {/* Access */}
-              <div className="form-section">
-                <div className="form-section-label">{t('访问')}</div>
-                <div className="field">
-                  <label>{t('可见性')}</label>
-                  <div className="kind-options">
-                    {VISIBILITY_OPTIONS.map((v) => (
-                      <button
-                        key={v.value}
-                        type="button"
-                        className={`kind-option${visibility === v.value ? ' active' : ''}`}
-                        onClick={() => setVisibility(v.value)}
-                      >
-                        {t(v.label)}
-                      </button>
-                    ))}
-                  </div>
+            {/* Execution */}
+            <div className="form-section">
+              <div className="form-section-label">{t('执行')}</div>
+              <div className="field">
+                <label htmlFor="agent-kind">{t('类型')}</label>
+                <div className="kind-options-grouped">
+                  {groupedOptions.map((g) => (
+                    <div key={g.group} className="kind-group">
+                      <div className="kind-group-label">{t(g.group)}</div>
+                      <div className="kind-options">
+                        {g.options.map((k) => (
+                          <button
+                            key={k.kind}
+                            type="button"
+                            className={`kind-option${kind === k.kind ? ' active' : ''}`}
+                            onClick={() => selectKind(k.kind)}
+                            title={t(k.hint)}
+                          >
+                            {t(k.label)}
+                          </button>
+                        ))}
+                      </div>
+                    </div>
+                  ))}
                 </div>
               </div>
+              <div className="field">
+                <label htmlFor="agent-daemon">{t('执行位置')}</label>
+                <select
+                  id="agent-daemon"
+                  className="select"
+                  value={daemonId}
+                  onChange={(e) => setDaemonId(e.target.value)}
+                >
+                  <option value="">{t('本机（inline 直接执行，无需 daemon）')}</option>
+                  {daemons.map((d) => (
+                    <option key={d.id} value={d.id}>
+                      {t('Daemon · {label}（{status}）', { label: d.label, status: d.status })}
+                    </option>
+                  ))}
+                </select>
+                {daemonError ? (
+                  <div className="field-hint" style={{ color: 'var(--warn, #b45309)' }}>
+                    {t('Daemon 列表加载失败：{error}', { error: daemonError })}{' '}
+                    <button type="button" className="btn btn-ghost btn-sm" onClick={() => void loadDaemons()}>
+                      {t('重试')}
+                    </button>
+                    {t(' · 仍可创建（默认本机执行）')}
+                  </div>
+                ) : !loadingDaemons && daemons.length === 0 ? (
+                  <div className="field-hint">
+                    {t('未检测到已注册的 daemon — Agent 将在本机 inline 执行。')}
+                  </div>
+                ) : null}
+              </div>
+              {kind !== 'prompt' ? (
+                <div className="field">
+                  <label htmlFor="agent-exec">{t('可执行路径')}</label>
+                  <input
+                    id="agent-exec"
+                    type="text"
+                    className="input"
+                    value={executablePath}
+                    onChange={(e) => setExecutablePath(e.target.value)}
+                    placeholder={t('例如 claude')}
+                  />
+                </div>
+              ) : null}
+            </div>
 
-              {error ? <div className="modal-error">{error}</div> : null}
-            </>
-          )}
+            {/* Access */}
+            <div className="form-section">
+              <div className="form-section-label">{t('访问')}</div>
+              <div className="field">
+                <label>{t('可见性')}</label>
+                <div className="kind-options">
+                  {VISIBILITY_OPTIONS.map((v) => (
+                    <button
+                      key={v.value}
+                      type="button"
+                      className={`kind-option${visibility === v.value ? ' active' : ''}`}
+                      onClick={() => setVisibility(v.value)}
+                    >
+                      {t(v.label)}
+                    </button>
+                  ))}
+                </div>
+              </div>
+            </div>
+
+            {error ? <div className="modal-error">{error}</div> : null}
+          </>
         </div>
 
         <div className="modal-foot">

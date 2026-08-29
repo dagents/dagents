@@ -38,35 +38,41 @@ export function FlowSelector({ value, onChange, disabled }: FlowSelectorProps): 
   const { t } = useI18n()
   const [flows, setFlows] = useState<FlowOption[]>([])
   const [loaded, setLoaded] = useState(false)
+  const [loadError, setLoadError] = useState<string | null>(null)
   const [open, setOpen] = useState(false)
   const [highlighted, setHighlighted] = useState(-1)
   const ref = useRef<HTMLDivElement>(null)
   const triggerRef = useRef<HTMLButtonElement>(null)
   const listboxId = useId()
 
-  useEffect(() => {
-    let cancelled = false
-    void (async () => {
-      try {
-        const res = await fetch('/api/workflows', { cache: 'no-store' })
-        const json = (await res.json()) as {
-          success: boolean
-          data?: { flows?: { id: string; name: string }[] } | FlowOption[]
-        }
-        if (cancelled) return
-        if (json.success && json.data) {
-          const list = Array.isArray(json.data)
-            ? json.data
-            : json.data.flows ?? []
-          setFlows(list.map((f) => ({ id: f.id, name: f.name })))
-        }
-      } catch {
-        // silent — selector shows just "none" on failure
-      } finally {
-        if (!cancelled) setLoaded(true)
+  const load = async (): Promise<void> => {
+    try {
+      const res = await fetch('/api/workflows', { cache: 'no-store' })
+      const json = (await res.json()) as {
+        success: boolean
+        data?: { flows?: { id: string; name: string }[] } | FlowOption[]
+        error?: string
       }
-    })()
-    return () => { cancelled = true }
+      if (json.success && json.data) {
+        const list = Array.isArray(json.data)
+          ? json.data
+          : json.data.flows ?? []
+        setFlows(list.map((f) => ({ id: f.id, name: f.name })))
+        setLoadError(null)
+      } else {
+        setLoadError(json.error ?? `HTTP ${res.status}`)
+      }
+    } catch (err) {
+      // A failure must not masquerade as "还没有 Flow" — the user would
+      // conclude their flows are gone.
+      setLoadError(err instanceof Error ? err.message : String(err))
+    } finally {
+      setLoaded(true)
+    }
+  }
+
+  useEffect(() => {
+    void load()
   }, [])
 
   useEffect(() => {
@@ -80,6 +86,8 @@ export function FlowSelector({ value, onChange, disabled }: FlowSelectorProps): 
     return () => document.removeEventListener('mousedown', handler)
   }, [open])
 
+  // Highlight tracks selection changes, but FOCUS only on open — a value
+  // change while open (e.g. quick rebind) must not yank focus back.
   useEffect(() => {
     if (!open) {
       setHighlighted(-1)
@@ -87,8 +95,18 @@ export function FlowSelector({ value, onChange, disabled }: FlowSelectorProps): 
     }
     const selectedIndex = value === null ? 0 : flows.findIndex((f) => f.id === value) + 1
     setHighlighted(selectedIndex >= 0 ? selectedIndex : 0)
-    triggerRef.current?.focus()
-  }, [open, value, flows])
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [open])
+
+  useEffect(() => {
+    if (open) triggerRef.current?.focus()
+  }, [open])
+
+  useEffect(() => {
+    if (!open) return
+    const selectedIndex = value === null ? 0 : flows.findIndex((f) => f.id === value) + 1
+    setHighlighted(selectedIndex >= 0 ? selectedIndex : 0)
+  }, [value, flows, open])
 
   const selected = flows.find((f) => f.id === value)
   const label = value ? (selected?.name ?? value.slice(0, 8)) : t('无 Flow')
@@ -168,6 +186,7 @@ export function FlowSelector({ value, onChange, disabled }: FlowSelectorProps): 
         <div
           id={listboxId}
           role="listbox"
+          aria-label={t('选择 Flow')}
           className="flow-selector-dropdown"
           aria-activedescendant={highlighted >= 0 ? `${listboxId}-opt-${highlighted}` : undefined}
         >
@@ -202,9 +221,18 @@ export function FlowSelector({ value, onChange, disabled }: FlowSelectorProps): 
               </button>
             )
           })}
-          {showEmptyCreate ? (
+          {loadError ? (
+            <div className="agent-selector-error" role="alert">
+              <Icon name="alertTriangle" style={{ width: 12, height: 12 }} />
+              <span>{t('Flow 列表加载失败：{error}', { error: loadError })}</span>
+              <button type="button" className="btn btn-ghost btn-sm" onClick={() => void load()}>
+                {t('重试')}
+              </button>
+            </div>
+          ) : null}
+          {showEmptyCreate && !loadError ? (
             <Link
-              href="/workflows"
+              href="/flows"
               className="flow-selector-create-link"
               onClick={() => setOpen(false)}
             >

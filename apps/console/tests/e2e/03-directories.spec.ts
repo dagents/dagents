@@ -315,27 +315,20 @@ test.describe('Directories module (UC-DIR-01 ~ 05)', () => {
       expect(typeof item.title).toBe('string')
     }
 
-    // UI: the chat sidebar (chat-nav-sidebar.tsx) groups chats by directory.
-    // Navigating to '/' renders ChatLayout with the sidebar; the seeded
-    // directory's group header shows the directory name + chat count, and
-    // expanding it lists the chat titles.
+    // UI（Workflow-First IA，2026-08-29 重写）：目录→会话树已退役，会话可
+    // 达面是 FAB 副驾的历史抽屉（平铺 + 搜索）。API 契约（directory_id 绑
+    // 定）不变 —— 目录作为 Flow/运行的属性仍由上述 API 承载。
     await page.goto('/')
-    const sidebar = page.locator('.chat-nav-sidebar')
-    await expect(sidebar).toBeVisible({ timeout: 10_000 })
+    await page.getByRole('button', { name: '打开聊天' }).click()
+    const win = page.locator('.floating-chat-window')
+    await expect(win).toBeVisible({ timeout: 10_000 })
+    await win.getByRole('button', { name: '历史对话' }).click()
 
-    const dirName = `E2E-Chats-${SUITE_TAG}`
-    const group = sidebar.locator('.chat-nav-dir-group').filter({ hasText: dirName })
-    await expect(group).toBeVisible({ timeout: 10_000 })
-    // The header carries the live chat count for this directory.
-    await expect(group.locator('.chat-nav-dir-count')).toHaveText(String(chatIdsUnderChatsDir.length))
-
-    // The group may start collapsed (only the first directory auto-expands);
-    // click the header to expand, then assert both chat titles render.
-    await group.locator('.chat-nav-dir-header').click()
-    for (const title of [`E2E-Chat-A-${SUITE_TAG}`, `E2E-Chat-B-${SUITE_TAG}`]) {
-      await expect(group.locator('.chat-nav-chat-item').filter({ hasText: title })).toBeVisible({
-        timeout: 10_000,
-      })
-    }
+    const search = win.locator('.fab-history-search')
+    await expect(search).toBeVisible()
+    await search.fill(`E2E-Chat-A-${SUITE_TAG}`)
+    await expect(
+      win.locator('.fab-history-item').filter({ hasText: `E2E-Chat-A-${SUITE_TAG}` }),
+    ).toBeVisible({ timeout: 10_000 })
   })
 })

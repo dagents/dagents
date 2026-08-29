@@ -347,4 +347,15 @@ export const settings: Record<string, string> = {
   '折叠详情': 'Collapse details',
   '展开详情': 'Expand details',
   '折叠': 'Collapse',
+
+  // ── 2026-08-26 全站 UX 优化新增词条 ──
+  '请完整填写名称、Base URL 与默认模型': 'Please fill in name, Base URL and default model',
+  '即将删除 Provider「{name}」。': 'You are about to delete provider “{name}”.',
+  '占位 — 未接线': 'Placeholder — not wired',
+  '关闭 · 占位': 'Off · placeholder',
+  '启用 · 占位': 'On · placeholder',
+  '权限请求失败 — 请在浏览器站点设置中手动允许通知': 'Permission request failed — allow notifications in the browser site settings',
+  '桌面通知未授权 — 本次仅播放声音': 'Desktop notifications not granted — playing sound only',
+  '已加载 {n} 条': '{n} loaded',
+  'CLI 检测失败：{error} — 表内「未安装」状态不可信': 'CLI detection failed: {error} — “not installed” in the table is unreliable',
 }

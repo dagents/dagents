@@ -16,6 +16,8 @@ import { useRouter } from 'next/navigation'
 import { Icon } from '@/components/icon'
 import { useToast } from '@/components/toast'
 import { useI18n } from '@/i18n'
+import { AGENT_KINDS } from '@/lib/agents-catalog'
+import { formatBytes } from '@/lib/format'
 import {
   type AgentLibraryCatalog,
   type AgentLibraryDetail,
@@ -35,8 +37,11 @@ import '@/styles/dialog.css'
 import '@/styles/agent-templates.css'
 import '@/styles/agent-library.css'
 
-const PROFILE_LABELS: { key: PersonaProfile; zh: string }[] = [
-  { key: 'slim', zh: '均衡（推荐）' },
+/** Runtime kinds offered for instantiation — labels resolve through the
+ *  shared AGENT_KINDS catalog (previously a hardcoded lowercase list). */
+const RUNTIME_KINDS = ['claude', 'codex', 'copilot', 'qwen'] as const
+
+const PROFILE_LABELS: { key: PersonaProfile; zh: string }[] = [  { key: 'slim', zh: '均衡（推荐）' },
   { key: 'full', zh: '完整' },
   { key: 'minimal', zh: '精简' },
 ]
@@ -271,7 +276,11 @@ export function AgentLibraryGallery({
 
   return (
     <>
-      <div className="drawer-backdrop open" onClick={onClose} aria-hidden="true" />
+      <div
+        className="drawer-backdrop open"
+        onClick={submitting ? undefined : onClose}
+        aria-hidden="true"
+      />
       <div
         className="modal-dialog open alib-dialog"
         role="dialog"
@@ -313,9 +322,12 @@ export function AgentLibraryGallery({
                       }}
                       aria-label={t('运行时')}
                     >
-                      {['claude', 'codex', 'copilot', 'qwen'].map((k) => (
-                        <option key={k} value={k}>{k}</option>
-                      ))}
+                      {RUNTIME_KINDS.map((k) => {
+                        const meta = AGENT_KINDS.find((m) => m.kind === k)
+                        return (
+                          <option key={k} value={k}>{meta ? t(meta.label) : k}</option>
+                        )
+                      })}
                     </select>
                     {runtimeKind === 'claude' ? (
                       <select
@@ -581,7 +593,7 @@ export function AgentLibraryGallery({
                         {d ? (
                           <span className={`alib-badge alib-badge-${d.state}`}>{t(DRIFT_BADGES[d.state] ?? d.state)}</span>
                         ) : (
-                          <span className="alib-card-size">{Math.max(1, Math.round(entry.sizeBytes / 1024))}KB</span>
+                          <span className="alib-card-size">{formatBytes(entry.sizeBytes)}</span>
                         )}
                       </button>
                     )
@@ -643,7 +655,7 @@ export function AgentLibraryGallery({
                 type="button"
                 className="btn btn-primary btn-sm"
                 onClick={() => void handleTeamInstantiate()}
-                disabled={submitting || teamConfirm.members.some((m) => !m.available)}
+                disabled={submitting}
               >
                 {submitting ? t('创建中…') : t('创建工作流')}
               </button>

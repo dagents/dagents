@@ -47,6 +47,12 @@ const DEBOUNCE_MS = 250
  *  list is truncated and a tighter query refines it. */
 const RESULT_CAP_HINT = 20
 
+/** Defense-in-depth on top of the gateway's escaping: strip every tag that
+ *  isn't <mark>…</mark> before the snippet hits dangerouslySetInnerHTML. */
+function sanitizeSnippet(html: string): string {
+  return html.replace(/<(?!\/?mark\b)[^>]*>/gi, '')
+}
+
 export const ChatSearchDropdown = forwardRef<ChatSearchDropdownHandle, ChatSearchResultsProps>(
   function ChatSearchResults(
     { query, onClose, directoryId },
@@ -58,6 +64,8 @@ export const ChatSearchDropdown = forwardRef<ChatSearchDropdownHandle, ChatSearc
     const [loading, setLoading] = useState(false)
     const [error, setError] = useState<string | null>(null)
     const [activeIndex, setActiveIndex] = useState(0)
+    // Bumped by the error-state retry button to re-run the last query.
+    const [retryTick, setRetryTick] = useState(0)
     const listRef = useRef<HTMLDivElement>(null)
     const reqIdRef = useRef(0)
 
@@ -102,7 +110,7 @@ export const ChatSearchDropdown = forwardRef<ChatSearchDropdownHandle, ChatSearc
       return () => {
         window.clearTimeout(handle)
       }
-    }, [trimmed, isSearching, directoryId])
+    }, [trimmed, isSearching, directoryId, retryTick, t])
 
     // Clamp activeIndex when the row set shrinks.
     useEffect(() => {
@@ -162,7 +170,16 @@ export const ChatSearchDropdown = forwardRef<ChatSearchDropdownHandle, ChatSearc
         )}
 
         {error && (
-          <div className="chat-search-status is-warning" role="status">{error}</div>
+          <div className="chat-search-status is-warning" role="alert">
+            <span>{error}</span>
+            <button
+              type="button"
+              className="chat-search-retry"
+              onClick={() => setRetryTick((n) => n + 1)}
+            >
+              {t('重试')}
+            </button>
+          </div>
         )}
 
         {showEmpty && (
@@ -195,7 +212,7 @@ export const ChatSearchDropdown = forwardRef<ChatSearchDropdownHandle, ChatSearc
                     {r.snippet ? (
                       <span
                         className="chat-search-item-snippet"
-                        dangerouslySetInnerHTML={{ __html: r.snippet }}
+                        dangerouslySetInnerHTML={{ __html: sanitizeSnippet(r.snippet) }}
                       />
                     ) : null}
                   </span>
