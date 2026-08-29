@@ -61,6 +61,8 @@ llm_providers 表 → OpenAI 兼容 API     nodes 里嵌的平台 Agent → tool
 ### 6. 节点级可观测 + Langfuse 落库
 
 - 每次 run 写一行 `runs` + 每个执行节点一行 `run_node_spans`（状态 / 起止 / 耗时 / token / cost / input / output），console Inspector 按节点渲染
+- **Iteration/Loop 终态可见**（2026-08-27）：controller 节点在体内执行完成后重发 `onNodeEnd`，span 的 `output` 落聚合终态（`completedIterations` / `iterations`），`ended_at` = 整轮循环真实完成时刻（此前 span 定格在 start 快照，终态字段永久丢失——6 例既有 e2e 失败的根因）
+- **失败节点也记 tokens**：被看门狗清理/取消的 CLI 调用把已产生 usage 附着到错误对象（`workflow-clients.ts`），executor 失败路径拾取落 span
 - **Langfuse 导出已接通**（v2 兼容）：`packages/shared/src/langfuse.ts` 把 executed nodes 组装成 trace + generation/span 事件，POST 到 v2 的 `/api/public/ingestion`（v2 无 OTLP 端点，这是 SDK 同款 REST 路径）；成功后把 trace_id（= runId）回填到 `run_node_spans.trace_id`
 - 开启方式（默认关）：在根 `.env` 填 `LANGFUSE_BASE_URL` / `LANGFUSE_PUBLIC_KEY` / `LANGFUSE_SECRET_KEY`（UI → Settings → API Keys 申请），重启 gateway
 
@@ -77,11 +79,13 @@ llm_providers 表 → OpenAI 兼容 API     nodes 里嵌的平台 Agent → tool
 |---|---|
 | 同波次节点 | 并发执行（`Promise.all`） |
 | 分支剪枝 | 条件不匹配的边不激活；无活跃入边的节点跳过并传递 |
-| 多入边合并 | 单入边取 `content` 字符串；多入边浅合并 + content 换行拼接 |
+| 多入边合并 | 单入边取 `content` 字符串；多入边浅合并 + content 换行拼接。**下游消费契约（2026-08-27）**：LLM / PlatformAgent 节点优先取拼接后的 `content`，仅当其缺失时回退 `text`（浅合并的 `text` 只剩最后一条边）——N 进 1 汇总不再丢上游 |
 | 失败语义 | 波次内失败：记录后整次 run 置 failed（同波其余节点跑完） |
+| 空产出守卫 | LLM / PlatformAgent 节点最终正文为空（trim 后 0 字）即抛错、节点标 failed——诚实失败优于空壳成功流向下游（真实复跑曾出现 180s 后 content="" 且 status=done） |
+| CLI 执行时长 | **无墙钟上限**（2026-08-27 产品决策）：仅静默看门狗 `WORKFLOW_CLI_INACTIVITY_TIMEOUT_MS`（默认 300s，逐行输出即重置）；非完成状态（timeout/aborted/cancelled/failed）一律抛错，usage 附着到错误对象、失败节点 span 仍记 tokens |
 | finalOutput | 拓扑序最深的已执行节点的输出 |
-| AbortSignal | 波次间与循环轮间检查；HTTP 节点合并超时 signal。LLM 请求**尚未**接 signal（gateway 的 provider fetch 无超时，挂起的上游会挂住 run） |
-| 循环体边界 | `loop`/`iteration` 锚点可达子图；`result` 锚点承接聚合输出 |
+| AbortSignal | 波次间与循环轮间检查；HTTP LLM 调用带 `LLM_HTTP_TIMEOUT_MS`（非流式总预算 / 流式空闲看门狗）+ signal；CLI 调用接 signal（SIGTERM→SIGKILL） |
+| 循环体边界 | `loop`/`iteration` 锚点可达子图；`result` 锚点承接聚合输出；**体内完成后重发 `onNodeEnd`**——controller 终态 span 含 `completedIterations`/`iterations`，endedAt 反映整轮真实耗时 |
 | HumanInput（聊天） | 挂起等下一条用户消息；系统消息 + `custom:human_input` SSE 事件；超时失败 |
 | HumanInput（API run） | `state.humanInputs`（按 prompt 键）预置答案，缺失即明确报错 |
 | ExecuteFlow | 子流程共享父 run clients；深度上限 3；span 合并进父 run；不向父流推 token |
@@ -94,7 +98,7 @@ llm_providers 表 → OpenAI 兼容 API     nodes 里嵌的平台 Agent → tool
 - **Retriever 目前是关键词检索**（当前会话的 chat_messages ILIKE），不是向量 RAG；接向量库时替换 gateway 的 `historyRetriever` 实现即可，节点契约不变
 - **HumanInput 的挂起状态在 gateway 内存里**（单进程本机模式）：gateway 重启会丢挂起中的输入（流随超时失败）；boot 清扫会把悬空的 chats/runs 收敛为 failed 并留 system 提示，但挂起中的 run 本身不可恢复。前端暂未渲染 `custom:human_input` 专用输入框，但系统消息 + 聊天回复已构成完整可用闭环
 - **Langfuse 需手工申请 keys**；未配置时导出静默关闭，不影响 run
-- **LLM 请求与 CLI 执行已具备超时与显式取消**（2026-08-22，执行取消 spec）：HTTP 调用带 `LLM_HTTP_TIMEOUT_MS`（默认 120s，流式为空闲看门狗）；inline CLI 执行带 `INLINE_INACTIVITY_TIMEOUT_MS`（默认 300s 静默看门狗）；用户显式取消经 `POST /chats/:id/cancel` / `POST /workflows/runs/:runId/cancel` → 内存执行注册表 → AbortSignal → adapter SIGTERM/SIGKILL。仍存的取舍：SSE/WS 掉线**不**隐式取消（显式取消才停）；daemon/dispatch 远程任务暂无取消通道
+- **LLM 请求与 CLI 执行的超时与显式取消**（2026-08-22 执行取消 spec；2026-08-27 修订超时策略）：HTTP 调用带 `LLM_HTTP_TIMEOUT_MS`（默认 120s，流式为空闲看门狗）；CLI 执行**不设墙钟上限**（Agent 自主长跑是常态——曾有 4 路并行 Agent 在 180s 墙被截断成「部分文本 + done」的假成功），全部 CLI 路径只保留静默看门狗：inline 聊天 `INLINE_INACTIVITY_TIMEOUT_MS`、工作流节点 `WORKFLOW_CLI_INACTIVITY_TIMEOUT_MS`（均默认 300s，逐行输出即重置）；看门狗触发或显式取消 → 非完成状态一律抛错（节点 failed、span 记录原因与已产生 tokens）。用户显式取消经 `POST /chats/:id/cancel` / `POST /workflows/runs/:runId/cancel` → 内存执行注册表 → AbortSignal → adapter SIGTERM/SIGKILL。仍存的取舍：SSE/WS 掉线**不**隐式取消（显式取消才停）；daemon/dispatch 远程任务暂无取消通道
 - **普通 Agent 节点无工具循环**：`agentAgentflow` 是单次 LLM 调用（不读 tools/maxIterations）；需要工具循环用 `platformAgentAgentflow`
 
 ## 关键文件索引

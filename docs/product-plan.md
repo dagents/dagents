@@ -45,7 +45,7 @@ WHERE a.outcome = 'success';
 
 ### 现状锚点
 
-- chat 路径：`apps/gateway/src/routes/chat-execute.ts` `routeWorkflowCommand` —— CLI 生成（`workflow-clients.ts` `createCliLlmClient`，180s 硬超时）失败后 fallback HTTP 一次；**解析/校验失败静默降级三节点兜底模板（Start → LLM → DirectReply），仍回复「✅ 工作流已创建」**。
+- chat 路径：`apps/gateway/src/routes/chat-execute.ts` `routeWorkflowCommand` —— CLI 生成（`workflow-clients.ts` `createCliLlmClient`，180s 硬超时；2026-08-27 起 CLI 一律无墙钟、仅静默看门狗）失败后 fallback HTTP 一次；**解析/校验失败静默降级三节点兜底模板（Start → LLM → DirectReply），仍回复「✅ 工作流已创建」**。
 - 画布路径：`apps/console/src/app/api/flowise/api/v1/agentflowv2-generator/generate/route.ts`（console BFF）+ `apps/console/src/lib/flow-generator.ts`（`extractJson` / `normalizeGeneratedFlow`，有 `CANVAS_NODE_TYPES` 白名单、120s/200s 超时、错误文案明确）。**两套链路 prompt / 引擎选择 / 校验 / 超时全不一致。**
 - 画布保存无校验：`flowise-canvas.tsx` `handleSave` 直接 PUT；gateway `workflows.ts` 的 zod 只验 `flowData` 是 record。合法性要到执行时才暴露。
 

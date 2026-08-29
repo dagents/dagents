@@ -189,7 +189,7 @@ console (Next :3000) → gateway (Hono :8080) → @dagents/workflow DagExecutor
 | MA-17 | **Agent 接力 + 变量透传** | Start(variables:{goal}) → A → B(引用 `$flow.state.goal`) → DirectReply | 节点配置的模板变量正确解析（mock 记录中 B 的 prompt 含 goal 值） | 🟡 |
 | MA-18 | **工具循环 maxIterations 封顶** | PlatformAgent + Tool，mock 返回无限 tool_call | 循环在 maxIterations（设 3）处终止；节点失败或强制结束；无死循环（run 有终态） | 🟡 |
 
-### 5.2 工作流运行时 / 节点（WF ~8 例）
+### 5.2 工作流运行时 / 节点（WF ~11 例）
 
 | ID | 场景 | 断言 | 优先级 |
 |---|---|---|---|
@@ -201,6 +201,9 @@ console (Next :3000) → gateway (Hono :8080) → @dagents/workflow DagExecutor
 | WF-06 | Tool 节点 handler 直接执行 | 无 Agent 参与时 handler 结果进入输出 | 🟡 |
 | WF-07 | 变量解析（`$flow.state` / `$input`） | 节点输出正确展开变量 | 🟡 |
 | WF-08 | 配置双形态兼容 | 同一 flow：平铺形态 vs 嵌套 `data.inputs` 形态，run 结果一致 | 🟡 |
+| WF-09 | **菱形合并：N 进 1 LLM 节点收到全部上游**（2026-08-27，真实复跑「产品发现（并行）」暴露的回归钉） | sink 节点 span `input.prompt` 同时含两份上游简报；mock 侧 sink 调用 user 消息双保险。修复前节点只读被 Object.assign 覆盖的 `text`，丢 N-1 份 | 🔴 |
+| WF-10 | LLM 空产出诚实失败 | mock 返回空 text → run 500 + error 含「返回空内容」+ span failed（修复前：200 假成功、content 空） | 🔴 |
+| WF-11 | PlatformAgent 空产出同款守卫 | 同 WF-10 契约但走 Agent 路径（真实复跑中 Agent 0 字正文仍标 done） | 🔴 |
 
 ### 5.3 聊天触发 / SSE（TR ~8 例）
 
@@ -452,5 +455,15 @@ CI 要点：`webServer.reuseExistingServer` 保持；mock 端口冲突检测（`
 - UI-03 画布拖拽/连线（脆弱选择器）→ 只保留画布可达性冒烟（05 + UI-01）；
 - UI-06 嵌套字段归一化 → 契约层 WF-08 覆盖，浏览器侧不重复；
 - UI-07 Agent 快速创建 → 依赖本机安装 CLI，环境相关；
-- ED-07 LLM 挂起（引擎已知限制，LLM fetch 无超时）→ 维持 P2/skip；
+- ED-07 LLM 挂起（HTTP LLM 已有 `LLM_HTTP_TIMEOUT_MS` 超时；skip 原因是 e2e 无法调低外部启动的 gateway 的该值 + 120s 等待过长）→ 维持 P2/skip；
 - 专用测试库 `dagents_e2e` 与 CI（T4-3）→ 后续独立任务（当前 dev 库 + 全套 seed/cleanup 已稳定）。
+
+**引擎修复批次（2026-08-27，真实多实例 CLI 复跑暴露）**：
+
+> 起因：对「产品发现（并行）」（7 节点菱形，4 并行 claude 实例）做真实复跑验证，mock 钉桩的单链路 e2e 全绿但真跑必坏 —— 三个引擎缺陷都是 mock 测不出的。
+
+1. **N 进 1 合并丢上游**（`llm.node.ts` + `platform-agent.node.ts`）：`mergeInputs` 把多上游 `content` 正确拼接，但节点消费时读被 `Object.assign` 覆盖的 `text`（只剩最后一条边）→ 汇总节点只收 1/N 份简报（实测 206 字 / 应 3782 字）。修复：消费侧优先 `content`。**WF-09** 即此回归的钉子（sink prompt 必须含全部上游简报）；
+2. **空产出假成功**：LLM 节点空正文仍 `status=done`（实测 180s 后 content="" 流向下游）；PlatformAgent 同款。修复：双节点空产出守卫抛错。**WF-10 / WF-11** 钉住（500 + error + span failed）；
+3. **Iteration/Loop 终态 span 丢失**（`executor.ts`）：controller 的 `onNodeEnd` 在体内执行前触发，事后只改内存 trace 不重发钩子 → span 永远定格 start 快照（OB-05/MA-06/07/16/ED-03/04 六例既有失败的根因）。修复：体内完成后重发 `onNodeEnd`（终态 + endedAt 顺延），六例全部转绿；
+4. **CLI 超时策略变更**（产品决策：Agent 自主长跑，不设墙钟）：180s 硬墙改为静默看门狗 `WORKFLOW_CLI_INACTIVITY_TIMEOUT_MS`（逐行重置）；非完成状态（timeout/aborted/cancelled）从「部分文本+成功」改为诚实抛错，usage 附着错误落 span。终验：汇总节点 209s（> 旧墙）正常完成；
+5. 测试自身加固：OB-05 改轮询等待（span 异步落库 vs 立即断言的竞态，~1/3 闪失败）；UC-CHAT-04 URL 断言 10s→30s（重启脚本清 `.next` 后首个 send 冷编译可超 15s）。
