@@ -49,9 +49,11 @@ import { CreateFlowDialog } from '@/components/create-flow-dialog'
 import { FlowTemplateGallery } from '@/components/flow-template-gallery'
 import { GenerateFlowDialog } from '@/components/generate-flow-dialog'
 import { FlowsEmptyHero } from '@/components/flows-empty-hero'
+import { FlowRunDialog } from '@/components/flow-run-dialog'
 import { SkeletonList } from '@/components/skeleton'
 import { useToast } from '@/components/toast'
 import { fetchRunNodeSpans, type RunNodeSpan } from '@/lib/node-spans'
+import { fetchDirectories, type Directory } from '@/lib/directories'
 import {
   parseFlowData,
   NODE_STATUS_CN as STATUS_CN,
@@ -242,6 +244,11 @@ export function FlowsView({ home = false }: { home?: boolean }): React.ReactElem
   const [templateOpen, setTemplateOpen] = useState(false)
   const [generateOpen, setGenerateOpen] = useState(false)
   const [runningId, setRunningId] = useState<string | null>(null)
+  // 运行输入对话框（对齐画布运行面板）：点「运行」先收集输入 + 项目目录，
+  // 再异步发起。此前直接 POST 同步端点 —— 响应要等整个流程跑完才返回。
+  const [runDialogFlow, setRunDialogFlow] = useState<{ id: string; name: string } | null>(null)
+  const [runDirectories, setRunDirectories] = useState<Directory[]>([])
+  const [runDirId, setRunDirId] = useState('')
   // Inline delete confirmation per card (like the sidebar's chat delete).
   const [deletingFlowId, setDeletingFlowId] = useState<string | null>(null)
   const [deletingFlowPending, setDeletingFlowPending] = useState(false)
@@ -260,24 +267,34 @@ export function FlowsView({ home = false }: { home?: boolean }): React.ReactElem
 
   /** Run a flow by POSTing to the gateway's /:id/run endpoint, then open the
    *  detail page with the returned run id so the user sees the DAG + result.
-   *  The gateway executes the workflow asynchronously and returns the runId
-   *  via the `x-run-id` response header. Failures land in the top banner —
-   *  the list itself stays rendered (previously an error blanked it). */
-  const runFlow = useCallback(async (flowId: string) => {
+   *  异步模式（?async=1）：网关先落一行 running、后台执行、**立即**返回
+   *  runId —— 同步等待会把 HTTP 响应压到整个流程跑完（CLI Agent 动辄
+   *  几分钟），期间页面无跳转无进度，用户感知「点了没反应」。进度由
+   *  详情页的 spans 轮询承接（见下方 activeRunId effect）。输入作为
+   *  `{{$start.input}}` 传入；directoryId 决定 CLI Agent 的工作目录。
+   *  Failures land in the top banner — the list itself stays rendered. */
+  const runFlow = useCallback(async (flowId: string, input: string, directoryId: string) => {
     setRunningId(flowId)
     setListError(null)
     try {
-      const res = await fetch(`/api/workflows/${encodeURIComponent(flowId)}/run`, {
+      const res = await fetch(`/api/workflows/${encodeURIComponent(flowId)}/run?async=1`, {
         method: 'POST',
         headers: { 'content-type': 'application/json' },
-        body: JSON.stringify({}),
+        body: JSON.stringify({
+          ...(input.trim() ? { input: input.trim() } : {}),
+          ...(directoryId ? { directoryId } : {}),
+        }),
       })
-      const runId = res.headers.get('x-run-id')
-      const json = (await res.json()) as { success: boolean; error?: string }
-      if (!res.ok || !json.success) {
-        setListError(json.error ?? t('运行失败（HTTP {status}）', { status: res.status }))
+      const json = (await res.json().catch(() => null)) as {
+        success?: boolean
+        data?: { runId?: string }
+        error?: string
+      } | null
+      if (!res.ok || !json?.success) {
+        setListError(json?.error ?? t('运行失败（HTTP {status}）', { status: res.status }))
         return
       }
+      const runId = json.data?.runId ?? res.headers.get('x-run-id')
       if (runId) {
         showDetail(flowId, runId)
       } else {
@@ -290,6 +307,29 @@ export function FlowsView({ home = false }: { home?: boolean }): React.ReactElem
       setRunningId(null)
     }
   }, [showDetail, t, toast])
+
+  // 运行目录懒加载：首次打开运行对话框时拉取目录清单；记忆键与画布运行
+  // 面板共用（dagents.canvas.runDir）—— 同一个「运行目录」概念，用户设
+  // 一次两边生效。
+  useEffect(() => {
+    if (!runDialogFlow || runDirectories.length > 0) return
+    let cancelled = false
+    void (async () => {
+      try {
+        const dirs = await fetchDirectories()
+        if (cancelled) return
+        setRunDirectories(dirs)
+        const stored = window.localStorage.getItem('dagents.canvas.runDir')
+        if (stored && dirs.some((d) => d.id === stored)) setRunDirId(stored)
+        else if (dirs.length > 0) setRunDirId((cur) => cur || dirs[0]!.id)
+      } catch {
+        // 目录加载失败 → 对话框显示「无目录 — Agent 在网关目录运行」
+      }
+    })()
+    return () => {
+      cancelled = true
+    }
+  }, [runDialogFlow, runDirectories.length])
 
   /** 返回 AgentFlows — mirrors design `hideDetail` (L464-469): clears both,
    *  and scrubs the `#flow=…&run=…` hash so a refresh/share doesn't reopen
@@ -412,20 +452,70 @@ export function FlowsView({ home = false }: { home?: boolean }): React.ReactElem
       return
     }
     let cancelled = false
-    void (async () => {
-      try {
-        const spans = await fetchRunNodeSpans(activeRunId)
-        if (cancelled) return
-        const byNode: Record<string, RunNodeSpan> = {}
-        for (const s of spans) byNode[s.nodeId] = s
-        setSpansByNode(byNode)
-      } catch {
-        if (!cancelled) setSpansByNode({})
+    let timer = 0
+    let emptyPolls = 0
+    let stablePolls = 0
+    let sawLive = false
+    const stop = (): void => {
+      window.clearInterval(timer)
+    }
+    // 终态收尾：刷新详情/列表（runCount、latestRunId 落位）+ 打扰性反馈。
+    // 只有本挂载期间真的观察到过活动状态（sawLive）才 toast —— 打开旧
+    // 运行详情的定稿轮询保持安静。
+    const finalize = (status: string, spans: RunNodeSpan[]): void => {
+      stop()
+      if (!sawLive) return
+      setReloadDetailTick((n) => n + 1)
+      setReloadListTick((n) => n + 1)
+      if (status === 'completed') {
+        toast.success(t('运行完成'))
+      } else if (status === 'cancelled') {
+        toast.warning(t('已取消'))
+      } else {
+        const failed = spans.find((s) => s.status === 'failed')
+        toast.error(
+          failed?.error
+            ? t('运行失败：{reason}', { reason: String(failed.error).slice(0, 120) })
+            : t('运行失败 — 详见红色节点的错误信息'),
+          8000,
+        )
       }
-    })()
+    }
+    const tick = async (): Promise<void> => {
+      // 单次拉取失败降级为空 map（下方启发式负责停轮询），不崩详情页。
+      const { spans, runStatus } = await fetchRunNodeSpans(activeRunId).catch(() => ({
+        spans: [] as RunNodeSpan[],
+        runStatus: null as string | null,
+      }))
+      if (cancelled) return
+      const byNode: Record<string, RunNodeSpan> = {}
+      for (const s of spans) byNode[s.nodeId] = s
+      setSpansByNode(byNode)
+      if (runStatus === 'completed' || runStatus === 'failed' || runStatus === 'cancelled') {
+        finalize(runStatus, spans)
+        return
+      }
+      if (runStatus) sawLive = true // runs 行仍是 running —— 活动运行
+      // 无 runs 行的旧运行 / 查询失败：启发式收尾（与画布旁观模式同款）
+      if (!runStatus) {
+        if (spans.length === 0) {
+          emptyPolls += 1
+          if (emptyPolls >= 8) stop() // ~10s 无任何 span —— 放弃轮询
+        } else if (!spans.some((s) => s.status === 'running')) {
+          stablePolls += 1
+          if (stablePolls >= 4) stop()
+        } else {
+          stablePolls = 0
+        }
+      }
+    }
+    void tick()
+    timer = window.setInterval(() => void tick(), 1200)
     return () => {
       cancelled = true
+      stop()
     }
+    // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [activeRunId])
 
   // Auto-select the first node when the detail page mounts / the flow changes
@@ -768,7 +858,8 @@ export function FlowsView({ home = false }: { home?: boolean }): React.ReactElem
                         disabled={runningId === f.id}
                         onClick={(e) => {
                           e.stopPropagation()
-                          void runFlow(f.id)
+                          // 先开输入面板（输入 + 项目目录），提交才发起异步运行
+                          setRunDialogFlow({ id: f.id, name: f.name })
                         }}
                       >
                         {runningId === f.id ? t('运行中…') : t('运行')}
@@ -940,6 +1031,30 @@ export function FlowsView({ home = false }: { home?: boolean }): React.ReactElem
           router.push(`/workflows/${flowId}/canvas`)
         }}
       />
+
+      {/* 运行输入对话框（对齐画布运行面板）：提交即关（画布同款），POST
+       * 失败落在顶部 banner —— 详情页接管进度轮询。 */}
+      {runDialogFlow ? (
+        <FlowRunDialog
+          flowName={runDialogFlow.name}
+          directories={runDirectories}
+          dirId={runDirId}
+          onDirChange={(id) => {
+            setRunDirId(id)
+            try {
+              window.localStorage.setItem('dagents.canvas.runDir', id)
+            } catch {
+              /* 私隐模式等场景忽略 */
+            }
+          }}
+          onCancel={() => setRunDialogFlow(null)}
+          onSubmit={(input) => {
+            const target = runDialogFlow
+            setRunDialogFlow(null)
+            void runFlow(target.id, input, runDirId)
+          }}
+        />
+      ) : null}
     </PageShell>
   )
 }

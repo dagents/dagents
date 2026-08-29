@@ -61,7 +61,15 @@ export interface SchedulerNodeSpanRow {
 /** The envelope the scheduler's node-spans route returns. */
 export interface NodeSpansEnvelope {
   success: boolean
-  data?: { runId: string; spans: SchedulerNodeSpanRow[] }
+  data?: {
+    runId: string
+    spans: SchedulerNodeSpanRow[]
+    /** runs 行的状态（completed/failed/cancelled 终态；running 或无行时
+     *  null/undefined）—— 旁观端据此判断轮询何时收尾（画布 watchLoop
+     *  同款契约）。 */
+    runStatus?: string | null
+    runDurationMs?: number | null
+  }
   error?: string
 }
 
@@ -113,8 +121,17 @@ export function toRunNodeSpan(row: SchedulerNodeSpanRow): RunNodeSpan {
   }
 }
 
-/** Fetch a run's node spans through the console's own API route (server-side). */
-export async function fetchRunNodeSpans(runId: string): Promise<RunNodeSpan[]> {
+/** A node-span poll result: the trace + the runs-row status for loop control. */
+export interface RunNodeSpansResult {
+  spans: RunNodeSpan[]
+  /** 终态判断依据（见 NodeSpansEnvelope.runStatus）。 */
+  runStatus: string | null
+}
+
+/** Fetch a run's node spans through the console's own API route (server-side).
+ *  Returns the spans together with the runs-row status so polling callers can
+ *  decide when to stop; one-shot callers can ignore `runStatus`. */
+export async function fetchRunNodeSpans(runId: string): Promise<RunNodeSpansResult> {
   const res = await fetch(`/api/workflows/runs/${encodeURIComponent(runId)}/node-spans`, {
     headers: { accept: 'application/json' },
     cache: 'no-store',
@@ -122,9 +139,9 @@ export async function fetchRunNodeSpans(runId: string): Promise<RunNodeSpan[]> {
   if (!res.ok) {
     // 404 (run has no spans / not found) + 5xx both degrade to an empty list —
     // the inspector shows the execution-derived status + "—" rather than crashing.
-    return []
+    return { spans: [], runStatus: null }
   }
   const json = (await res.json()) as NodeSpansEnvelope
   const rows = json.data?.spans ?? []
-  return rows.map(toRunNodeSpan)
+  return { spans: rows.map(toRunNodeSpan), runStatus: json.data?.runStatus ?? null }
 }

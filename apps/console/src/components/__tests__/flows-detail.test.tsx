@@ -175,8 +175,11 @@ describe('FlowsView — list↔detail swap (M2.2)', () => {
     const runBtn = await screen.findByRole('button', { name: /^运行$/ })
     expect(runBtn).toBeInTheDocument()
 
-    // click 运行 → runFlow → showDetail → detail page becomes active
+    // click 运行 → 输入对话框（输入 + 项目目录）→ 开始运行 → runFlow(?async=1)
+    // → showDetail → detail page becomes active
     await user.click(runBtn)
+    const dialog = await screen.findByRole('dialog', { name: '运行输入' })
+    await user.click(within(dialog).getByRole('button', { name: '开始运行' }))
     const detailPage = document.querySelector('.flow-detail-page')
     expect(detailPage?.classList.contains('active')).toBe(true)
     expect(document.querySelector('.flow-list-page')?.classList.contains('active')).toBe(false)
@@ -193,6 +196,8 @@ describe('FlowsView — list↔detail swap (M2.2)', () => {
     // run → enter detail
     const runBtn = await screen.findByRole('button', { name: /^运行$/ })
     await user.click(runBtn)
+    const dialog = await screen.findByRole('dialog', { name: '运行输入' })
+    await user.click(within(dialog).getByRole('button', { name: '开始运行' }))
     expect(document.querySelector('.flow-detail-page')?.classList.contains('active')).toBe(true)
 
     // back
@@ -210,6 +215,8 @@ describe('FlowsView — list↔detail swap (M2.2)', () => {
     // enter detail
     const runBtn = await screen.findByRole('button', { name: /^运行$/ })
     await user.click(runBtn)
+    const dialog = await screen.findByRole('dialog', { name: '运行输入' })
+    await user.click(within(dialog).getByRole('button', { name: '开始运行' }))
 
     // legend: all 6 statuses present in the detail page
     const legend = await screen.findByText('运行', { selector: '.legend-flow .li' })

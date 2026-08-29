@@ -52,8 +52,10 @@ test.describe('Workflow-First IA smoke (IA-01 ~ IA-04)', () => {
     await page.goto('/runs')
     await expect(page.getByText('运行历史').first()).toBeVisible({ timeout: 10_000 })
 
+    // 与 spec 11 并行时网关/库有竞争（高负载开发机偶发 >10s）—— 行出现
+    // 放宽到 20s（仓库先例：vitest 超时加固）。
     const row = page.locator('.runs-table tbody tr').filter({ hasText: 'e2e-ia-runs-' })
-    await expect(row).toBeVisible({ timeout: 10_000 })
+    await expect(row).toBeVisible({ timeout: 20_000 })
     await expect(row).toContainText('已完成')
     // 画布旁观入口（?run= 直达）
     await expect(row.getByRole('link', { name: '画布旁观' })).toHaveAttribute(

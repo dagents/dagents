@@ -144,6 +144,7 @@ export const chat: Record<string, string> = {
   '运行失败 · {n}s': 'Run failed · {n}s',
   '运行失败 · {node}': 'Run failed · {node}',
   '运行失败 — 详见「运行结果」面板中红色节点': 'Run failed — see the red node in the results panel',
+  '运行失败 — 详见红色节点的错误信息': 'Run failed — see the red node for the error',
   '节点 {node} 失败 — 展开运行结果查看详情': 'Node {node} failed — expand results for details',
   正在执行: 'Running',
   失败: 'failed',

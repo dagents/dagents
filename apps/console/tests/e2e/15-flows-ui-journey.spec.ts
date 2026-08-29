@@ -54,13 +54,17 @@ test.describe('浏览器 UI 旅程（Tier C：UI）', () => {
     // 画布编辑器外壳渲染（back + canvas wrap）
     await expect(page.locator('.agentflow-canvas, [class*="canvas"]').first()).toBeVisible({ timeout: 15_000 })
 
-    // 回 flows 列表 → 卡片出现 → 运行 → 自动打开 detail（真实 UX：runFlow
-    // 成功后 showDetail 跳详情页；列表的「{n} 次运行」是硬编码 0 的占位，
-    // 不作断言对象）
+    // 回 flows 列表 → 卡片出现 → 运行（先开输入对话框，2026-08-29 起
+    // 输入/目录在这里收集）→ 开始运行 → 异步立即打开 detail（真实 UX：
+    // runFlow ?async=1 拿 runId 后 showDetail 跳详情页；列表的
+    // 「{n} 次运行」是硬编码 0 的占位，不作断言对象）
     await page.goto('/flows')
     const card = page.locator('.flow-card').filter({ hasText: 'e2e-ui01-journey' }).first()
     await expect(card).toBeVisible({ timeout: 15_000 })
     await card.getByTitle('运行此 flow').click()
+    const runDialog = page.locator('.modal-dialog.open')
+    await expect(runDialog).toBeVisible()
+    await runDialog.getByRole('button', { name: '开始运行' }).click()
     await expect(page.locator('.flow-detail-page.active')).toBeVisible({ timeout: 15_000 })
     // 记下 id 供 dispose 清理（卡片链接或运行记录都带 id；从 URL 之外拿不到，用 API 反查）
     const list = await request.get('/api/workflows')
