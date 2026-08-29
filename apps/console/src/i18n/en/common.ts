@@ -161,7 +161,6 @@ export const common = {
 
 // ── Workflow-First IA（PRD docs/prd-workflow-first.md，2026-08-29）──
 '工作流': 'Workflows',
-'模板': 'Templates',
 '运行历史': 'Run history',
 '主导航': 'Main navigation',
 '最近对话': 'Recent chats',
@@ -183,6 +182,4 @@ export const common = {
 '生成并进入画布': 'Generate & open canvas',
 '生成失败（HTTP {status}）': 'Generation failed (HTTP {status})',
 '未生成有效的流程节点，请换一种描述重试': 'No valid nodes generated — try another description',
-'模板中心': 'Template center',
-'内置模板 / 团队场景 / 我的模板 —— 选择一个开始': 'Built-in / team scenarios / mine — pick one to start',
 } as const

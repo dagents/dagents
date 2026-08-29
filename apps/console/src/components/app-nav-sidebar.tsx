@@ -4,8 +4,9 @@
  * AppNavSidebar — Workflow-First IA 的主导航（PRD F2，docs/prd-workflow-first.md）。
  *
  * 取代 ChatNavSidebar（目录→会话树）成为工作流主场的信息架构：
- *   工作流 / 模板 / 运行历史 / 智能体 / 技能 / 守护进程 + 底部「最近对话」
+ *   工作流 / 运行历史 / 智能体 / 技能 / 守护进程 + 底部「最近对话」
  *   折叠区（默认收起，D3 决议）——旧会话经 FAB 抽屉与本折叠区保持可达。
+ *   （模板不占导航位：入口在工作流工具栏「从模板创建」，2026-08-29 用户裁决）
  *
  * DOM 类名沿用 chat-nav-* 体系（chat-layout.css），仅新增 nav 段样式
  * （app-nav.css）——双主题 token 自动生效。
@@ -51,7 +52,6 @@ export function AppNavSidebar({
 
   const navItems: NavItem[] = [
     { href: '/', label: t('工作流'), icon: 'flows', exact: true },
-    { href: '/templates', label: t('模板'), icon: 'dashboard' },
     { href: '/runs', label: t('运行历史'), icon: 'terminal' },
     { href: '/agents', label: t('智能体'), icon: 'agents' },
     { href: '/skills', label: t('技能'), icon: 'zap' },
