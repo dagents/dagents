@@ -5,6 +5,7 @@ import type {
   IExecutedNode,
   ExecutionStatus,
   IAgentTool,
+  ITokenUsage,
 } from '../types/execution.js'
 import { NodeRegistry } from './node-registry.js'
 import { RuntimeState } from './runtime.js'
@@ -305,6 +306,10 @@ export class DagExecutor {
                 return { kind: 'executed', nodeId, output: output.output, input: nodeInput }
               } catch (err) {
                 const message = err instanceof Error ? err.message : String(err)
+                // 被看门狗清理/取消的 CLI 调用把已产生的 usage 附着在错误
+                // 对象上（见 gateway createCliLlmClient）—— 失败节点的 span
+                // 也能如实记录烧掉的 tokens，而不是恒 0。
+                const errUsage = (err as { usage?: ITokenUsage }).usage
                 const executed: IExecutedNode = {
                   nodeId,
                   nodeName: flowNode.data.name as string,
@@ -313,6 +318,7 @@ export class DagExecutor {
                   status: 'failed',
                   input: this.toRecord(nodeInput),
                   output: {},
+                  tokens: errUsage ?? null,
                   error: message,
                 }
                 executedNodes.push(executed)
@@ -360,6 +366,13 @@ export class DagExecutor {
             for (let i = executedNodes.length - 1; i >= 0; i--) {
               if (executedNodes[i].nodeId === o.nodeId) {
                 executedNodes[i].output = loopResult.output
+                // 体内执行发生在控制器节点的 onNodeEnd 之后 —— 若不重发
+                // 钩子，增量 span 落库的是 start 快照（只有 iterationInput），
+                // completedIterations/iterations 等终态字段永久丢失
+                // （6 例 e2e 既有失败的根因）。endedAt 顺延到体内完成，
+                // span 时长才等于整轮循环的真实耗时。
+                executedNodes[i].endedAt = new Date().toISOString()
+                opts.onNodeEnd?.(executedNodes[i])
                 break
               }
             }

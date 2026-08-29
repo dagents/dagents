@@ -1036,4 +1036,67 @@ describe('DagExecutor node lifecycle hooks (onNodeStart / onNodeEnd)', () => {
     expect(result.status).toBe('failed')
     expect(events).toEqual(['start:x', 'end:x:failed:kaboom'])
   })
+
+  it('carries usage attached to a thrown error into the failed node trace', async () => {
+    // 被看门狗清理的 CLI 调用把已产生的 usage 附着在错误对象上（gateway
+    // createCliLlmClient）—— 失败节点的 span tokens 也要如实记录。
+    const registry = new NodeRegistry()
+    registry.register({
+      label: 'stall', name: 'stall', version: 1, type: 'stall', category: 'Test', color: '#000', inputs: [],
+      async run(): Promise<INodeOutput> {
+        const err = new Error('CLI agent 未完成（aborted）：claude stalled')
+        ;(err as Error & { usage: unknown }).usage = {
+          prompt_tokens: 7, completion_tokens: 3, total_tokens: 10,
+        }
+        throw err
+      },
+    })
+    const flow: FlowData = {
+      nodes: [{ id: 'x', type: 'customNode', position: { x: 0, y: 0 }, data: { name: 'stall' } }],
+      edges: [],
+    }
+    const result = await new DagExecutor(registry).execute(flow, 'in', {
+      chatId: 'c1', runId: 'r1', state: {}, isLastNode: true,
+    })
+    expect(result.status).toBe('failed')
+    const failed = result.executedNodes.find((n) => n.nodeId === 'x')
+    expect(failed?.tokens).toMatchObject({ total_tokens: 10 })
+  })
+
+  it('re-fires onNodeEnd for a loop controller with the aggregate output after the body runs', async () => {
+    // 回归：controller 的第一次 onNodeEnd 只带 start 快照（iterationInput），
+    // 体内执行完成后必须重发 —— 否则增量 span 永远缺 completedIterations
+    // /iterations（OB-05、MA-06/07/16、ED-03/04 六例 e2e 的根因）。
+    const registry = new NodeRegistry()
+    registry.register(makeEchoNode('bodyNode', 'BODY'))
+    registry.register(new (await import('../nodes/iteration/iteration.node.js')).IterationNode())
+
+    const flow: FlowData = {
+      nodes: [
+        { id: 'it', data: { name: 'iterationAgentflow', items: '["a", "b"]' } },
+        { id: 'body', data: { name: 'bodyNode' } },
+      ],
+      edges: [{ id: 'e1', source: 'it', target: 'body', sourceHandle: 'iteration' }],
+    }
+
+    const controllerEnds: Array<Record<string, unknown>> = []
+    const result = await new DagExecutor(registry).execute(flow, 'ignored', {
+      chatId: 'c1',
+      runId: 'r1',
+      state: {},
+      isLastNode: true,
+      onNodeEnd: (n) => {
+        if (n.nodeId === 'it') controllerEnds.push(n.output as Record<string, unknown>)
+      },
+    })
+
+    expect(result.status).toBe('success')
+    // 第一次 end 是 start 快照，第二次是体内完成后的聚合终态
+    expect(controllerEnds.length).toBeGreaterThanOrEqual(2)
+    const first = controllerEnds[0]
+    const final = controllerEnds[controllerEnds.length - 1]
+    expect(first.completedIterations).toBeUndefined()
+    expect(final.completedIterations).toBe(2)
+    expect((final.iterations as unknown[]).length).toBe(2)
+  })
 })

@@ -144,6 +144,53 @@ describe('LLMNode', () => {
     expect(callArgs.messages[0].content).toContain('Object input')
   })
 
+  it('prefers the concatenated content over the last-edge text in merged multi-upstream input', async () => {
+    // mergeInputs 的多上游形状：content = 全部上游拼接；text 被
+    // Object.assign 用最后一条边覆盖只剩一份。只取 text 会丢 N-1 份上游
+    // 产出（「产品发现（并行）」汇总节点丢 3/4 简报的回归）。
+    const node = new LLMNode()
+    const mockClient = makeMockLlmClient('response')
+    const context = makeContext({ llmClient: mockClient })
+    const mergedInput = {
+      text: 'brief-from-last-edge',
+      content: 'brief-A\nbrief-B\nbrief-C',
+    }
+
+    await node.run(makeNodeData({ prompt: 'Merge these' }), mergedInput, context)
+
+    const callArgs = mockClient.chat.mock.calls[0][0]
+    const userContent = callArgs.messages[0].content as string
+    expect(userContent).toContain('brief-A')
+    expect(userContent).toContain('brief-B')
+    expect(userContent).toContain('brief-C')
+    // 拼接后的 content 是唯一正文来源，不再混入被覆盖的 text
+    expect(userContent).not.toContain('brief-from-last-edge')
+  })
+
+  it('falls back to input.text when merged content is absent or empty', async () => {
+    const node = new LLMNode()
+    const mockClient = makeMockLlmClient('response')
+    const context = makeContext({ llmClient: mockClient })
+
+    await node.run(makeNodeData({ prompt: 'Base' }), { text: 'only-text' }, context)
+    await node.run(makeNodeData({ prompt: 'Base' }), { text: 'kept', content: '' }, context)
+
+    expect(mockClient.chat.mock.calls[0][0].messages[0].content).toContain('only-text')
+    expect(mockClient.chat.mock.calls[1][0].messages[0].content).toContain('kept')
+  })
+
+  it('throws on an empty LLM response instead of marking the node done', async () => {
+    // 空产出守卫：CLI/HTTP 返回空文本时诚实失败（此前 180s 后
+    // content="" 且 status=done 的空成功会静默流向下游）。
+    const node = new LLMNode()
+    const mockClient = makeMockLlmClient('   ')
+    const context = makeContext({ llmClient: mockClient })
+
+    await expect(node.run(makeNodeData({ prompt: 'Hi' }), '', context)).rejects.toThrow(
+      /返回空内容/,
+    )
+  })
+
   it('throws error when llmClient is missing', async () => {
     const node = new LLMNode()
     const context = makeContext()
@@ -238,5 +285,15 @@ describe('LLMNode (streaming)', () => {
 
     const result = await node.run(makeNodeData({ prompt: 'Hi' }), '', context)
     expect(result.output.text).toBe('plain')
+  })
+
+  it('throws on an empty streamed response instead of returning an empty success', async () => {
+    const node = new LLMNode()
+    const client = makeStreamingClient([])
+    const { context } = makeStreamingContext(client)
+
+    await expect(node.run(makeNodeData({ prompt: 'Hi' }), '', context)).rejects.toThrow(
+      /返回空内容/,
+    )
   })
 })

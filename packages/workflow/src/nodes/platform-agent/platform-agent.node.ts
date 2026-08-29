@@ -85,16 +85,17 @@ export class PlatformAgentNode implements INode {
       .join('\n\n')
     const systemPrompt = this.buildSystemPrompt(combinedInstructions, agentConfig.skills ?? [])
 
-    // Extract user message from upstream input
+    // Extract user message from upstream input. 多上游合并时 `content` 是
+    // 全部上游的拼接、`text` 只剩最后一条（Object.assign 覆盖），故优先
+    // 取 content（与 llm.node 的修复一致）。
     let userMessage = ''
     if (typeof input === 'string' && input.length > 0) {
       userMessage = input
-    } else if (typeof input === 'object' && input !== null && 'text' in input) {
-      const inputText = (input as { text: unknown }).text
-      if (typeof inputText === 'string') userMessage = inputText
-    } else if (typeof input === 'object' && input !== null && 'content' in input) {
-      const content = (input as { content: unknown }).content
-      if (typeof content === 'string') userMessage = content
+    } else if (typeof input === 'object' && input !== null) {
+      const rec = input as Record<string, unknown>
+      const content = typeof rec.content === 'string' ? rec.content : ''
+      const text = typeof rec.text === 'string' ? rec.text : ''
+      userMessage = content.length > 0 ? content : text
     }
 
     if (!options.llmClient) {
@@ -194,6 +195,14 @@ export class PlatformAgentNode implements INode {
       finalText =
         finalText +
         `\n\n[Platform Agent reached the maxIterations (${maxIterations}) limit while tools were still pending]`
+    }
+
+    // 空产出守卫（与 llm.node 一致）：Agent 一轮跑完没有任何正文几乎必然
+    // 是异常（CLI 截断、指令与输入错位）。诚实失败优于空壳成功流向下游。
+    if (finalText.trim().length === 0) {
+      throw new Error(
+        `Agent 节点「${agentConfig.name}」返回空内容 — 请检查 Agent 指令与上游输入`,
+      )
     }
 
     return {

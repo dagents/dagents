@@ -77,4 +77,25 @@ describe('PlatformAgentNode — 节点级任务指令', () => {
     expect(capture.system).toContain('你是平台 Agent。')
     expect(capture.system).not.toContain('需求规划')
   })
+
+  it('throws on an empty final answer instead of returning an empty success', async () => {
+    // 空产出守卫（2026-08-27）：真实复跑中 Agent 一轮跑完 0 字正文仍标
+    // done —— 与 llm.node 同款诚实失败。
+    const ctx = makeContext({ system: '', user: '' })
+    ctx.llmClient = {
+      chat: async () => ({ text: '' }),
+    }
+    const node = new PlatformAgentNode()
+    await expect(
+      node.run(
+        {
+          id: 'n3',
+          name: 'platformAgentAgentflow',
+          inputs: { agentId: 'agent-1' },
+        },
+        '输入',
+        ctx,
+      ),
+    ).rejects.toThrow(/返回空内容/)
+  })
 })

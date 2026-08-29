@@ -61,9 +61,16 @@ export class LLMNode implements INode {
 
     if (typeof input === 'string' && input.length > 0) {
       resolvedPrompt = `${resolvedPrompt}\n\n${input}`
-    } else if (typeof input === 'object' && input !== null && 'text' in input) {
-      const inputText = (input as { text: unknown }).text
-      if (typeof inputText === 'string' && inputText.length > 0) {
+    } else if (typeof input === 'object' && input !== null) {
+      // 多上游合并时 mergeInputs 把全部上游 content 拼进 `content`，而
+      // `text` 被 Object.assign 用最后一条边覆盖只剩一份 —— 必须优先取
+      // `content`，否则 N 进 1 的 LLM 节点只看到 1/N 的上游产出
+      // （真实复跑「产品发现（并行）」时汇总节点丢 3/4 简报的根因）。
+      const rec = input as Record<string, unknown>
+      const content = typeof rec.content === 'string' ? rec.content : ''
+      const text = typeof rec.text === 'string' ? rec.text : ''
+      const inputText = content.length > 0 ? content : text
+      if (inputText.length > 0) {
         resolvedPrompt = `${resolvedPrompt}\n\n${inputText}`
       }
     }
@@ -104,6 +111,16 @@ export class LLMNode implements INode {
       const result = await options.llmClient.chat({ model, messages, temperature, signal: options.signal })
       text = result.text
       usage = result.usage
+    }
+
+    // 空产出守卫：CLI/HTTP 返回空文本几乎必然是异常（CLI agent 干了活但
+    // 没输出正文、上游全部丢失等）。静默标记 done 会让下游拿到空壳成功
+    // ——宁可诚实失败，让运行卡在具名节点上（真实复跑曾出现 180s 后
+    // content="" 且 status=done 的空成功）。
+    if (text.trim().length === 0) {
+      throw new Error(
+        `LLM 节点返回空内容（model=${model || 'default'}）— 请检查上游输入与模型配置`,
+      )
     }
 
     return {
