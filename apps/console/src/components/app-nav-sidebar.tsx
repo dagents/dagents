@@ -17,9 +17,9 @@ import { usePathname } from 'next/navigation'
 import { Icon } from '@/components/icon'
 import { LocaleToggle } from '@/components/locale-toggle'
 import { ThemeToggle } from '@/components/theme-toggle'
-import { fetchChats, CHAT_STATUS_LABEL, type Chat } from '@/lib/chats'
+import { fetchChats, type Chat } from '@/lib/chats'
 import { fetchDirectories } from '@/lib/directories'
-import { truncateTitle } from '@/lib/format'
+import { truncateTitle, formatRelativeCompact } from '@/lib/format'
 import { useI18n } from '@/i18n'
 import '@/styles/app-nav.css'
 
@@ -150,18 +150,24 @@ export function AppNavSidebar({
 /** 底部「最近对话」折叠区 —— 旧会话可达性保底（默认收起，D3）。 */
 function RecentChats({ collapsed }: { collapsed: boolean }): React.ReactElement | null {
   const { t } = useI18n()
+  const pathname = usePathname() ?? '/'
   const [open, setOpen] = useState(false)
   const [chats, setChats] = useState<Chat[]>([])
+  const [dirNameById, setDirNameById] = useState<Record<string, string>>({})
+  const [loading, setLoading] = useState(false)
 
   useEffect(() => {
     setOpen(localStorage.getItem(RECENT_KEY) === 'open')
   }, [])
 
-  // 收起态不拉数据；展开时取各目录第一页合并取最近 5 条（目录数小，N 次
-  // 请求可接受；跨目录「最近会话」聚合接口留待后端演进）。
+  // 展开时拉数据：各目录第一页合并取最近 8 条（目录数小，N 次请求可
+  // 接受；跨目录「最近会话」聚合接口留待后端演进）。deps 含 pathname ——
+  // 路由变化（新会话创建后跳详情、返回列表）即刷新，列表不再只在首次
+  // 展开时定格成陈旧快照。
   useEffect(() => {
     if (!open || collapsed) return
     let cancelled = false
+    setLoading(true)
     void (async () => {
       try {
         const dirs = await fetchDirectories()
@@ -169,19 +175,51 @@ function RecentChats({ collapsed }: { collapsed: boolean }): React.ReactElement 
           dirs.map((d) => fetchChats(d.id).catch(() => [] as Chat[])),
         )
         if (cancelled) return
-        const merged = pages
-          .flat()
-          .sort((a, b) => (a.updatedAt < b.updatedAt ? 1 : -1))
-          .slice(0, 5)
-        setChats(merged)
+        setChats(
+          pages
+            .flat()
+            .sort((a, b) => (a.updatedAt < b.updatedAt ? 1 : -1))
+            .slice(0, 8),
+        )
+        setDirNameById(Object.fromEntries(dirs.map((d) => [d.id, d.name || d.path])))
       } catch {
         // 静默 —— 折叠区是可达性保底，失败不阻塞导航
+      } finally {
+        if (!cancelled) setLoading(false)
       }
     })()
     return () => {
       cancelled = true
     }
-  }, [open, collapsed])
+  }, [open, collapsed, pathname])
+
+  // 有 running 会话时低频自刷新（15s）—— 否则状态点永远转圈，用户要去
+  // 别处才知道跑完了。终态即停（hasRunning 变 false）。
+  const hasRunning = chats.some((c) => c.status === 'running')
+  useEffect(() => {
+    if (!open || collapsed || !hasRunning) return
+    const timer = window.setInterval(() => {
+      void (async () => {
+        try {
+          const dirs = await fetchDirectories()
+          const pages = await Promise.all(
+            dirs.map((d) => fetchChats(d.id).catch(() => [] as Chat[])),
+          )
+          setChats(
+            pages
+              .flat()
+              .sort((a, b) => (a.updatedAt < b.updatedAt ? 1 : -1))
+              .slice(0, 8),
+          )
+        } catch {
+          // 静默 —— 下一轮再试
+        }
+      })()
+    }, 15_000)
+    return () => {
+      window.clearInterval(timer)
+    }
+  }, [open, collapsed, hasRunning])
 
   const toggle = useCallback(() => {
     setOpen((prev) => {
@@ -206,21 +244,29 @@ function RecentChats({ collapsed }: { collapsed: boolean }): React.ReactElement 
       </button>
       {open ? (
         <div className="app-nav-recent-list" role="list">
-          {chats.length === 0 ? (
+          {loading && chats.length === 0 ? (
+            <span className="app-nav-recent-empty">{t('加载中…')}</span>
+          ) : chats.length === 0 ? (
             <span className="app-nav-recent-empty">{t('暂无最近对话')}</span>
           ) : (
-            chats.map((c) => (
-              <Link
-                key={c.id}
-                href={`/chats/${c.id}`}
-                className="app-nav-recent-item"
-                title={c.title}
-              >
-                <span className={`status-dot ${c.status === 'running' ? 'dot-running' : 'dot-done'}`} />
-                <span className="app-nav-recent-title">{truncateTitle(c.title, 16)}</span>
-                <span className="app-nav-recent-status">{t(CHAT_STATUS_LABEL[c.status] ?? c.status)}</span>
-              </Link>
-            ))
+            chats.map((c) => {
+              // 状态由左侧状态点表达；右侧给相对时间（谁刚聊过一眼可辨），
+              // 目录名进 hover tooltip（同标题会话跨目录可区分）。
+              const active = pathname === `/chats/${c.id}`
+              const dirName = dirNameById[c.directoryId]
+              return (
+                <Link
+                  key={c.id}
+                  href={`/chats/${c.id}`}
+                  className={`app-nav-recent-item${active ? ' active' : ''}`}
+                  title={dirName ? `${c.title} · ${dirName}` : c.title}
+                >
+                  <span className={`status-dot ${c.status === 'running' ? 'dot-running' : 'dot-done'}`} />
+                  <span className="app-nav-recent-title">{truncateTitle(c.title, 16)}</span>
+                  <span className="app-nav-recent-time">{formatRelativeCompact(c.updatedAt, t)}</span>
+                </Link>
+              )
+            })
           )}
         </div>
       ) : null}

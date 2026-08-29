@@ -117,8 +117,12 @@ test.describe('Sidebar navigation — Workflow-First IA (UC-NAV-01 ~ 07)', () =>
     // truncateTitle(16) 会截断标题 —— 按唯一前缀匹配
     const item = page.locator('.app-nav-recent-item').filter({ hasText: chatTitle.slice(0, 12) })
     await expect(item).toBeVisible({ timeout: 10_000 })
+    // 相对时间戳在行尾（状态由状态点表达）
+    await expect(item.locator('.app-nav-recent-time')).toHaveText(/^(刚刚|\d+[分时天月年])$/)
     await item.click()
     await expect(page).toHaveURL(new RegExp(`/chats/${seededChatId}`), { timeout: 15_000 })
+    // 进入详情后侧栏当前会话高亮
+    await expect(item).toHaveClass(/active/)
   })
 
   // ── UC-NAV-06: FAB 历史抽屉搜索并载入会话 ────────────────────────────────
