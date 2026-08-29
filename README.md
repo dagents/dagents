@@ -112,7 +112,8 @@ gateway logs a warning. Full details and an SSO option in the docs.
 We'd rather tell you up front:
 
 - **JS nodes are not sandboxed** — `CustomFunction` / tool / loop conditions run via `new Function`. Flows are authored by the machine owner; do not expose flow authoring to untrusted users.
-- **Remote daemon tasks cannot be cancelled yet** — inline chat/workflow executions have timeouts and explicit cancel (`POST /chats/:id/cancel`); dispatch/daemon remote tasks are cancel-deferred (see the cancellation spec §7).
+- **Remote daemon tasks cannot be cancelled yet** — inline chat/workflow executions can be cancelled explicitly (`POST /chats/:id/cancel`); dispatch/daemon remote tasks are cancel-deferred (see the cancellation spec §7).
+- **CLI agents have no wall-clock cap, only an inactivity watchdog** — long autonomous runs are the norm (a hard 180s cap was removed after it truncated real 4-agent parallel runs into false successes). A CLI that goes silent for `WORKFLOW_CLI_INACTIVITY_TIMEOUT_MS` (default 5 min, reset on every output line) is killed and the node fails honestly with its usage recorded.
 - **Plain `LLM` nodes are single-shot** — use `PlatformAgent` nodes when you need tool-calling loops.
 - **Retriever is keyword-based** (ILIKE over chat history), not vector RAG — the node contract is ready for a vector backend swap.
 - **Human-input pending state is in-memory** — a gateway restart drops pending inputs (they fail with timeout).

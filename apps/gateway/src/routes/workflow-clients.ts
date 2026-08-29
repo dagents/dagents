@@ -108,8 +108,16 @@ export function buildCliMessages(messages: { role: string; content: string }[]):
   return { systemPrompt: system || undefined, prompt }
 }
 
-/** Hard wall-clock budget for one CLI-backed chat call. */
-export const CLI_LLM_TIMEOUT_MS = 180_000
+/**
+ * 工作流 CLI 调用不设墙钟上限 —— Agent 自主长跑是常态（2026-08-27 产品
+ * 决策：真实复跑中 3/4 并行 Agent 在 180s 墙被截断成「部分文本 + done」
+ * 的假成功）。唯一保留的清理机制是静默看门狗：逐行输出即重置，活跃
+ * 干活永不触发，真挂死 N 分钟后 SIGTERM→SIGKILL。显式取消走 signal。
+ * 默认与 inline 执行路径（INLINE_INACTIVITY_TIMEOUT_MS）对齐。
+ */
+export const CLI_INACTIVITY_TIMEOUT_MS = Number(
+  process.env.WORKFLOW_CLI_INACTIVITY_TIMEOUT_MS ?? 300_000,
+)
 
 /**
  * Timeout (ms) for HTTP LLM calls: non-stream `chat` gets it as a total
@@ -135,7 +143,7 @@ export function createCliLlmClient(kind: AgentType = 'claude', cliCwd?: string) 
       const backend = createBackend(kind, { executablePath: '', logger: log })
       const session = backend.execute(prompt, {
         systemPrompt,
-        timeoutMs: CLI_LLM_TIMEOUT_MS,
+        inactivityTimeoutMs: CLI_INACTIVITY_TIMEOUT_MS,
         signal: params.signal,
         // 工作目录 = 项目目录：Agent/LLM 节点的 CLI 在选定项目里干活
         //（读写文件、跑命令都基于它）。缺省回落 gateway 进程 cwd。
@@ -146,8 +154,33 @@ export function createCliLlmClient(kind: AgentType = 'claude', cliCwd?: string) 
         if (evt.type === 'text') text += evt.content
       }
       const result = await session.result
-      if (result.status === 'failed') {
-        throw new Error(`CLI llm backend failed: ${result.error ?? 'unknown'}`)
+      if (result.status !== 'completed') {
+        // 任何非完成状态（timeout/aborted/cancelled/failed）都如实抛错：
+        // 此前只检查 failed，被看门狗清理的运行带着部分文本落回「成功」，
+        // 表现为 span done + 空/截断 content（真实复跑的假成功来源）。
+        // usage 附着到错误对象 —— 引擎失败路径据此把已产生 tokens 落 span。
+        const err = new Error(
+          `CLI agent 未完成（${result.status}）：${result.error ?? '未知错误'}`,
+        )
+        const models = Object.keys(result.usage ?? {})
+        if (models.length > 0) {
+          let usageIn = 0
+          let usageOut = 0
+          for (const m of models) {
+            const u = result.usage![m] as { inputTokens?: number; outputTokens?: number } | undefined
+            usageIn += u?.inputTokens ?? 0
+            usageOut += u?.outputTokens ?? 0
+          }
+          const withUsage = err as Error & { usage?: ITokenUsage }
+          withUsage.usage = {
+            prompt_tokens: usageIn,
+            completion_tokens: usageOut,
+            total_tokens: usageIn + usageOut,
+            inputTokens: usageIn,
+            outputTokens: usageOut,
+          }
+        }
+        throw err
       }
       // 聚合各模型 usage（claude stream-json 事件携带）—— 结果面板的
       // token 徽章 / runs 用量聚合都依赖它；此前只返回 text 导致恒空。
@@ -162,8 +195,9 @@ export function createCliLlmClient(kind: AgentType = 'claude', cliCwd?: string) 
           output += u?.outputTokens ?? 0
         }
         // 双命名（ITokenUsage 是 prompt_tokens 命名 + 开放索引；结果面板
-        // 的 tokensBadge 读 inputTokens/outputTokens）
-        usage = { prompt_tokens: input, completion_tokens: input, total_tokens: input + output, inputTokens: input, outputTokens: output }
+        // 的 tokensBadge 读 inputTokens/outputTokens）。此前 completion_tokens
+        // 误写成 input（笔误），输出侧用量被夸大。
+        usage = { prompt_tokens: input, completion_tokens: output, total_tokens: input + output, inputTokens: input, outputTokens: output }
       }
       return { text: text || result.output || '', usage }
     },
@@ -201,6 +235,11 @@ export function createDefaultLlmClient(kind: AgentType = 'claude', opts: { cwd?:
       const result = await cli.chat(params)
       if (result.text.length > 0) {
         yield { delta: result.text }
+      }
+      // CLI 路径也要把 usage 吐给消费者 —— 否则聊天触发的 flow（最后节点
+      // 走 chatStream）token 徽章恒空，与 HTTP 路径行为不一致。
+      if (result.usage) {
+        yield { usage: result.usage }
       }
     },
   }
