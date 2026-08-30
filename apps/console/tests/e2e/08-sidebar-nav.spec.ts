@@ -12,15 +12,16 @@ import {
  * 重写，PRD docs/prd-workflow-first.md 评审 D2）。
  *
  * 新侧栏（app-nav-sidebar.tsx）：工作流 / 运行历史 / 智能体 / 技能 /
- * 守护进程 + 底部「最近对话」折叠区（默认收起）。模板不占导航位（2026-08-29
- * 用户裁决：工作流工具栏「从模板创建」按钮已是入口）。旧「目录→会话树」用例
- * （UC-NAV-03/04/05 旧义）由 FAB 历史抽屉与最近对话折叠区承接。
+ * 守护进程 + 会话历史树。模板不占导航位（2026-08-29 用户裁决：工作流
+ * 工具栏「从模板创建」按钮已是入口）；会话历史同样 2026-08-29 用户裁决
+ * 恢复「项目目录为第一维度」的树（ChatHistoryTree，与 Chat-First 回滚壳
+ * 共用同一实现 —— 搜索/目录重命名删除/每目录新建/会话重命名删除全量回归）。
  *
  *   UC-NAV-01  折叠/展开侧栏（跨刷新持久化）——机制与旧侧栏一致
  *   UC-NAV-02  主导航切换（工作流 → 运行历史 → 智能体）
  *   UC-NAV-03  模板入口 = 工作流工具栏「从模板创建」按钮（不再有 /templates 路由）
  *   UC-NAV-04  当前页 aria-current 标记
- *   UC-NAV-05  「最近对话」折叠区：展开列出种子会话，点击进入详情
+ *   UC-NAV-05  项目分组会话树：展开种子目录、点击会话进详情、aria-current
  *   UC-NAV-06  FAB 历史抽屉：搜索并载入会话
  *   UC-NAV-07  设置入口可达
  */
@@ -107,22 +108,23 @@ test.describe('Sidebar navigation — Workflow-First IA (UC-NAV-01 ~ 07)', () =>
     )
   })
 
-  // ── UC-NAV-05: 「最近对话」折叠区 ────────────────────────────────────────
+  // ── UC-NAV-05: 项目分组会话树（ChatHistoryTree）───────────────────────
 
-  test('UC-NAV-05: recent-chats collapse lists seeded chat and opens its detail', async ({ page }) => {
-    const toggle = page.getByRole('button', { name: /最近对话/ })
-    await expect(toggle).toBeVisible({ timeout: 10_000 })
-    await toggle.click()
-
-    // truncateTitle(16) 会截断标题 —— 按唯一前缀匹配
-    const item = page.locator('.app-nav-recent-item').filter({ hasText: chatTitle.slice(0, 12) })
+  test('UC-NAV-05: project-grouped chat tree lists seeded chat and opens its detail', async ({ page }) => {
+    await page.goto('/')
+    // 2026-08-29 用户裁决：恢复「项目目录为第一维度」的会话树（ChatHistoryTree，
+    // 与 Chat-First 壳共用）—— 断言目录分组 + 会话行 + 详情页内 aria-current。
+    const group = page.locator('.chat-nav-dir-group').filter({ hasText: dirName })
+    await expect(group).toBeVisible({ timeout: 10_000 })
+    // 展开种子目录 —— 首目录挂载即自动展开，无条件点击会把它收起
+    const header = group.locator('.chat-nav-dir-header')
+    if ((await header.getAttribute('aria-expanded')) !== 'true') await header.click()
+    const item = group.locator('.chat-nav-chat-item').filter({ hasText: chatTitle.slice(0, 12) })
     await expect(item).toBeVisible({ timeout: 10_000 })
-    // 相对时间戳在行尾（状态由状态点表达）
-    await expect(item.locator('.app-nav-recent-time')).toHaveText(/^(刚刚|\d+[分时天月年])$/)
     await item.click()
     await expect(page).toHaveURL(new RegExp(`/chats/${seededChatId}`), { timeout: 15_000 })
-    // 进入详情后侧栏当前会话高亮
-    await expect(item).toHaveClass(/active/)
+    // 进入详情后树中当前会话带 aria-current=page
+    await expect(item).toHaveAttribute('aria-current', 'page')
   })
 
   // ── UC-NAV-06: FAB 历史抽屉搜索并载入会话 ────────────────────────────────

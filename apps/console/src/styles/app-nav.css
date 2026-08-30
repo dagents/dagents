@@ -51,109 +51,14 @@
   padding: 8px 0;
 }
 
-/* ── 最近对话折叠区 ── */
-.app-nav-recent {
-  margin-top: auto;
-  padding: 4px 8px 6px;
-  border-top: 1px solid var(--border, rgba(0, 0, 0, 0.08));
-  /* 弹性填充 + 内滚：展开多行时收缩自身而不是把页脚挤出可视区 */
-  flex: 1 1 auto;
-  min-height: 0;
-  overflow: hidden;
-  display: flex;
-  flex-direction: column;
-}
-
-.app-nav-recent-toggle {
-  display: flex;
-  align-items: center;
-  gap: 8px;
-  width: 100%;
-  padding: 6px 10px;
-  border: 0;
-  border-radius: 8px;
-  background: transparent;
-  color: var(--text-2, var(--text));
-  font-size: 12px;
-  cursor: pointer;
-}
-
-.app-nav-recent-toggle:hover {
-  background: var(--bg-2, var(--surface-hover, rgba(0, 0, 0, 0.05)));
-  color: var(--text);
-}
-
-.app-nav-chev {
-  margin-left: auto;
-  transition: transform 0.15s ease;
-}
-
-.app-nav-chev.open {
-  transform: rotate(90deg);
-}
-
-/* flex 列容器里限高 + 内滚 —— 展开多行时页脚（设置/主题）不被推出视口 */
-.app-nav-recent {
-  flex-shrink: 0;
-}
-
-.app-nav-recent-list {
-  display: flex;
-  flex-direction: column;
-  gap: 1px;
-  padding: 2px 0 4px;
-  flex: 1 1 auto;
-  min-height: 0;
-  overflow-y: auto;
-}
-
-.app-nav-recent-item {
-  display: flex;
-  align-items: center;
-  gap: 8px;
-  padding: 5px 10px;
-  border-radius: 7px;
-  color: var(--text-2, var(--text));
-  text-decoration: none;
-  font-size: 12px;
-}
-
-.app-nav-recent-item:hover {
-  background: var(--bg-2, var(--surface-hover, rgba(0, 0, 0, 0.05)));
-  color: var(--text);
-}
-
-.app-nav-recent-title {
-  flex: 1;
-  min-width: 0;
-  white-space: nowrap;
-  overflow: hidden;
-  text-overflow: ellipsis;
-}
-
-/* 相对时间（刚刚/5分/3时…）—— 状态由左侧状态点表达，行尾给时间感 */
-.app-nav-recent-time {
-  font-size: 10px;
-  opacity: 0.6;
-  white-space: nowrap;
-  flex-shrink: 0;
-}
-
-/* 当前会话高亮（与主导航 active 同款 accent） */
-.app-nav-recent-item.active {
-  background: var(--accent-soft, rgba(99, 102, 241, 0.12));
-  color: var(--accent, #6366f1);
-}
-
-.app-nav-recent-empty {
-  padding: 6px 10px;
-  font-size: 11px;
-  opacity: 0.55;
-}
+/* ── 会话历史树 ──
+ * 2026-08-29 用户裁决：恢复「项目目录为第一维度」的会话树（ChatHistoryTree，
+ * 与 Chat-First 回滚壳共用），取代此前的扁平「最近对话」列表。树本体复用
+ * chat-nav-sidebar.css 的 .chat-nav-browser 与 .chat-nav-dir- / .chat-nav-chat-
+ * 系列类（自带 flex:1 + min-height:0，填满主导航与页脚之间，折叠态由
+ * .chat-layout-sidebar.collapsed 统一隐藏）。 */
 
 /* 暗色主题微调（黄警条教训：新组件默认双主题校验） */
-[data-theme='dark'] .app-nav-item:hover,
-[data-theme='dark'] .app-nav-recent-toggle:hover,
-[data-theme='dark'] .app-nav-recent-item:hover {
+[data-theme='dark'] .app-nav-item:hover {
   background: rgba(255, 255, 255, 0.06);
 }
