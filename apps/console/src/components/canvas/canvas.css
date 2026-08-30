@@ -606,5 +606,23 @@ details.canvas-result-io[open] > summary::before { content: '▾ '; }
   background: var(--surface); border-radius: 0 6px 6px 0;
   max-height: 260px; overflow-y: auto;
 }
+/* live tail（2026-08-30 流式展示）：running 节点的 partial 正文 ——
+   光标呼吸 + 底部渐隐提示「还在写」。滚动条贴底由渲染方保证
+   （max-height 容器，用户手动上翻不干扰）。 */
+.canvas-result-text.streaming::after {
+  content: '▍';
+  display: inline-block;
+  margin-left: 2px;
+  color: var(--accent);
+  animation: canvas-stream-cursor 1s steps(2) infinite;
+}
+@keyframes canvas-stream-cursor {
+  0%, 100% { opacity: 1; }
+  50% { opacity: 0; }
+}
+.canvas-result-preview-live {
+  color: var(--accent);
+  font-family: var(--font-mono);
+}
 
 .dot-warn { background: #eab308; }

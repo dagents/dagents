@@ -54,6 +54,12 @@ export interface ExecuteOptions {
    */
   onNodeStart?: (node: { nodeId: string; nodeName: string }) => void
   onNodeEnd?: (node: IExecutedNode) => void
+  /**
+   * 节点增量产出钩子（2026-08-30 流式展示）：LLM/Agent 节点生成过程中
+   * 逐段文本回调。同步 fire-and-forget（宿主内部自行节流），绝不阻塞
+   * 生成循环。
+   */
+  onNodeDelta?: (node: { nodeId: string; nodeName: string }, delta: string) => void
 }
 
 /** Node type names whose loop body the executor repeats. */
@@ -155,7 +161,7 @@ export class DagExecutor {
         }
       }
 
-      const buildContext = (isLast: boolean): IExecutionContext => ({
+      const buildContext = (isLast: boolean, nodeId?: string, nodeName?: string): IExecutionContext => ({
         chatId: opts.chatId,
         runId: opts.runId,
         state: runtime.state,
@@ -165,6 +171,11 @@ export class DagExecutor {
         sessionId: opts.sessionId,
         signal: opts.signal,
         agentflowRuntime: { state: runtime.state },
+        // 按当前节点绑定 delta 回调 —— 并行波次里每个节点报自己的增量
+        onNodeDelta:
+          opts.onNodeDelta && nodeId
+            ? (delta: string) => opts.onNodeDelta!({ nodeId, nodeName: nodeName ?? nodeId }, delta)
+            : undefined,
         llmClient: opts.llmClient,
         agentFetcher: opts.agentFetcher,
         toolRegistry,
@@ -196,7 +207,11 @@ export class DagExecutor {
           inputs: mergedInputs,
         }
         const isLast = this.isLastExecutableNode(flowNode, outgoingEdges, opts.isLastNode)
-        return nodeInstance.run(nodeData, nodeInput, buildContext(isLast))
+        return nodeInstance.run(
+          nodeData,
+          nodeInput,
+          buildContext(isLast, flowNode.id, flowNode.data.name as string),
+        )
       }
 
       /** Incoming edges of `nodeId` that are active given `outputs`. */

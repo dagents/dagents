@@ -26,6 +26,13 @@ export interface SpanWriterDeps {
 export interface IncrementalSpanWriter {
   onNodeStart: (node: { nodeId: string; nodeName: string }) => void
   onNodeEnd: (node: IExecutedNode) => void
+  /**
+   * 节点增量产出（2026-08-30 流式展示）：LLM/Agent 生成过程中逐段文本。
+   * 内部按节点累积 + 节流（≥1s）UPDATE 到 output 列 —— 轮询端
+   * （画布/详情/旁观）在节点 running 期间就能渲染 live tail。
+   * `WHERE status='running'` 保证永不覆盖终态全文（onNodeEnd 语义不变）。
+   */
+  onNodeDelta: (node: { nodeId: string; nodeName: string }, delta: string) => void
   /** 已经由增量路径写过的节点 id（事后批量落库据此跳过）。 */
   writtenNodes: Set<string>
 }
@@ -97,6 +104,27 @@ export function makeIncrementalSpanWriter(deps: SpanWriterDeps): IncrementalSpan
     })
   }
 
+  // ── 流式 partial（2026-08-30）：按节点累积 + 节流落库 ──
+  // 每 1s 至多刷一次（旁观端轮询 700ms~1.2s，更快的落库只是白写）。
+  // 直接 UPDATE（非 upsert）+ status='running' 守卫：行必已存在（start
+  // 先于任何 delta），且永不与终态写入竞争 —— 即使乱序执行，done/failed
+  // 行对 UPDATE 免疫，running 行的 partial 也会被 onNodeEnd 全文覆盖。
+  const DELTA_FLUSH_INTERVAL_MS = 1000
+  const deltaBuffers = new Map<string, string>()
+  const deltaLastFlush = new Map<string, number>()
+
+  const flushDelta = (nodeId: string, partial: string): void => {
+    deltaLastFlush.set(nodeId, Date.now())
+    void runQuery(
+      `UPDATE run_node_spans
+         SET output = $1::jsonb
+       WHERE run_id = $2::uuid AND node_id = $3 AND status = 'running'`,
+      [JSON.stringify({ text: partial, content: partial }), runId, nodeId],
+    ).catch((err: unknown) => {
+      log.warn('delta span persist failed', { runId, nodeId, error: String(err) })
+    })
+  }
+
   return {
     onNodeStart: (n) => {
       writtenNodes.add(n.nodeId)
@@ -104,6 +132,8 @@ export function makeIncrementalSpanWriter(deps: SpanWriterDeps): IncrementalSpan
     },
     onNodeEnd: (en) => {
       writtenNodes.add(en.nodeId)
+      // 终态即停：残留 buffer 不再有意义（全文即将/已经覆盖）
+      deltaBuffers.delete(en.nodeId)
       const started = en.startedAt ? new Date(en.startedAt) : new Date()
       const finished = en.endedAt ? new Date(en.endedAt) : new Date()
       persist(en.nodeId, en.status === 'failed' ? 'failed' : 'done', {
@@ -115,6 +145,16 @@ export function makeIncrementalSpanWriter(deps: SpanWriterDeps): IncrementalSpan
         input: Object.keys(en.input ?? {}).length > 0 ? JSON.stringify(en.input) : null,
         output: Object.keys(en.output ?? {}).length > 0 ? JSON.stringify(en.output) : null,
       })
+    },
+    onNodeDelta: (n, delta) => {
+      if (delta.length === 0) return
+      const prev = deltaBuffers.get(n.nodeId) ?? ''
+      const next = prev + delta
+      deltaBuffers.set(n.nodeId, next)
+      const last = deltaLastFlush.get(n.nodeId) ?? 0
+      if (Date.now() - last >= DELTA_FLUSH_INTERVAL_MS) {
+        flushDelta(n.nodeId, next)
+      }
     },
     writtenNodes,
   }

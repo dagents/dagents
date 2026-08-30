@@ -85,6 +85,8 @@ export interface CliChatParams {
   tools?: IToolSchema[]
   /** Cancellation signal (spec D3): aborts the HTTP fetch / kills the CLI child. */
   signal?: AbortSignal
+  /** 增量文本回调（2026-08-30 流式展示）：CLI 逐事件转发 text delta。 */
+  onDelta?: (delta: string) => void
 }
 
 /**
@@ -137,21 +139,30 @@ export const LLM_HTTP_TIMEOUT_MS = Number(process.env.LLM_HTTP_TIMEOUT_MS ?? 120
  * degenerates to a single call (the CLI brings its own tools anyway).
  */
 export function createCliLlmClient(kind: AgentType = 'claude', cliCwd?: string) {
+  /** 共享：为本次执行创建 backend session（chat 与 chatStream 同款启动）。 */
+  const startSession = (params: CliChatParams) => {
+    const { systemPrompt, prompt } = buildCliMessages(params.messages)
+    const backend = createBackend(kind, { executablePath: '', logger: log })
+    return backend.execute(prompt, {
+      systemPrompt,
+      inactivityTimeoutMs: CLI_INACTIVITY_TIMEOUT_MS,
+      signal: params.signal,
+      // 工作目录 = 项目目录：Agent/LLM 节点的 CLI 在选定项目里干活
+      //（读写文件、跑命令都基于它）。缺省回落 gateway 进程 cwd。
+      cwd: cliCwd,
+    })
+  }
   return {
     async chat(params: CliChatParams): Promise<{ text: string; usage?: ITokenUsage }> {
-      const { systemPrompt, prompt } = buildCliMessages(params.messages)
-      const backend = createBackend(kind, { executablePath: '', logger: log })
-      const session = backend.execute(prompt, {
-        systemPrompt,
-        inactivityTimeoutMs: CLI_INACTIVITY_TIMEOUT_MS,
-        signal: params.signal,
-        // 工作目录 = 项目目录：Agent/LLM 节点的 CLI 在选定项目里干活
-        //（读写文件、跑命令都基于它）。缺省回落 gateway 进程 cwd。
-        cwd: cliCwd,
-      })
+      const session = startSession(params)
       let text = ''
       for await (const evt of session.events as AsyncIterable<AgentEvent>) {
-        if (evt.type === 'text') text += evt.content
+        // text 事件既是最终正文也是增量 —— 有 onDelta 就逐事件转发
+        //（AgentSession.events 与 result 解耦，天生支持边跑边吐）
+        if (evt.type === 'text') {
+          text += evt.content
+          params.onDelta?.(evt.content)
+        }
       }
       const result = await session.result
       if (result.status !== 'completed') {
@@ -201,6 +212,37 @@ export function createCliLlmClient(kind: AgentType = 'claude', cliCwd?: string) 
       }
       return { text: text || result.output || '', usage }
     },
+    /**
+     * CLI 真流式（2026-08-30）：逐消费 session.events，每个 text 事件即刻
+     * yield —— 不再等 result 后一次性吐全文。usage/error 聚合与 chat
+     * 同款（result 兜底校验）。
+     */
+    async *chatStream(params: CliChatParams): AsyncGenerator<IChatStreamChunk> {
+      const session = startSession(params)
+      for await (const evt of session.events as AsyncIterable<AgentEvent>) {
+        if (evt.type === 'text') {
+          yield { delta: evt.content }
+          params.onDelta?.(evt.content)
+        }
+      }
+      const result = await session.result
+      if (result.status !== 'completed') {
+        throw new Error(`CLI agent 未完成（${result.status}）：${result.error ?? '未知错误'}`)
+      }
+      let usage: ITokenUsage | undefined
+      const models = Object.keys(result.usage ?? {})
+      if (models.length > 0) {
+        let input = 0
+        let output = 0
+        for (const m of models) {
+          const u = result.usage![m] as { inputTokens?: number; outputTokens?: number } | undefined
+          input += u?.inputTokens ?? 0
+          output += u?.outputTokens ?? 0
+        }
+        usage = { prompt_tokens: input, completion_tokens: output, total_tokens: input + output, inputTokens: input, outputTokens: output }
+      }
+      if (usage) yield { usage }
+    },
   }
 }
 
@@ -210,12 +252,9 @@ export function createCliLlmClient(kind: AgentType = 'claude', cliCwd?: string) 
  * LLM/Agent node runs on the local CLI — workflows work with zero setup,
  * same as chat.
  *
- * `chatStream` streams real deltas when a provider is configured; on the CLI
- * fallback it degenerates to a single-shot `chat` whose whole text is yielded
- * as one delta — nodes that stream (chat-path last-node LLM) keep working
- * either way. (This method was lost in the CLI-first refactor, which silently
- * turned every chat-path flow reply into metadata→end with no tokens —
- * pinned by e2e 13-chat-flow-trigger TR-07.)
+ * `chatStream` streams real deltas both ways: provider path parses SSE
+ * frames; CLI path consumes AgentSession.events (2026-08-30 —— 此前 CLI
+ * 退化为 result 后一次性吐全文，画布/详情旁观看不到生成过程).
  */
 export function createDefaultLlmClient(kind: AgentType = 'claude', opts: { cwd?: string } = {}) {
   const http = createLlmClient()
@@ -232,15 +271,7 @@ export function createDefaultLlmClient(kind: AgentType = 'claude', opts: { cwd?:
         yield* http.chatStream(params)
         return
       }
-      const result = await cli.chat(params)
-      if (result.text.length > 0) {
-        yield { delta: result.text }
-      }
-      // CLI 路径也要把 usage 吐给消费者 —— 否则聊天触发的 flow（最后节点
-      // 走 chatStream）token 徽章恒空，与 HTTP 路径行为不一致。
-      if (result.usage) {
-        yield { usage: result.usage }
-      }
+      yield* cli.chatStream(params)
     },
   }
 }

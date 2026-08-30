@@ -735,8 +735,11 @@ export function FlowiseCanvas({
                   // 诚实标注：done 但内容是权限拒绝 → 黄警（同聊天执行卡）
                   if (st === 'done' && detectRefusal(displayForWarn?.text)) st = 'warn'
                   const terminal = st === 'done' || st === 'completed' || st === 'failed' || st === 'warn'
-                  // 运行中：已完成的节点自动展开（用户手动收起的除外）；失败必展开
-                  const autoOpen = runState === 'running' && terminal && !manualCollapseRef.current.has(id)
+                  // 运行中：已完成/已有增量产出的节点自动展开（用户手动收起的除外）；失败必展开
+                  const autoOpen =
+                    runState === 'running' &&
+                    !manualCollapseRef.current.has(id) &&
+                    (terminal || (st === 'running' && displayForWarn?.preview != null))
                   const display = spanToDisplay(sp.output)
                   const badge = tokensBadge(sp.tokens)
                   return (
@@ -754,6 +757,11 @@ export function FlowiseCanvas({
                         <span className='canvas-result-label'>{sp.nodeLabel || id}</span>
                         {display && display.preview && st !== 'running' ? (
                           <span className='canvas-result-preview' title={display.preview}>{display.preview}</span>
+                        ) : st === 'running' && display?.preview ? (
+                          // live tail 单行预览（流式落库的 partial）
+                          <span className='canvas-result-preview canvas-result-preview-live' title={display.preview}>
+                            {display.preview}
+                          </span>
                         ) : null}
                         {badge ? (
                           <span className='canvas-result-tokens' title={t('token 用量（输入/输出）')}>{badge}</span>
@@ -773,7 +781,9 @@ export function FlowiseCanvas({
                         ) : null}
                         {display ? (
                           display.kind === 'text' ? (
-                            <div className='canvas-result-text'>{display.text}</div>
+                            <div className={`canvas-result-text${st === 'running' ? ' streaming' : ''}`}>
+                              {display.text}
+                            </div>
                           ) : (
                             <div className='canvas-result-io'>
                               <div className='canvas-result-io-label'>{t('产出')}</div>

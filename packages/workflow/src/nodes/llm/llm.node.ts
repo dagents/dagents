@@ -85,8 +85,11 @@ export class LLMNode implements INode {
     }
     messages.push({ role: 'user', content: resolvedPrompt })
 
-    const streamable =
-      options.isLastNode && options.sseStreamer !== undefined && options.llmClient.chatStream !== undefined
+    // 流式条件（2026-08-30 放宽）：只要 llmClient 实现了 chatStream 就走
+    // 流式 —— 此前要求 isLastNode + sseStreamer（只有 chat 触发的末节点
+    // 能流），画布/详情旁观路径完全黑箱。现在每个 delta 除（末节点的）
+    // SSE token 外还回调 onNodeDelta（宿主节流落库 → 轮询端 live tail）。
+    const streamable = options.llmClient.chatStream !== undefined
 
     let text: string
     let usage: import('../../types/index.js').ITokenUsage | undefined
@@ -100,7 +103,11 @@ export class LLMNode implements INode {
       })) {
         if (chunk.delta && chunk.delta.length > 0) {
           accumulated += chunk.delta
-          options.sseStreamer!.streamTokenEvent(options.chatId, chunk.delta)
+          // 末节点 + chat SSE 订阅 → 逐 token 推给聊天界面（原行为）
+          if (options.isLastNode && options.sseStreamer) {
+            options.sseStreamer.streamTokenEvent(options.chatId, chunk.delta)
+          }
+          options.onNodeDelta?.(chunk.delta)
         }
         if (chunk.usage) {
           usage = chunk.usage
@@ -108,7 +115,13 @@ export class LLMNode implements INode {
       }
       text = accumulated
     } else {
-      const result = await options.llmClient.chat({ model, messages, temperature, signal: options.signal })
+      const result = await options.llmClient.chat({
+        model,
+        messages,
+        temperature,
+        signal: options.signal,
+        onDelta: options.onNodeDelta,
+      })
       text = result.text
       usage = result.usage
     }

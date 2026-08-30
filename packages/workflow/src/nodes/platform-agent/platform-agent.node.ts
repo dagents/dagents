@@ -140,6 +140,9 @@ export class PlatformAgentNode implements INode {
         messages,
         tools: tools.length > 0 ? tools : undefined,
         signal: options.signal,
+        // CLI 后端逐事件转发 text delta —— 工具循环的每一轮生成过程都
+        // 可被旁观端看到（live tail），不再等到节点收尾才见产出。
+        onDelta: options.onNodeDelta,
       })
       totalUsage = accumulateUsage(totalUsage, result.usage)
 

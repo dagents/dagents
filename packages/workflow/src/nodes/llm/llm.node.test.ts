@@ -254,6 +254,8 @@ describe('LLMNode (streaming)', () => {
     const node = new LLMNode()
     const client = makeStreamingClient(['Hello', ' ', 'world'])
     const { context, streamer } = makeStreamingContext(client)
+    const deltas: string[] = []
+    context.onNodeDelta = (d) => deltas.push(d)
 
     const result = await node.run(makeNodeData({ prompt: 'Hi' }), '', context)
 
@@ -262,20 +264,29 @@ describe('LLMNode (streaming)', () => {
     expect(streamer.streamTokenEvent).toHaveBeenCalledTimes(3)
     expect(streamer.streamTokenEvent).toHaveBeenNthCalledWith(1, 'c1', 'Hello')
     expect(streamer.streamTokenEvent).toHaveBeenNthCalledWith(3, 'c1', 'world')
+    // 流式展示（2026-08-30）：每个 delta 同时回调 onNodeDelta（宿主节流落库）
+    expect(deltas).toEqual(['Hello', ' ', 'world'])
     expect(result.output.text).toBe('Hello world')
     expect(result.usage).toEqual({ prompt_tokens: 1, completion_tokens: 2, total_tokens: 3 })
   })
 
-  it('falls back to chat when not the last node', async () => {
+  it('streams via chatStream even when NOT the last node (2026-08-30 放宽：旁观端 live tail)', async () => {
     const node = new LLMNode()
-    const client = makeStreamingClient(['ignored'])
-    const { context } = makeStreamingContext(client)
+    const client = makeStreamingClient(['partial', '-', 'tail'])
+    const { context, streamer } = makeStreamingContext(client)
     context.isLastNode = false
-    client.chat = vi.fn().mockResolvedValue({ text: 'non-streamed' })
+    const deltas: string[] = []
+    context.onNodeDelta = (d) => deltas.push(d)
 
     const result = await node.run(makeNodeData({ prompt: 'Hi' }), '', context)
-    expect(client.chatStream).not.toHaveBeenCalled()
-    expect(result.output.text).toBe('non-streamed')
+
+    // 仍走流式（此前非末节点静默降级 chat，画布旁观全程黑箱）
+    expect(client.chatStream).toHaveBeenCalledTimes(1)
+    expect(client.chat).not.toHaveBeenCalled()
+    expect(result.output.text).toBe('partial-tail')
+    expect(deltas).toEqual(['partial', '-', 'tail'])
+    // 非末节点不推 SSE token（聊天界面只消费末节点流）
+    expect(streamer.streamTokenEvent).not.toHaveBeenCalled()
   })
 
   it('falls back to chat when the client has no chatStream', async () => {

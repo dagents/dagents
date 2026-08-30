@@ -510,6 +510,8 @@ workflowsRoutes.post('/:id/run', async (c) => {
       flowExecutor,
       onNodeStart: spanWriter.onNodeStart,
       onNodeEnd: spanWriter.onNodeEnd,
+      // 流式展示（2026-08-30）：节点生成过程中的文本增量节流落库
+      onNodeDelta: spanWriter.onNodeDelta,
     })
   } catch (err) {
     log.error('workflow execution failed', { id, error: String(err) })

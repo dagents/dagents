@@ -930,6 +930,8 @@ chatRoutes.get('/:id/stream', async (c) => {
         signal: abort.signal,
         onNodeStart: spanWriter.onNodeStart,
         onNodeEnd: spanWriter.onNodeEnd,
+        // 流式展示（2026-08-30）：节点生成过程增量节流落库（画布旁观可用）
+        onNodeDelta: spanWriter.onNodeDelta,
         llmClient,
         agentFetcher,
         toolRegistry,

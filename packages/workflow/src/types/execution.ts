@@ -118,6 +118,13 @@ export interface IExecutionContext {
   componentNodes?: Record<string, unknown>
   /** The runtime state container (deprecated alias — use `state` directly). */
   agentflowRuntime?: { state: Record<string, unknown> }
+  /**
+   * 节点增量产出回调（2026-08-30 流式展示）：LLM/Agent 节点在生成过程中
+   * 每收到一段文本 delta 就调用。由 executor 按「当前节点」绑定 —— 节点
+   * 内部无需（也不应）自己报 nodeId。宿主（gateway）把它接到 span-writer
+   * 的节流 partial 落库，旁观端轮询即得 live tail。
+   */
+  onNodeDelta?: (delta: string) => void
   /** LLM client for LLM and Agent nodes. */
   llmClient?: {
     chat(params: {
@@ -131,6 +138,12 @@ export interface IExecutionContext {
        * abort the in-flight HTTP fetch / kill the CLI child when it fires.
        */
       signal?: AbortSignal
+      /**
+       * 增量文本回调（2026-08-30 流式展示）：CLI 后端逐事件转发 text delta；
+       * HTTP 非流式 chat 可忽略。PlatformAgent 工具循环把它接到节点的
+       * onNodeDelta，旁观端即可看到 Agent 边干边说的 live tail。
+       */
+      onDelta?: (delta: string) => void
     }): Promise<{ text: string; tool_calls?: IToolCall[]; usage?: ITokenUsage }>
     /**
      * Streamed variant of `chat` — yields incremental deltas. Optional: when

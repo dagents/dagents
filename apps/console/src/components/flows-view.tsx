@@ -1296,19 +1296,32 @@ function formatJson(obj: unknown): string {
 
 /**
  * Best-effort extraction of a node's input/output text for the inspector's
- * io-boxes (design L526-533). The persisted `RunNodeSpan` does not carry the
- * node's full `data` blob — only the projected fields (tokens/cost/error/…),
- * so the source of input/output is `span.tokens` when it carries a recognizable
- * io shape (`usageMetadata` nests `input_tokens`/`output_tokens`),
- * which we render as a compact summary. Absent that, the box shows "—" — the
- * design's placeholder for a node whose io wasn't recorded. This keeps the
- * io-box DOM present (the audit's fidelity gap was the missing section, not a
- * specific value) while not fabricating io that wasn't persisted.
+ * io-boxes (design L526-533). Output follows the 结果面板 v2 哲学：span 落库
+ * 的 `{text, content}` 双键直接解包正文直出（流式 partial 与终态全文同款，
+ * 2026-08-30），否则 JSON 格式化；没有记录时显示 "—" —— design 的占位符。
+ * This keeps the io-box DOM present (the audit's fidelity gap was the missing
+ * section, not a specific value) while not fabricating io that wasn't persisted.
  */
 function extractIo(span: RunNodeSpan | undefined): { input: string; output: string } {
   if (!span) return { input: '—', output: '—' }
   const inputStr = span.input ? formatJson(span.input) : '—'
-  const outputStr = span.output ? formatJson(span.output) : '—'
+  const outputStr = span.output ? unwrapSpanText(span.output) : '—'
   return { input: inputStr, output: outputStr }
+}
+
+/** `{text}|{content}` 解包为正文（>2000 截断），其余回落 JSON。 */
+function unwrapSpanText(v: unknown): string {
+  if (typeof v === 'string') {
+    return v.length > 2000 ? v.slice(0, 2000) + '\n…' : v
+  }
+  if (v && typeof v === 'object') {
+    const rec = v as Record<string, unknown>
+    const text = rec.text ?? rec.content
+    if (typeof text === 'string' && text.length > 0) {
+      return text.length > 2000 ? text.slice(0, 2000) + '\n…' : text
+    }
+    return formatJson(v)
+  }
+  return formatJson(v)
 }
 

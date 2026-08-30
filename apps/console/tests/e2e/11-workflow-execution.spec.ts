@@ -672,4 +672,54 @@ test.describe('工作流执行契约（Tier A：WF / OB）', () => {
     // 详情页轮询到终态 → 运行完成 toast（mock LLM 秒回）
     await expect(page.getByText('运行完成').first()).toBeVisible({ timeout: 30_000 })
   })
+
+  // ── WF-13: 节点流式产出 —— running 态 span.output 可见 partial（2026-08-30）──
+  // 链路：LLM 节点流式门控放宽（不再要求末节点+SSE）→ onNodeDelta →
+  // span-writer 节流落库（1s）→ node-spans 轮询端在读到终态前看到增量文本，
+  // 且终态全文覆盖 partial（running 守卫不破坏 onNodeEnd 语义）。
+  test('WF-13: node output streams into run_node_spans while running', async ({ request }) => {
+    const FULL = 'WF13-STREAM-' + 'x'.repeat(120)
+    // 120 字符 / 4 字节每帧 = 30 帧 × 150ms ≈ 4.5s 生成窗口
+    await setMockLlmScript({ fallback: { text: FULL, streamChunkSize: 4, streamIntervalMs: 150 } })
+    const flowId = await seedFlow(ctx, request, {
+      name: 'e2e-wf13-stream',
+      flowData: flow(
+        [llmNode('llm1', { model: '', systemPrompt: 'You are the WF-13 streaming node.', prompt: 'p' })],
+        [],
+      ),
+    })
+
+    const res = await request.post(`/api/workflows/${flowId}/run?async=1`, { data: {} })
+    expect(res.status()).toBe(200)
+    const runId = ((await res.json()) as { data: { runId: string } }).data.runId
+    ctx.runIds.push(runId)
+
+    // 中途轮询：捕获「running 且已有 partial」的观察点
+    let sawRunningPartial = false
+    let terminalOutput = ''
+    const deadline = Date.now() + 30_000
+    while (Date.now() < deadline) {
+      const spansRes = await request.get(`/api/workflows/runs/${runId}/node-spans`)
+      const body = (await spansRes.json()) as {
+        data?: {
+          runStatus?: string | null
+          spans?: Array<{ nodeId: string; status: string; output?: { text?: string } | null }>
+        }
+      }
+      const span = body.data?.spans?.find((s) => s.nodeId === 'llm1')
+      if (span && span.status === 'running') {
+        const partial = span.output?.text ?? ''
+        if (partial.length > 0 && partial.length < FULL.length) sawRunningPartial = true
+      }
+      const runStatus = body.data?.runStatus
+      if (runStatus === 'completed' || runStatus === 'failed') {
+        terminalOutput = span?.output?.text ?? ''
+        break
+      }
+      await new Promise((r) => setTimeout(r, 400))
+    }
+
+    expect(sawRunningPartial).toBe(true)
+    expect(terminalOutput).toBe(FULL)
+  })
 })

@@ -87,6 +87,10 @@ function resolveResponse(body) {
     toolCalls: source.toolCalls,
     usage: source.usage,
     delayMs: Number(source.delayMs ?? 0),
+    // 流式调速透传（writeStream 的文档化参数 —— 此前投影漏掉这两个键，
+    // 无论脚本设什么都走默认 8 字符/10ms，慢速流根本测不了）
+    streamChunkSize: source.streamChunkSize,
+    streamIntervalMs: source.streamIntervalMs,
   }
 }
 
