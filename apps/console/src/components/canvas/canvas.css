@@ -665,13 +665,35 @@ details.canvas-result-io[open] > summary::before { content: '▾ '; }
 .canvas-act.act-tool .canvas-act-label { color: var(--fg); }
 .canvas-act.act-thinking .canvas-act-label { opacity: 0.8; font-style: italic; }
 
-/* 另存为模板 = 三级操作（2026-08-30）：弱化边框与字色，hover 才浮现层次 */
-.canvas-save-tpl-btn {
-  border-color: transparent !important;
-  color: var(--muted) !important;
-  background: transparent !important;
+/* ── 顶栏按钮统一体系（2026-08-30 设计定稿）──────────────────────────
+ * vendor flowise.css 与本文件历史规则叠加，三钮圆角(10/4/4)、字号
+ * (12/14/14)、质感各不相同。此处一条归一规则定四令牌（高 28 / 圆角 6 /
+ * 字号 12.5 / 内距 0 14），角色差异只留配色；!important 仅为压过 vendor
+ * 同名基础规则（其加载顺序不可控），改令牌时四处同步。 */
+.agentflow-header-actions button,
+.agentflow-header-actions .canvas-run-btn,
+.agentflow-header-actions .canvas-save-btn,
+.agentflow-header-actions .canvas-save-tpl-btn {
+  height: 28px !important;
+  padding: 0 14px !important;
+  border-radius: 6px !important;
+  font-size: 12.5px !important;
+  font-weight: 500 !important;
+  line-height: 1 !important;
+  display: inline-flex !important;
+  align-items: center !important;
+  gap: 6px !important;
 }
-.canvas-save-tpl-btn:hover {
+
+/* 角色：另存为模板 = 三级 ghost —— 保留容器与热区（与兄弟同盒模型），
+ * 弱化边框字色，hover 浮现。 */
+.agentflow-header-actions .canvas-save-tpl-btn {
+  border: 1px solid var(--border-soft, var(--border)) !important;
+  background: transparent !important;
+  color: var(--muted) !important;
+}
+.agentflow-header-actions .canvas-save-tpl-btn:hover {
   background: var(--surface) !important;
   color: var(--fg) !important;
+  border-color: var(--border-strong, var(--border)) !important;
 }
