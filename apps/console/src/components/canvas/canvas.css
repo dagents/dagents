@@ -505,10 +505,37 @@
   animation: canvas-run-rotate 0.8s linear infinite;
 }
 @keyframes canvas-run-rotate { to { transform: rotate(360deg); } }
-.canvas-run-summary { font-size: 12px; font-family: var(--font-mono); }
-.canvas-run-summary--done { color: var(--success, #16a34a); }
-.canvas-run-summary--failed { color: var(--danger, #dc2626); }
-.canvas-run-summary--running { color: var(--muted); }
+/* 运行状态徽章（2026-08-30 对齐修正）：与按钮同盒模型（28px / 圆角 6 /
+ * 12.5px / line-height 1 / flex 居中）—— 此前是裸 block 文本 + 19.8px
+ * 行高，几何框虽齐但文本基线与按钮不同心。状态染色 pill。 */
+.canvas-run-summary {
+  display: inline-flex;
+  align-items: center;
+  height: 28px;
+  padding: 0 10px;
+  border-radius: 6px;
+  font-size: 12.5px;
+  line-height: 1;
+  font-family: var(--font-mono);
+  white-space: nowrap;
+  max-width: min(360px, 40vw);
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+.canvas-run-summary--done {
+  color: var(--success, #16a34a);
+  background: color-mix(in oklab, var(--success, #16a34a) 10%, transparent);
+  border: 1px solid color-mix(in oklab, var(--success, #16a34a) 35%, transparent);
+}
+.canvas-run-summary--failed {
+  color: var(--danger, #dc2626);
+  background: color-mix(in oklab, var(--danger, #dc2626) 10%, transparent);
+  border: 1px solid color-mix(in oklab, var(--danger, #dc2626) 35%, transparent);
+}
+.canvas-run-summary--running {
+  color: var(--muted);
+  border: 1px solid var(--border-soft, var(--border));
+}
 
 /* ─── 运行输入面板 + 运行结果面板 ─── */
 .canvas-run-panel, .canvas-results-panel {
