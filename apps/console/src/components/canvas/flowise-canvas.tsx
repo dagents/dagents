@@ -9,6 +9,7 @@ import { getNodeMeta, validateFlowTopology } from '@dagents/workflow'
 import { useToast } from '@/components/toast'
 import { useI18n } from '@/i18n'
 import { detectRefusal } from '@/lib/refusal-detect'
+import { pickDirectory, createDirectory } from '@/lib/directories'
 import { SaveFlowTemplateDialog } from '@/components/save-flow-template-dialog'
 // flowise.css 是 vendor 画布的基础样式（节点 max-content 尺寸规则 + React Flow
 // 定位/handle/edge 基类），canvas.css 只在其上做主题变量覆盖。此前 base 缺失，
@@ -271,25 +272,72 @@ export function FlowiseCanvas({
   // localStorage（dagents.canvas.runDir），跨刷新保留。
   const [directories, setDirectories] = useState<Array<{ id: string; path: string; name?: string }>>([])
   const [runDirectoryId, setRunDirectoryId] = useState<string>('')
-  useEffect(() => {
-    let cancelled = false
+  const reloadDirectories = useCallback((preferId?: string) => {
     void fetch('/api/directories', { cache: 'no-store' })
       .then((r) => r.json())
       .then((body: { data?: { items?: Array<{ id: string; path: string; name?: string }> } }) => {
-        if (cancelled) return
         const items = body?.data?.items ?? []
         setDirectories(items)
         try {
+          if (preferId && items.some((d) => d.id === preferId)) {
+            setRunDirectoryId(preferId)
+            return
+          }
           const saved = window.localStorage.getItem('dagents.canvas.runDir')
           if (saved && items.some((d) => d.id === saved)) setRunDirectoryId(saved)
           else if (items[0]) setRunDirectoryId(items[0]!.id)
         } catch { /* 无 localStorage 则默认选第一个 */ }
       })
       .catch(() => {})
-    return () => {
-      cancelled = true
-    }
   }, [])
+  useEffect(() => {
+    reloadDirectories()
+  }, [reloadDirectories])
+
+  // 添加项目目录（2026-08-30 用户需求：运行输入面板选不到想要的文件夹时
+  // 直接加，不跳设置页）—— OS 目录选择器 + 注册 + 选中新目录
+  const [addingDir, setAddingDir] = useState(false)
+  const handleAddDirectory = useCallback(async (): Promise<void> => {
+    if (addingDir) return
+    setAddingDir(true)
+    try {
+      const path = await pickDirectory()
+      if (!path) return // 用户取消 OS 对话框
+      const created = await createDirectory({ path })
+      reloadDirectories(created.id)
+      try {
+        window.localStorage.setItem('dagents.canvas.runDir', created.id)
+      } catch { /* 忽略 */ }
+      toast.success(t('目录已添加：{name}', { name: created.name || created.path }))
+    } catch {
+      toast.error(t('添加项目目录失败'))
+    } finally {
+      setAddingDir(false)
+    }
+  }, [addingDir, reloadDirectories, toast, t])
+
+  // 运行输入面板：Esc / 点外关闭（2026-08-30 —— 此前只有角落「取消」
+  // 文字钮，用户找不到出口）。排除 ▶运行 按钮自身（外关 + 自身 toggle
+  // 叠加会变成「关了又开」）。
+  const runPanelRef = useRef<HTMLDivElement | null>(null)
+  useEffect(() => {
+    if (!runPanelOpen) return
+    const onKey = (e: KeyboardEvent): void => {
+      if (e.key === 'Escape') setRunPanelOpen(false)
+    }
+    const onDown = (e: MouseEvent): void => {
+      const t = e.target as HTMLElement
+      if (runPanelRef.current?.contains(t)) return
+      if (t?.closest?.('.canvas-run-btn')) return
+      setRunPanelOpen(false)
+    }
+    document.addEventListener('keydown', onKey)
+    document.addEventListener('mousedown', onDown)
+    return () => {
+      document.removeEventListener('keydown', onKey)
+      document.removeEventListener('mousedown', onDown)
+    }
+  }, [runPanelOpen])
 
   /** 原始边数据（运行结束后恢复连线配色用）— 初始化见 initialFlowData 之后。 */
   const originalEdgesRef = useRef<FlowData['edges'] | null>(null)
@@ -686,10 +734,11 @@ export function FlowiseCanvas({
           {/* 运行输入面板：输入作为 {{$start.input}} 传入（LLM/Agent 节点的
               prompt 模板可引用）。点 ▶ 运行先到这里，避免「空跑」。 */}
           {runPanelOpen && runState !== 'running' ? (
-            <div className='canvas-run-panel' role='dialog' aria-label={t('运行输入')}>
+            <div ref={runPanelRef} className='canvas-run-panel' role='dialog' aria-label={t('运行输入')}>
               <div className='canvas-run-panel-title'>{t('运行输入')}</div>
               <label className='canvas-run-dir-label'>
                 {t('项目目录')}
+                <span className='canvas-run-dir-row'>
                 <select
                   className='canvas-run-dir-select'
                   value={runDirectoryId}
@@ -703,6 +752,16 @@ export function FlowiseCanvas({
                     <option key={d.id} value={d.id}>{d.name || d.path}</option>
                   ))}
                 </select>
+                <button
+                  type='button'
+                  className='canvas-run-dir-add'
+                  onClick={() => void handleAddDirectory()}
+                  disabled={addingDir}
+                  title={t('添加新的项目目录')}
+                >
+                  {addingDir ? '…' : '+'}
+                </button>
+                </span>
               </label>
               <div className='canvas-run-dir-hint'>{t('Agent 将在所选项目目录中读写文件、执行命令')}</div>
               <textarea
@@ -866,7 +925,7 @@ export function FlowiseCanvas({
         </div>
       )
     },
-    [flowName, saveState, readOnly, runState, runSummary, handleRun, t, runPanelOpen, runInput, resultsOpen, latestSpans, saveTplOpen],
+    [flowName, saveState, readOnly, runState, runSummary, handleRun, t, runPanelOpen, runInput, resultsOpen, latestSpans, saveTplOpen, handleAddDirectory],
   )
 
   return (

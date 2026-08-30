@@ -727,3 +727,27 @@ details.canvas-result-io[open] > summary::before { content: '▾ '; }
   color: var(--fg) !important;
   border-color: var(--border-strong, var(--border)) !important;
 }
+
+/* 运行输入面板：目录行（select + 添加钮 同行，2026-08-30） */
+.canvas-run-dir-row {
+  display: inline-flex;
+  gap: 6px;
+  align-items: center;
+}
+.canvas-run-dir-add {
+  width: 28px;
+  height: 28px;
+  flex-shrink: 0;
+  border: 1px solid var(--border);
+  border-radius: 6px;
+  background: var(--bg);
+  color: var(--muted);
+  font-size: 14px;
+  line-height: 1;
+  cursor: pointer;
+}
+.canvas-run-dir-add:hover:not(:disabled) {
+  background: var(--surface);
+  color: var(--fg);
+}
+.canvas-run-dir-add:disabled { opacity: 0.5; cursor: default; }
