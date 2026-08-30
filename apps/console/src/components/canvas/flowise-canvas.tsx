@@ -9,6 +9,7 @@ import { getNodeMeta, validateFlowTopology } from '@dagents/workflow'
 import { useToast } from '@/components/toast'
 import { useI18n } from '@/i18n'
 import { detectRefusal } from '@/lib/refusal-detect'
+import { SaveFlowTemplateDialog } from '@/components/save-flow-template-dialog'
 // flowise.css 是 vendor 画布的基础样式（节点 max-content 尺寸规则 + React Flow
 // 定位/handle/edge 基类），canvas.css 只在其上做主题变量覆盖。此前 base 缺失，
 // 节点量不出尺寸 → React Flow 永久 visibility:hidden → 边被静默丢弃，
@@ -259,6 +260,8 @@ export function FlowiseCanvas({
   // 传入 —— 没有输入的运行对 LLM/Agent 节点毫无意义）；spans 驱动顶栏的
   // 「运行结果」面板，逐节点展示状态/耗时/产出。
   const [runPanelOpen, setRunPanelOpen] = useState(false)
+  // 另存为模板（2026-08-30 从页面级 CanvasTopBar 并入 —— 消灭双标题）
+  const [saveTplOpen, setSaveTplOpen] = useState(false)
   const [runInput, setRunInput] = useState('')
   const [resultsOpen, setResultsOpen] = useState(false)
   const [latestSpans, setLatestSpans] = useState<CanvasSpanRow[]>([])
@@ -656,6 +659,13 @@ export function FlowiseCanvas({
               </button>
             ) : null}
             <button
+              className='canvas-save-tpl-btn'
+              onClick={() => setSaveTplOpen(true)}
+              title={t('把这个流程的当前配置存为可复用模板')}
+            >
+              {t('另存为模板')}
+            </button>
+            <button
               className='canvas-run-btn'
               onClick={() => setRunPanelOpen((v) => !v)}
               disabled={runState === 'running'}
@@ -720,6 +730,14 @@ export function FlowiseCanvas({
               </div>
             </div>
           ) : null}
+
+          {/* 另存为模板（并入顶栏，2026-08-30） */}
+          <SaveFlowTemplateDialog
+            open={saveTplOpen}
+            onClose={() => setSaveTplOpen(false)}
+            flowId={flowId}
+            flowName={flowName}
+          />
 
           {/* 运行结果面板：逐节点状态/耗时/产出（spans 实时刷新） */}
           {resultsOpen && latestSpans.length > 0 ? (

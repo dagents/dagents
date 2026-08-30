@@ -60,14 +60,16 @@
   gap: var(--space-3);
   padding: var(--space-3) var(--space-5);
   border-bottom: 1px solid var(--border-soft);
+  box-shadow: 0 1px 3px rgba(0, 0, 0, 0.04);
   background: var(--surface-warm);
   height: 48px;
   flex-shrink: 0;
+  z-index: 5;
 }
 .agentflow-title {
   font-family: var(--font-body);
-  font-size: var(--text-sm);
-  font-weight: 500;
+  font-size: var(--text-base, 14px);
+  font-weight: 600;
   color: var(--fg);
   letter-spacing: -0.01em;
   flex: 1;
@@ -473,21 +475,28 @@
 }
 
 /* ─── 画布内运行（节点实时进度） ─── */
-.canvas-run-btn {
+/* 运行 = 主操作（2026-08-30 设计收敛：accent 实心 —— 此前与保存/另存为
+ * 模板同为描边按钮，层级不分）。运行中保持强调但降饱和。 */
+.agentflow-header-actions .canvas-run-btn {
   padding: var(--agentflow-spacing-sm, 4px) var(--agentflow-spacing-lg, 16px);
-  border: 1px solid var(--agentflow-border, var(--border));
-  border-radius: 4px;
-  background: var(--agentflow-card-bg, var(--surface));
-  color: var(--agentflow-text-primary, var(--fg));
-  font-size: 14px;
+  border: 1px solid transparent;
+  border-radius: var(--radius-sm, 6px);
+  background: var(--accent, #6366f1);
+  color: #fff;
+  font-size: var(--text-xs, 12.5px);
+  font-weight: 600;
   cursor: pointer;
   display: inline-flex;
   align-items: center;
   gap: 6px;
   transition: all 0.2s;
 }
-.canvas-run-btn:hover:not(:disabled) { background: var(--agentflow-card-bg-hover, var(--surface)); border-color: var(--agentflow-border-hover, var(--border-strong)); }
-.canvas-run-btn:disabled { opacity: 0.55; cursor: default; }
+.agentflow-header-actions .canvas-run-btn:hover:not(:disabled) { filter: brightness(1.08); }
+.agentflow-header-actions .canvas-run-btn:disabled { opacity: 0.55; cursor: default; }
+.agentflow-header-actions .canvas-run-btn .canvas-run-spin {
+  border-color: rgba(255, 255, 255, 0.4);
+  border-top-color: #fff;
+}
 .canvas-run-spin {
   width: 12px; height: 12px;
   border: 2px solid var(--agentflow-border, var(--border));
@@ -655,3 +664,14 @@ details.canvas-result-io[open] > summary::before { content: '▾ '; }
 }
 .canvas-act.act-tool .canvas-act-label { color: var(--fg); }
 .canvas-act.act-thinking .canvas-act-label { opacity: 0.8; font-style: italic; }
+
+/* 另存为模板 = 三级操作（2026-08-30）：弱化边框与字色，hover 才浮现层次 */
+.canvas-save-tpl-btn {
+  border-color: transparent !important;
+  color: var(--muted) !important;
+  background: transparent !important;
+}
+.canvas-save-tpl-btn:hover {
+  background: var(--surface) !important;
+  color: var(--fg) !important;
+}

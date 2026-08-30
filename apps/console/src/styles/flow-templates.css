@@ -34,31 +34,12 @@
   opacity: 1;
 }
 
-/* 画布页顶部操作条（另存为模板入口，不侵入 vendor 画布） */
-.ftpl-canvas-topbar {
-  display: flex;
-  align-items: center;
-  gap: 12px;
-  padding: 6px 16px;
-  border-bottom: 1px solid var(--border, #2a2a2a);
-  background: var(--surface, #161616);
-  flex: none;
-}
-
-.ftpl-canvas-topbar .ftpl-flow-name {
-  font-size: 13px;
-  font-weight: 600;
-  overflow: hidden;
-  text-overflow: ellipsis;
-  white-space: nowrap;
-}
-
 .ftpl-canvas-body {
   flex: 1;
   min-height: 0;
 }
 
-/* 画布页 flex 列布局：topbar 固定 + 画布撑满 */
+/* 画布页 flex 列布局：单一顶栏在 vendor 画布内，画布撑满 */
 .ftpl-canvas-column {
   display: flex;
   flex-direction: column;
@@ -136,19 +117,4 @@
   background: var(--bg-elev, #161b26);
   color: inherit;
   font-size: 13px;
-}
-
-/* 画布顶栏窄屏适配：名称截断、操作钮换行（vendor 画布内部不动，只改自有外壳） */
-@media (max-width: 640px) {
-  .ftpl-canvas-topbar {
-    flex-wrap: wrap;
-    padding: 6px 10px;
-  }
-  .ftpl-canvas-topbar .ftpl-flow-name {
-    min-width: 0;
-    overflow: hidden;
-    text-overflow: ellipsis;
-    white-space: nowrap;
-    max-width: 60vw;
-  }
 }

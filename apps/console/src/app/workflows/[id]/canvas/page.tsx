@@ -1,6 +1,5 @@
 import { PageShell } from '@/components/page-shell'
 import { FlowiseCanvasLoader } from '@/components/canvas/flowise-canvas-loader'
-import { CanvasTopBar } from '@/components/canvas-top-bar'
 import { gatewayUrl } from '@/lib/config'
 
 interface CanvasWorkflowPageProps {
@@ -74,8 +73,9 @@ export default async function CanvasWorkflowPage({
         </div>
       ) : (
         <div className="ftpl-canvas-column">
-          {/* CanvasTopBar：流程名 + 另存为模板（不侵入 vendor 画布） */}
-          <CanvasTopBar flowId={id} flowName={flowName} />
+          {/* 单一顶栏（2026-08-30 设计收敛）：流程名/运行/保存/另存为模板
+              全部在 vendor 画布自带的 agentflow-header 里 —— 此前的页面级
+              CanvasTopBar 与之叠成双标题，已删。 */}
           <div className="ftpl-canvas-body">
             <FlowiseCanvasLoader flowId={id} flowName={flowName} initialFlow={flowData} watchRunId={watchRunId} />
           </div>
