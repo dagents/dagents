@@ -639,10 +639,11 @@ test.describe('工作流执行契约（Tier A：WF / OB）', () => {
     expect(bad?.error ?? '').toContain('返回空内容')
   })
 
-  // ── WF-12: 列表页「运行」UI 旅程 —— 输入面板 → 异步详情旁观 ────────────
+  // ── WF-12: 列表页「运行」UI 旅程 —— 输入面板 → 异步跳画布旁观 ──────────
   // 2026-08-29 修复回归钉：此前列表运行按钮 POST 同步端点，响应要等整个
   // 流程跑完才返回（用户感知「点了没反应」）。现在：按钮先开输入对话框，
-  // 提交走 ?async=1 立即打开详情页，进度由 node-spans 轮询涂染，终态 toast。
+  // 提交走 ?async=1 立即跳画布旁观（2026-08-30 详情页退役），进度由
+  // node-spans 轮询涂染，终态 toast。
   test('WF-12: list run button → input dialog → async detail watch', async ({ page, request }) => {
     await setMockLlmScript({ fallback: { text: 'WF12-LIST-RUN-REPLY' } })
     const flowId = await seedFlow(ctx, request, {
@@ -664,12 +665,14 @@ test.describe('工作流执行契约（Tier A：WF / OB）', () => {
     await expect(dialog).toHaveAttribute('aria-label', '运行输入')
     await dialog.locator('textarea').fill('wf12 list-run input')
 
-    // 提交 → 对话框关闭 + 详情页立即打开（异步 —— 不等流程跑完）
+    // 提交 → 对话框关闭 + 立即跳画布旁观（2026-08-30 三方协商：详情页退役，
+    // 一次运行一个家 = 画布旁观；异步 —— 不等流程跑完）
     await dialog.getByRole('button', { name: '开始运行' }).click()
     await expect(dialog).toBeHidden()
-    await expect(page.locator('.flow-detail-page.active')).toBeVisible({ timeout: 5_000 })
+    // dev 模式画布路由首次访问有冷编译 —— 放宽
+    await page.waitForURL(/\/canvas\?run=/, { timeout: 15_000 })
 
-    // 详情页轮询到终态 → 运行完成 toast（mock LLM 秒回）
+    // 画布旁观轮询到终态 → 运行完成 toast（mock LLM 秒回）
     await expect(page.getByText('运行完成').first()).toBeVisible({ timeout: 30_000 })
   })
 

@@ -871,36 +871,15 @@ table.data .muted { color: var(--muted); }
    verbatim by the M2.1 inline detail. The DAG canvas itself is React Flow;
    these styles cover the surrounding shell, the right node inspector, and the
    status-colored node card (`.dag-node` accent strip + dot). */
-.flow-layout { display: grid; grid-template-columns: 1fr 340px; gap: var(--space-4); height: calc(100vh - var(--topbar-h) - var(--space-8) - var(--space-8) - 90px); min-height: 560px; }
 
 /* center canvas */
-.flow-canvas-wrap { background: var(--bg); border: 1px solid var(--border-soft); border-radius: var(--radius-md); display: flex; flex-direction: column; overflow: hidden; }
-.flow-canvas-head { display: flex; align-items: center; gap: var(--space-3); padding: var(--space-3) var(--space-4); border-bottom: 1px solid var(--border-soft); flex-shrink: 0; }
-.flow-canvas-head .title { font-size: var(--text-sm); font-weight: 600; flex: 1; min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
-.flow-canvas-head .ver { font-family: var(--font-mono); font-size: 11px; color: var(--muted); }
 .flow-canvas-stage { flex: 1; position: relative; overflow: hidden; }
 /* React Flow mounts into this; the dotted background + the panel styling come from
    reactflow's own CSS, but we keep a faint dot grid behind it to match the design. */
 .flow-canvas-stage .react-flow { background: radial-gradient(circle, var(--border-soft) 1px, transparent 1px); background-size: 20px 20px; }
 
-.legend-flow { display: flex; gap: var(--space-3); padding: var(--space-2) var(--space-4); border-top: 1px solid var(--border-soft); flex-shrink: 0; flex-wrap: wrap; }
-.legend-flow .li { display: inline-flex; align-items: center; gap: 5px; font-size: 11px; color: var(--muted); }
-.legend-flow .sw { width: 10px; height: 10px; border-radius: 3px; }
-.legend-flow .sw.running { background: var(--accent); }
-.legend-flow .sw.done { background: var(--success); }
-.legend-flow .sw.queued { background: var(--warn); }
-.legend-flow .sw.failed { background: var(--danger); }
-.legend-flow .sw.paused { background: var(--info); }
-.legend-flow .sw.idle { background: var(--meta); }
 
 /* right inspector */
-.flow-inspector { background: var(--bg); border: 1px solid var(--border-soft); border-radius: var(--radius-md); display: flex; flex-direction: column; overflow: hidden; }
-.flow-insp-head { padding: var(--space-4); border-bottom: 1px solid var(--border-soft); flex-shrink: 0; }
-.flow-insp-head .type { font-size: 11px; color: var(--accent-hover); font-weight: 500; letter-spacing: var(--tracking-label); text-transform: uppercase; }
-.flow-insp-head .nm { font-size: var(--text-base); font-weight: 600; margin-top: 2px; }
-.flow-insp-body { flex: 1; overflow-y: auto; padding: var(--space-4); }
-.flow-insp-section { margin-bottom: var(--space-5); }
-.flow-insp-section .lbl { font-size: 11px; color: var(--meta); letter-spacing: var(--tracking-label); text-transform: uppercase; margin-bottom: var(--space-2); }
 
 .io-box { background: var(--surface-warm); border: 1px solid var(--border-soft); border-radius: var(--radius-sm); padding: var(--space-3); font-family: var(--font-mono); font-size: 11px; color: var(--fg-2); white-space: pre-wrap; word-break: break-all; line-height: 1.6; }
 
@@ -933,33 +912,10 @@ table.data .muted { color: var(--muted); }
 .flow-canvas-stage .react-flow__handle { width: 6px; height: 6px; background: var(--border); border: none; }
 .flow-canvas-stage .react-flow__attribution { background: transparent; }
 
-@media (max-width: 1024px) { .flow-layout { grid-template-columns: 1fr; height: auto; } .flow-inspector { max-height: 360px; } }
-
-/* ─── AgentFlows list↔detail swap (M2.2) ─────────────────────── */
-/* Ports design/agentflows.html's list-page + detail-page shell. The two
-   pages never coexist in the DOM: `showDetail(flowId, runId)` mounts the detail
-   page and hides the list; the 返回 button clears both and remounts the list.
-   Mirrors the design's `.flow-detail-page.active` display swap (L62-63) and
-   the `.flow-back` affordance (L64-67). The detail page reuses the existing
-   `.flow-layout` grid but drops the left list column → the design's detail
-   `.flow-layout` is `grid-template-columns: 1fr 340px` (L69); we override it
-   via `.flow-detail-page .flow-layout` so the three-column list-page grid and
-   the two-column detail-page grid coexist under the same class name.
-   Note: M2.2 ships the swap + DAG + inspector body only — the design's
-   scope-tabs / status filter-chips / edit+run action buttons are M2.1's
-   scope (its branch lands them); this CSS covers the classes both share. */
+/* ─── AgentFlows list page ───────────────────────────────────── */
+/* 2026-08-30 三方协商：详情页退役（一次运行一个家 = 画布旁观），
+   list-page 是唯一形态 —— swap 机制与 detail 专属规则已随之删除。 */
 .flow-list-page { display: block; }
-.flow-list-page:not(.active) { display: none; }
-.flow-detail-page { display: none; }
-.flow-detail-page.active { display: block; }
-.flow-back { display: inline-flex; align-items: center; gap: var(--space-2); height: 28px; padding: 0 var(--space-2); border-radius: 8px; border: 0; background: transparent; color: var(--muted); font-size: var(--text-xs); text-decoration: none; transition: background var(--motion-fast), color var(--motion-fast); margin-bottom: var(--space-4); cursor: pointer; }
-.flow-back:hover { background: var(--surface-warm); color: var(--fg); }
-.flow-back:focus-visible { outline: none; box-shadow: var(--focus-ring); }
-.flow-back svg { width: 14px; height: 14px; }
-
-/* detail layout = canvas + inspector (no list column); overrides the 3-col list grid */
-.flow-detail-page .flow-layout { grid-template-columns: 1fr 340px; }
-@media (max-width: 1024px) { .flow-detail-page .flow-layout { grid-template-columns: 1fr; height: auto; } .flow-detail-page .flow-inspector { max-height: 360px; } .flow-detail-page .flow-canvas-stage { min-height: 360px; } }
 
 /* list-page flow-card (expandable run history) — .flow-card / .flow-card-head /
    .flow-chev / .flow-glyph / .flow-info / .flow-card-meta / .flow-runs / .run-*

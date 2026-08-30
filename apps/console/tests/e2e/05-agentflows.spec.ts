@@ -131,48 +131,20 @@ test.describe('AgentFlows module (UC-FLW-01 ~ 07)', () => {
 
   // ── UC-FLW-02: 查看单个 flow 详情/DAG (✅ implemented) ──────────────────
 
-  test('UC-FLW-02: flow detail page renders DAG canvas + inspector via hash deep-link', async ({
-    page,
-  }) => {
-    // The detail page is swapped in by FlowsView when both selectedFlowId +
-    // selectedRunId are set (flows-view.tsx:321 `inDetail`). The hash
-    // deep-link `#flow=…&run=…` is the design's entry point
-    // (flows-view.tsx:250-268 applyHash). Using a synthetic id — the fetch
-    // to /api/flows/:id will 502 (no such chatflow), but the detail
-    // page structure (back button + canvas wrap + inspector + legend)
-    // renders regardless; the error message lands inside the canvas wrap.
-    await page.goto(`/flows#flow=${SYNTH_FLOW_ID}&run=${SYNTH_RUN_ID}`)
-
-    // The detail page becomes active (.flow-detail-page.active →
-    // display:block, shell.css:787-788). The back button is the clearest
-    // signal — flows-view.tsx:545-553, aria-label="返回 AgentFlows 列表".
-    // Generous timeout: the hash effect fires on mount, sets state, and
-    // the re-render swaps the page.
-    await expect(page.getByRole('button', { name: '返回 AgentFlows 列表' })).toBeVisible({
-      timeout: 10_000,
-    })
-
-    // The detail page's two-column layout: canvas wrap + inspector.
-    // flows-view.tsx:555-614 (.flow-layout > .flow-canvas-wrap +
-    // .flow-inspector). Both containers are always present once the detail
-    // page is active, regardless of whether the flow fetch succeeded.
-    await expect(page.locator('.flow-canvas-wrap')).toBeVisible()
-    await expect(page.locator('.flow-inspector')).toBeVisible()
-
-    // The legend bar (运行/完成/排队/失败/人工暂停/未触发) is always
-    // rendered below the canvas (flows-view.tsx:585-593) — a stable
-    // signal that the detail page's canvas column rendered.
-    const legend = page.locator('.legend-flow')
-    await expect(legend).toBeVisible()
-    await expect(legend.getByText('运行', { exact: true })).toBeVisible()
-    await expect(legend.getByText('完成', { exact: true })).toBeVisible()
+  test('UC-FLW-02: run button jumps to canvas watch (detail page retired)', async ({ page }) => {
+    // 2026-08-30 三方协商：详情页退役，一次运行一个家 = 画布旁观。
+    // hash 深链 #flow=&run= 通道随之删除 —— 本用例改为钉住 /flows 路由上
+    // 「运行 → 画布旁观」的新契约（/ 路由的同款旅程由 WF-12/UI-01 覆盖）。
+    await page.goto('/flows')
+    await expect(page.locator('.flow-cards')).toBeVisible({ timeout: 15_000 })
+    const card = page.locator('.flow-card').first()
+    await card.getByTitle('运行此 flow').click()
+    const dialog = page.locator('.modal-dialog.open')
+    await expect(dialog).toBeVisible()
+    await dialog.getByRole('button', { name: '开始运行' }).click()
+    // dev 模式画布路由首次访问有冷编译 —— 放宽
+    await page.waitForURL(/\/canvas\?run=/, { timeout: 15_000 })
   })
-
-  // ── UC-FLW-03: 编辑 flow (workflow editor) (⚠️ partial) ─────────────────
-  //
-  // Two tests: (1) a real `test()` asserting the edit route renders the
-  // native workflow canvas today; (2) a `test.fixme()` for the workflow-
-  // engine migration (PUT /api/v1/workflows/:id).
 
   test('UC-FLW-03 (partial): /workflows/:id/canvas renders an honest error state for an unknown id', async ({ page }) => {
     await page.goto(`/workflows/${SYNTH_FLOW_ID}/canvas`)

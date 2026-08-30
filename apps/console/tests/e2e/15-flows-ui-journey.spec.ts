@@ -55,9 +55,8 @@ test.describe('浏览器 UI 旅程（Tier C：UI）', () => {
     await expect(page.locator('.agentflow-canvas, [class*="canvas"]').first()).toBeVisible({ timeout: 15_000 })
 
     // 回 flows 列表 → 卡片出现 → 运行（先开输入对话框，2026-08-29 起
-    // 输入/目录在这里收集）→ 开始运行 → 异步立即打开 detail（真实 UX：
-    // runFlow ?async=1 拿 runId 后 showDetail 跳详情页；列表的
-    // 「{n} 次运行」是硬编码 0 的占位，不作断言对象）
+    // 输入/目录在这里收集）→ 开始运行 → 异步立即跳画布旁观（2026-08-30
+    // 三方协商：详情页退役，run 的家 = 画布旁观）
     await page.goto('/flows')
     const card = page.locator('.flow-card').filter({ hasText: 'e2e-ui01-journey' }).first()
     await expect(card).toBeVisible({ timeout: 15_000 })
@@ -65,14 +64,14 @@ test.describe('浏览器 UI 旅程（Tier C：UI）', () => {
     const runDialog = page.locator('.modal-dialog.open')
     await expect(runDialog).toBeVisible()
     await runDialog.getByRole('button', { name: '开始运行' }).click()
-    await expect(page.locator('.flow-detail-page.active')).toBeVisible({ timeout: 15_000 })
+    await page.waitForURL(/\/canvas\?run=/, { timeout: 15_000 })
     // 记下 id 供 dispose 清理（卡片链接或运行记录都带 id；从 URL 之外拿不到，用 API 反查）
     const list = await request.get('/api/workflows')
     const flows = ((await list.json()).data?.flows ?? []) as Array<{ id: string; name: string }>
     ctx.flowIds.push(...flows.filter((f) => f.name === 'e2e-ui01-journey').map((f) => f.id))
   })
 
-  test('UI-02: run → detail 深链 —— DAG 画布 + Inspector 渲染', async ({ page, request }) => {
+  test('UI-02: canvas watch renders the run — badges + results panel', async ({ page, request }) => {
     await setMockLlmScript({ fallback: { text: 'UI02-OUT' } })
     const flowId = await seedFlow(ctx, request, {
       name: 'e2e-ui02-detail',
@@ -85,14 +84,11 @@ test.describe('浏览器 UI 旅程（Tier C：UI）', () => {
     ctx.runIds.push(runId)
     expect(run.status()).toBe(200)
 
-    // hash 深链进 detail
-    await page.goto(`/flows#flow=${flowId}&run=${runId}`)
-    await expect(page.locator('.flow-detail-page')).toBeVisible({ timeout: 15_000 })
-    // 画布 + 右侧 Inspector 结构存在
-    await expect(page.locator('.flow-layout')).toBeVisible()
-    await expect(page.locator('.flow-inspector')).toBeVisible()
-    // detail 页至少渲染出节点（canvas 容器）
-    await expect(page.locator('.flow-canvas-wrap')).toBeVisible({ timeout: 15_000 })
+    // 画布旁观（2026-08-30：详情页退役，?run= 直达是 run 的唯一回看形态）
+    await page.goto(`/workflows/${flowId}/canvas?run=${runId}`)
+    // 画布外壳 + 结果面板自动打开（旁观即看流）
+    await expect(page.locator('.canvas-results-panel')).toBeVisible({ timeout: 15_000 })
+    await expect(page.locator('.canvas-results-panel').getByText('llm1')).toBeVisible()
   })
 
   test('UI-04: chat 页 FlowSelector 绑定 flow → 发送走流', async ({ page, request }) => {
