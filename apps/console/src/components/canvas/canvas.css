@@ -494,7 +494,14 @@
   gap: 6px;
   transition: all 0.2s;
 }
-.agentflow-header-actions .canvas-run-btn:hover:not(:disabled) { filter: brightness(1.08); }
+/* hover 保持 accent（2026-08-30 修复「悬停消失」）：通用按钮 hover 规则
+ * 把背景换成浅色 surface，而运行按钮字是白 —— 浅底白字 = 隐身。此处
+ * 显式压回 accent + 白字，亮度微升作 hover 反馈。 */
+.agentflow-header-actions .canvas-run-btn:hover:not(:disabled) {
+  background: var(--accent, #6366f1) !important;
+  color: #fff !important;
+  filter: brightness(1.08);
+}
 .agentflow-header-actions .canvas-run-btn:disabled { opacity: 0.55; cursor: default; }
 .agentflow-header-actions .canvas-run-btn .canvas-run-spin {
   border-color: rgba(255, 255, 255, 0.4);
