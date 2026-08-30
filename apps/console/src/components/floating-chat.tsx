@@ -99,18 +99,118 @@ export function FloatingChat(): React.ReactElement {
   )
 }
 
-/** FAB —— 画布页避让 minimap（D5）。 */
+/**
+ * FAB —— 自由拖动版（2026-08-30 用户需求「上下左右可移」）。
+ * 交互契约：按下未移动（<4px）= 点击打开；拖动 = 跟手移动（pointer
+ * capture，视口内钳制）；松手持久化位置（dagents.fab-chat.btn）。
+ * 归位不做双击（click 先于 dblclick 触发会开窗卸载按钮，永远到不了
+ * dblclick）—— 自由拖动后用户可自行拖回默认锚点。
+ */
+const FAB_BTN_KEY = 'dagents.fab-chat.btn'
+const FAB_SIZE = 48
+const FAB_MARGIN = 8
+/** 拖动阈值：小于它视为点击（避免手抖误判成拖动）。 */
+const FAB_DRAG_THRESHOLD = 4
+
+function clampFab(x: number, y: number): { x: number; y: number } {
+  return {
+    x: Math.min(Math.max(x, FAB_MARGIN), window.innerWidth - FAB_SIZE - FAB_MARGIN),
+    y: Math.min(Math.max(y, FAB_MARGIN), window.innerHeight - FAB_SIZE - FAB_MARGIN),
+  }
+}
+
 function ChatFab({ onClick }: { onClick: () => void }): React.ReactElement {
   const { t } = useI18n()
   const pathname = usePathname() ?? '/'
   const onCanvas = pathname.startsWith('/workflows/')
+  // null = 默认锚点（未拖动过）；一旦拖动即接管定位（left/top 定位）
+  const [pos, setPos] = useState<{ x: number; y: number } | null>(null)
+  const dragRef = useRef<{ startX: number; startY: number; baseX: number; baseY: number; moved: boolean } | null>(null)
+
+  // 挂载恢复记忆位置（视口可能变化 —— 钳制兜底）
+  useEffect(() => {
+    try {
+      const raw = localStorage.getItem(FAB_BTN_KEY)
+      if (raw) {
+        const p = JSON.parse(raw) as { x?: number; y?: number }
+        if (typeof p.x === 'number' && typeof p.y === 'number') setPos(clampFab(p.x, p.y))
+      }
+    } catch {
+      /* 私隐模式等场景忽略 */
+    }
+  }, [])
+
+  // 视口变化时把按钮拉回可视区（不改变锚点语义 —— 只钳制）
+  useEffect(() => {
+    if (!pos) return
+    const onResize = (): void => setPos((p) => (p ? clampFab(p.x, p.y) : p))
+    window.addEventListener('resize', onResize)
+    return () => window.removeEventListener('resize', onResize)
+  }, [pos])
+
+  const onPointerDown = (e: React.PointerEvent<HTMLButtonElement>): void => {
+    // 只有主键/触点启动拖动；记录起点与按钮当前位置（默认锚点需先物化）
+    if (e.button !== 0) return
+    // 新一轮交互清零拖动标记 —— 拖动后的尾随 click 未必触发，残留真值
+    // 会吞掉下一次真实点击（实测：拖完立刻点不开窗）
+    lastMovedRef.current = false
+    const rect = e.currentTarget.getBoundingClientRect()
+    const base = pos ?? { x: rect.left, y: rect.top }
+    dragRef.current = { startX: e.clientX, startY: e.clientY, baseX: base.x, baseY: base.y, moved: false }
+    e.currentTarget.setPointerCapture(e.pointerId)
+  }
+  const onPointerMove = (e: React.PointerEvent<HTMLButtonElement>): void => {
+    const d = dragRef.current
+    if (!d) return
+    const dx = e.clientX - d.startX
+    const dy = e.clientY - d.startY
+    if (!d.moved && Math.hypot(dx, dy) < FAB_DRAG_THRESHOLD) return
+    d.moved = true
+    setPos(clampFab(d.baseX + dx, d.baseY + dy))
+  }
+  const lastMovedRef = useRef(false)
+  const onPointerUp = (e: React.PointerEvent<HTMLButtonElement>): void => {
+    const d = dragRef.current
+    dragRef.current = null
+    e.currentTarget.releasePointerCapture?.(e.pointerId)
+    if (d?.moved) {
+      lastMovedRef.current = true
+      // 拖动落位：持久化（松手时取当前 state —— 通过回调形式读取最新值）
+      setPos((p) => {
+        if (p) {
+          try {
+            localStorage.setItem(FAB_BTN_KEY, JSON.stringify(p))
+          } catch {
+            /* 忽略 */
+          }
+        }
+        return p
+      })
+    }
+  }
+  const custom = pos != null
   return (
     <button
       type="button"
-      className={`floating-chat-fab${onCanvas ? ' fab-canvas-offset' : ''}`}
-      onClick={onClick}
+      className={`floating-chat-fab${onCanvas && !custom ? ' fab-canvas-offset' : ''}${custom ? ' fab-custom-pos' : ''}`}
+      style={
+        custom
+          ? { left: pos!.x, top: pos!.y, right: 'auto', bottom: 'auto' }
+          : undefined
+      }
+      onPointerDown={onPointerDown}
+      onPointerMove={onPointerMove}
+      onPointerUp={onPointerUp}
+      onClick={() => {
+        // pointerup 已清 dragRef；拖动与否通过移动标记判断
+        if (lastMovedRef.current) {
+          lastMovedRef.current = false
+          return
+        }
+        onClick()
+      }}
       aria-label={t('打开聊天')}
-      title={t('打开聊天')}
+      title={t('打开聊天（可拖动）')}
     >
       <Icon name="chat" style={{ width: 22, height: 22 }} />
     </button>

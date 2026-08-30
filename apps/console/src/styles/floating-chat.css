@@ -413,3 +413,11 @@
 .fab-hitl-label {
   color: var(--accent, #6366f1);
 }
+
+/* 自由拖动（2026-08-30）：自定义位置态 —— 触点设备禁浏览器手势、抓取光标 */
+.floating-chat-fab {
+  touch-action: none;
+}
+.floating-chat-fab:active {
+  cursor: grabbing;
+}
