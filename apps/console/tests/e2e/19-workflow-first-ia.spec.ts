@@ -48,6 +48,12 @@ test.describe('Workflow-First IA smoke (IA-01 ~ IA-04)', () => {
     )
     const runId = records[0]!.id
     ctx.runIds.push(runId)
+    // 配套 span 行（真实运行的 span-writer 都会写；旁观面板靠它渲染行）
+    await ctx.db.runQuery(
+      `INSERT INTO run_node_spans (run_id, flow_id, node_id, node_label, node_type, status, started_at, finished_at, duration_ms)
+       VALUES ($1::uuid, $2::uuid, 'llm1', 'llm1', 'llmAgentflow', 'done', NOW() - INTERVAL '1 hour', NOW() - INTERVAL '59 minutes', 60000)`,
+      [runId, flowId],
+    )
 
     await page.goto('/')
     // 展开种子 flow 卡片（data-toggle 是卡片头的展开开关）
@@ -64,6 +70,11 @@ test.describe('Workflow-First IA smoke (IA-01 ~ IA-04)', () => {
       'href',
       new RegExp(`/workflows/${flowId}/canvas\\?run=${runId}`),
     )
+
+    // 点进旁观：结果面板自动打开（2026-08-30 —— 否则流式 live tail
+    // 默认不可见，徽章亮着面板却关着）
+    await row.getByRole('link', { name: '画布旁观' }).click()
+    await expect(page.locator('.canvas-results-panel')).toBeVisible({ timeout: 15_000 })
   })
 
   test('IA-02: FAB on canvas page carries the minimap-avoidance offset (D5)', async ({

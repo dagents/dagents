@@ -492,6 +492,10 @@ export function FlowiseCanvas({
     let cancelled = false
     setRunState('running')
     setRunSummary(null)
+    // 旁观即看流：结果面板默认打开 + 清掉手动收起记忆 —— 否则徽章在亮、
+    // 面板却关着，流式 live tail 默认不可见（2026-08-30 修复）。
+    setResultsOpen(true)
+    manualCollapseRef.current.clear()
     agentflowRef.current?.clearExecutionState()
     resetEdges()
     const tick = async (): Promise<void> => {

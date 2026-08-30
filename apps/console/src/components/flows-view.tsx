@@ -533,6 +533,18 @@ export function FlowsView({ home = false }: { home?: boolean }): React.ReactElem
     if (first) setSelectedNodeId(first.id)
   }, [detail, selectedNodeId])
 
+  // 运行节点跟随（2026-08-30 流式可见性）：轮询到新的 running 节点时把
+  // inspector 切过去 —— 运行中的 partial 输出直接流在 inspector 里，不再
+  // 停在首个节点上错过全部动作。每个节点只跟随一次（用户手动点别的节点
+  // 后，下一个节点开始时才重新接管）；全部终态后停在最后的节点。
+  const followedRunningRef = useRef<string | null>(null)
+  useEffect(() => {
+    const running = Object.values(spansByNode).find((s) => s.status === 'running')
+    if (!running || running.nodeId === followedRunningRef.current) return
+    followedRunningRef.current = running.nodeId
+    setSelectedNodeId(running.nodeId)
+  }, [spansByNode])
+
   // URL hash deep-link — mirrors design `checkHash` (L551-560): `#flow=…&run=…`
   // opens the detail page on mount, and `hashchange` swaps back to the list
   // when the hash is cleared. Kept narrow: only the `#flow=&run=` shape is

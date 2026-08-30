@@ -113,6 +113,10 @@ function jsonResponse(body: unknown, init?: ResponseInit): Response {
  * above. The url-path matcher routes by pathname so a single stub answers all
  * the fetches the view makes on mount + on showDetail / runFlow.
  */
+/** 用例级 spans 信封覆盖（默认 null = 用 spansEnvelope）—— 流式跟随
+ *  用例注入 running 节点的 partial 产出。 */
+let spansOverride: NodeSpansEnvelope | null = null
+
 function stubFetch(): { calls: string[] } {
   const calls: string[] = []
   const BASE = 'http://localhost'
@@ -122,7 +126,7 @@ function stubFetch(): { calls: string[] } {
     calls.push(path)
     if (path === '/api/workflows') return jsonResponse({ success: true, data: flows })
     if (path.startsWith('/api/workflows/') && path.endsWith('/node-spans')) {
-      return jsonResponse(spansEnvelope)
+      return jsonResponse(spansOverride ?? spansEnvelope)
     }
     if (path.startsWith('/api/workflows/') && path.endsWith('/run')) {
       // runFlow reads the run id from the x-run-id response header.
@@ -139,6 +143,7 @@ function stubFetch(): { calls: string[] } {
 // jsdom has no location.hash in some vitest setups; ensure a stable window.
 beforeEach(() => {
   pushMock.mockReset()
+  spansOverride = null
   if (typeof window !== 'undefined') {
     window.location.hash = ''
   }
@@ -242,6 +247,62 @@ describe('FlowsView — list↔detail swap (M2.2)', () => {
     // the n1 span carried input_tokens/output_tokens → the io-box is not "—"
     const ioBoxes = inspector!.querySelectorAll('.io-box')
     expect(ioBoxes.length).toBeGreaterThanOrEqual(2)
+  })
+
+  it('inspector follows the running node and streams its partial output (2026-08-30)', async () => {
+    // n2 running + partial 产出 —— 详情页轮询到 running 节点时 inspector
+    // 应切过去（不再停在首个节点），partial 正文直接流进 io-box。
+    spansOverride = {
+      success: true,
+      data: {
+        runId: 'run-flow_r',
+        spans: [
+          {
+            nodeId: 'n1',
+            nodeLabel: '开始',
+            nodeType: 'Start',
+            status: 'done',
+            startedAt: null,
+            finishedAt: '2026-07-09T14:31:00.000Z',
+            durationMs: 100,
+            tokens: null,
+            cost: null,
+            error: null,
+            traceId: null,
+          },
+          {
+            nodeId: 'n2',
+            nodeLabel: 'reader',
+            nodeType: 'Agent',
+            status: 'running',
+            startedAt: '2026-07-09T14:31:10.000Z',
+            finishedAt: null,
+            durationMs: null,
+            tokens: null,
+            cost: null,
+            error: null,
+            traceId: null,
+            output: { text: 'PARTIAL-STREAMING-TEXT' },
+          },
+        ],
+      },
+    }
+    stubFetch()
+    const user = userEvent.setup()
+    await renderView()
+    const runBtn = await screen.findByRole('button', { name: /^运行$/ })
+    await user.click(runBtn)
+    const dialog = await screen.findByRole('dialog', { name: '运行输入' })
+    await user.click(within(dialog).getByRole('button', { name: '开始运行' }))
+
+    // inspector 跟随到 running 节点（reader），不是首个节点（开始）
+    await waitFor(() => {
+      expect(document.querySelector('.flow-inspector .nm')?.textContent).toBe('reader')
+    })
+    // partial 正文流进输出 io-box（extractIo 的 {text} 解包）
+    await waitFor(() => {
+      expect(document.querySelector('.flow-inspector')?.textContent).toContain('PARTIAL-STREAMING-TEXT')
+    })
   })
 })
 
