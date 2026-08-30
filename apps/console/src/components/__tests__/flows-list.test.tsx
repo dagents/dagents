@@ -90,6 +90,13 @@ describe('FlowsView list-page (M2.1 fidelity)', () => {
     pushMock.mockReset()
     globalThis.fetch = (async (input: RequestInfo | URL) => {
       const url = typeof input === 'string' ? input : input.toString()
+      if (url.startsWith('/api/runs')) {
+        // FlowRunsPanel（卡片展开区单 Flow 运行历史，2026-08-30）
+        return new Response(JSON.stringify({ success: true, data: [] }), {
+          status: 200,
+          headers: { 'content-type': 'application/json' },
+        })
+      }
       if (url.startsWith('/api/workflows/runs/')) {
         return new Response(JSON.stringify({ success: true, data: { runId: 'R-8821', spans: [] } }), {
           status: 200,
@@ -165,12 +172,11 @@ describe('FlowsView list-page (M2.1 fidelity)', () => {
       .closest('.flow-card')!.querySelector('.flow-card-head') as HTMLElement
     await userEvent.click(head)
     expect(head).toHaveAttribute('aria-expanded', 'true')
-    // The runs panel shows an honest hint row (no forever-empty table
-    // header) instead of fabricated run rows.
+    // 展开区是 FlowRunsPanel（2026-08-30 打通真实运行历史）：空历史时
+    // 显示诚实提示行（stub /api/runs 返回空表）。
     const card = head.closest('.flow-card')!
     const runs = card.querySelector('.flow-runs')
     expect(runs).not.toBeNull()
-    expect(runs!.querySelector('.run-list-head')).toBeNull()
     expect(runs!.textContent).toContain('暂无运行记录 — 点「运行」或到画布中触发')
   })
 

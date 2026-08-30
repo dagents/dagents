@@ -183,6 +183,8 @@ export const flows: Record<string, string> = {
   '删除 Flow 失败：{error}': 'Failed to delete flow: {error}',
   '删除 Flow「{name}」？此操作不可撤销。': 'Delete flow “{name}”? This cannot be undone.',
   '暂无运行记录 — 点「运行」或到画布中触发': 'No runs yet — press “Run” or trigger from the canvas',
+  '运行记录': 'Run history',
+  '进行中': 'in progress',
   '创建失败（HTTP {status}）': 'Create failed (HTTP {status})',
   '执行进度加载失败：{error}': 'Failed to load run progress: {error}',
   '未命名 Flow': 'Untitled Flow',

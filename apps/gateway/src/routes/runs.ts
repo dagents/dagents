@@ -16,6 +16,21 @@ const ok = <T>(c: Context, data: T) => c.json({ success: true, data })
 const fail = (c: Context, status: ContentfulStatusCode, error: string) =>
   c.json({ success: false, error }, status)
 
+/**
+ * 输入预览提取：runs.input 是 JSONB —— 运行请求体常见形态
+ * `{"input":"..."}`，直接透传对象会让消费端（FlowRunsPanel 等）显示
+ * '—'。字符串 / `{input: string}` 都解出文本并截断；其余（null/复杂
+ * 对象）返回 null。
+ */
+function extractInputPreview(input: unknown): string | null {
+  if (typeof input === 'string') return input.slice(0, 80) || null
+  if (input && typeof input === 'object') {
+    const inner = (input as { input?: unknown }).input
+    if (typeof inner === 'string' && inner.length > 0) return inner.slice(0, 80)
+  }
+  return null
+}
+
 interface RunListRow {
   id: string
   flow_id: string | null
@@ -77,8 +92,7 @@ runsRoutes.get('/', async (c) => {
         startedAt: r.started_at,
         finishedAt: r.finished_at,
         durationMs: r.duration_ms,
-        inputPreview:
-          typeof r.input === 'string' ? r.input.slice(0, 80) : (r.input ?? null),
+        inputPreview: extractInputPreview(r.input),
         error: r.first_error,
         createdAt: r.created_at,
       })),

@@ -50,6 +50,7 @@ import { FlowTemplateGallery } from '@/components/flow-template-gallery'
 import { GenerateFlowDialog } from '@/components/generate-flow-dialog'
 import { FlowsEmptyHero } from '@/components/flows-empty-hero'
 import { FlowRunDialog } from '@/components/flow-run-dialog'
+import { FlowRunsPanel } from '@/components/flow-runs-panel'
 import { SkeletonList } from '@/components/skeleton'
 import { useToast } from '@/components/toast'
 import { fetchRunNodeSpans, type RunNodeSpan } from '@/lib/node-spans'
@@ -255,6 +256,8 @@ export function FlowsView({ home = false }: { home?: boolean }): React.ReactElem
   // Retry ticks — bump re-run the corresponding load effect.
   const [reloadListTick, setReloadListTick] = useState(0)
   const [reloadDetailTick, setReloadDetailTick] = useState(0)
+  // 卡片运行历史面板的刷新 tick：发起运行成功后 bump（新 run 立即可见）。
+  const [runsTick, setRunsTick] = useState(0)
 
   /** showDetail(flowId, runId) — mirrors design/agentflows.html L432-462.
    *  Sets both ids; the detail effect fetches the flow + drives the swap.
@@ -296,6 +299,8 @@ export function FlowsView({ home = false }: { home?: boolean }): React.ReactElem
       }
       const runId = json.data?.runId ?? res.headers.get('x-run-id')
       if (runId) {
+        // 新 run 立即出现在卡片运行历史里（面板挂 3s 轮询直到终态）
+        setRunsTick((n) => n + 1)
         showDetail(flowId, runId)
       } else {
         // Success but no run id — don't leave the user at a dead end.
@@ -905,11 +910,10 @@ export function FlowsView({ home = false }: { home?: boolean }): React.ReactElem
                     </div>
                   ) : null}
                   <div className="flow-runs">
-                    {/* 列表页没有真实的 run 历史数据 — 只渲染提示行，不渲染
-                        永远为空的 7 列表头（运行请从「运行」按钮或画布触发） */}
-                    <div className="muted" style={{ padding: 'var(--space-3) var(--space-4)', fontSize: 12 }}>
-                      {t('暂无运行记录 — 点「运行」或到画布中触发')}
-                    </div>
+                    {/* 单 Flow 运行历史（2026-08-30 打通：原为静态提示行）。
+                     * 发起运行后 runsTick bump → 面板重拉新 run；running 行
+                     * 由面板自身 3s 轮询收尾。 */}
+                    <FlowRunsPanel flowId={f.id} refreshTick={runsTick} />
                   </div>
                 </div>
               )

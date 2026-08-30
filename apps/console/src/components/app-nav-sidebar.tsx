@@ -4,8 +4,10 @@
  * AppNavSidebar — Workflow-First IA 的主导航（PRD F2，docs/prd-workflow-first.md）。
  *
  * 取代 ChatNavSidebar（目录→会话树）成为工作流主场的信息架构：
- *   工作流 / 运行历史 / 智能体 / 技能 / 守护进程 主导航 + 会话历史树。
- *   模板不占导航位（入口在工作流工具栏「从模板创建」，2026-08-29 用户裁决）。
+ *   工作流 / 智能体 / 技能 / 守护进程 主导航 + 会话历史树。
+ *   模板不占导航位（入口在工作流工具栏「从模板创建」）；运行历史同理
+ *   （2026-08-30 用户裁决：/runs 页已删，历史在 flow 卡片展开区 ——
+ *   FlowRunsPanel）。
  *
  * 会话历史：2026-08-29 用户裁决恢复「项目目录为第一维度」的树
  * （ChatHistoryTree，与 Chat-First 回滚壳共用同一实现 —— 含搜索、目录
@@ -51,7 +53,6 @@ export function AppNavSidebar({
 
   const navItems: NavItem[] = [
     { href: '/', label: t('工作流'), icon: 'flows', exact: true },
-    { href: '/runs', label: t('运行历史'), icon: 'terminal' },
     { href: '/agents', label: t('智能体'), icon: 'agents' },
     { href: '/skills', label: t('技能'), icon: 'zap' },
     { href: '/daemons', label: t('守护进程'), icon: 'daemons' },

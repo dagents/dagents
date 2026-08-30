@@ -1,0 +1,87 @@
+/* FlowRunsPanel —— 列表卡片展开区的单 Flow 运行历史（2026-08-30，
+ * 取代原 /runs 页 + 静态「暂无运行记录」提示行）。紧凑行形态，双主题
+ * token 自动生效；dot-error 从 runs-view.css 迁移过来（原文件随页删除）。 */
+
+.flow-runs {
+  display: flex;
+  flex-direction: column;
+  padding: var(--space-2) var(--space-4) var(--space-3);
+}
+
+.flow-runs-empty {
+  padding: var(--space-2) 0;
+  font-size: 12px;
+  opacity: 0.55;
+}
+
+.flow-runs-row {
+  display: flex;
+  align-items: center;
+  gap: var(--space-2);
+  padding: 6px 0;
+  border-bottom: 1px solid var(--border, rgba(0, 0, 0, 0.05));
+  font-size: 12px;
+}
+
+.flow-runs-row:last-child {
+  border-bottom: 0;
+}
+
+.flow-runs-row.failed .flow-runs-error {
+  color: var(--danger, #dc2626);
+}
+
+/* dot-error 增量（状态点体系只有 running/done 两态） */
+.flow-runs .status-dot.dot-error {
+  background: var(--danger, #dc2626);
+}
+
+.flow-runs-source {
+  flex-shrink: 0;
+  font-size: 10px;
+}
+
+.flow-runs-status {
+  flex-shrink: 0;
+  font-size: 11.5px;
+  opacity: 0.8;
+}
+
+.flow-runs-status.st-failed {
+  color: var(--danger, #dc2626);
+  opacity: 1;
+}
+
+.flow-runs-status.st-running {
+  color: var(--accent, #6366f1);
+  opacity: 1;
+}
+
+.flow-runs-time {
+  white-space: nowrap;
+  opacity: 0.7;
+  flex-shrink: 0;
+}
+
+.flow-runs-input {
+  flex: 1;
+  min-width: 0;
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  opacity: 0.8;
+}
+
+.flow-runs-error {
+  flex: 1;
+  min-width: 0;
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  opacity: 0.75;
+}
+
+.flow-runs-watch {
+  flex-shrink: 0;
+  margin-left: auto;
+}

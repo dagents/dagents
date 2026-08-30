@@ -11,14 +11,15 @@ import {
  * Sidebar navigation e2e — UC-NAV-01 ~ 07（Workflow-First IA 版，2026-08-29
  * 重写，PRD docs/prd-workflow-first.md 评审 D2）。
  *
- * 新侧栏（app-nav-sidebar.tsx）：工作流 / 运行历史 / 智能体 / 技能 /
- * 守护进程 + 会话历史树。模板不占导航位（2026-08-29 用户裁决：工作流
- * 工具栏「从模板创建」按钮已是入口）；会话历史同样 2026-08-29 用户裁决
- * 恢复「项目目录为第一维度」的树（ChatHistoryTree，与 Chat-First 回滚壳
- * 共用同一实现 —— 搜索/目录重命名删除/每目录新建/会话重命名删除全量回归）。
+ * 新侧栏（app-nav-sidebar.tsx）：工作流 / 智能体 / 技能 / 守护进程 +
+ * 会话历史树。模板不占导航位（2026-08-29 用户裁决：工作流工具栏
+ * 「从模板创建」按钮已是入口）；运行历史同理（2026-08-30 用户裁决：
+ * /runs 页已删，历史在 flow 卡片展开区 FlowRunsPanel）；会话历史
+ * 2026-08-29 用户裁决恢复「项目目录为第一维度」的树（ChatHistoryTree，
+ * 与 Chat-First 回滚壳共用同一实现）。
  *
  *   UC-NAV-01  折叠/展开侧栏（跨刷新持久化）——机制与旧侧栏一致
- *   UC-NAV-02  主导航切换（工作流 → 运行历史 → 智能体）
+ *   UC-NAV-02  主导航切换（工作流 → 技能 → 智能体；运行历史已不占导航位）
  *   UC-NAV-03  模板入口 = 工作流工具栏「从模板创建」按钮（不再有 /templates 路由）
  *   UC-NAV-04  当前页 aria-current 标记
  *   UC-NAV-05  项目分组会话树：展开种子目录、点击会话进详情、aria-current
@@ -71,11 +72,14 @@ test.describe('Sidebar navigation — Workflow-First IA (UC-NAV-01 ~ 07)', () =>
 
   // ── UC-NAV-02: 主导航切换 ────────────────────────────────────────────────
 
-  test('UC-NAV-02: switch primary nav (workflows → run history → agents)', async ({ page }) => {
+  test('UC-NAV-02: switch primary nav (workflows → skills → agents)', async ({ page }) => {
     await expect(page.getByRole('navigation', { name: '主导航' })).toBeVisible({ timeout: 10_000 })
 
-    await page.getByRole('link', { name: '运行历史', exact: true }).click()
-    await expect(page).toHaveURL(/\/runs$/, { timeout: 15_000 })
+    // 运行历史不再占导航位（2026-08-30：/runs 页删除，历史进 flow 卡片）
+    await expect(page.locator('.app-nav-item', { hasText: '运行历史' })).toHaveCount(0)
+
+    await page.getByRole('link', { name: '技能', exact: true }).click()
+    await expect(page).toHaveURL(/\/skills$/, { timeout: 15_000 })
 
     await page.getByRole('link', { name: '智能体', exact: true }).click()
     await expect(page).toHaveURL(/\/agents$/, { timeout: 15_000 })
