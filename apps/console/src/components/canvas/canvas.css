@@ -64,7 +64,10 @@
   background: var(--surface-warm);
   height: 48px;
   flex-shrink: 0;
-  z-index: 5;
+  /* 无 z-index：任何 z 值都会把顶栏变成独立 stacking context，把内部
+   * 弹层（运行/结果面板 z1200、模态对话框）整体压到该层之下 ——
+   * vendor 画布里的 Checklist 按钮反而盖住弹窗（2026-08-30 实测翻车）。
+   * 投影的分层感由 box-shadow 本身承担，不需要 z。 */
 }
 .agentflow-title {
   font-family: var(--font-body);
