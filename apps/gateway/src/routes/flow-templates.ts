@@ -118,7 +118,9 @@ flowTemplateRoutes.get('/', async (c) => {
       agentRefs: memberSummaries(t.agentRefs, entriesByName),
       // 结构预览：拓扑分层（同层并行）—— 确认步骤链渲染的数据源
       layers: templateLayers(t.flowData, t.agentRefs),
-      // 参数化（方案 G）：表单在实例化前渲染，列表只回参数名清单。
+      // 参数化（方案 G）：完整投影 {name, defaultValue} —— 缺省值在表单
+      // placeholder 里可见（此前只回 name，用户「留空用缺省」却不知缺省是啥）
+      params: t.params ?? scanTemplateParams(t.flowData),
       paramNames: (t.params ?? scanTemplateParams(t.flowData)).map((p) => p.name),
     })),
   })
@@ -133,7 +135,7 @@ flowTemplateRoutes.get('/', async (c) => {
 function templateLayers(
   flowData: { nodes?: unknown[]; edges?: unknown[] },
   agentRefs: Array<{ nodeId: string; personaName: string | null }>,
-): Array<Array<{ id: string; label: string; kind: string; persona: string | null }>> {
+): Array<Array<{ id: string; label: string; kind: string; persona: string | null; prompt: string | null }>> {
   const nodes = (flowData.nodes ?? []) as Array<{ id: string; data?: Record<string, unknown> }>
   const edges = (flowData.edges ?? []) as Array<{ source: string; target: string }>
   const depth = new Map<string, number>()
@@ -153,14 +155,27 @@ function templateLayers(
     if (!changed) break
   }
   const personaByNode = new Map(agentRefs.map((r) => [r.nodeId, r.personaName]))
-  const buckets = new Map<number, Array<{ id: string; label: string; kind: string; persona: string | null }>>()
+  const buckets = new Map<
+    number,
+    Array<{ id: string; label: string; kind: string; persona: string | null; prompt: string | null }>
+  >()
   for (const n of nodes) {
     const d = depth.get(n.id) ?? 0
     const data = (n.data ?? {}) as Record<string, unknown>
+    const inputs = (data.inputs ?? {}) as Record<string, unknown>
     const label = (typeof data.label === 'string' && data.label) || n.id
     const kind = String(data.name ?? '').replace(/Agentflow$/, '') || 'node'
+    // 任务指令摘要（与 pipeline 的 PARAM_FIELDS 同域）：systemPrompt 优先，
+    // 截 120 字 —— 审查「模板让 Agent 干什么」不必进画布
+    const rawPrompt =
+      (typeof inputs.systemPrompt === 'string' && inputs.systemPrompt) ||
+      (typeof data.systemPrompt === 'string' && data.systemPrompt) ||
+      (typeof inputs.prompt === 'string' && inputs.prompt) ||
+      (typeof data.prompt === 'string' && data.prompt) ||
+      ''
+    const prompt = rawPrompt.trim().length > 0 ? rawPrompt.trim().slice(0, 120) : null
     const list = buckets.get(d) ?? []
-    list.push({ id: n.id, label, kind, persona: personaByNode.get(n.id) ?? null })
+    list.push({ id: n.id, label, kind, persona: personaByNode.get(n.id) ?? null, prompt })
     buckets.set(d, list)
   }
   return [...buckets.keys()].sort((a, b) => a - b).map((d) => buckets.get(d)!)

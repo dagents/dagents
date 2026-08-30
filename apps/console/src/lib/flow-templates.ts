@@ -23,8 +23,10 @@ export interface FlowTemplateSummary {
   agentRefs: FlowTemplateMemberSummary[]
   /** `{{变量}}` 占位符名清单（方案 G）：实例化前表单回填。 */
   paramNames?: string[]
+  /** 完整参数（2026-08-30 二轮）：含缺省值 —— 表单 placeholder 可见。 */
+  params?: Array<{ name: string; defaultValue?: string }>
   /** 结构预览（2026-08-30）：拓扑分层 —— 同层并行。确认步骤链渲染源。 */
-  layers?: Array<Array<{ id: string; label: string; kind: string; persona: string | null }>>
+  layers?: Array<Array<{ id: string; label: string; kind: string; persona: string | null; prompt: string | null }>>
 }
 
 export interface FlowTemplateMember {

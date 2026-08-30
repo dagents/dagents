@@ -205,3 +205,33 @@
   text-overflow: ellipsis;
   color: var(--fg);
 }
+
+/* 节点指令摘要展开（2026-08-30 二轮）：chip 变 button 可点，摘要段随出 */
+.ftpl-node-wrap {
+  display: flex;
+  flex-direction: column;
+  gap: 4px;
+  min-width: 0;
+  max-width: 100%;
+}
+.ftpl-node-chip {
+  font: inherit;
+  cursor: pointer;
+}
+.ftpl-node-more {
+  font-size: 9px;
+  color: var(--muted);
+  flex-shrink: 0;
+}
+.ftpl-node-prompt {
+  font-size: 11px;
+  line-height: 1.5;
+  color: var(--muted);
+  background: var(--surface);
+  border: 1px solid var(--border-soft, var(--border));
+  border-radius: 6px;
+  padding: 6px 9px;
+  white-space: pre-wrap;
+  word-break: break-word;
+  max-width: 420px;
+}

@@ -30,6 +30,8 @@ export interface FlowiseCanvasProps {
   readOnly?: boolean
   /** 旁观一个已有运行（如 chat @flow 触发）：挂载后自动轮询并点亮节点/连线。 */
   watchRunId?: string | null
+  /** ?created=1 —— 模板实例化落地：显示一次性首跑引导条。 */
+  firstRunHint?: boolean
 }
 
 /** 运行结果面板的单节点行（gateway node-spans 读端点的 camelCase 形状）。 */
@@ -241,6 +243,7 @@ export function FlowiseCanvas({
   onSave,
   readOnly = false,
   watchRunId = null,
+  firstRunHint = false,
 }: FlowiseCanvasProps): React.ReactElement {
   const agentflowRef = useRef<AgentFlowInstance>(null)
   const [saveState, setSaveState] = useState<'idle' | 'saving' | 'saved' | 'error'>('idle')
@@ -263,6 +266,14 @@ export function FlowiseCanvas({
   const [runPanelOpen, setRunPanelOpen] = useState(false)
   // 另存为模板（2026-08-30 从页面级 CanvasTopBar 并入 —— 消灭双标题）
   const [saveTplOpen, setSaveTplOpen] = useState(false)
+  // 首跑引导条（模板落地）：显示一次即清 URL 参数，刷新不再打扰
+  const [firstRunBar, setFirstRunBar] = useState(firstRunHint)
+  useEffect(() => {
+    if (!firstRunBar) return
+    try {
+      window.history.replaceState(null, '', window.location.pathname)
+    } catch { /* 忽略 */ }
+  }, [firstRunBar])
   const [runInput, setRunInput] = useState('')
   const [resultsOpen, setResultsOpen] = useState(false)
   const [latestSpans, setLatestSpans] = useState<CanvasSpanRow[]>([])
@@ -790,6 +801,33 @@ export function FlowiseCanvas({
             </div>
           ) : null}
 
+          {firstRunBar ? (
+            <div className='canvas-first-run-bar' role='status'>
+              <span className='canvas-first-run-dot' aria-hidden='true'>✨</span>
+              <span className='canvas-first-run-text'>
+                {t('模板已就绪 —— 填入任务输入，跑起来看看效果')}
+              </span>
+              <button
+                type='button'
+                className='btn btn-primary btn-sm'
+                onClick={() => {
+                  setFirstRunBar(false)
+                  setRunPanelOpen(true)
+                }}
+              >
+                {t('立即运行')}
+              </button>
+              <button
+                type='button'
+                className='canvas-first-run-close'
+                aria-label={t('关闭')}
+                onClick={() => setFirstRunBar(false)}
+              >
+                ×
+              </button>
+            </div>
+          ) : null}
+
           {/* 另存为模板（并入顶栏，2026-08-30） */}
           <SaveFlowTemplateDialog
             open={saveTplOpen}
@@ -925,7 +963,7 @@ export function FlowiseCanvas({
         </div>
       )
     },
-    [flowName, saveState, readOnly, runState, runSummary, handleRun, t, runPanelOpen, runInput, resultsOpen, latestSpans, saveTplOpen, handleAddDirectory],
+    [flowName, saveState, readOnly, runState, runSummary, handleRun, t, runPanelOpen, runInput, resultsOpen, latestSpans, saveTplOpen, handleAddDirectory, firstRunBar],
   )
 
   return (

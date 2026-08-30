@@ -4,7 +4,7 @@ import { gatewayUrl } from '@/lib/config'
 
 interface CanvasWorkflowPageProps {
   params: Promise<{ id: string }>
-  searchParams?: Promise<{ run?: string }>
+  searchParams?: Promise<{ run?: string; created?: string }>
 }
 
 export default async function CanvasWorkflowPage({
@@ -14,6 +14,8 @@ export default async function CanvasWorkflowPage({
   const { id } = await params
   // ?run=<runId> — 旁观一个已有运行（如 chat @flow 触发），画布自动点亮进度
   const runParam = (await searchParams)?.run ?? null
+  // ?created=1 —— 模板实例化落地（首跑引导条来源，见 FlowiseCanvas）
+  const firstRunHint = (await searchParams)?.created === '1'
   const watchRunId = /^[0-9a-fA-F-]{8,64}$/.test(runParam ?? '') ? runParam : null
 
   let flowData = {
@@ -77,7 +79,7 @@ export default async function CanvasWorkflowPage({
               全部在 vendor 画布自带的 agentflow-header 里 —— 此前的页面级
               CanvasTopBar 与之叠成双标题，已删。 */}
           <div className="ftpl-canvas-body">
-            <FlowiseCanvasLoader flowId={id} flowName={flowName} initialFlow={flowData} watchRunId={watchRunId} />
+            <FlowiseCanvasLoader flowId={id} flowName={flowName} initialFlow={flowData} watchRunId={watchRunId} firstRunHint={firstRunHint} />
           </div>
         </div>
       )}

@@ -758,3 +758,32 @@ details.canvas-result-io[open] > summary::before { content: '▾ '; }
   color: var(--fg);
 }
 .canvas-run-dir-add:disabled { opacity: 0.5; cursor: default; }
+
+/* 首跑引导条（模板落地，2026-08-30 二轮）：header 下悬浮一条 */
+.canvas-first-run-bar {
+  position: absolute;
+  top: calc(100% + 8px);
+  left: 0;
+  z-index: 1100;
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  padding: 8px 14px;
+  border: 1px solid color-mix(in oklab, var(--accent, #6366f1) 35%, transparent);
+  border-radius: 8px;
+  background: color-mix(in oklab, var(--accent, #6366f1) 8%, var(--bg));
+  box-shadow: var(--elev-overlay, 0 4px 16px rgba(0, 0, 0, 0.12));
+  font-size: 12.5px;
+}
+.canvas-first-run-dot { font-size: 14px; }
+.canvas-first-run-text { color: var(--fg); }
+.canvas-first-run-close {
+  border: 0;
+  background: transparent;
+  color: var(--muted);
+  font-size: 16px;
+  cursor: pointer;
+  padding: 0 2px;
+  line-height: 1;
+}
+.canvas-first-run-close:hover { color: var(--fg); }

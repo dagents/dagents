@@ -63,6 +63,8 @@ export function FlowTemplateGallery({
   // 新工作流命名（2026-08-30）：默认模板名，用户可改 —— 此前不能命名，
   // 重复创建只能撞名。网关两端点早已支持 flow_name，前端一直没传。
   const [flowName, setFlowName] = useState('')
+  // 结构预览里展开指令摘要的节点 id（同层多节点独立展开）
+  const [expandedNode, setExpandedNode] = useState<string | null>(null)
   const [submitting, setSubmitting] = useState(false)
   const [deleting, setDeleting] = useState<string | null>(null)
   // Two-step delete confirmation — the armed template id awaiting a second click.
@@ -152,7 +154,7 @@ export function FlowTemplateGallery({
           : t('工作流「{name}」已创建', { name: confirmTpl.name }),
       )
       onClose()
-      router.push(`/workflows/${result.flowId}/canvas`)
+      router.push(`/workflows/${result.flowId}/canvas?created=1`)
     } catch (err) {
       toast.error(err instanceof Error ? err.message : String(err))
     } finally {
@@ -170,7 +172,7 @@ export function FlowTemplateGallery({
         n: result.members.length,
       }))
       onClose()
-      router.push(`/workflows/${result.flowId}/canvas`)
+      router.push(`/workflows/${result.flowId}/canvas?created=1`)
     } catch (err) {
       toast.error(err instanceof Error ? err.message : String(err))
     } finally {
@@ -296,9 +298,20 @@ export function FlowTemplateGallery({
                       <div className={`ftpl-layer-nodes${layer.length > 1 ? ' parallel' : ''}`}>
                         {layer.length > 1 && <span className="ftpl-parallel-tag">{t('并行')}</span>}
                         {layer.map((n) => (
-                          <span key={n.id} className="ftpl-node-chip" title={n.persona ?? undefined}>
-                            <span className="ftpl-node-kind">{n.kind}</span>
-                            <span className="ftpl-node-label">{n.label}</span>
+                          <span key={n.id} className="ftpl-node-wrap">
+                            <button
+                              type="button"
+                              className="ftpl-node-chip"
+                              title={n.persona ?? undefined}
+                              onClick={() => setExpandedNode((cur) => (cur === n.id ? null : n.id))}
+                            >
+                              <span className="ftpl-node-kind">{n.kind}</span>
+                              <span className="ftpl-node-label">{n.label}</span>
+                              {n.prompt ? <span className="ftpl-node-more" aria-hidden="true">{expandedNode === n.id ? '▴' : '▾'}</span> : null}
+                            </button>
+                            {n.prompt && expandedNode === n.id ? (
+                              <div className="ftpl-node-prompt">{n.prompt}</div>
+                            ) : null}
                           </span>
                         ))}
                       </div>
@@ -311,18 +324,19 @@ export function FlowTemplateGallery({
                   ? t('纯 LLM 模板，零依赖开箱即跑。')
                   : t('可解析的人格将绑定真实 Agent；未解析的节点自动降级为 LLM（任务指令照常执行）。')}
               </div>
-              {(confirmTpl.paramNames?.length ?? 0) > 0 && (
+              {(confirmTpl.params?.length ?? confirmTpl.paramNames?.length ?? 0) > 0 && (
                 <div className="ft-params">
                   <div className="alib-team-shape-hint">{t('模板包含变量，创建时回填到提示词（留空则按缺省值）。')}</div>
-                  {confirmTpl.paramNames!.map((name) => (
-                    <label key={name} className="ft-param-row">
-                      <span className="ft-param-name">{`{{${name}}}`}</span>
+                  {(confirmTpl.params ?? (confirmTpl.paramNames ?? []).map((name) => ({ name, defaultValue: undefined }))).map((param) => (
+                    <label key={param.name} className="ft-param-row">
+                      <span className="ft-param-name">{`{{${param.name}}}`}</span>
                       <input
                         className="ft-param-input"
-                        value={paramAnswers[name] ?? ''}
-                        placeholder={t('留空使用缺省值')}
+                        value={paramAnswers[param.name] ?? ''}
+                        placeholder={param.defaultValue || t('留空使用缺省值')}
+                        title={param.defaultValue || undefined}
                         onChange={(e) =>
-                          setParamAnswers((prev) => ({ ...prev, [name]: e.target.value }))
+                          setParamAnswers((prev) => ({ ...prev, [param.name]: e.target.value }))
                         }
                       />
                     </label>
