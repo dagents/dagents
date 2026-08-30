@@ -60,6 +60,9 @@ export function FlowTemplateGallery({
   const [confirmTpl, setConfirmTpl] = useState<FlowTemplateSummary | null>(null)
   const [confirmTeam, setConfirmTeam] = useState<TeamTemplateSummary | null>(null)
   const [paramAnswers, setParamAnswers] = useState<Record<string, string>>({})
+  // 新工作流命名（2026-08-30）：默认模板名，用户可改 —— 此前不能命名，
+  // 重复创建只能撞名。网关两端点早已支持 flow_name，前端一直没传。
+  const [flowName, setFlowName] = useState('')
   const [submitting, setSubmitting] = useState(false)
   const [deleting, setDeleting] = useState<string | null>(null)
   // Two-step delete confirmation — the armed template id awaiting a second click.
@@ -99,6 +102,9 @@ export function FlowTemplateGallery({
   useEffect(() => {
     setParamAnswers({})
   }, [confirmTpl])
+  useEffect(() => {
+    setFlowName(confirmTpl?.name ?? confirmTeam?.name ?? '')
+  }, [confirmTpl, confirmTeam])
 
   useEffect(() => {
     if (open) return
@@ -135,7 +141,10 @@ export function FlowTemplateGallery({
     if (!confirmTpl) return
     setSubmitting(true)
     try {
-      const result = await instantiateFlowTemplate(confirmTpl.id, { answers: paramAnswers })
+      const result = await instantiateFlowTemplate(confirmTpl.id, {
+        flowName: flowName.trim() || confirmTpl.name,
+        answers: paramAnswers,
+      })
       const degraded = result.members.filter((m) => m.degraded).length
       toast.success(
         degraded > 0
@@ -155,7 +164,7 @@ export function FlowTemplateGallery({
     if (!confirmTeam) return
     setSubmitting(true)
     try {
-      const result = await instantiateTeamTemplate(confirmTeam.id)
+      const result = await instantiateTeamTemplate(confirmTeam.id, { flowName: flowName.trim() || confirmTeam.name })
       toast.success(t('已创建工作流「{name}」（{n} 个成员 Agent）', {
         name: confirmTeam.name,
         n: result.members.length,
@@ -268,6 +277,35 @@ export function FlowTemplateGallery({
                   <div className="alib-confirm-desc">{confirmTpl.description}</div>
                 </div>
               </div>
+              <label className="ftpl-name-row">
+                <span className="ftpl-name-label">{t('新工作流名称')}</span>
+                <input
+                  className="input ftpl-name-input"
+                  value={flowName}
+                  maxLength={128}
+                  placeholder={confirmTpl.name}
+                  onChange={(e) => setFlowName(e.target.value)}
+                />
+              </label>
+              {(confirmTpl.layers?.length ?? 0) > 1 && (
+                <div className="ftpl-layers" aria-label={t('流程结构')}>
+                  <div className="ftpl-layers-title">{t('流程结构')}</div>
+                  {confirmTpl.layers!.map((layer, i) => (
+                    <div key={i} className="ftpl-layer">
+                      {i > 0 && <span className="ftpl-layer-arrow" aria-hidden="true">↓</span>}
+                      <div className={`ftpl-layer-nodes${layer.length > 1 ? ' parallel' : ''}`}>
+                        {layer.length > 1 && <span className="ftpl-parallel-tag">{t('并行')}</span>}
+                        {layer.map((n) => (
+                          <span key={n.id} className="ftpl-node-chip" title={n.persona ?? undefined}>
+                            <span className="ftpl-node-kind">{n.kind}</span>
+                            <span className="ftpl-node-label">{n.label}</span>
+                          </span>
+                        ))}
+                      </div>
+                    </div>
+                  ))}
+                </div>
+              )}
               <div className="alib-team-shape-hint">
                 {confirmTpl.agentRefs.length === 0
                   ? t('纯 LLM 模板，零依赖开箱即跑。')
@@ -318,6 +356,74 @@ export function FlowTemplateGallery({
                   <div className="alib-confirm-name">{confirmTeam.name}</div>
                   <div className="alib-confirm-desc">{confirmTeam.description}</div>
                 </div>
+              </div>
+              <label className="ftpl-name-row">
+                <span className="ftpl-name-label">{t('新工作流名称')}</span>
+                <input
+                  className="input ftpl-name-input"
+                  value={flowName}
+                  maxLength={128}
+                  placeholder={confirmTeam.name}
+                  onChange={(e) => setFlowName(e.target.value)}
+                />
+              </label>
+              <div className="ftpl-layers" aria-label={t('流程结构')}>
+                <div className="ftpl-layers-title">{t('流程结构')}</div>
+                {confirmTeam.shape === 'fan-out' ? (
+                  <>
+                    <div className="ftpl-layer">
+                      <div className="ftpl-layer-nodes">
+                        <span className="ftpl-node-chip">
+                          <span className="ftpl-node-kind">start</span>
+                          <span className="ftpl-node-label">{t('任务输入')}</span>
+                        </span>
+                      </div>
+                    </div>
+                    <div className="ftpl-layer">
+                      <span className="ftpl-layer-arrow" aria-hidden="true">↓</span>
+                      <div className="ftpl-layer-nodes parallel">
+                        <span className="ftpl-parallel-tag">{t('并行')}</span>
+                        {confirmTeam.members.map((m) => (
+                          <span key={m.persona} className="ftpl-node-chip">
+                            <span className="ftpl-node-kind">agent</span>
+                            <span className="ftpl-node-label">{m.label || m.persona}</span>
+                          </span>
+                        ))}
+                      </div>
+                    </div>
+                    <div className="ftpl-layer">
+                      <span className="ftpl-layer-arrow" aria-hidden="true">↓</span>
+                      <div className="ftpl-layer-nodes">
+                        <span className="ftpl-node-chip">
+                          <span className="ftpl-node-kind">llm</span>
+                          <span className="ftpl-node-label">{t('汇总输出')}</span>
+                        </span>
+                      </div>
+                    </div>
+                  </>
+                ) : (
+                  <>
+                    <div className="ftpl-layer">
+                      <div className="ftpl-layer-nodes">
+                        <span className="ftpl-node-chip">
+                          <span className="ftpl-node-kind">start</span>
+                          <span className="ftpl-node-label">{t('任务输入')}</span>
+                        </span>
+                      </div>
+                    </div>
+                    {confirmTeam.members.map((m) => (
+                      <div key={m.persona} className="ftpl-layer">
+                        <span className="ftpl-layer-arrow" aria-hidden="true">↓</span>
+                        <div className="ftpl-layer-nodes">
+                          <span className="ftpl-node-chip">
+                            <span className="ftpl-node-kind">agent</span>
+                            <span className="ftpl-node-label">{m.label || m.persona}</span>
+                          </span>
+                        </div>
+                      </div>
+                    ))}
+                  </>
+                )}
               </div>
               <div className="alib-team-shape-hint">
                 {confirmTeam.shape === 'fan-out'

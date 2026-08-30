@@ -118,3 +118,90 @@
   color: inherit;
   font-size: 13px;
 }
+
+/* ── 确认步：命名 + 流程结构预览（2026-08-30 从模板创建优化）── */
+.ftpl-name-row {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  margin: 10px 0 4px;
+}
+.ftpl-name-label {
+  flex-shrink: 0;
+  font-size: 12px;
+  color: var(--muted);
+}
+.ftpl-name-input {
+  flex: 1;
+  min-width: 0;
+}
+.ftpl-layers {
+  margin: 10px 0;
+  padding: 10px 12px;
+  border: 1px solid var(--border-soft, var(--border));
+  border-radius: 8px;
+  background: var(--bg);
+}
+.ftpl-layers-title {
+  font-size: 11px;
+  font-weight: 600;
+  color: var(--muted);
+  margin-bottom: 8px;
+  letter-spacing: 0.02em;
+}
+.ftpl-layer {
+  display: flex;
+  flex-direction: column;
+  align-items: flex-start;
+}
+.ftpl-layer-arrow {
+  color: var(--muted);
+  font-size: 12px;
+  line-height: 1;
+  margin: 3px 0 3px 18px;
+}
+.ftpl-layer-nodes {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 6px;
+  align-items: center;
+  position: relative;
+}
+.ftpl-layer-nodes.parallel {
+  padding: 6px 8px;
+  border: 1px dashed color-mix(in oklab, var(--accent, #6366f1) 45%, transparent);
+  border-radius: 8px;
+  background: color-mix(in oklab, var(--accent, #6366f1) 6%, transparent);
+}
+.ftpl-parallel-tag {
+  font-size: 10px;
+  font-weight: 600;
+  color: var(--accent, #6366f1);
+  margin-right: 2px;
+}
+.ftpl-node-chip {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  padding: 4px 10px;
+  border: 1px solid var(--border);
+  border-radius: 999px;
+  background: var(--surface);
+  font-size: 12px;
+  max-width: 100%;
+}
+.ftpl-node-kind {
+  font-family: var(--font-mono);
+  font-size: 10px;
+  color: var(--muted);
+  background: var(--bg);
+  border-radius: 4px;
+  padding: 1px 5px;
+  flex-shrink: 0;
+}
+.ftpl-node-label {
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  color: var(--fg);
+}

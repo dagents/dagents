@@ -116,11 +116,55 @@ flowTemplateRoutes.get('/', async (c) => {
       source: t.source,
       nodeCount: t.flowData.nodes.length,
       agentRefs: memberSummaries(t.agentRefs, entriesByName),
+      // 结构预览：拓扑分层（同层并行）—— 确认步骤链渲染的数据源
+      layers: templateLayers(t.flowData, t.agentRefs),
       // 参数化（方案 G）：表单在实例化前渲染，列表只回参数名清单。
       paramNames: (t.params ?? scanTemplateParams(t.flowData)).map((p) => p.name),
     })),
   })
 })
+
+/**
+ * 模板结构预览投影（2026-08-30「从模板创建」优化）：把 flowData 拓扑
+ * 分层（Kahn 深度 = max(前驱深度)+1），同层 = 并行。确认步据此渲染
+ * 步骤链（层间 ↓、层内横排标「并行」）—— 此前用户确认前看不到流程
+ * 长什么样（几步/串并行全靠猜）。persona 按 nodeId 关联 agentRefs。
+ */
+function templateLayers(
+  flowData: { nodes?: unknown[]; edges?: unknown[] },
+  agentRefs: Array<{ nodeId: string; personaName: string | null }>,
+): Array<Array<{ id: string; label: string; kind: string; persona: string | null }>> {
+  const nodes = (flowData.nodes ?? []) as Array<{ id: string; data?: Record<string, unknown> }>
+  const edges = (flowData.edges ?? []) as Array<{ source: string; target: string }>
+  const depth = new Map<string, number>()
+  for (const n of nodes) depth.set(n.id, 0)
+  // 迭代松弛：有环时上限 = 节点数，剩余节点保持当前深度（预览降级不报错）
+  for (let round = 0; round < nodes.length; round++) {
+    let changed = false
+    for (const e of edges) {
+      const d = depth.get(e.source)
+      if (d == null || !depth.has(e.target)) continue
+      const next = d + 1
+      if ((depth.get(e.target) ?? 0) < next) {
+        depth.set(e.target, next)
+        changed = true
+      }
+    }
+    if (!changed) break
+  }
+  const personaByNode = new Map(agentRefs.map((r) => [r.nodeId, r.personaName]))
+  const buckets = new Map<number, Array<{ id: string; label: string; kind: string; persona: string | null }>>()
+  for (const n of nodes) {
+    const d = depth.get(n.id) ?? 0
+    const data = (n.data ?? {}) as Record<string, unknown>
+    const label = (typeof data.label === 'string' && data.label) || n.id
+    const kind = String(data.name ?? '').replace(/Agentflow$/, '') || 'node'
+    const list = buckets.get(d) ?? []
+    list.push({ id: n.id, label, kind, persona: personaByNode.get(n.id) ?? null })
+    buckets.set(d, list)
+  }
+  return [...buckets.keys()].sort((a, b) => a - b).map((d) => buckets.get(d)!)
+}
 
 const fromFlowSchema = z.object({
   name: z.string().min(1).max(128).optional(),
