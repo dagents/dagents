@@ -101,8 +101,12 @@ export function Dropdown({
                         />
                     )
                 }}
-                renderOption={(props, option) => (
-                    <Box component='li' {...props} sx={{ display: 'flex', alignItems: 'center', gap: 1 }}>
+                renderOption={(props, option) => {
+                    // MUI 把 key 放进 props 一起递；key 必须直接写在 JSX 上
+                    // 而非 spread（React 开发模式警告，2026-08-30 修复）
+                    const { key: optionKey, ...optionProps } = props
+                    return (
+                    <Box component='li' key={optionKey} {...optionProps} sx={{ display: 'flex', alignItems: 'center', gap: 1 }}>
                         {option.imageSrc && (
                             <img
                                 src={option.imageSrc}
@@ -122,7 +126,8 @@ export function Dropdown({
                             )}
                         </div>
                     </Box>
-                )}
+                    )
+                }}
                 sx={{ height: '100%' }}
             />
         </FormControl>
