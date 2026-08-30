@@ -800,7 +800,7 @@ export function FlowiseCanvas({
                       </summary>
                       <div className='canvas-result-body'>
                         {sp.error ? <div className='canvas-result-error'>{sp.error}</div> : null}
-                        {st === 'running' && display?.activity && display.activity.length > 0 ? (
+                        {display?.activity && display.activity.length > 0 ? (
                           <div className='canvas-result-activity' aria-label={t('执行活动')}>
                             {display.activity.slice(-6).map((a, idx) => (
                               <div key={idx} className={`canvas-act act-${a.kind}`}>

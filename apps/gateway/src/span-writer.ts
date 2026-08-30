@@ -115,7 +115,7 @@ export function makeIncrementalSpanWriter(deps: SpanWriterDeps): IncrementalSpan
   // 载荷：`text` 正文增量累积（live tail）+ `activity` 过程活动环形队列
   // （最近 12 条 thinking/工具调用 —— CLI Agent 干活的大头，只有 text
   // 时旁观端是「（执行中…）」黑盒）。终态全文由 onNodeEnd 整体覆盖，
-  // activity 只在 running 期间可见（过程信息，不进终态产出）。
+  // 活动流随终态保留（并入最终 output —— 过程回放有审计价值）。
   const DELTA_FLUSH_INTERVAL_MS = 1000
   interface DeltaBuffer {
     text: string
@@ -152,8 +152,23 @@ export function makeIncrementalSpanWriter(deps: SpanWriterDeps): IncrementalSpan
     },
     onNodeEnd: (en) => {
       writtenNodes.add(en.nodeId)
-      // 终态即停：残留 buffer 不再有意义（全文即将/已经覆盖）
+      // 终态保留活动流（2026-08-30 用户裁决：过程回放有审计价值，跑完
+      // 即丢等于丢掉「它是怎么干的」）。活动并入最终 output JSON。
+      const buf = deltaBuffers.get(en.nodeId)
       deltaBuffers.delete(en.nodeId)
+      let outputJson =
+        Object.keys(en.output ?? {}).length > 0 ? JSON.stringify(en.output) : null
+      if (buf && buf.activity.length > 0) {
+        let base: Record<string, unknown> = {}
+        if (outputJson) {
+          try {
+            base = JSON.parse(outputJson) as Record<string, unknown>
+          } catch {
+            base = {}
+          }
+        }
+        outputJson = JSON.stringify({ ...base, activity: buf.activity })
+      }
       const started = en.startedAt ? new Date(en.startedAt) : new Date()
       const finished = en.endedAt ? new Date(en.endedAt) : new Date()
       persist(en.nodeId, en.status === 'failed' ? 'failed' : 'done', {
@@ -163,7 +178,7 @@ export function makeIncrementalSpanWriter(deps: SpanWriterDeps): IncrementalSpan
         tokens: en.tokens ? JSON.stringify(en.tokens) : null,
         error: en.error ?? null,
         input: Object.keys(en.input ?? {}).length > 0 ? JSON.stringify(en.input) : null,
-        output: Object.keys(en.output ?? {}).length > 0 ? JSON.stringify(en.output) : null,
+        output: outputJson,
       })
     },
     onNodeDelta: (n, chunk) => {
