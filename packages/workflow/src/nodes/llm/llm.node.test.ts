@@ -254,8 +254,10 @@ describe('LLMNode (streaming)', () => {
     const node = new LLMNode()
     const client = makeStreamingClient(['Hello', ' ', 'world'])
     const { context, streamer } = makeStreamingContext(client)
-    const deltas: string[] = []
-    context.onNodeDelta = (d) => deltas.push(d)
+    const deltas: Array<{ type: 'text'; text: string }> = []
+    context.onNodeDelta = (c) => {
+      if (c.type === 'text') deltas.push(c)
+    }
 
     const result = await node.run(makeNodeData({ prompt: 'Hi' }), '', context)
 
@@ -265,7 +267,11 @@ describe('LLMNode (streaming)', () => {
     expect(streamer.streamTokenEvent).toHaveBeenNthCalledWith(1, 'c1', 'Hello')
     expect(streamer.streamTokenEvent).toHaveBeenNthCalledWith(3, 'c1', 'world')
     // 流式展示（2026-08-30）：每个 delta 同时回调 onNodeDelta（宿主节流落库）
-    expect(deltas).toEqual(['Hello', ' ', 'world'])
+    expect(deltas).toEqual([
+      { type: 'text', text: 'Hello' },
+      { type: 'text', text: ' ' },
+      { type: 'text', text: 'world' },
+    ])
     expect(result.output.text).toBe('Hello world')
     expect(result.usage).toEqual({ prompt_tokens: 1, completion_tokens: 2, total_tokens: 3 })
   })
@@ -275,8 +281,10 @@ describe('LLMNode (streaming)', () => {
     const client = makeStreamingClient(['partial', '-', 'tail'])
     const { context, streamer } = makeStreamingContext(client)
     context.isLastNode = false
-    const deltas: string[] = []
-    context.onNodeDelta = (d) => deltas.push(d)
+    const deltas: Array<{ type: 'text'; text: string }> = []
+    context.onNodeDelta = (c) => {
+      if (c.type === 'text') deltas.push(c)
+    }
 
     const result = await node.run(makeNodeData({ prompt: 'Hi' }), '', context)
 
@@ -284,7 +292,11 @@ describe('LLMNode (streaming)', () => {
     expect(client.chatStream).toHaveBeenCalledTimes(1)
     expect(client.chat).not.toHaveBeenCalled()
     expect(result.output.text).toBe('partial-tail')
-    expect(deltas).toEqual(['partial', '-', 'tail'])
+    expect(deltas).toEqual([
+      { type: 'text', text: 'partial' },
+      { type: 'text', text: '-' },
+      { type: 'text', text: 'tail' },
+    ])
     // 非末节点不推 SSE token（聊天界面只消费末节点流）
     expect(streamer.streamTokenEvent).not.toHaveBeenCalled()
   })

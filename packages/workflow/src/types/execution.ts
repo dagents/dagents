@@ -92,6 +92,14 @@ export interface IChatStreamChunk {
 }
 
 /**
+ * 节点增量产出载荷（onNodeDelta / llmClient.chat.onDelta，2026-08-30）：
+ * `text` = 正文增量；`activity` = 过程活动（thinking 摘要 / 工具调用）。
+ */
+export type IStreamDelta =
+  | { type: 'text'; text: string }
+  | { type: 'activity'; kind: 'thinking' | 'tool'; label: string }
+
+/**
  * Runtime context passed to every `INode.run`.
  *
  * This is the typed replacement for Flowise's `ICommonObject` options bag.
@@ -120,11 +128,14 @@ export interface IExecutionContext {
   agentflowRuntime?: { state: Record<string, unknown> }
   /**
    * 节点增量产出回调（2026-08-30 流式展示）：LLM/Agent 节点在生成过程中
-   * 每收到一段文本 delta 就调用。由 executor 按「当前节点」绑定 —— 节点
-   * 内部无需（也不应）自己报 nodeId。宿主（gateway）把它接到 span-writer
-   * 的节流 partial 落库，旁观端轮询即得 live tail。
+   * 逐段回调。载荷两种：`text` = 正文增量（live tail）；`activity` = 过程
+   * 活动（CLI agent 的 thinking 摘要 / 工具调用）—— CLI Agent 干活的
+   * 大部分时间在思考和调工具而非写正文，只有 text 时旁观端仍是「（执行
+   * 中…）」黑盒。由 executor 按「当前节点」绑定 —— 节点内部无需（也不
+   * 应）自己报 nodeId。宿主（gateway）把它接到 span-writer 的节流 partial
+   * 落库，旁观端轮询即得 live tail + 活动流。
    */
-  onNodeDelta?: (delta: string) => void
+  onNodeDelta?: (chunk: IStreamDelta) => void
   /** LLM client for LLM and Agent nodes. */
   llmClient?: {
     chat(params: {
@@ -139,11 +150,12 @@ export interface IExecutionContext {
        */
       signal?: AbortSignal
       /**
-       * 增量文本回调（2026-08-30 流式展示）：CLI 后端逐事件转发 text delta；
-       * HTTP 非流式 chat 可忽略。PlatformAgent 工具循环把它接到节点的
-       * onNodeDelta，旁观端即可看到 Agent 边干边说的 live tail。
+       * 增量产出回调（2026-08-30 流式展示）：CLI 后端逐事件转发 text 增量
+       * 与过程活动（thinking/工具调用）；HTTP 非流式 chat 可忽略。
+       * PlatformAgent 工具循环把它接到节点的 onNodeDelta，旁观端即可看到
+       * Agent 边干边说的 live tail。
        */
-      onDelta?: (delta: string) => void
+      onDelta?: (chunk: IStreamDelta) => void
     }): Promise<{ text: string; tool_calls?: IToolCall[]; usage?: ITokenUsage }>
     /**
      * Streamed variant of `chat` — yields incremental deltas. Optional: when

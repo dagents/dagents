@@ -107,7 +107,7 @@ export class LLMNode implements INode {
           if (options.isLastNode && options.sseStreamer) {
             options.sseStreamer.streamTokenEvent(options.chatId, chunk.delta)
           }
-          options.onNodeDelta?.(chunk.delta)
+          options.onNodeDelta?.({ type: 'text', text: chunk.delta })
         }
         if (chunk.usage) {
           usage = chunk.usage

@@ -626,3 +626,32 @@ details.canvas-result-io[open] > summary::before { content: '▾ '; }
 }
 
 .dot-warn { background: #eab308; }
+
+/* 活动流（2026-08-30 运行中实时进度）：💭 thinking / 🔧 工具调用时间线，
+ * 显示在 live 正文上方；终态由全文覆盖、不再渲染。 */
+.canvas-result-activity {
+  display: flex;
+  flex-direction: column;
+  gap: 3px;
+  padding: 6px 10px;
+  margin-bottom: 6px;
+  border-left: 2px solid var(--border, rgba(0, 0, 0, 0.15));
+  border-radius: 0 6px 6px 0;
+  background: var(--surface);
+  font-family: var(--font-mono);
+}
+.canvas-act {
+  display: flex;
+  gap: 6px;
+  font-size: 11px;
+  color: var(--muted);
+  align-items: baseline;
+}
+.canvas-act-icon { flex-shrink: 0; font-size: 11px; }
+.canvas-act-label {
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+.canvas-act.act-tool .canvas-act-label { color: var(--fg); }
+.canvas-act.act-thinking .canvas-act-label { opacity: 0.8; font-style: italic; }

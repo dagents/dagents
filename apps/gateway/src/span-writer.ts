@@ -32,7 +32,10 @@ export interface IncrementalSpanWriter {
    * （画布/详情/旁观）在节点 running 期间就能渲染 live tail。
    * `WHERE status='running'` 保证永不覆盖终态全文（onNodeEnd 语义不变）。
    */
-  onNodeDelta: (node: { nodeId: string; nodeName: string }, delta: string) => void
+  onNodeDelta: (
+    node: { nodeId: string; nodeName: string },
+    chunk: { type: 'text'; text: string } | { type: 'activity'; kind: 'thinking' | 'tool'; label: string },
+  ) => void
   /** 已经由增量路径写过的节点 id（事后批量落库据此跳过）。 */
   writtenNodes: Set<string>
 }
@@ -109,17 +112,34 @@ export function makeIncrementalSpanWriter(deps: SpanWriterDeps): IncrementalSpan
   // 直接 UPDATE（非 upsert）+ status='running' 守卫：行必已存在（start
   // 先于任何 delta），且永不与终态写入竞争 —— 即使乱序执行，done/failed
   // 行对 UPDATE 免疫，running 行的 partial 也会被 onNodeEnd 全文覆盖。
+  // 载荷：`text` 正文增量累积（live tail）+ `activity` 过程活动环形队列
+  // （最近 12 条 thinking/工具调用 —— CLI Agent 干活的大头，只有 text
+  // 时旁观端是「（执行中…）」黑盒）。终态全文由 onNodeEnd 整体覆盖，
+  // activity 只在 running 期间可见（过程信息，不进终态产出）。
   const DELTA_FLUSH_INTERVAL_MS = 1000
-  const deltaBuffers = new Map<string, string>()
+  interface DeltaBuffer {
+    text: string
+    activity: Array<{ kind: 'thinking' | 'tool'; label: string; at: string }>
+  }
+  const deltaBuffers = new Map<string, DeltaBuffer>()
   const deltaLastFlush = new Map<string, number>()
+  const ACTIVITY_RING = 12
 
-  const flushDelta = (nodeId: string, partial: string): void => {
+  const flushDelta = (nodeId: string, buf: DeltaBuffer): void => {
     deltaLastFlush.set(nodeId, Date.now())
     void runQuery(
       `UPDATE run_node_spans
          SET output = $1::jsonb
        WHERE run_id = $2::uuid AND node_id = $3 AND status = 'running'`,
-      [JSON.stringify({ text: partial, content: partial }), runId, nodeId],
+      [
+        JSON.stringify({
+          text: buf.text,
+          content: buf.text,
+          activity: buf.activity,
+        }),
+        runId,
+        nodeId,
+      ],
     ).catch((err: unknown) => {
       log.warn('delta span persist failed', { runId, nodeId, error: String(err) })
     })
@@ -146,14 +166,28 @@ export function makeIncrementalSpanWriter(deps: SpanWriterDeps): IncrementalSpan
         output: Object.keys(en.output ?? {}).length > 0 ? JSON.stringify(en.output) : null,
       })
     },
-    onNodeDelta: (n, delta) => {
-      if (delta.length === 0) return
-      const prev = deltaBuffers.get(n.nodeId) ?? ''
-      const next = prev + delta
-      deltaBuffers.set(n.nodeId, next)
+    onNodeDelta: (n, chunk) => {
+      let buf = deltaBuffers.get(n.nodeId)
+      if (!buf) {
+        buf = { text: '', activity: [] }
+        deltaBuffers.set(n.nodeId, buf)
+      }
+      if (chunk.type === 'text') {
+        if (chunk.text.length === 0) return
+        buf.text += chunk.text
+      } else {
+        // thinking 摘要截 100 字 —— 线索不是全文
+        const label =
+          chunk.kind === 'thinking' && chunk.label.length > 100
+            ? chunk.label.slice(0, 100) + '…'
+            : chunk.label
+        if (label.length === 0) return
+        buf.activity.push({ kind: chunk.kind, label, at: new Date().toISOString() })
+        if (buf.activity.length > ACTIVITY_RING) buf.activity.shift()
+      }
       const last = deltaLastFlush.get(n.nodeId) ?? 0
       if (Date.now() - last >= DELTA_FLUSH_INTERVAL_MS) {
-        flushDelta(n.nodeId, next)
+        flushDelta(n.nodeId, buf)
       }
     },
     writtenNodes,

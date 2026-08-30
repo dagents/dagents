@@ -56,10 +56,13 @@ export interface ExecuteOptions {
   onNodeEnd?: (node: IExecutedNode) => void
   /**
    * 节点增量产出钩子（2026-08-30 流式展示）：LLM/Agent 节点生成过程中
-   * 逐段文本回调。同步 fire-and-forget（宿主内部自行节流），绝不阻塞
-   * 生成循环。
+   * 逐段回调（text 正文增量 / activity 过程活动）。同步 fire-and-forget
+   * （宿主内部自行节流），绝不阻塞生成循环。
    */
-  onNodeDelta?: (node: { nodeId: string; nodeName: string }, delta: string) => void
+  onNodeDelta?: (
+    node: { nodeId: string; nodeName: string },
+    chunk: import('../types/execution.js').IStreamDelta,
+  ) => void
 }
 
 /** Node type names whose loop body the executor repeats. */
@@ -174,7 +177,8 @@ export class DagExecutor {
         // 按当前节点绑定 delta 回调 —— 并行波次里每个节点报自己的增量
         onNodeDelta:
           opts.onNodeDelta && nodeId
-            ? (delta: string) => opts.onNodeDelta!({ nodeId, nodeName: nodeName ?? nodeId }, delta)
+            ? (chunk: import('../types/execution.js').IStreamDelta) =>
+                opts.onNodeDelta!({ nodeId, nodeName: nodeName ?? nodeId }, chunk)
             : undefined,
         llmClient: opts.llmClient,
         agentFetcher: opts.agentFetcher,

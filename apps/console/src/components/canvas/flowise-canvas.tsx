@@ -156,6 +156,23 @@ interface SpanDisplay {
   text: string
   /** 折叠态摘要（单行截断）。 */
   preview: string
+  /** 过程活动流（running 期间的 thinking/工具调用，2026-08-30）——
+   * CLI Agent 干活的大头在思考和调工具而非写正文，没有它旁观端是
+   * 「（执行中…）」黑盒。终态 output 无此字段。 */
+  activity?: Array<{ kind: 'thinking' | 'tool'; label: string }>
+}
+
+/** 从 span.output 提取活动流（容错：形状不符返回空数组）。 */
+function spanActivity(payload: CanvasSpanRow['output']): Array<{ kind: 'thinking' | 'tool'; label: string }> {
+  if (!payload || typeof payload !== 'object') return []
+  const raw = (payload as Record<string, unknown>).activity
+  if (!Array.isArray(raw)) return []
+  return raw.filter(
+    (a): a is { kind: 'thinking' | 'tool'; label: string } =>
+      !!a && typeof a === 'object' &&
+      ((a as Record<string, unknown>).kind === 'thinking' || (a as Record<string, unknown>).kind === 'tool') &&
+      typeof (a as Record<string, unknown>).label === 'string',
+  )
 }
 
 function spanToDisplay(payload: CanvasSpanRow['output']): SpanDisplay | null {
@@ -175,8 +192,14 @@ function spanToDisplay(payload: CanvasSpanRow['output']): SpanDisplay | null {
       else if (typeof inner.content === 'string' && inner.content) textField = inner.content
     } catch { /* 保持原样 */ }
   }
+  const activity = spanActivity(payload)
   if (textField) {
-    return { kind: 'text', text: textField, preview: oneLine(textField, 90) }
+    return { kind: 'text', text: textField, preview: oneLine(textField, 90), activity }
+  }
+  // 无正文但有活动流（running 早中期）—— 摘要显示最近的活动行
+  if (activity.length > 0) {
+    const last = activity[activity.length - 1]!
+    return { kind: 'text', text: '', preview: `${last.kind === 'tool' ? '🔧' : '💭'} ${oneLine(last.label, 70)}`, activity }
   }
   const json = JSON.stringify(obj, null, 1)
   return { kind: 'json', text: json, preview: oneLine(json.replace(/[{}"\\]/g, '').trim(), 90) }
@@ -777,6 +800,16 @@ export function FlowiseCanvas({
                       </summary>
                       <div className='canvas-result-body'>
                         {sp.error ? <div className='canvas-result-error'>{sp.error}</div> : null}
+                        {st === 'running' && display?.activity && display.activity.length > 0 ? (
+                          <div className='canvas-result-activity' aria-label={t('执行活动')}>
+                            {display.activity.slice(-6).map((a, idx) => (
+                              <div key={idx} className={`canvas-act act-${a.kind}`}>
+                                <span className='canvas-act-icon' aria-hidden='true'>{a.kind === 'tool' ? '🔧' : '💭'}</span>
+                                <span className='canvas-act-label'>{a.label}</span>
+                              </div>
+                            ))}
+                          </div>
+                        ) : null}
                         {sp.input != null && Object.keys(sp.input as object).length > 0 ? (
                           <details className='canvas-result-io'>
                             <summary className='canvas-result-io-label'>{t('输入')}</summary>

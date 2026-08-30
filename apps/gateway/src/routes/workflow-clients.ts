@@ -85,8 +85,8 @@ export interface CliChatParams {
   tools?: IToolSchema[]
   /** Cancellation signal (spec D3): aborts the HTTP fetch / kills the CLI child. */
   signal?: AbortSignal
-  /** 增量文本回调（2026-08-30 流式展示）：CLI 逐事件转发 text delta。 */
-  onDelta?: (delta: string) => void
+  /** 增量产出回调（2026-08-30 流式展示）：text 增量 + thinking/工具活动。 */
+  onDelta?: (chunk: import('@dagents/workflow').IStreamDelta) => void
 }
 
 /**
@@ -138,6 +138,21 @@ export const LLM_HTTP_TIMEOUT_MS = Number(process.env.LLM_HTTP_TIMEOUT_MS ?? 120
  * text. tool_calls are never returned — the PlatformAgent tool loop
  * degenerates to a single call (the CLI brings its own tools anyway).
  */
+/**
+ * 工具调用活动的单行标签（旁观端活动流用）：`工具名(参数摘要)`。
+ * 参数 JSON 截 60 字 —— 是「它在干什么」的线索，不是完整审计。
+ */
+function toolLabel(evt: Extract<AgentEvent, { type: 'tool-use' }>): string {
+  let args = ''
+  try {
+    args = JSON.stringify(evt.input ?? {})
+  } catch {
+    args = String(evt.input ?? '')
+  }
+  if (args.length > 60) args = args.slice(0, 60) + '…'
+  return `${evt.tool || 'tool'}(${args})`
+}
+
 export function createCliLlmClient(kind: AgentType = 'claude', cliCwd?: string) {
   /** 共享：为本次执行创建 backend session（chat 与 chatStream 同款启动）。 */
   const startSession = (params: CliChatParams) => {
@@ -161,7 +176,11 @@ export function createCliLlmClient(kind: AgentType = 'claude', cliCwd?: string) 
         //（AgentSession.events 与 result 解耦，天生支持边跑边吐）
         if (evt.type === 'text') {
           text += evt.content
-          params.onDelta?.(evt.content)
+          params.onDelta?.({ type: 'text', text: evt.content })
+        } else if (evt.type === 'thinking') {
+          params.onDelta?.({ type: 'activity', kind: 'thinking', label: evt.content })
+        } else if (evt.type === 'tool-use') {
+          params.onDelta?.({ type: 'activity', kind: 'tool', label: toolLabel(evt) })
         }
       }
       const result = await session.result
@@ -222,7 +241,11 @@ export function createCliLlmClient(kind: AgentType = 'claude', cliCwd?: string) 
       for await (const evt of session.events as AsyncIterable<AgentEvent>) {
         if (evt.type === 'text') {
           yield { delta: evt.content }
-          params.onDelta?.(evt.content)
+          params.onDelta?.({ type: 'text', text: evt.content })
+        } else if (evt.type === 'thinking') {
+          params.onDelta?.({ type: 'activity', kind: 'thinking', label: evt.content })
+        } else if (evt.type === 'tool-use') {
+          params.onDelta?.({ type: 'activity', kind: 'tool', label: toolLabel(evt) })
         }
       }
       const result = await session.result
