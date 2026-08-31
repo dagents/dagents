@@ -39,8 +39,8 @@ export const settings: Record<string, string> = {
   '重试': 'Retry',
   '加载失败：{error}': 'Failed to load: {error}',
   '没有匹配的 Provider。': 'No matching providers.',
-  '还没有 Provider。Flow 工作流节点（LLM / Agent / PlatformAgent）需要在此配置 Provider 才能调用大模型。对话功能不受影响——CLI 自带 LLM 配置。点击「+ 新建 Provider」开始配置。':
-    'No providers yet. Flow workflow nodes (LLM / Agent / PlatformAgent) need a provider configured here to call LLMs. Chat is unaffected — the CLI brings its own LLM config. Click “+ New provider” to get started.',
+  '还没有 Provider。不配置也能跑：Flow 节点默认走本机 CLI（较慢、消耗订阅额度）。配置 HTTP Provider 可加速并统一计费。点击「+ 新建 Provider」开始配置。':
+    'No providers yet — and that’s fine: flow nodes fall back to the local CLI (slower, uses your subscription). Configure an HTTP provider for speed and unified billing. Click “+ New provider” to get started.',
   '测试连接': 'Test connection',
   '编辑': 'Edit',
   'Provider 配置由网关统一管理，API Key 以掩码形式显示，原文不返回前端。所有 LLM 调用经网关统一鉴权与路由。':

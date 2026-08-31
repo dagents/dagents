@@ -91,7 +91,7 @@ export function FlowRunDialog({
                 autoFocus
                 value={input}
                 placeholder={t(
-                  '输入将作为 {{$start.input}} 传入（节点里可用 {{<节点id>.output}} 引用上游产出）',
+                  '输入将作为 {{$start.input}}（等价 {{input}}）传入；节点里可用 {{<节点id>.output}} 或 {{<节点id>.content}} 引用上游产出',
                 )}
                 onChange={(e) => setInput(e.target.value)}
                 onKeyDown={(e) => {

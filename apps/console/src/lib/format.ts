@@ -30,7 +30,9 @@ export function formatClockSeconds(dateStr: string): string {
 export function formatDateTime(dateStr: string): string {
   const d = new Date(dateStr)
   if (Number.isNaN(d.getTime())) return dateStr
-  return `${d.toLocaleDateString([], { month: '2-digit', day: '2-digit' })} ${d.toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' })}`
+  // hourCycle h23（PRD FR-10）：空 locale 数组会回落浏览器默认，实测解析成
+  // 12 小时制 —— 中文界面出现「09:04 PM」。统一 24 小时制。
+  return `${d.toLocaleDateString([], { month: '2-digit', day: '2-digit' })} ${d.toLocaleTimeString([], { hour: '2-digit', minute: '2-digit', hourCycle: 'h23' })}`
 }
 
 /** Absolute ISO + local string for hover titles on relative times. */

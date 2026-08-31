@@ -59,7 +59,16 @@ import { useI18n } from '@/i18n'
 import '@/styles/flows.css'
 
 /** The three scope tabs (agentflows.html:157-161). */
-type Scope = 'mine' | 'all' | 'archived'
+type Scope = 'all' | 'archived'
+
+/** FR-04：批量 summary 端点的每-flow 摘要（gateway POST /api/v1/runs/summary）。 */
+interface RunSummary {
+  flowId: string
+  latestStatus: string | null
+  latestRunId: string | null
+  latestRunAt: string | null
+  runCount: number
+}
 
 /** A single row in the gateway's `/api/v1/workflows` list response. */
 interface GatewayFlowListItem {
@@ -263,18 +272,55 @@ export function FlowsView({ home = false }: { home?: boolean }): React.ReactElem
     }
   }, [reloadListTick, t])
 
-  // Scope counts — mine / all / archived over the full flow set (the design's
-  // `updateScopeCounts`). `mine` is always 0 today: chatflows carry no
-  // owner field, so `owner` is null on every summary. The tab still renders so
-  // the design's scope affordance is present; a later task wires ownership.
+  // ── FR-04（PRD 决议 D5）：收起态徽章的真实运行状态 ──
+  // 列表加载后一次 POST /api/runs/summary 批量拉齐每流最近一次状态/次数
+  //（杜绝逐卡 ?flowId= 的 N+1）；存在 running 时 3s 轻轮询到终态，
+  // 页面隐藏时暂停（后台 tab 不空转）。
+  const [runSummaries, setRunSummaries] = useState<Record<string, RunSummary>>({})
+  useEffect(() => {
+    if (flows.length === 0) return
+    let cancelled = false
+    let timer = 0
+    const load = async (): Promise<void> => {
+      try {
+        const res = await fetch('/api/runs/summary', {
+          method: 'POST',
+          headers: { 'content-type': 'application/json' },
+          body: JSON.stringify({ flowIds: flows.map((f) => f.id) }),
+        })
+        const json = (await res.json()) as { success?: boolean; data?: { summaries?: RunSummary[] } }
+        if (cancelled) return
+        if (json.success && json.data?.summaries) {
+          setRunSummaries(Object.fromEntries(json.data.summaries.map((s) => [s.flowId, s])))
+        }
+      } catch {
+        /* 摘要失败不阻塞列表 */
+      }
+      if (!cancelled) {
+        const anyRunning = Object.values(runSummaries).some((s) => s.latestStatus === 'running')
+        if (anyRunning && !document.hidden) timer = window.setTimeout(() => void load(), 3000)
+      }
+    }
+    void load()
+    const onVis = (): void => {
+      if (!document.hidden && !cancelled && timer === 0) void load()
+    }
+    document.addEventListener('visibilitychange', onVis)
+    return () => {
+      cancelled = true
+      window.clearTimeout(timer)
+      document.removeEventListener('visibilitychange', onVis)
+    }
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [flows, reloadListTick])
+
+  // Scope counts — all / archived over the full flow set. FR-14（PRD 决议
+  // D7）：「我的」tab 已删除 —— 单机无账户体系，恒 0 的 tab 是伪概念。
   const scopeCounts = useMemo(() => {
-    const c = { mine: 0, all: 0, archived: 0 }
+    const c = { all: 0, archived: 0 }
     for (const f of flows) {
       if (f.archived) c.archived++
-      else {
-        c.all++
-        if (f.owner != null) c.mine++
-      }
+      else c.all++
     }
     return c
   }, [flows])
@@ -290,7 +336,6 @@ export function FlowsView({ home = false }: { home?: boolean }): React.ReactElem
         if (!f.archived) return false
       } else {
         if (f.archived) return false
-        if (scope === 'mine' && f.owner == null) return false
       }
       if (ql && !(f.name.toLowerCase().includes(ql) || f.id.toLowerCase().includes(ql))) return false
       return true
@@ -303,16 +348,6 @@ export function FlowsView({ home = false }: { home?: boolean }): React.ReactElem
           一个家 = 画布旁观 —— 发起运行/历史行/chat 入口统一跳 ?run=）。 */}
       <div className="flow-list-page active">
         <div className="scope-tabs mb-6" role="tablist" aria-label={t('flow 范围')}>
-          <button
-            type="button"
-            role="tab"
-            aria-selected={scope === 'mine'}
-            data-scope="mine"
-            data-zero={scopeCounts.mine === 0 ? 'true' : undefined}
-            onClick={() => setScope('mine')}
-          >
-            {t('我的')} <span className="cnt">{scopeCounts.mine}</span>
-          </button>
           <button
             type="button"
             role="tab"
@@ -494,11 +529,41 @@ export function FlowsView({ home = false }: { home?: boolean }): React.ReactElem
                       </div>
                     </div>
                     <div className="flow-card-meta">
-                      {/* workflows 列表不携带运行状态 — 渲染中性的「未触发」，
-                          不伪造带状态点的 idle 指示灯 */}
-                      <span className="muted" style={{ fontSize: 12 }} title={t('尚无运行状态数据')}>
-                        {t('未触发')}
-                      </span>
+                      {/* FR-04：徽章来自批量 summary（真实状态/次数），不再
+                          是懒加载前的假「未触发」；零运行才显示未触发 */}
+                      {(() => {
+                        const s = runSummaries[f.id]
+                        if (!s || s.runCount === 0) {
+                          return (
+                            <span className="muted" style={{ fontSize: 12 }}>
+                              {t('未触发')}
+                            </span>
+                          )
+                        }
+                        const st = s.latestStatus
+                        const badge =
+                          st === 'running' ? { color: '#f59e0b', label: t('运行中') }
+                          : st === 'failed' ? { color: '#ef4444', label: t('失败') }
+                          : st === 'cancelled' ? { color: '#6b7280', label: t('已取消') }
+                          : { color: '#10b981', label: t('已完成') }
+                        return (
+                          <span style={{ fontSize: 12, display: 'inline-flex', alignItems: 'center', gap: 5 }}>
+                            <span
+                              aria-hidden
+                              style={{
+                                width: 7,
+                                height: 7,
+                                borderRadius: '50%',
+                                background: badge.color,
+                                display: 'inline-block',
+                                animation: st === 'running' ? 'pulse 1.5s ease-in-out infinite' : undefined,
+                              }}
+                            />
+                            {badge.label}
+                            <span className="muted">· {s.runCount === 1 ? t('1 次运行') : t('{n} 次运行', { n: s.runCount })}</span>
+                          </span>
+                        )
+                      })()}
                       {f.latestRunId ? (
                         <span className="chip chip-outline mono" style={{ fontSize: 10 }} title={f.latestRunId}>
                           {truncateMiddle(f.latestRunId, 8)}

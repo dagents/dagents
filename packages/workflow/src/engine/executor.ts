@@ -518,12 +518,25 @@ export class DagExecutor {
           typeof lastBodyOutput.content === 'string'
             ? lastBodyOutput.content
             : JSON.stringify(lastBodyOutput)
+        // FR-06（PRD 决议）：Iteration 的聚合 content = 逐项正文有序拼接
+        // （与 N 进 1 合并契约同语义）——此前只保留最后一项，下游
+        // `{{iter.content}}` 静默丢 N-1 份产出。Loop 保持「末轮结果」语义
+        // 不变（累积型循环的惯例），完整数组两边都在 `.iterations`。
+        const aggregateContent =
+          plan.kind === 'iteration'
+            ? iterations
+                .map((it) =>
+                  typeof it.content === 'string' ? it.content : JSON.stringify(it),
+                )
+                .filter((s) => s.length > 0)
+                .join('\n\n')
+            : content
         return {
           output: {
             ...controllerOutput,
             iterations,
             completedIterations: completed,
-            content,
+            content: aggregateContent || content,
           },
         }
       }

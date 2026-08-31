@@ -84,10 +84,22 @@ export async function POST(req: NextRequest): Promise<Response> {
     return errorResponse(502, detail?.error ?? '生成失败，请稍后重试')
   }
 
-  const json = (await upstream.json()) as { success?: boolean; data?: { flowData?: FlowData } }
+  const json = (await upstream.json()) as {
+    success?: boolean
+    data?: { flowData?: FlowData; bindings?: GenerateBindings }
+  }
   const flowData = json.data?.flowData
   if (!flowData || !Array.isArray(flowData.nodes) || flowData.nodes.length === 0) {
     return errorResponse(502, '未生成有效的流程节点，请换一种描述重试')
   }
-  return NextResponse.json(toVendorFlow(flowData))
+  // FR-13：bindings 随 vendor 形状一起返回 —— 生成即所得的透明度
+  //（Agent 节点数 / 未绑定数 / 执行档位说明）。
+  return NextResponse.json({ ...toVendorFlow(flowData), bindings: json.data?.bindings ?? null })
+}
+
+/** gateway FR-13 bindings 响应字段（console 侧只需要展示）。 */
+interface GenerateBindings {
+  agentNodeCount: number
+  unboundAgentNodeCount: number
+  note: string
 }

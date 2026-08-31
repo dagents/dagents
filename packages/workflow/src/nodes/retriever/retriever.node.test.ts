@@ -32,6 +32,17 @@ describe('RetrieverNode', () => {
     const retriever = vi.fn().mockResolvedValue([])
     const result = await node.run(nodeData, 'fallback query', makeContext(retriever))
     expect(result.output.query).toBe('fallback query')
+    // FR-12（PRD）：无命中不装哑巴 —— 显式 warning，且命中时不携带
+    expect(typeof result.output.warning).toBe('string')
+    expect((result.output.warning as string).length).toBeGreaterThan(0)
+  })
+
+  it('no warning field when docs hit (FR-12)', async () => {
+    const node = new RetrieverNode()
+    const nodeData: INodeData = { id: 'n1', name: 'retrieverAgentflow', inputs: { query: 'weather' } }
+    const retriever = vi.fn().mockResolvedValue(fakeDocs)
+    const result = await node.run(nodeData, '', makeContext(retriever))
+    expect(result.output.warning).toBeUndefined()
   })
 
   it('throws a clear error when no retrieval source is wired', async () => {

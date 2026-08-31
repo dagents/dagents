@@ -570,12 +570,20 @@ export async function attachFlowIdToAttempt(attemptId: string, flowId: string): 
 // HTTP 路由（canvas BFF 薄代理的目标）
 // ─────────────────────────────────────────────────────────────────────────
 
-const generateBodySchema = z.object({
-  question: z.string().trim().min(1),
-  selectedChatModel: z.string().optional(),
-  source: z.enum(['chat', 'canvas']).default('canvas'),
-  chatId: z.string().uuid().optional(),
-})
+// FR-05（PRD 决议 D6）：新调用方用 camelCase `prompt`；`question` 是历史
+// 名（Flowise 惯例）保留兼容 —— 两者其一必填，prompt 优先。
+const generateBodySchema = z
+  .object({
+    question: z.string().trim().min(1).optional(),
+    prompt: z.string().trim().min(1).optional(),
+    selectedChatModel: z.string().optional(),
+    source: z.enum(['chat', 'canvas']).default('canvas'),
+    chatId: z.string().uuid().optional(),
+  })
+  .refine((v) => (v.question ?? v.prompt) !== undefined, {
+    message: 'question or prompt is required',
+    path: ['question'],
+  })
 
 flowGeneratorRoutes.post('/generate', async (c) => {
   const parsed = generateBodySchema.safeParse(await c.req.json().catch(() => null))
@@ -584,11 +592,17 @@ flowGeneratorRoutes.post('/generate', async (c) => {
       issues: parsed.error.issues.map((i) => `${i.path.join('.')}: ${i.message}`),
     })
   }
-  const { question, selectedChatModel, source, chatId } = parsed.data
+  const { selectedChatModel, source, chatId } = parsed.data
+  const question = parsed.data.prompt ?? parsed.data.question!
 
   const result = await generateFlow({ userDesc: question, source, chatId, selectedChatModel })
 
   if (result.status === 'success') {
+    // FR-13（PRD 收窄版）：生成节点绑定透明化 —— 哪些节点是 Agent 档、
+    // 绑没绑 agentId、将以什么档位跑，确认侧一句话可见。
+    const agentNodes = (result.flowData.nodes as Array<{ data?: Record<string, unknown> }>).filter(
+      (n) => n.data?.name === 'platformAgentAgentflow',
+    )
     return ok(c, {
       flowData: result.flowData,
       warnings: result.warnings,
@@ -596,6 +610,16 @@ flowGeneratorRoutes.post('/generate', async (c) => {
       engine: result.engineUsed,
       repairRounds: result.repairRounds,
       attemptId: result.attemptId,
+      bindings: {
+        agentNodeCount: agentNodes.length,
+        unboundAgentNodeCount: agentNodes.filter(
+          (n) => !(n.data?.agentId ?? (n.data?.inputs as Record<string, unknown> | undefined)?.agentId),
+        ).length,
+        note:
+          agentNodes.length === 0
+            ? '纯 LLM 节点：CLI 文本档执行（无工具）'
+            : 'Agent 节点将以本机 CLI 执行（带工具）——未显式绑定 agentId 的节点用默认 agent',
+      },
     })
   }
   if (result.stage === 'validation') {

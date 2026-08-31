@@ -136,11 +136,21 @@ export class LLMNode implements INode {
       )
     }
 
+    // 未解析占位符留痕（PRD FR-02/验收）：解析后仍以字面量送达模型的
+    // `{{...}}` 计数 —— 落进 span 后「变量一次成功率」可查询可度量。
+    // 启发式（正文里合法出现花括号会误计），只做计数不判失败。
+    const unresolved = [
+      ...resolvedPrompt.matchAll(/\{\{([^}]+)\}\}/g),
+      ...(resolvedSystemPrompt.matchAll(/\{\{([^}]+)\}\}/g)),
+    ].map((mt) => mt[1].trim())
+
     return {
       id: nodeData.id,
       name: this.name,
       input: { model, systemPrompt: resolvedSystemPrompt, prompt: resolvedPrompt, temperature },
-      output: { text, content: text },
+      output: unresolved.length > 0
+        ? { text, content: text, unresolvedPlaceholders: unresolved.slice(0, 5) }
+        : { text, content: text },
       usage,
     }
   }

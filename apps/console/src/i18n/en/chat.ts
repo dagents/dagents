@@ -128,8 +128,8 @@ export const chat: Record<string, string> = {
 
   // ── 画布运行输入/结果面板 ──
   '运行输入': 'Run input',
-  '输入将作为 {{$start.input}} 传入（节点里可用 {{<节点id>.output}} 引用上游产出）':
-    'Passed in as {{$start.input}} (nodes can reference upstream output via {{<nodeId>.output}})',
+  '输入将作为 {{$start.input}}（等价 {{input}}）传入；节点里可用 {{<节点id>.output}} 或 {{<节点id>.content}} 引用上游产出':
+    'Passed in as {{$start.input}} (equivalent to {{input}}); nodes can reference upstream output via {{<nodeId>.output}} or {{<nodeId>.content}}',
   '开始运行': 'Start run',
   '运行结果': 'Run results',
   '运行结果（{n}）': 'Results ({n})',

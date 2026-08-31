@@ -88,7 +88,9 @@ export function GenerateFlowDialog({
             ?? t('生成失败（HTTP {status}）', { status: res.status }),
         )
       }
-      const vendor = json as VendorFlow
+      const vendor = json as VendorFlow & {
+        bindings?: { agentNodeCount: number; unboundAgentNodeCount: number; note: string } | null
+      }
       if (!Array.isArray(vendor.nodes) || vendor.nodes.length === 0) {
         throw new Error(t('未生成有效的流程节点，请换一种描述重试'))
       }
@@ -106,11 +108,17 @@ export function GenerateFlowDialog({
       }
 
       // ③ 落库 + 直达画布
+      // FR-13：bindings 写进 flow 描述 —— 列表/画布长期可见「生成的流将以
+      // 什么档位跑」，不止 toast 一闪而过。
+      const bindingsNote = vendor.bindings
+        ? `${vendor.bindings.note}（Agent 节点 ${vendor.bindings.agentNodeCount}，未绑定 ${vendor.bindings.unboundAgentNodeCount}）`
+        : ''
       const createRes = await fetch('/api/workflows', {
         method: 'POST',
         headers: { 'content-type': 'application/json' },
         body: JSON.stringify({
           name: question.trim().slice(0, 60),
+          description: bindingsNote || undefined,
           flowData,
         }),
       })

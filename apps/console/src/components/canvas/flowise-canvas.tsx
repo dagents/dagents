@@ -780,7 +780,7 @@ export function FlowiseCanvas({
                 rows={4}
                 autoFocus
                 value={runInput}
-                placeholder={t('输入将作为 {{$start.input}} 传入（节点里可用 {{<节点id>.output}} 引用上游产出）')}
+                placeholder={t('输入将作为 {{$start.input}}（等价 {{input}}）传入；节点里可用 {{<节点id>.output}} 或 {{<节点id>.content}} 引用上游产出')}
                 onChange={(e) => setRunInput(e.target.value)}
                 onKeyDown={(e) => {
                   if (e.key === 'Enter' && (e.metaKey || e.ctrlKey)) {
@@ -870,7 +870,17 @@ export function FlowiseCanvas({
                 </div>
               ) : null}
               <div className='canvas-results-list'>
-                {latestSpans.map((sp) => {
+                {/* FR-15（PRD 决议 D9）：行序按流程拓扑（initialFlowData 节点
+                    顺序），不再按 span 返回序（完成时间倒序会把 start 排最后，
+                    违背阅读直觉）；未知节点（理论不该有）排在末尾 */}
+                {(() => {
+                  const topoOrder = new Map(initialFlowData.nodes.map((n, i) => [n.id, i]))
+                  return [...latestSpans]
+                    .sort(
+                      (a, b) =>
+                        (topoOrder.get(a.nodeId ?? '') ?? 1e9) - (topoOrder.get(b.nodeId ?? '') ?? 1e9),
+                    )
+                    .map((sp) => {
                   const id = sp.nodeId ?? sp.node_id ?? '?'
                   const displayForWarn = spanToDisplay(sp.output)
                   let st = sp.status ?? ''
@@ -956,7 +966,9 @@ export function FlowiseCanvas({
                       </div>
                     </details>
                   )
-                })}
+                })
+                })()
+                }
               </div>
             </div>
           ) : null}

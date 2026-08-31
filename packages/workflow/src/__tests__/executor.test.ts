@@ -707,6 +707,13 @@ describe('DagExecutor (parallel waves + loops)', () => {
     const secondBodyRuns = result.executedNodes.filter((n) => n.nodeId === 'n4')
     expect(secondBodyRuns[0].output.content).toBe('a BODY BODY')
     expect(secondBodyRuns[1].output.content).toBe('b BODY BODY')
+    // FR-06（PRD）：聚合 content = 逐项正文有序拼接 —— 此前只保留最后一项，
+    // 下游 {{it.content}} 静默丢 N-1 份产出。
+    const itRun = result.executedNodes.find((n) => n.nodeId === 'it')
+    expect(itRun?.output.content).toBe('a BODY BODY\n\nb BODY BODY')
+    // 完整数组仍在 .iterations
+    expect(itRun?.output.completedIterations).toBe(2)
+    expect((itRun?.output.iterations as unknown[])).toHaveLength(2)
   })
 
   it('loop break condition stops iterating early', async () => {

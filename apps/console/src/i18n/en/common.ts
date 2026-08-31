@@ -161,6 +161,11 @@ export const common = {
 
 // ── Workflow-First IA（PRD docs/prd-workflow-first.md，2026-08-29）──
 '工作流': 'Workflows',
+// FR-08（PRD）：主导航门面补译 —— 此前切 EN 后导航混排
+// “Workflow / 智能体 / Skills / 守护进程”
+'智能体': 'Agents',
+'守护进程': 'Daemons',
+'已取消': 'Cancelled',
 '运行历史': 'Run history',
 '主导航': 'Main navigation',
 '最近对话': 'Recent chats',

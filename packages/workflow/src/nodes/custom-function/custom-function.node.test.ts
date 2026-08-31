@@ -29,6 +29,26 @@ describe('CustomFunctionNode', () => {
     expect(result.output.greeting).toBe('Hello World')
   })
 
+  // FR-11（PRD）：$inputText = 对象入参的正文解包 —— 用户函数里
+  // String($input) 得 "[object Object]" 的实测踩坑修复。
+  it('exposes $inputText as the unwrapped content of an object $input', async () => {
+    const node = new CustomFunctionNode()
+    const code = 'return { viaText: $inputText, naive: String($input) }'
+    const result = await node.run(makeNodeData(code, { content: '上游正文' }), '', makeContext())
+    expect(result.output.viaText).toBe('上游正文')
+    expect(result.output.naive).toBe('[object Object]')
+  })
+
+  it('$inputText prefers content over text and JSON-stringifies shapeless objects', async () => {
+    const node = new CustomFunctionNode()
+    const a = await node.run(makeNodeData('return { t: $inputText }', { text: 'T', content: 'C' }), '', makeContext())
+    expect(a.output.t).toBe('C')
+    const b = await node.run(makeNodeData('return { t: $inputText }', { matched: 'true' }), '', makeContext())
+    expect(b.output.t).toBe('{"matched":"true"}')
+    const c = await node.run(makeNodeData('return { t: $inputText }', '裸字符串'), '', makeContext())
+    expect(c.output.t).toBe('裸字符串')
+  })
+
   it('returns the raw return value wrapped in output', async () => {
     const node = new CustomFunctionNode()
     const code = 'return "plain string"'

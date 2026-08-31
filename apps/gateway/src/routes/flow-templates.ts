@@ -268,12 +268,23 @@ flowTemplateRoutes.post('/from-flow/:flowId', async (c) => {
   return c.json({ success: true, data: { id, agentRefCount: extracted.agentRefs.length, paramCount: extracted.params.length } }, 201)
 })
 
-const instantiateSchema = z.object({
-  profile: z.enum(['full', 'slim', 'minimal']).optional(),
-  flow_name: z.string().min(1).max(128).optional(),
-  /** 参数化（方案 G）：{{变量}} 表单答案；缺省回落 defaultValue/空串。 */
-  answers: z.record(z.string(), z.string()).optional(),
-})
+// FR-05（PRD 决议 D6）：新名 camelCase `flowName`；`name` 与历史名
+// `flow_name` 均兼容 —— 此前只认 flow_name，传 name 被 zod 静默吞掉
+// （深评实测：自定义命名无效）。优先级 flowName > name > flow_name。
+const instantiateSchema = z
+  .object({
+    profile: z.enum(['full', 'slim', 'minimal']).optional(),
+    flow_name: z.string().min(1).max(128).optional(),
+    name: z.string().min(1).max(128).optional(),
+    flowName: z.string().min(1).max(128).optional(),
+    /** 参数化（方案 G）：{{变量}} 表单答案；缺省回落 defaultValue/空串。 */
+    answers: z.record(z.string(), z.string()).optional(),
+  })
+  .transform((v) => ({
+    profile: v.profile,
+    answers: v.answers,
+    flow_name: v.flowName ?? v.name ?? v.flow_name,
+  }))
 
 /** 模板寻址：'builtin/<slug>' 或用户模板 uuid。 */
 async function resolveTemplate(id: string): Promise<FlowTemplateSpec | null> {

@@ -52,11 +52,19 @@ export class RetrieverNode implements INode {
       .map((d) => `[${d.role}] ${d.content}`)
       .join('\n')
 
+    // FR-12（PRD）：无命中不装哑巴 —— 画布路径的检索源是会话历史，新会话
+    // 必然空。此前静默成功 + docs:[]，用户以为检索坏了。warning 显式标注，
+    // 下游 LLM 也能据此换个说法而不是对空 content 发挥。
+    const warning =
+      docs.length === 0
+        ? '无检索命中：Retriever 的检索源是本会话历史（画布直跑多为空会话）——如需检索文档请改走 chat 触发或换数据源'
+        : undefined
+
     return {
       id: nodeData.id,
       name: this.name,
       input: { query, topK },
-      output: { query, topK, docs, content },
+      output: warning ? { query, topK, docs, content, warning } : { query, topK, docs, content },
       state: options.state,
     }
   }

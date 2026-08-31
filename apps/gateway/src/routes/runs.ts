@@ -101,3 +101,67 @@ runsRoutes.get('/', async (c) => {
     return fail(c, 500, `运行历史查询失败：${err instanceof Error ? err.message : String(err)}`)
   }
 })
+
+/**
+ * POST /summary — 批量每-flow 运行摘要（PRD FR-04 / 决议 D5）。
+ *
+ * 列表页 35 张卡片逐卡 `?flowId=` 懒加载是 N+1；徽章数据（最近一次状态 /
+ * 次数 / 最近时间）应该一次请求拉齐。DISTINCT ON 单查询取每流最新一条
+ * run，次数用子查询聚合。body: `{ flowIds: string[] }`（≤200 个）。
+ */
+runsRoutes.post('/summary', async (c) => {
+  let body: unknown
+  try {
+    body = await c.req.json()
+  } catch {
+    return fail(c, 400, 'invalid json body')
+  }
+  const rawIds = (body as { flowIds?: unknown })?.flowIds
+  if (!Array.isArray(rawIds) || rawIds.length === 0) {
+    return fail(c, 400, 'flowIds must be a non-empty array')
+  }
+  const flowIds = [...new Set(rawIds.filter((v): v is string => typeof v === 'string' && /^[0-9a-f-]{36}$/i.test(v)))].slice(0, 200)
+  if (flowIds.length === 0) return ok(c, { summaries: [] })
+
+  try {
+    const { records } = await runQuery<{
+      flow_id: string
+      latest_status: string | null
+      latest_run_id: string | null
+      latest_at: Date | null
+      run_count: string | number
+    }>(
+      `SELECT r.pipeline_id AS flow_id,
+              latest.status AS latest_status,
+              latest.id AS latest_run_id,
+              latest.created_at AS latest_at,
+              COUNT(r.id)::text AS run_count
+         FROM runs r
+         LEFT JOIN LATERAL (
+           SELECT id, status, created_at FROM runs s
+            WHERE s.pipeline_id = r.pipeline_id
+            ORDER BY s.created_at DESC LIMIT 1
+         ) latest ON true
+        WHERE r.pipeline_id = ANY($1::text[])
+        GROUP BY r.pipeline_id, latest.id, latest.status, latest.created_at`,
+      [flowIds],
+    )
+    const byFlow = new Map(
+      records.map((r) => [
+        r.flow_id,
+        {
+          flowId: r.flow_id,
+          latestStatus: r.latest_status,
+          latestRunId: r.latest_run_id,
+          latestRunAt: r.latest_at,
+          runCount: Number(r.run_count),
+        },
+      ]),
+    )
+    return ok(c, {
+      summaries: flowIds.map((id) => byFlow.get(id) ?? { flowId: id, latestStatus: null, latestRunId: null, latestRunAt: null, runCount: 0 }),
+    })
+  } catch (err) {
+    return fail(c, 500, `运行摘要查询失败：${err instanceof Error ? err.message : String(err)}`)
+  }
+})

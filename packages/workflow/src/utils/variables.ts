@@ -36,7 +36,27 @@ export function resolveVariables(value: unknown, state: Record<string, unknown>)
     // state stays acyclic).
     lookupPath = lookupPath.replace(/^flow\.state\./, '')
     const val = getByPath(state, lookupPath)
-    return val !== undefined ? stringifyVal(val) : `{{${trimmed}}}`
+    if (val !== undefined) {
+      // `{{<id>.output}}` 精确命中时，executor 注入的是自引用 output 对象
+      // （`runtime.merge({[nodeId]: {...out, output: out}})`），直接 stringify
+      // 会把 {"text":…,"content":…} 整包塞进 prompt —— 文档语义「引用上游
+      // 产出」指的是正文，这里解包 text ?? content；更深的
+      // `{{id.output.field}}` 嵌套路径不走此分支，保持原样。
+      const selfRef = /^([\w$-]+)\.output$/.exec(lookupPath)
+      if (selfRef && val !== null && typeof val === 'object') {
+        const rec = val as Record<string, unknown>
+        if (typeof rec.text === 'string' && rec.text.length > 0) return rec.text
+        if (typeof rec.content === 'string' && rec.content.length > 0) return rec.content
+      }
+      return stringifyVal(val)
+    }
+    // 文档语法兼容别名（PRD FR-02 / 决议 D2）：显式字段未命中时兜底
+    // `{{$start.input}}` / `{{<id>.output}}` —— 运行面板与教程宣传的写法。
+    // 优先级恒为「显式字段 > 别名 > 字面量保留」：输出恰好含真实
+    // `.output` 字段时（如 ExecuteFlow）显式路径已在上面命中，不会进这里。
+    const aliased = resolveAlias(lookupPath, state)
+    if (aliased !== undefined) return stringifyVal(aliased)
+    return `{{${trimmed}}}`
   })
 
   // `$flow.state.<key>` is the flat runtime state itself (kept out of the
@@ -76,4 +96,34 @@ function getByPath(obj: Record<string, unknown>, path: string): unknown {
     current = (current as Record<string, unknown>)[part]
   }
   return current
+}
+
+/**
+ * 兼容别名解析（PRD FR-02 / 决议 D2）。两条规则：
+ *
+ *   1. `start.input`（含 `{{$start.input}}` 去 $ 后）→ 运行输入。Start 节点
+ *      的输出形状是 `{ variables, content }`（content 即输入文本），并没有
+ *      `.input` 字段 —— 文档宣传的 `{{$start.input}}` 在别名出现之前永远
+ *      解析为字面量（实测 run f68b83dd「变量未解析」vs d9064c5d）。
+ *   2. `<id>.output` → 该节点输出正文（`text ?? content`）。LLM 输出形状是
+ *      `{text, content}`，同样没有 `.output` 字段；两者皆无（如 Condition
+ *      只有 `matched`）时回落整对象 JSON —— 至少引用者拿得到东西。
+ *
+ * 节点 id 段与既有 getByPath 行为一致（不含点）；显式字段命中优先于别名。
+ */
+function resolveAlias(path: string, state: Record<string, unknown>): unknown {
+  if (path === 'start.input') {
+    return getByPath(state, 'start.content')
+  }
+  const m = /^([\w$-]+)\.output$/.exec(path)
+  if (!m) return undefined
+  const out = getByPath(state, m[1])
+  if (out === undefined || out === null) return undefined
+  if (typeof out === 'object') {
+    const rec = out as Record<string, unknown>
+    if (typeof rec.text === 'string' && rec.text.length > 0) return rec.text
+    if (typeof rec.content === 'string' && rec.content.length > 0) return rec.content
+    return stringifyVal(out)
+  }
+  return out
 }

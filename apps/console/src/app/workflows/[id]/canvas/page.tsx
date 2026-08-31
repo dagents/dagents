@@ -1,6 +1,11 @@
 import { PageShell } from '@/components/page-shell'
 import { FlowiseCanvasLoader } from '@/components/canvas/flowise-canvas-loader'
 import { gatewayUrl } from '@/lib/config'
+// FR-01（PRD 决议 D1）：本页复用 ftpl-canvas-column / ftpl-canvas-body 布局类，
+// 而这两条规则此前只被 flow-template-gallery.tsx 导入 —— 直接打开 / 刷新 /
+// 外部旁观链接时样式表不在页面上，画布容器塌缩成 0 高（客户端导航进来
+// 才碰巧正常）。显式导入消除对画廊路由的隐式依赖。
+import '@/styles/flow-templates.css'
 
 interface CanvasWorkflowPageProps {
   params: Promise<{ id: string }>

@@ -65,6 +65,25 @@ export interface TemplateParam {
 const PARAM_PATTERN = /\{\{\s*([A-Za-z_\u4e00-\u9fa5][\w\u4e00-\u9fa5]*)\s*\}\}/g
 
 /**
+ * 引擎运行时变量保留字（PRD FR-02 / 决议 D3）：这些单词型 `{{name}}` 由
+ * 执行期 state 解析，绝不能收进模板参数 —— 否则实例化时被 answers 表单
+ * 静默替换，运行输入从此到不了节点（`{{input}}` 双重身份坑：正则此前
+ * 排除引擎变量只是「不匹配 $ / .」的巧合，单词型 flat-state 键照收不误）。
+ * 带 `$` 前缀或 `.` 路径的写法（`{{$start.input}}`、`{{llm1.output}}`）
+ * 扫描正则天然不匹配，无需在此列出。
+ */
+const ENGINE_RESERVED_PARAMS = new Set([
+  'input', // start 节点写入 flat state 的运行输入
+  // vendor 变量选择器历史推荐过的 chat 路径变量（画布运行下由 state 提供）
+  'question',
+  'chat_history',
+  'current_date_time',
+  'runtime_messages_length',
+  'loop_count',
+  'file_attachment',
+])
+
+/**
  * 实例化时做参数替换的文案字段（节点 data 的浅层 + inputs 嵌套）。
  * 刻意收窄到「提示词/回复类」文本字段——不递归扫描所有字符串，避免
  * 误伤 canvas 坐标/类型名等结构性字段。
@@ -89,7 +108,8 @@ export function scanTemplateParams(
       if (typeof value !== 'string') continue
       for (const match of value.matchAll(PARAM_PATTERN)) {
         const name = match[1]
-        if (name && !seen.has(name)) {
+        if (!name || ENGINE_RESERVED_PARAMS.has(name)) continue
+        if (!seen.has(name)) {
           seen.add(name)
           names.push(name)
         }

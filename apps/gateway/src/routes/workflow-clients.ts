@@ -147,16 +147,34 @@ function toolLabel(evt: Extract<AgentEvent, { type: 'tool-use' }>): string {
   try {
     args = JSON.stringify(evt.input ?? {})
   } catch {
-    args = String(evt.input ?? '')
+    args = String(evt.input ?? {})
   }
   if (args.length > 60) args = args.slice(0, 60) + '…'
   return `${evt.tool || 'tool'}(${args})`
 }
 
+/**
+ * 文本档 CLI 旗标（PRD FR-03 / 决议 D4）：纯 LLM 调用（未声明 tools）时
+ * 从模型工具集整体移除内建工具。背景：适配器默认 bypassPermissions，
+ * 零 Provider 时「纯 LLM 节点」实际是带全套工具的真 agent —— 实测
+ * 「代码审查链」把「审查这段贴入代码」漂移成在项目仓库里 rg/git 全仓
+ * 调查（318s / ~9 万 tokens，结论「该函数不在仓库中」）。
+ * `--disallowedTools` 直接摘除工具（与 permission mode 正交）；
+ * PlatformAgent 工具循环声明了 tools，不受影响。
+ */
+const CLI_TEXT_MODE_ARGS = [
+  '--disallowedTools',
+  'Task,Bash,Glob,Grep,Read,Edit,Write,NotebookEdit,WebFetch,WebSearch,TodoWrite,TodoRead,BashOutput,KillShell',
+]
+
 export function createCliLlmClient(kind: AgentType = 'claude', cliCwd?: string) {
   /** 共享：为本次执行创建 backend session（chat 与 chatStream 同款启动）。 */
   const startSession = (params: CliChatParams) => {
     const { systemPrompt, prompt } = buildCliMessages(params.messages)
+    const agentToolsDeclared = Array.isArray(params.tools) && params.tools.length > 0
+    // 文本档仅对 claude 生效（--disallowedTools 是 claude CLI 旗标；其他
+    // 适配器无对应机制，保持原行为 —— 与 D4「非 claude 标注未真机」一致）
+    const textModeArgs = kind === 'claude' && !agentToolsDeclared ? CLI_TEXT_MODE_ARGS : undefined
     const backend = createBackend(kind, { executablePath: '', logger: log })
     return backend.execute(prompt, {
       systemPrompt,
@@ -165,6 +183,8 @@ export function createCliLlmClient(kind: AgentType = 'claude', cliCwd?: string) 
       // 工作目录 = 项目目录：Agent/LLM 节点的 CLI 在选定项目里干活
       //（读写文件、跑命令都基于它）。缺省回落 gateway 进程 cwd。
       cwd: cliCwd,
+      // 文本档：无工具声明的调用禁用全部内建工具（见 CLI_TEXT_MODE_ARGS）
+      ...(textModeArgs ? { extraArgs: textModeArgs } : {}),
     })
   }
   return {

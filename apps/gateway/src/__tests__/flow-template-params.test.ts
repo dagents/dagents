@@ -38,6 +38,27 @@ describe('scanTemplateParams', () => {
     )
     expect(params).toEqual([])
   })
+
+  // ── 引擎保留字（PRD FR-02 / 决议 D3）───────────────────────────────
+  // 单词型 flat-state 键若被收进模板参数，实例化时会被 answers 静默替换，
+  // 运行输入从此到不了节点（{{input}} 双重身份坑）。带 $/./路 径的写法
+  // 正则天然不匹配，此处钉住单词型保留字。
+  it('excludes engine runtime variables from params (input / question / ...)', () => {
+    const params = scanTemplateParams(
+      flowWith([
+        { name: 'llmAgentflow', systemPrompt: '复读 {{input}}，历史 {{chat_history}}，时间 {{current_date_time}}' },
+        { name: 'directReplyAgentflow', content: '{{question}} {{loop_count}} {{file_attachment}} {{runtime_messages_length}}' },
+      ]),
+    )
+    expect(params).toEqual([])
+  })
+
+  it('still collects genuine params alongside reserved words', () => {
+    const params = scanTemplateParams(
+      flowWith([{ name: 'llmAgentflow', systemPrompt: '为 {{项目名}} 复读 {{input}}' }]),
+    )
+    expect(params.map((p) => p.name)).toEqual(['项目名'])
+  })
 })
 
 describe('applyTemplateParams', () => {

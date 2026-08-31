@@ -384,7 +384,7 @@ function LlmProvidersTab(): React.ReactElement {
             ) : filtered.length === 0 ? (
               <tr>
                 <td colSpan={6} className="tc muted" style={{ padding: 'var(--space-12)' }}>
-                  {query || statusFilter ? t('没有匹配的 Provider。') : t('还没有 Provider。Flow 工作流节点（LLM / Agent / PlatformAgent）需要在此配置 Provider 才能调用大模型。对话功能不受影响——CLI 自带 LLM 配置。点击「+ 新建 Provider」开始配置。')}
+                  {query || statusFilter ? t('没有匹配的 Provider。') : t('还没有 Provider。不配置也能跑：Flow 节点默认走本机 CLI（较慢、消耗订阅额度）。配置 HTTP Provider 可加速并统一计费。点击「+ 新建 Provider」开始配置。')}
                 </td>
               </tr>
             ) : (

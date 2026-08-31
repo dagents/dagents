@@ -57,9 +57,21 @@ export class CustomFunctionNode implements INode {
       throw new Error('Custom Function requires function code')
     }
 
-    const fn = new Function('$input', '$flow', functionCode)
+    const fn = new Function('$input', '$inputText', '$flow', functionCode)
 
-    const result = fn(functionInput, { state: options.state })
+    // FR-11（PRD）：$inputText = $input 的正文解包（content ?? text ?? JSON）。
+    // 多数上游节点输出是对象 —— 用户函数里 String($input) 得到
+    // "[object Object]"（实测踩坑），逐个解构又啰嗦。正文变量一步到位。
+    const inputText =
+      typeof functionInput === 'string'
+        ? functionInput
+        : typeof functionInput === 'object' && functionInput !== null
+          ? ((functionInput as Record<string, unknown>).content as string) ??
+            ((functionInput as Record<string, unknown>).text as string) ??
+            JSON.stringify(functionInput)
+          : String(functionInput ?? '')
+
+    const result = fn(functionInput, inputText, { state: options.state })
 
     // Normalize: if the function returns a non-object, wrap it in { value }
     const output = result !== null && typeof result === 'object' && !Array.isArray(result)
