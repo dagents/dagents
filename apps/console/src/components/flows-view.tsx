@@ -135,11 +135,22 @@ export function FlowsView({ home = false }: { home?: boolean }): React.ReactElem
   const [loadingList, setLoadingList] = useState(true)
   const [createOpen, setCreateOpen] = useState(false)
   const [templateOpen, setTemplateOpen] = useState(false)
+  // 画廊入口 tab：空态 Hero「从团队场景开始」→ teams（按钮卖点即团队场景，
+  // 此前默认落 builtin 名不副实）；工具栏「从模板创建」→ builtin。
+  const [templateTab, setTemplateTab] = useState<'builtin' | 'teams'>('builtin')
   const [generateOpen, setGenerateOpen] = useState(false)
   const [runningId, setRunningId] = useState<string | null>(null)
   // 运行输入对话框（对齐画布运行面板）：点「运行」先收集输入 + 项目目录，
   // 再异步发起。此前直接 POST 同步端点 —— 响应要等整个流程跑完才返回。
-  const [runDialogFlow, setRunDialogFlow] = useState<{ id: string; name: string } | null>(null)
+  // inputHint/inputExample 来自 flow start 节点（团队模板实例化时写入），
+  // 列表项不带 DAG，打开对话框时按需拉一次详情提取；hintLoaded 防重复请求。
+  const [runDialogFlow, setRunDialogFlow] = useState<{
+    id: string
+    name: string
+    inputHint?: string
+    inputExample?: string
+    hintLoaded?: boolean
+  } | null>(null)
   const [runDirectories, setRunDirectories] = useState<Directory[]>([])
   const [runDirId, setRunDirId] = useState('')
   // Inline delete confirmation per card (like the sidebar's chat delete).
@@ -149,6 +160,39 @@ export function FlowsView({ home = false }: { home?: boolean }): React.ReactElem
   const [reloadListTick, setReloadListTick] = useState(0)
   // 卡片运行历史面板的刷新 tick：发起运行成功后 bump（新 run 立即可见）。
   const [runsTick, setRunsTick] = useState(0)
+
+  // 打开运行对话框时按需拉 flow 详情，提取 start 节点的输入引导（无则回落引擎术语）。
+  useEffect(() => {
+    if (!runDialogFlow || runDialogFlow.hintLoaded) return
+    let cancelled = false
+    void (async () => {
+      let hint: string | undefined
+      let example: string | undefined
+      try {
+        const res = await fetch(`/api/workflows/${encodeURIComponent(runDialogFlow.id)}`)
+        const json = (await res.json().catch(() => null)) as {
+          data?: { flow?: { flowData?: unknown } }
+        } | null
+        const raw = json?.data?.flow?.flowData
+        const fd = (typeof raw === 'string' ? JSON.parse(raw) : raw) as
+          | { nodes?: { name?: string; data?: { name?: string; inputHint?: string; inputExample?: string } }[] }
+          | undefined
+        const start = fd?.nodes?.find((n) => (n.data?.name ?? n.name) === 'startAgentflow')
+        hint = start?.data?.inputHint
+        example = start?.data?.inputExample
+      } catch {
+        // 详情拉取失败不阻塞运行 —— placeholder 回落引擎术语
+      }
+      if (!cancelled) {
+        setRunDialogFlow((cur) =>
+          cur ? { ...cur, inputHint: hint, inputExample: example, hintLoaded: true } : cur,
+        )
+      }
+    })()
+    return () => {
+      cancelled = true
+    }
+  }, [runDialogFlow])
 
   /** Run a flow by POSTing to the gateway's /:id/run endpoint, then jump to
    *  the canvas watch view (`?run=`) so the user sees live progress. 异步模式
@@ -390,7 +434,10 @@ export function FlowsView({ home = false }: { home?: boolean }): React.ReactElem
           <button
             type="button"
             className="btn btn-secondary btn-sm"
-            onClick={() => setTemplateOpen(true)}
+            onClick={() => {
+              setTemplateTab('builtin')
+              setTemplateOpen(true)
+            }}
           >
             <Icon name="zap" style={{ width: 14, height: 14 }} />
             {t('从模板创建')}
@@ -452,7 +499,10 @@ export function FlowsView({ home = false }: { home?: boolean }): React.ReactElem
               /* Workflow-First 首页空态（PRD F1）：三入口 + 模板横滑卡。
                * 仅「真没有任何 Flow」时展示；筛选无结果仍走旧空态。 */
               <FlowsEmptyHero
-                onTemplate={() => setTemplateOpen(true)}
+                onTemplate={() => {
+                  setTemplateTab('teams')
+                  setTemplateOpen(true)
+                }}
                 onGenerate={() => setGenerateOpen(true)}
                 onCreate={() => setCreateOpen(true)}
               />
@@ -661,6 +711,7 @@ export function FlowsView({ home = false }: { home?: boolean }): React.ReactElem
       {/* 流程模板中心（docs/flow-templates.md）：内置 / 团队场景 / 我的模板 */}
       <FlowTemplateGallery
         open={templateOpen}
+        initialTab={templateTab}
         onClose={() => setTemplateOpen(false)}
       />
       <GenerateFlowDialog
@@ -679,6 +730,8 @@ export function FlowsView({ home = false }: { home?: boolean }): React.ReactElem
           flowName={runDialogFlow.name}
           directories={runDirectories}
           dirId={runDirId}
+          inputHint={runDialogFlow.inputHint}
+          inputExample={runDialogFlow.inputExample}
           onDirChange={(id) => {
             setRunDirId(id)
             try {

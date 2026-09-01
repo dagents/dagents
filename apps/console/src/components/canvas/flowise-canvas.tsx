@@ -358,6 +358,17 @@ export function FlowiseCanvas({
     // eslint-disable-next-line react-hooks/exhaustive-deps
     [initialFlow],
   )
+
+  /** 团队模板的运行输入引导（start 节点 data.inputHint/inputExample）——
+   *  有则替换引擎术语 placeholder，第一次跑模板的用户才知道该输入什么。 */
+  const startInputHint = useMemo(() => {
+    const start = initialFlow.nodes.find((n) => (n.data?.name ?? n.name) === 'startAgentflow')
+    return {
+      hint: start?.data?.inputHint as string | undefined,
+      example: start?.data?.inputExample as string | undefined,
+    }
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [initialFlow])
   if (originalEdgesRef.current === null) originalEdgesRef.current = initialFlowData.edges
 
   /** 完成段的连线颜色（两端节点都 done 时整段点亮）。 */
@@ -780,7 +791,7 @@ export function FlowiseCanvas({
                 rows={4}
                 autoFocus
                 value={runInput}
-                placeholder={t('输入将作为 {{$start.input}}（等价 {{input}}）传入；节点里可用 {{<节点id>.output}} 或 {{<节点id>.content}} 引用上游产出')}
+                placeholder={startInputHint.hint ?? t('输入将作为 {{$start.input}}（等价 {{input}}）传入；节点里可用 {{<节点id>.output}} 或 {{<节点id>.content}} 引用上游产出')}
                 onChange={(e) => setRunInput(e.target.value)}
                 onKeyDown={(e) => {
                   if (e.key === 'Enter' && (e.metaKey || e.ctrlKey)) {
@@ -789,6 +800,9 @@ export function FlowiseCanvas({
                   }
                 }}
               />
+              {startInputHint.example ? (
+                <div className='canvas-run-dir-hint'>{t('示例')}：{startInputHint.example}</div>
+              ) : null}
               <div className='canvas-run-panel-actions'>
                 <span className='canvas-run-panel-hint'>⌘⏎ {t('运行')}</span>
                 <button type='button' className='canvas-run-panel-cancel' onClick={() => setRunPanelOpen(false)}>

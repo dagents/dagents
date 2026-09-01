@@ -24,6 +24,10 @@ export interface FlowRunDialogProps {
   onCancel: () => void
   /** 提交（输入文本）—— 父组件负责发起异步运行并关闭本对话框。 */
   onSubmit: (input: string) => void
+  /** 模板带的运行输入引导（flow start 节点 data.inputHint）——有则替换引擎术语 placeholder。 */
+  inputHint?: string
+  /** 输入示例（start 节点 data.inputExample）——持久展示，输入后也不消失。 */
+  inputExample?: string
 }
 
 export function FlowRunDialog({
@@ -33,6 +37,8 @@ export function FlowRunDialog({
   onDirChange,
   onCancel,
   onSubmit,
+  inputHint,
+  inputExample,
 }: FlowRunDialogProps): React.ReactElement {
   const { t } = useI18n()
   const [input, setInput] = useState('')
@@ -90,7 +96,7 @@ export function FlowRunDialog({
                 rows={5}
                 autoFocus
                 value={input}
-                placeholder={t(
+                placeholder={inputHint ?? t(
                   '输入将作为 {{$start.input}}（等价 {{input}}）传入；节点里可用 {{<节点id>.output}} 或 {{<节点id>.content}} 引用上游产出',
                 )}
                 onChange={(e) => setInput(e.target.value)}
@@ -101,6 +107,11 @@ export function FlowRunDialog({
                   }
                 }}
               />
+              {inputExample ? (
+                <div className="modal-hint" style={{ fontSize: 'var(--text-xs)', color: 'var(--meta)', marginTop: 'var(--space-1)' }}>
+                  {t('示例')}：{inputExample}
+                </div>
+              ) : null}
             </div>
           </div>
         </div>

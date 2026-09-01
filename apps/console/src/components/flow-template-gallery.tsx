@@ -41,11 +41,15 @@ const TABS: { key: Tab; label: string }[] = [
 export interface FlowTemplateGalleryProps {
   open: boolean
   onClose: () => void
+  /** 打开时落在哪个 tab —— 空态 Hero「从团队场景开始」传 'teams'（按钮卖点
+   *  是团队场景，此前默认落 builtin 名不副实）；工具栏「从模板创建」缺省 builtin。 */
+  initialTab?: Tab
 }
 
 export function FlowTemplateGallery({
   open,
   onClose,
+  initialTab = 'builtin',
 }: FlowTemplateGalleryProps): React.ReactElement | null {
   const router = useRouter()
   const toast = useToast()
@@ -97,8 +101,11 @@ export function FlowTemplateGallery({
 
   useEffect(() => {
     if (!open) return
+    // 每次打开都回到调用方指定的入口 tab（Hero=teams / 工具栏=builtin），
+    // 用户上次浏览停留的 tab 不该劫持下一次的入口语义。
+    setTab(initialTab)
     void load()
-  }, [open, load])
+  }, [open, initialTab, load])
 
   // 切换确认模板时清空参数答案，避免上一个模板的值带进下一个。
   useEffect(() => {
@@ -415,6 +422,40 @@ export function FlowTemplateGallery({
                       </div>
                     </div>
                   </>
+                ) : confirmTeam.shape === 'parallel-head' ? (
+                  <>
+                    <div className="ftpl-layer">
+                      <div className="ftpl-layer-nodes">
+                        <span className="ftpl-node-chip">
+                          <span className="ftpl-node-kind">start</span>
+                          <span className="ftpl-node-label">{t('任务输入')}</span>
+                        </span>
+                      </div>
+                    </div>
+                    <div className="ftpl-layer">
+                      <span className="ftpl-layer-arrow" aria-hidden="true">↓</span>
+                      <div className="ftpl-layer-nodes parallel">
+                        <span className="ftpl-parallel-tag">{t('并行')}</span>
+                        {confirmTeam.members.slice(0, confirmTeam.parallelCount ?? 2).map((m) => (
+                          <span key={m.persona} className="ftpl-node-chip">
+                            <span className="ftpl-node-kind">agent</span>
+                            <span className="ftpl-node-label">{m.label || m.persona}</span>
+                          </span>
+                        ))}
+                      </div>
+                    </div>
+                    {confirmTeam.members.slice(confirmTeam.parallelCount ?? 2).map((m) => (
+                      <div key={m.persona} className="ftpl-layer">
+                        <span className="ftpl-layer-arrow" aria-hidden="true">↓</span>
+                        <div className="ftpl-layer-nodes">
+                          <span className="ftpl-node-chip">
+                            <span className="ftpl-node-kind">agent</span>
+                            <span className="ftpl-node-label">{m.label || m.persona}</span>
+                          </span>
+                        </div>
+                      </div>
+                    ))}
+                  </>
                 ) : (
                   <>
                     <div className="ftpl-layer">
@@ -442,9 +483,22 @@ export function FlowTemplateGallery({
               <div className="alib-team-shape-hint">
                 {confirmTeam.shape === 'fan-out'
                   ? t('成员并行执行，最终由 LLM 节点汇总。')
-                  : t('成员按顺序执行，上游产出作为下游输入。')}
+                  : confirmTeam.shape === 'parallel-head'
+                    ? t('前几个成员并行启动，产出汇合后按顺序执行。')
+                    : t('成员按顺序执行，上游产出作为下游输入。')}
                 {t('缺失的成员将自动启用为 claude Agent（slim 档）；已启用的直接复用。')}
               </div>
+              {confirmTeam.inputHint ? (
+                <div className="alib-team-shape-hint">
+                  <strong>{t('运行时需要输入')}：</strong>{confirmTeam.inputHint}
+                  {confirmTeam.inputExample ? (
+                    <>
+                      <br />
+                      {t('示例')}：{confirmTeam.inputExample}
+                    </>
+                  ) : null}
+                </div>
+              ) : null}
               <div className="alib-team-member-list">
                 {confirmTeam.members.map((m) => (
                   <div key={m.persona} className="alib-team-member">

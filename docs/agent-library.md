@@ -114,11 +114,22 @@ Keep your persona, voice, and domain expertise unchanged.
 
 库页 division 标签走现有自然键 i18n（中文即 key，`en/agents.ts` 加词条）。
 
-### D6 团队场景工作流模板（Phase 3，不阻塞）
+### D6 团队场景工作流模板（Phase 3，不阻塞；2026-08-31 扩至全量）
 
-agency-agents README 的 6 个团队组合（MVP 构建 / 产品发现 / 营销发布 / 付费媒体接管 /
-智慧校园数字孪生 / 企业功能开发）预置为静态 flows 模板：platformAgent 节点按
+agency-agents 的 10 条文档化工作流收敛为 9 个静态 flows 模板：README Scenario 1~6 的 6 个团队组合
+（MVP 构建 / 产品发现 / 营销发布 / 付费媒体接管 / 智慧校园数字孪生 / 企业功能开发）
++ `examples/` 的 3 个新模板（落地页冲刺 `workflow-landing-page`、全机构并行发现
+`nexus-spatial-discovery`、书籍章节起草 `workflow-book-chapter`）；`workflow-startup-mvp`
+用于增强同名模板为 7 人格并行发现头。platformAgent 节点按
 **人格 name** 引用，模板实例化时批量解析 name → agentId（缺哪个就先 instantiate 哪个）。
+每个模板带 `inputHint`/`inputExample` 运行输入引导：实例化时写进 start 节点 data，
+画布/列表运行面板据此把引擎术语 placeholder 换成人话引导（+示例行），画廊确认步创建前即可预览。
+
+形态（shape）三选：`linear`（顺序链）/ `fan-out`（并行成员 + LLM 汇总）/
+`parallel-head`（前 `parallelCount` 步从 Start 并行扇出，汇入首个顺序节点后顺序执行
+——依赖 2026-08-27 的 N 进 1 合并契约：`mergeInputs` 拼接 content，下游优先取 content）。
+`examples/workflow-with-memory` 不单独立模板：它解决的 copy-paste 交接痛点在
+dagents 引擎里天然不存在（边数据流自动把上游产出递给下游节点）。
 
 ## 3. API 设计
 
@@ -208,7 +219,7 @@ scripts/import-agency-agents.ts   # 可选：Phase 1 直接用 instantiate API �
 
 **团队场景工作流模板（D6）**
 
-- `apps/gateway/src/routes/agent-library-teams.ts`：6 个静态模板（创业 MVP 构建 / 企业功能开发 / 营销活动发布 / 付费媒体接管 / 产品发现·并行 / 智慧校园数字孪生，忠实映射 agency-agents README Scenario 1~6）。步骤按 **frontmatter name** 引用（不写死 id，division 重组不失效；真库 270 条已验证无重名）。`GET /team-templates`（含成员解析状态）+ `POST /team-templates/:id/instantiate`（缺失人格 422 显式列出；成员复用 `library_meta` 稳定键 / 缺的自动 slim 启用；组装 FlowData 落 draft flow）。**路由必须在 `/:division/:slug/instantiate` 之前注册**（Hono 同形按序匹配）——app.ts 已按此挂载并注释。
+- `apps/gateway/src/routes/agent-library-teams.ts`：9 个静态模板（覆盖 agency-agents 全部 10 条文档化工作流）—— README Scenario 1~6（创业 MVP 构建 · 7 人格并行发现头 / 企业功能开发 / 营销活动发布 / 付费媒体接管 / 产品发现·并行 / 智慧校园数字孪生）+ examples 三条新模板（落地页冲刺 · 文案∥设计并行头 / 全机构并行发现 · 8 路 fan-out + 交叉综合 / 书籍章节起草 · 单人格五段式产出契约）。步骤按 **frontmatter name** 引用（不写死 id，division 重组不失效；真库 270 条已验证无重名；nexus 文档的「Product Trend Researcher」以库内实名「Trend Researcher」为准）。`GET /team-templates`（含成员解析状态 + parallel-head 的 parallelCount）+ `POST /team-templates/:id/instantiate`（缺失人格 422 显式列出；成员复用 `library_meta` 稳定键 / 缺的自动 slim 启用；组装 FlowData 落 draft flow）。**路由必须在 `/:division/:slug/instantiate` 之前注册**（Hono 同形按序匹配）——app.ts 已按此挂载并注释。
 - 共享落库助手 `agent-library-instantiate.ts`（单人格/团队共用 INSERT + 批量复用查询）+ registry 新增 `getAll()`（团队批量解析只付一次扫描）。
 - Console：画廊新增「人格 | 团队场景」模式 tab，团队卡片（成员 chips + 库中缺失标注）→ 确认步（成员清单 + 形状说明 + 创建按钮，有成员不可解析时禁用）→ 创建后跳 `/workflows/{id}/canvas`。代理路由 ×2。
 - 测试：gateway 3 用例（目录解析 / 实例化+幂等复用+flow 结构断言 / 缺失 422 —— fixture 用与真库相同 division/slug，env 根 rank 300 覆盖默认根保证确定性）；e2e spec-16 第 4 用例（团队 tab UI 渲染，断言环境无关）。

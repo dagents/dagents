@@ -183,7 +183,13 @@ export interface TeamTemplateSummary {
   name: string
   description: string
   icon: string
-  shape: 'linear' | 'fan-out'
+  shape: 'linear' | 'fan-out' | 'parallel-head'
+  /** parallel-head：从 Start 并行扇出的头部成员数。 */
+  parallelCount?: number
+  /** 运行输入引导：创建前就知道要准备什么输入。 */
+  inputHint?: string
+  /** 输入示例。 */
+  inputExample?: string
   members: TeamTemplateMember[]
 }
 

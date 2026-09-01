@@ -345,9 +345,33 @@ describe('agent library team templates (dev Postgres)', () => {
     const res = await teamRequest('/api/v1/agent-library/team-templates')
     expect(res.status).toBe(200)
     const json = await res.json() as {
-      data: { templates: { id: string; members: { persona: string; available: boolean; libraryId: string | null }[] }[] }
+      data: {
+        templates: {
+          id: string
+          shape: string
+          parallelCount?: number
+          inputHint?: string
+          inputExample?: string
+          members: { persona: string; available: boolean; libraryId: string | null }[]
+        }[]
+      }
     }
-    expect(json.data.templates).toHaveLength(6)
+    expect(json.data.templates).toHaveLength(9)
+    expect(json.data.templates.map((t) => t.id)).toEqual(expect.arrayContaining([
+      'startup-mvp', 'enterprise-feature', 'marketing-launch', 'paid-media-takeover',
+      'product-discovery', 'campus-twin', 'landing-page-sprint', 'full-agency-discovery', 'book-chapter',
+    ]))
+    // 运行输入引导全量透出（确认步预告 + 运行面板 placeholder 的数据源）。
+    for (const t of json.data.templates) {
+      expect(typeof t.inputHint).toBe('string')
+      expect(t.inputHint!.length).toBeGreaterThan(8)
+      expect(typeof t.inputExample).toBe('string')
+    }
+    // parallel-head 模板透出 parallelCount，供确认步结构预览分组渲染。
+    const landing = json.data.templates.find((t) => t.id === 'landing-page-sprint')
+    expect(landing?.shape).toBe('parallel-head')
+    expect(landing?.parallelCount).toBe(2)
+    expect(json.data.templates.find((t) => t.id === 'full-agency-discovery')?.shape).toBe('fan-out')
     const launch = json.data.templates.find((t) => t.id === 'marketing-launch')
     expect(launch?.members.map((m) => m.persona)).toEqual([
       'Content Creator', 'Twitter Engager', 'Instagram Curator', 'Reddit Community Builder', 'Analytics Reporter',
@@ -595,6 +619,7 @@ describe('agent library teams — fan-out 与混合复用（dev Postgres）', ()
     writePersona(dir, DIV_B, 'fan-a.md', 'Fan Alpha')
     writePersona(dir, DIV_B, 'fan-b.md', 'Fan Beta')
     writePersona(dir, DIV_B, 'fan-c.md', 'Fan Gamma')
+    writePersona(dir, DIV_B, 'fan-d.md', 'Fan Delta')
   })
 
   afterAll(async () => {
@@ -655,6 +680,64 @@ describe('agent library teams — fan-out 与混合复用（dev Postgres）', ()
       expect(fd.nodes).toHaveLength(6)
       expect(fd.edges).toHaveLength(7)
       expect(fd.nodes.filter((n) => n.data.name === 'llmAgentflow')).toHaveLength(1)
+    } finally {
+      TEAM_TEMPLATES.pop()
+    }
+  })
+
+  it('parallel-head template: heads fan out from start, merge into the linear tail (examples 落地页形态)', async () => {
+    const { TEAM_TEMPLATES } = await import('../routes/agent-library-teams.js')
+    TEAM_TEMPLATES.push({
+      id: 'test-parallel-head', name: 'P', description: 'p', icon: '🦅', shape: 'parallel-head',
+      parallelCount: 2,
+      inputHint: '测试输入引导', inputExample: '测试输入示例',
+      steps: [
+        { persona: 'Fan Alpha', label: 'a', task: 'do a' },
+        { persona: 'Fan Beta', label: 'b', task: 'do b' },
+        { persona: 'Fan Gamma', label: 'c', task: 'do c' },
+        { persona: 'Fan Delta', label: 'd', task: 'do d' },
+      ],
+    } as never)
+    try {
+      process.env.DAGENTS_AGENT_LIBRARY_DIRS = fanRoot
+      const res = await app.request('/api/v1/agent-library/team-templates/test-parallel-head/instantiate', {
+        method: 'POST',
+        headers: { 'content-type': 'application/json' },
+        body: JSON.stringify({}),
+      })
+      expect(res.status).toBe(201)
+      const { data } = await res.json() as { data: { flowId: string; members: { agentId: string }[] } }
+      seededFlows.push(data.flowId)
+      for (const m of data.members) seededAgents.push(m.agentId)
+
+      // 结构：start + 2 并行头 + 2 顺序尾 + reply = 6 节点 / 6 边，无 LLM 汇总节点。
+      const { records } = await runQuery<{
+        flow_data: {
+          nodes: { id: string; data: { name: string; inputHint?: string; inputExample?: string } }[]
+          edges: { id: string; source: string; target: string }[]
+        }
+      }>(`SELECT flow_data FROM flows WHERE id = $1::uuid`, [data.flowId])
+      const fd = records[0].flow_data
+      expect(fd.nodes).toHaveLength(6)
+      expect(fd.edges).toHaveLength(6)
+      expect(fd.nodes.filter((n) => n.data.name === 'llmAgentflow')).toHaveLength(0)
+      expect(fd.nodes.filter((n) => n.data.name === 'platformAgentAgentflow')).toHaveLength(4)
+      // start 节点携带运行输入引导（运行面板据此换人话 placeholder）。
+      const start = fd.nodes.find((n) => n.id === 'node_1')!
+      expect(start.data.inputHint).toBeTruthy()
+      expect(start.data.inputExample).toBeTruthy()
+
+      // 拓扑：start 扇出 2 头；两头都汇入首个顺序节点（N 进 1 合并契约）；尾部成链接 reply。
+      const targetsOf = (src: string) => fd.edges.filter((e) => e.source === src).map((e) => e.target)
+      const heads = targetsOf('node_1')
+      expect(heads).toEqual(['node_2', 'node_3'])
+      const merge = new Set(fd.edges.filter((e) => heads.includes(e.source)).map((e) => e.target))
+      expect([...merge]).toEqual(['node_4'])
+      expect(targetsOf('node_4')).toEqual(['node_5'])
+      expect(targetsOf('node_5')).toEqual(['node_6'])
+      // 孤儿边守卫：每条边的端点都存在。
+      const nodeIds = new Set(fd.nodes.map((n) => n.id))
+      expect(fd.edges.every((e) => nodeIds.has(e.source) && nodeIds.has(e.target))).toBe(true)
     } finally {
       TEAM_TEMPLATES.pop()
     }
