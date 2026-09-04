@@ -15,3 +15,5 @@ vendor/flowise/.turbo/
 # 测试会话产物：playwright 失败现场 / GUI 人工巡检截图
 test-results/
 gui-test-screenshots/
+.gstack/
+.DS_Store
