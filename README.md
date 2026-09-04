@@ -2,17 +2,21 @@
 
 # Dagents
 
-**A chat-first platform for orchestrating heterogeneous coding agents — on your own machine, against your own LLM providers.**
+**Orchestrate your local CLI coding agents into parallel teams — on your own machine, against your own LLM providers.**
 
 [![License: Apache-2.0](https://img.shields.io/badge/License-Apache_2.0-blue.svg)](./LICENSE)
 ![Node](https://img.shields.io/badge/node-%E2%89%A522-339933)
 [![CI](https://github.com/dagents/dagents/actions/workflows/ci.yml/badge.svg)](https://github.com/dagents/dagents/actions/workflows/ci.yml)
 
-Chat with `claude`, `codex`, and 15+ other CLI agents from one place · compose them into visual workflows · zero-config to start, everything stays local.
+Dagents coordinates `claude`, `codex`, `qwen` and 15+ other CLI agents: a visual DAG canvas for parallel workflows, streaming execution you can watch node by node, and a chat copilot that compiles a one-line prompt into a multi-agent flow. **No API key needed to start — your local CLIs are the engine. Nothing leaves your machine.**
 
 [English](./README.md) · [简体中文](./README.zh-CN.md)
 
-<img src="docs/assets/console-home.png" alt="Dagents console — chat home" width="820">
+<img src="docs/assets/canvas-demo.gif" alt="Dagents canvas — three analyst nodes run in parallel and stream into a synthesis node" width="860">
+
+*A 5-node product-discovery flow: three analysts fan out in parallel, stream their output live (per-node streaming + run panel), and merge into one verdict. Recorded with a scripted provider for pacing — engine, canvas and streaming are the real app.*
+
+<img src="docs/assets/flows-home-en.png" alt="Dagents — Flows workbench" width="860">
 
 </div>
 
@@ -23,18 +27,21 @@ Chat with `claude`, `codex`, and 15+ other CLI agents from one place · compose 
 Most agent platforms want to be the backend. Dagents is the opposite: **your local CLI agents are the baseline execution engine**, and everything else is optional acceleration.
 
 - **CLI-first execution** — Workflows and chat run by spawning your local CLI agents (`claude`, `codex`, `qwen` as faithfully-maintained core adapters + 14 community adapters). HTTP LLM providers are an optional fast path, not a dependency. No provider configured? It still runs.
-- **Chat-first UX** — A single chat home (`/`) + chat detail pages. Type `@workflow …` to compile a multi-agent workflow from a prompt; mention agents by name and they get dispatched with their persona and skills.
-- **Visual workflow canvas** — A 14-node DAG engine with parallel waves, condition routing, loops, human-in-the-loop, and SSE streaming, edited on a React Flow canvas (`/workflows/[id]/canvas`).
+- **Workflow-first workbench** — `/` is your Flows workbench: every flow with its run history, one-click run with input panel, and the canvas at `/workflows/[id]/canvas` — a 14-node DAG engine with parallel waves, condition routing, loops, human-in-the-loop, edited on React Flow.
+- **Execution you can actually watch** — nodes badge live (spinning → green/red), edges light up as work flows, and a run panel streams each node's text as it generates. Every run gets a bystander link (`canvas?run=<id>`) you can reopen any time.
+- **Chat copilot everywhere** — a floating copilot on every page; `@workflow …` compiles a prompt into a flow, `@agent` dispatches by name with persona and skills.
 - **Agent personality library** — Mount any [agency-agents](https://github.com/msitarzewski/agency-agents)-style library (270+ expert personas) from the filesystem; enable personas on demand, sync upstream with drift detection. No bloat — only enabled agents live in the database.
 - **Flow template center** — Built-in templates, team-scenario templates, and "save canvas as template". Instantiating re-binds personas by name; missing ones degrade to plain LLM nodes so templates always run.
 - **Local-first & private** — Postgres on your machine, no telemetry, no accounts, no callbacks home. LLM API keys encrypted at rest (AES-256-GCM).
 - **Bilingual UI** — Chinese and English, switchable in the sidebar.
 
+<img src="docs/assets/canvas-run-done.png" alt="A completed run — per-node results panel with durations and outputs" width="860">
+
 ## Why not X
 
 - **vs cloud orchestrators (Dify / n8n / LangFlow / Flowise)** — no API key needed to start, your flows/templates/personas stay on your machine, and execution is your own local CLI.
 - **vs one CLI's native multi-agent mode** — orchestrate heterogeneous CLIs from one place with DAG primitives the CLIs don't offer (parallel waves, condition routing, human-in-the-loop), and keep workflows as durable, shareable assets instead of session state.
-- **vs single-CLI GUI wrappers** — not locked to one vendor; chats are the entry point, the canvas and template library are versionable artifacts.
+- **vs single-CLI GUI wrappers** — not locked to one vendor; the canvas and template library are versionable assets, and the chat copilot rides along on every page.
 
 ## Architecture
 
@@ -82,8 +89,8 @@ pnpm dev:daemon                             # optional, for remote agents
 ```
 
 Prerequisites: Node ≥ 22, pnpm 10 (`corepack enable`), Docker. With a
-`claude` CLI on your PATH, the chat home is fully functional with zero further
-configuration — that's the CLI-first baseline.
+`claude` CLI on your PATH, the whole workbench — chat copilot included — is
+functional with zero further configuration. That's the CLI-first baseline.
 
 | Service | Port | Notes |
 |---|---|---|
