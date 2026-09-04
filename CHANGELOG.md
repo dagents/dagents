@@ -6,6 +6,60 @@ All notable changes to Dagents are documented here. The format follows
 
 ## [Unreleased]
 
+## [0.2.0] - 2026-09-04
+
+Workflow-first, and execution you can watch.
+
+### Changed
+
+- **Workflow-First IA reversal** — `/` is now the Flows workbench (flow cards
+  with run history, template gallery entry, one-line generator); chat demoted
+  to a global floating copilot (draggable, position memory) present on every
+  page. New app navigation (Workflows / Agents / Skills / Daemons +
+  project-scoped chat tree). Rollback via `localStorage dagents.ia.workflow-first=off`.
+- **One home per run: the canvas** — the old flow detail page is retired;
+  starting a run lands on the canvas spectator view (`?run=<id>`), same entry
+  as run-history rows and chat execution records. Sidebar template tab and
+  standalone `/runs` page removed (history lives in each flow's card).
+- **No wall-clock cap on CLI agents** — replaced by an inactivity watchdog
+  (default 5 min, reset on every output line); long autonomous runs are the
+  norm, a hard 180s cap was truncating real 4-agent parallel runs into false
+  successes. Timeouts/cancellations now fail honestly with usage attached.
+- List-page runs are async (`?async=1`) with a run-input dialog and
+  project-directory selector — the button responds instantly instead of
+  blocking for minutes.
+
+### Added
+
+- **Streaming node output** — LLM/Agent nodes stream text as they generate
+  (live tail in the run panel, canvas badges flip in real time, edges light
+  up); runs are no longer a black box until completion.
+- **Activity stream while running** — CLI thinking (💭) and tool calls (🔧)
+  surface as a live timeline per node, and are preserved in the final output
+  for post-run replay ("dropping it on completion drops how the work was done").
+- **Team-scenario templates expanded** — 9 multi-agent templates covering all
+  10 documented agency-agents workflows (org-wide parallel discovery 8-way
+  fan-out, landing-page sprint, book-chapter drafting…), with first-run input
+  guidance (`inputHint`/`inputExample`) on start nodes.
+- Template instantiation flow: structural preview in the confirm step,
+  parameter defaults visible, per-node instruction audit.
+- README demo GIF (17s canvas run) and a `docs/launch/` kit.
+
+### Fixed
+
+- **Engine: N-into-1 merge contract** — `mergeInputs` now concatenates
+  `content`; downstream LLM/PlatformAgent nodes previously lost N-1 upstream
+  outputs to shallow-merge overwrite (e2e WF-09 regression-pinned).
+- **Engine: empty-output guard** — LLM/PlatformAgent nodes with empty bodies
+  fail honestly instead of fake-succeeding (WF-10/11).
+- Iteration/Loop final-state spans now report true whole-run duration and
+  `completedIterations` (six previously failing e2e cases green).
+- Gateway test suite isolated to an auto-provisioned `dagents_gw_test`
+  database — running tests no longer wipes real run history from the dev DB.
+- Canvas UI: run-button hover invisibility, checklist button overlaying
+  dialogs, Esc/outside-click closes the run-input panel, MUI dropdown
+  key-spread warning.
+
 ## [0.1.0] - 2026-08-22
 
 First public release.
