@@ -1,0 +1,484 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>FlowSync — 任意两个 SaaS，5 分钟接通</title>
+<meta name="description" content="OAuth、重试、限流、Webhook 验签——FlowSync 替你踩完集成的坑。200+ 预置连接器，可视化字段映射，实时日志与失败告警。">
+<meta name="theme-color" content="#0B0D12">
+<link rel="icon" href="data:image/svg+xml,%3Csvg%20xmlns='http://www.w3.org/2000/svg'%20viewBox='0%200%2024%2024'%3E%3Crect%20width='24'%20height='24'%20rx='5'%20fill='%236B5AF0'/%3E%3Cpath%20d='M8%206h8M8%2018h8M5%2010v4M19%2010v4'%20stroke='%233DDCB4'%20stroke-width='2'%20stroke-linecap='round'/%3E%3C/svg%3E">
+<!-- ▼ 部署前把 {{site-url}} 替换为正式域名（canonical / OG / JSON-LD 共 3 处）；og-cover.png 需 1200×630 -->
+<link rel="canonical" href="{{site-url}}/">
+<meta property="og:type" content="website">
+<meta property="og:site_name" content="FlowSync">
+<meta property="og:locale" content="zh_CN">
+<meta property="og:title" content="FlowSync — 任意两个 SaaS，5 分钟接通">
+<meta property="og:description" content="OAuth、重试、限流、Webhook 验签——FlowSync 替你踩完集成的坑。200+ 预置连接器，可视化字段映射，实时日志与失败告警。">
+<meta property="og:url" content="{{site-url}}/">
+<meta property="og:image" content="{{site-url}}/og-cover.png">
+<meta name="twitter:card" content="summary_large_image">
+<meta name="twitter:title" content="FlowSync — 任意两个 SaaS，5 分钟接通">
+<meta name="twitter:description" content="OAuth、重试、限流、Webhook 验签——FlowSync 替你踩完集成的坑。200+ 预置连接器，可视化字段映射，实时日志与失败告警。">
+<meta name="twitter:image" content="{{site-url}}/og-cover.png">
+<script type="application/ld+json">
+{"@context":"https://schema.org","@graph":[
+{"@type":"Organization","@id":"{{site-url}}/#org","name":"FlowSync","url":"{{site-url}}/","slogan":"任意两个 SaaS，5 分钟接通","logo":"{{site-url}}/og-cover.png"},
+{"@type":"WebSite","@id":"{{site-url}}/#website","url":"{{site-url}}/","name":"FlowSync","inLanguage":"zh-CN","publisher":{"@id":"{{site-url}}/#org"}},
+{"@type":"SoftwareApplication","name":"FlowSync","applicationCategory":"BusinessApplication","operatingSystem":"Web","description":"SaaS 集成自动化平台：200+ 预置连接器、可视化字段映射、自动重试与失败告警。","offers":{"@type":"Offer","price":"0","priceCurrency":"CNY"}}]}
+</script>
+<style>/*__CSS__*/</style>
+</head>
+<body>
+
+<!-- ══════════════ 00 NAV ══════════════ -->
+<header id="nav" class="fixed inset-x-0 top-0 z-40">
+  <div class="h-16 mx-auto max-w-[1152px] px-4 sm:px-5 md:px-6 flex items-center justify-between gap-6">
+    <a href="#" class="flex items-center gap-2 shrink-0" aria-label="FlowSync 首页">
+      <svg width="22" height="22" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true" class="text-[var(--accent-mint)]">
+        <path d="M8 3H16M8 21H16"/>
+        <path d="M3 8V16M21 8V16"/>
+        <path d="M7 10L4 8L1.5 10.5" transform="translate(1.5,0)"/>
+        <path d="M17 14L20 16L22.5 13.5" transform="translate(-1.5,0)"/>
+      </svg>
+      <span class="font-display font-bold text-[19px] tracking-tight text-[var(--text-primary)]">FlowSync</span>
+    </a>
+    <nav class="hidden md:flex items-center gap-7" aria-label="主导航">
+      <a href="#how" class="nav-link">怎么做到的</a>
+      <a href="#integrations" class="nav-link">连接器</a>
+      <a href="#pricing" class="nav-link">定价</a>
+    </nav>
+    <div class="flex items-center gap-3">
+      <span class="hidden sm:inline font-mono text-[13px] text-[var(--text-muted)]" aria-hidden="true">★ 4.2k</span>
+      <a href="#signup" class="btn btn-primary btn-md hidden sm:inline-flex">免费开始</a>
+      <button id="navToggle" type="button" class="md:hidden btn-icon" aria-expanded="false" aria-controls="navDrawer" aria-label="打开菜单">
+        <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.75" stroke-linecap="round" aria-hidden="true"><path d="M4 7h16M4 12h16M4 17h16"/></svg>
+      </button>
+    </div>
+  </div>
+</header>
+
+<!-- 移动端抽屉 -->
+<div id="navDrawer" class="nav-drawer" hidden>
+  <nav class="flex flex-col gap-1 pt-20 px-6" aria-label="移动端导航">
+    <a href="#how" class="drawer-link">怎么做到的</a>
+    <a href="#integrations" class="drawer-link">连接器</a>
+    <a href="#pricing" class="drawer-link">定价</a>
+    <a href="#signup" class="btn btn-primary btn-lg mt-5 w-full justify-center">免费开始</a>
+  </nav>
+</div>
+
+<main id="main">
+
+<!-- ══════════════ 01 HERO ══════════════ -->
+<section class="hero-glow">
+  <div class="mx-auto max-w-[1152px] px-4 sm:px-5 md:px-6 pt-28 pb-16 md:pt-36 md:pb-24">
+    <div class="mx-auto max-w-[760px] text-center flex flex-col items-center">
+      <p class="eyebrow">/// 200+ 预置连接器，开箱即连</p>
+      <h1 class="mt-5 text-[length:var(--fs-h1)] font-display font-bold leading-[1.08] tracking-[-0.025em] text-[var(--text-primary)]">任意两个 SaaS，<br class="sm:hidden">5 分钟接通。</h1>
+      <p class="mt-6 text-[length:var(--fs-body-lg)] leading-[1.6] text-[var(--text-secondary)] max-w-[640px]">OAuth、重试、限流、Webhook 验签——这些坑 FlowSync 都替你踩完了。你只需要决定数据往哪儿流。</p>
+      <div class="mt-8 flex flex-col sm:flex-row items-stretch sm:items-center justify-center gap-4 w-full sm:w-auto">
+        <a href="#signup" class="btn btn-primary btn-lg justify-center">免费接通第一个集成</a>
+        <a href="#how" class="btn btn-ghost btn-lg justify-center">就 3 步，看看怎么做到的 ↓</a>
+      </div>
+      <p class="mt-5 text-[13px] leading-[1.5] text-[var(--text-muted)]">免费档无需信用卡 · 配置随时可导出，不锁人</p>
+    </div>
+
+    <!-- 主视觉：连接图 + 代码块 -->
+    <div class="hero-visual mt-14 md:mt-16 mx-auto" aria-hidden="true">
+      <div class="hero-visual-grid md:grid-cols-[52%_48%] gap-4 lg:gap-6 p-5 sm:p-6 md:p-8 grid">
+        <!-- 左：连接图 -->
+        <div class="flex flex-col justify-between gap-6 min-w-0">
+          <div class="flex items-center gap-2 sm:gap-3">
+            <div class="node-tile"><span class="node-dot" style="background:#FF6B6B"></span>A</div>
+            <div class="flow-line">
+              <svg class="w-full h-[26px]" viewBox="0 0 160 26" preserveAspectRatio="none" fill="none">
+                <path id="flowPath" d="M2 13 H158" stroke="url(#flowGrad)" stroke-width="2.5" stroke-linecap="round" stroke-dasharray="6 6" class="flow-dash"/>
+                <circle r="4" fill="var(--accent-mint)" class="flow-dot"><animateMotion dur="2.4s" repeatCount="indefinite" keyPoints="0;1" keyTimes="0;1" calcMode="linear"><mpath href="#flowPath"/></animateMotion></circle>
+                <defs><linearGradient id="flowGrad" x1="0" y1="0" x2="160" y2="0" gradientUnits="userSpaceOnUse"><stop stop-color="#6B5AF0"/><stop offset="1" stop-color="#3DDCB4"/></linearGradient></defs>
+              </svg>
+            </div>
+            <div class="node-tile"><span class="node-dot" style="background:#8B7CFF"></span>B</div>
+          </div>
+          <div class="font-mono text-[12px] leading-[2] text-[var(--text-muted)]" >
+            <div class="flex items-center gap-2"><span class="text-[var(--accent-mint)]">●</span> invoice.created → 202 OK · 84ms</div>
+            <div class="flex items-center gap-2"><span class="text-[var(--accent-mint)]">●</span> contact.updated → 200 OK · 61ms</div>
+            <div class="flex items-center gap-2"><span class="text-[var(--accent-mint)]">●</span> retry(2) recovered → 200 OK</div>
+          </div>
+        </div>
+        <!-- 右：代码块 -->
+        <div class="code-block min-w-0" role="presentation">
+          <div class="code-titlebar">
+            <span class="tb-dot" style="background:#FF6B6B"></span><span class="tb-dot" style="background:#FFB224"></span><span class="tb-dot" style="background:#3DDCB4"></span>
+            <span class="font-mono text-[12px] text-[var(--text-muted)] ml-2">flowsync.config.ts</span>
+          </div>
+          <pre class="font-mono text-[12px] sm:text-[13px] leading-[1.7] overflow-x-auto"><code><span class="tok-kw">import</span> <span class="tok-plain">{ defineFlow }</span> <span class="tok-kw">from</span> <span class="tok-str">'flowsync'</span>
+<span class="tok-plain">defineFlow</span><span class="tok-punc">({</span>
+  <span class="tok-key">from</span><span class="tok-punc">:</span> <span class="tok-str">'stripe'</span><span class="tok-punc">,</span>
+  <span class="tok-key">to</span><span class="tok-punc">:</span> <span class="tok-str">'feishu'</span><span class="tok-punc">,</span>
+  <span class="tok-key">map</span><span class="tok-punc">:</span> <span class="tok-plain">{ amount </span><span class="tok-punc">→</span><span class="tok-plain"> 金额</span> <span class="tok-punc">}</span><span class="tok-punc">,</span>
+  <span class="tok-key">retries</span><span class="tok-punc">:</span> <span class="tok-num">3</span><span class="tok-punc">,</span>  <span class="tok-com">// 指数退避</span>
+<span class="tok-punc">})</span></code></pre>
+        </div>
+      </div>
+    </div>
+
+    <!-- Logo 云 -->
+    <div class="mt-12 md:mt-14 text-center">
+      <p class="text-[13px] text-[var(--text-muted)]">已在为这些团队搬运数据</p>
+      <div class="mt-5 flex flex-wrap items-center justify-center gap-x-10 gap-y-4" aria-hidden="true">
+        <svg width="84" height="24" viewBox="0 0 84 24" class="logo-cloud"><rect width="84" height="24" rx="5"/></svg>
+        <svg width="84" height="24" viewBox="0 0 84 24" class="logo-cloud"><circle cx="12" cy="12" r="10"/><rect x="28" y="4" width="52" height="16" rx="5"/></svg>
+        <svg width="84" height="24" viewBox="0 0 84 24" class="logo-cloud"><path d="M4 20V4l14 16V4"/><rect x="26" y="4" width="52" height="16" rx="5"/></svg>
+        <svg width="84" height="24" viewBox="0 0 84 24" class="logo-cloud"><path d="M12 2l9 5v10l-9 5-9-5V7z"/><rect x="27" y="5" width="51" height="14" rx="5"/></svg>
+        <svg width="84" height="24" viewBox="0 0 84 24" class="logo-cloud"><circle cx="10" cy="10" r="7"/><circle cx="18" cy="16" r="5"/><rect x="28" y="4" width="52" height="16" rx="5"/></svg>
+      </div>
+    </div>
+  </div>
+</section>
+
+<!-- ══════════════ 02 痛点 ══════════════ -->
+<section id="pain" class="section-pad">
+  <div class="mx-auto max-w-[1152px] px-4 sm:px-5 md:px-6">
+    <div class="mx-auto max-w-[760px]">
+      <p class="eyebrow mx-auto">/// 你现在做集成的方式</p>
+      <h2 class="mt-5 text-[length:var(--fs-h2)] font-display font-bold leading-[1.12] tracking-[-0.02em] text-[var(--text-primary)] text-balance">两周排期，三天改字段，一辈子维护</h2>
+      <ul class="mt-10 grid gap-4">
+        <li class="pain-card">每个集成都从 OAuth 开始，以“这段脚本归谁管”结束。</li>
+        <li class="pain-card">低代码平台按次收费，跑量一上来，账单比代码还吓人。</li>
+        <li class="pain-card">自己写：重试、幂等、限流、监控——每个坑亲自踩一遍，踩完锅还是你的。</li>
+        <li class="pain-card">PM 说：“就把 A 的数据同步到 B 嘛，很简单的。”——嗯。</li>
+      </ul>
+      <p class="mt-10 text-[length:var(--fs-body-lg)] text-[var(--text-secondary)] text-center">集成本来不难，难的是每次都从零开始。</p>
+    </div>
+  </div>
+</section>
+
+<!-- ══════════════ 03 HOW 三步 ══════════════ -->
+<section id="how" class="section-pad scroll-mt-16">
+  <div class="mx-auto max-w-[1152px] px-4 sm:px-5 md:px-6">
+    <div class="mx-auto max-w-[760px] text-center">
+      <p class="eyebrow mx-auto">/// 工作原理</p>
+      <h2 class="mt-5 text-[length:var(--fs-h2)] font-display font-bold leading-[1.12] tracking-[-0.02em] text-[var(--text-primary)]">三步，上线。</h2>
+    </div>
+    <ol class="mt-12 md:mt-16 grid gap-10 md:gap-6 md:grid-cols-3" role="list">
+      <li class="step-card">
+        <div class="flex items-center gap-4">
+          <span class="step-num font-mono font-medium text-[15px] text-[var(--accent-mint)]" aria-hidden="true">01</span>
+          <h3 class="font-display font-medium text-[22px] leading-[1.2] text-[var(--text-primary)]">挑工具</h3>
+        </div>
+        <p class="mt-4 text-[15px] leading-[1.6] text-[var(--text-secondary)]">200+ 预置连接器任选；带 REST API 的就能连——包括你们自研的那个内部系统。</p>
+      </li>
+      <li class="step-card">
+        <div class="flex items-center gap-4">
+          <span class="step-num font-mono font-medium text-[15px] text-[var(--accent-mint)]" aria-hidden="true">02</span>
+          <h3 class="font-display font-medium text-[22px] leading-[1.2] text-[var(--text-primary)]">连数据</h3>
+        </div>
+        <p class="mt-4 text-[15px] leading-[1.6] text-[var(--text-secondary)]">可视化拖拽映射字段，或直接贴 JSON。拖拽党和代码党，都别吵。</p>
+      </li>
+      <li class="step-card">
+        <div class="flex items-center gap-4">
+          <span class="step-num font-mono font-medium text-[15px] text-[var(--accent-mint)]" aria-hidden="true">03</span>
+          <h3 class="font-display font-medium text-[22px] leading-[1.2] text-[var(--text-primary)]">开跑</h3>
+        </div>
+        <p class="mt-4 text-[15px] leading-[1.6] text-[var(--text-secondary)]">实时日志、自动重试、失败告警直达 Slack / 飞书。集成跑起来之后，不用你盯着。</p>
+      </li>
+    </ol>
+  </div>
+</section>
+
+<!-- ══════════════ 04 社证：指标 ══════════════ -->
+<section id="metrics" class="metrics-band">
+  <div class="mx-auto max-w-[1152px] px-4 sm:px-5 md:px-6">
+    <dl class="grid grid-cols-2 md:grid-cols-4 gap-x-6 gap-y-10">
+      <div class="text-center">
+        <dd class="metric-num font-display font-bold">10,000<span class="metric-plus">+</span></dd>
+        <dt class="metric-label">个集成在跑</dt>
+      </div>
+      <div class="text-center">
+        <dd class="metric-num font-display font-bold">8,000<span class="metric-plus">万+</span></dd>
+        <dt class="metric-label">月度任务执行次数</dt>
+      </div>
+      <div class="text-center">
+        <dd class="metric-num font-display font-bold">5<span class="metric-plus"> 分钟</span></dd>
+        <dt class="metric-label">接入时长中位数</dt>
+      </div>
+      <div class="text-center">
+        <dd class="metric-num font-display font-bold">99.95<span class="metric-plus">%</span></dd>
+        <dt class="metric-label">近 90 天可用性</dt>
+      </div>
+    </dl>
+  </div>
+</section>
+
+<!-- ══════════════ 05 社证：引言 ══════════════ -->
+<section id="testimonial" class="section-pad">
+  <div class="mx-auto max-w-[1152px] px-4 sm:px-5 md:px-6">
+    <div class="grid gap-10 md:gap-6 md:grid-cols-2 max-w-[960px] mx-auto">
+      <figure class="quote-card">
+        <blockquote class="text-[17px] leading-[1.7] text-[var(--text-primary)]">“从自研脚本迁到 FlowSync，维护时间从每周 6 小时降到几乎为零。”</blockquote>
+        <figcaption class="mt-6 text-[14px] text-[var(--text-secondary)]">—— 王一舟，后端工程师，星图物流</figcaption>
+      </figure>
+      <figure class="quote-card">
+        <blockquote class="text-[17px] leading-[1.7] text-[var(--text-primary)]">“提集成需求到上线，从排两个迭代变成当天下午。”</blockquote>
+        <figcaption class="mt-6 text-[14px] text-[var(--text-secondary)]">—— 李宛，技术 PM，Sequoia Labs</figcaption>
+      </figure>
+    </div>
+  </div>
+</section>
+
+<!-- ══════════════ 06 INTEGRATIONS 跑马灯 ══════════════ -->
+<section id="integrations" class="section-pad-tight scroll-mt-16" aria-labelledby="integrations-h">
+  <div class="mx-auto max-w-[1152px] px-4 sm:px-5 md:px-6">
+    <div class="max-w-[760px] mx-auto text-center">
+      <p class="eyebrow mx-auto">/// 连接器库</p>
+      <h2 id="integrations-h" class="mt-5 text-[length:var(--fs-h2)] font-display font-bold leading-[1.12] tracking-[-0.02em] text-[var(--text-primary)]">你的工具栈，都在这儿</h2>
+      <p class="mt-4 text-[length:var(--fs-body-md)] text-[var(--text-secondary)]">200+ 预置连接器持续更新，以下为部分名单。</p>
+    </div>
+  </div>
+  <div class="marquee mt-10" aria-hidden="true">
+    <div class="marquee-track">
+      <!-- 一组 logo，构建脚本会复制一份用于无缝循环 -->
+      <div class="marquee-group">
+        <span class="conn-chip"><span class="conn-dot" style="background:#635BFF"></span>Stripe</span>
+        <span class="conn-chip"><span class="conn-dot" style="background:#36C5F0"></span>Slack</span>
+        <span class="conn-chip"><span class="conn-dot" style="background:#33C481"></span>飞书</span>
+        <span class="conn-chip"><span class="conn-dot" style="background:#4E8CFF"></span>企业微信</span>
+        <span class="conn-chip"><span class="conn-dot" style="background:#E24329"></span>GitLab</span>
+        <span class="conn-chip"><span class="conn-dot" style="background:#FF9900"></span>Notion</span>
+        <span class="conn-chip"><span class="conn-dot" style="background:#F6821F"></span>HubSpot</span>
+        <span class="conn-chip"><span class="conn-dot" style="background:#0B0D12;border:1px solid #566179"></span>GitHub</span>
+        <span class="conn-chip"><span class="conn-dot" style="background:#0079BF"></span>Jira</span>
+        <span class="conn-chip"><span class="conn-dot" style="background:#7B68EE"></span>Webhook</span>
+        <span class="conn-chip"><span class="conn-dot" style="background:#00A1DE"></span>SAP</span>
+        <span class="conn-chip"><span class="conn-dot" style="background:#FF3B30"></span>Shopify</span>
+      </div>
+    </div>
+  </div>
+</section>
+
+<!-- ══════════════ 07 PRICING ══════════════ -->
+<section id="pricing" class="section-pad scroll-mt-16">
+  <div class="mx-auto max-w-[1152px] px-4 sm:px-5 md:px-6">
+    <div class="max-w-[760px] mx-auto text-center">
+      <p class="eyebrow mx-auto">/// 定价</p>
+      <h2 class="mt-5 text-[length:var(--fs-h2)] font-display font-bold leading-[1.12] tracking-[-0.02em] text-[var(--text-primary)]">简单直接的定价</h2>
+    </div>
+
+    <div class="mt-12 md:mt-16 grid gap-6 md:grid-cols-3 md:items-stretch max-w-[1000px] mx-auto">
+      <!-- Free -->
+      <article class="price-card">
+        <p class="font-mono text-[13px] text-[var(--text-muted)]">free</p>
+        <p class="mt-4 flex items-baseline gap-1.5">
+          <span class="font-display font-bold text-[40px] leading-none tnum text-[var(--text-primary)]">¥0</span>
+          <span class="text-[14px] text-[var(--text-muted)]">/月</span>
+        </p>
+        <p class="mt-3 text-[15px] text-[var(--text-secondary)]">先试水。</p>
+        <a href="#signup" class="btn btn-ghost btn-md mt-6 w-full justify-center">免费开始</a>
+        <hr class="hr-subtle mt-8">
+        <ul class="feature-list" role="list">
+          <li>2 个活跃集成</li>
+          <li>每月 1,000 次任务</li>
+          <li>全部 200+ 预置连接器</li>
+          <li>社区支持</li>
+        </ul>
+      </article>
+
+      <!-- Pro -->
+      <article class="price-card price-card-pro">
+        <p class="pro-badge">最受欢迎</p>
+        <p class="font-mono text-[13px] text-[var(--text-secondary)]">pro</p>
+        <p class="mt-4 flex items-baseline gap-1.5">
+          <span class="font-display font-bold text-[40px] leading-none tnum text-[var(--text-primary)]">¥299</span>
+          <span class="text-[14px] text-[var(--text-muted)]">/月</span>
+        </p>
+        <p class="mt-3 text-[15px] text-[var(--text-secondary)]">干活的。</p>
+        <a href="#signup" class="btn btn-primary btn-md mt-6 w-full justify-center">免费试用 14 天</a>
+        <hr class="hr-subtle mt-8">
+        <ul class="feature-list" role="list">
+          <li>集成数量不限</li>
+          <li>每月 100,000 次任务</li>
+          <li>自定义连接器 + 代码步骤</li>
+          <li>失败告警 → Slack / 飞书 / 邮件</li>
+          <li>优先支持（工作时段 4 小时内响应）</li>
+        </ul>
+      </article>
+
+      <!-- Enterprise -->
+      <article class="price-card">
+        <p class="font-mono text-[13px] text-[var(--text-muted)]">enterprise</p>
+        <p class="mt-4 flex items-baseline gap-1.5">
+          <span class="font-display font-bold text-[40px] leading-none text-[var(--text-primary)]">定制</span>
+        </p>
+        <p class="mt-3 text-[15px] text-[var(--text-secondary)]">规模与合规。</p>
+        <a href="mailto:sales@flowsync.example" class="btn btn-ghost btn-md mt-6 w-full justify-center">联系销售</a>
+        <hr class="hr-subtle mt-8">
+        <ul class="feature-list" role="list">
+          <li>定制用量额度</li>
+          <li>SSO（SAML / OIDC）· 审计日志 · DPA</li>
+          <li>VPC / 私有化部署</li>
+          <li>99.9% SLA + 专属客户工程师</li>
+        </ul>
+      </article>
+    </div>
+
+    <p class="mt-8 text-center text-[13px] text-[var(--text-muted)]">价格为占位，以最终定价策略为准 · 全部档位支持配置导出</p>
+  </div>
+</section>
+
+<!-- ══════════════ 08 FINAL CTA + 表单 ══════════════ -->
+<section id="signup" class="cta-section scroll-mt-16">
+  <div class="mx-auto max-w-[1152px] px-4 sm:px-5 md:px-6 py-20 md:py-28">
+    <div class="mx-auto max-w-[640px] text-center">
+      <h2 class="text-[length:var(--fs-h2)] font-display font-bold leading-[1.12] tracking-[-0.02em] text-[var(--text-primary)]">你的下一个集成，<br>5 分钟后上线。</h2>
+      <p class="mt-5 text-[length:var(--fs-body-lg)] leading-[1.6] text-[var(--text-secondary)]">留下工作邮箱，免费档立即开通。第一个集成，我们说真的，5 分钟。</p>
+
+      <form id="subscribeForm" class="mt-8 flex flex-col sm:flex-row gap-3 max-w-[520px] mx-auto text-left" action="/api/subscribe" method="post" novalidate>
+        <div class="flex-1 min-w-0">
+          <label for="email" class="sr-only">工作邮箱</label>
+          <input id="email" name="email" type="email" required autocomplete="email" enterkeyhint="send"
+                 placeholder="you@company.com"
+                 class="form-input"
+                 aria-describedby="formNote formStatus">
+        </div>
+        <button type="submit" id="submitBtn" class="btn btn-primary btn-lg shrink-0 justify-center">接通我的第一个集成</button>
+      </form>
+      <p id="formNote" class="mt-4 text-[13px] leading-[1.5] text-[var(--text-muted)]">不发垃圾邮件——垃圾邮件比失败的 Webhook 还讨人厌。随时一键退订。</p>
+      <p id="formStatus" class="mt-3 text-[14px] leading-[1.5] min-h-[1.5em]" role="status" aria-live="polite"></p>
+    </div>
+  </div>
+</section>
+
+</main>
+
+<!-- ══════════════ FOOTER ══════════════ -->
+<footer class="border-t border-[var(--border-subtle)]">
+  <div class="mx-auto max-w-[1152px] px-4 sm:px-5 md:px-6 py-12 md:py-16">
+    <div class="grid gap-10 sm:grid-cols-2 lg:grid-cols-12">
+      <div class="lg:col-span-4">
+        <a href="#" class="inline-flex items-center gap-2" aria-label="FlowSync 首页">
+          <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true" class="text-[var(--accent-mint)]">
+            <path d="M8 3H16M8 21H16"/><path d="M3 8V16M21 8V16"/>
+          </svg>
+          <span class="font-display font-bold text-[17px] text-[var(--text-primary)]">FlowSync</span>
+        </a>
+        <p class="mt-4 text-[14px] leading-[1.6] text-[var(--text-secondary)] max-w-[280px]">任意两个 SaaS，5 分钟接通。集成的基础设施。</p>
+      </div>
+      <nav class="lg:col-span-2" aria-label="产品">
+        <p class="footer-h">产品</p>
+        <ul class="mt-4 space-y-3">
+          <li><a href="#how" class="footer-link">工作原理</a></li>
+          <li><a href="#integrations" class="footer-link">连接器</a></li>
+          <li><a href="#pricing" class="footer-link">定价</a></li>
+        </ul>
+      </nav>
+      <nav class="lg:col-span-2" aria-label="资源">
+        <p class="footer-h">资源</p>
+        <ul class="mt-4 space-y-3">
+          <li><a href="#" class="footer-link">文档</a></li>
+          <li><a href="#" class="footer-link">变更日志</a></li>
+          <li><a href="#" class="footer-link">状态页</a></li>
+        </ul>
+      </nav>
+      <nav class="lg:col-span-2" aria-label="公司">
+        <p class="footer-h">公司</p>
+        <ul class="mt-4 space-y-3">
+          <li><a href="#" class="footer-link">关于</a></li>
+          <li><a href="#" class="footer-link">博客</a></li>
+        </ul>
+      </nav>
+      <nav class="lg:col-span-2" aria-label="法律">
+        <p class="footer-h">法律</p>
+        <ul class="mt-4 space-y-3">
+          <li><a href="#" class="footer-link">服务条款</a></li>
+          <li><a href="#" class="footer-link">隐私政策</a></li>
+        </ul>
+      </nav>
+    </div>
+    <div class="mt-12 pt-6 border-t border-[var(--border-subtle)] flex flex-col sm:flex-row items-center justify-between gap-4">
+      <a href="#" class="inline-flex items-center gap-2 text-[13px] text-[var(--text-secondary)] hover:text-[var(--text-primary)]">
+        <span class="status-dot" aria-hidden="true"></span>All systems operational
+      </a>
+      <p class="text-[13px] text-[var(--text-muted)]">© 2026 FlowSync · {{备案号占位}}</p>
+    </div>
+  </div>
+</footer>
+
+<script>
+/* ---------- Nav：滚动描边 ---------- */
+const nav = document.getElementById('nav');
+const onScroll = () => nav.classList.toggle('nav-scrolled', window.scrollY > 8);
+onScroll();
+addEventListener('scroll', onScroll, { passive: true });
+
+/* ---------- 移动端抽屉 ---------- */
+const navToggle = document.getElementById('navToggle');
+const navDrawer = document.getElementById('navDrawer');
+const setDrawer = open => {
+  navToggle.setAttribute('aria-expanded', String(open));
+  if (open) { navDrawer.hidden = false; document.body.style.overflow = 'hidden'; requestAnimationFrame(() => navDrawer.classList.add('open')); }
+  else { navDrawer.classList.remove('open'); document.body.style.overflow = ''; addEventListener('transitionend', function h(e){ if(e.target===navDrawer){ navDrawer.hidden = true; removeEventListener('transitionend', h);} }); }
+};
+navToggle.addEventListener('click', () => setDrawer(navToggle.getAttribute('aria-expanded') !== 'true'));
+navDrawer.addEventListener('click', e => { if (e.target.closest('a')) setDrawer(false); });
+addEventListener('keydown', e => { if (e.key === 'Escape' && navToggle.getAttribute('aria-expanded') === 'true') { setDrawer(false); navToggle.focus(); } });
+
+/* ---------- 跑马灯：克隆一组实现无缝循环（重复内容 aria-hidden 已设） ---------- */
+const marqueeTrack = document.querySelector('.marquee-track');
+if (marqueeTrack) marqueeTrack.appendChild(marqueeTrack.children[0].cloneNode(true));
+
+/* ---------- 表单：fetch 增强 + 状态反馈 ---------- */
+const form = document.getElementById('subscribeForm');
+const emailInput = document.getElementById('email');
+const statusEl = document.getElementById('formStatus');
+const submitBtn = document.getElementById('submitBtn');
+const MINT = '#3DDCB4', DANGER = '#FF6B6B';
+const setStatus = (html, color) => { statusEl.innerHTML = html; statusEl.style.color = color || ''; };
+/* 锚点跳到表单时自动聚焦邮箱框，省一次点击（转化路径减一跳） */
+document.querySelectorAll('a[href="#signup"]').forEach(a => a.addEventListener('click', () => {
+  setTimeout(() => emailInput.focus({ preventScroll: true }), 450);
+}));
+form.addEventListener('submit', async e => {
+  e.preventDefault();
+  emailInput.setAttribute('aria-invalid', 'false');
+  emailInput.style.borderColor = '';
+  const email = emailInput.value.trim();
+  if (!email || !/^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(email)) {
+    emailInput.setAttribute('aria-invalid', 'true');
+    emailInput.style.borderColor = DANGER;
+    setStatus('✗ 这个邮箱好像不太行，再检查一下？', DANGER);
+    emailInput.focus();
+    return;
+  }
+  const original = submitBtn.textContent;
+  submitBtn.disabled = true;
+  submitBtn.textContent = '发送中…';
+  setStatus('', '');
+  try {
+    const res = await fetch(form.action, { method: 'POST', headers: {'Content-Type':'application/json'}, body: JSON.stringify({ email }) });
+    if (res.ok) {
+      setStatus('✓ 去收件箱点个确认吧（顺便瞄一眼 Spam，它有时躲在那儿）。', MINT);
+      form.reset();
+    } else if (res.status === 409) {
+      setStatus('✓ 你已经订阅过了。', MINT);
+    } else if (res.status >= 500) {
+      setStatus('✗ 服务器开小差了，再试一次？', DANGER);
+    } else {
+      setStatus('✗ 这个邮箱好像不太行，再检查一下？', DANGER);
+      emailInput.style.borderColor = DANGER;
+    }
+  } catch {
+    setStatus('✗ 服务器开小差了，再试一次？', DANGER);
+  } finally {
+    submitBtn.disabled = false;
+    submitBtn.textContent = original;
+  }
+});
+emailInput.addEventListener('input', () => {
+  if (emailInput.getAttribute('aria-invalid') === 'true') {
+    emailInput.setAttribute('aria-invalid', 'false');
+    emailInput.style.borderColor = '';
+  }
+});
+</script>
+</body>
+</html>
