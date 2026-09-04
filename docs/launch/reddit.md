@@ -24,7 +24,7 @@ vLLM, LM Studio...) and it becomes the fast path automatically.
 - Postgres on your machine, localhost-only binding, no telemetry, keys encrypted (AES-256-GCM)
 - Bilingual UI (EN/中文)
 
-Demo clip (17s, scripted provider for pacing — engine/canvas/streaming are real):
+Demo clip (25s, a real local `claude` CLI run compressed from ~2 min):
 https://github.com/dagents/dagents#readme
 
 Docker quick start:

@@ -55,9 +55,9 @@ Quick start (Docker, migrations run themselves):
     docker compose pull dagents && docker compose up
     # http://localhost:3000 — with a `claude` CLI on PATH, it's usable with zero config
 
-A 17-second clip of a 5-node run (three analysts in parallel → synthesis) is
-in the README — recorded with a scripted provider for pacing, but the engine,
-canvas and streaming are the real app.
+A 25-second clip of a 5-node run (three analysts in parallel → synthesis) is
+in the README — a real run of the local `claude` CLI, about two minutes
+compressed to 25 seconds.
 
 I'd genuinely like feedback on two things: (1) does the CLI-first baseline
 match how you'd actually use this — is "no API key to start" the right wedge,

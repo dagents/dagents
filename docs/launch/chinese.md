@@ -32,8 +32,7 @@ Codex 有自己的；而 Dify / n8n / Flowise 这类云编排默认你要交出 
 画布 vendor 自 Flowise（Apache-2.0，纯前端），Apache-2.0 开源，CI 里跑 547 个
 e2e 用例（Mock LLM 地基）。
 
-首页有 17 秒演示 GIF（三路并行分析 → 汇总；录屏用了脚本化 provider 控制节奏，
-引擎/画布/流式都是真实应用）。
+首页有 25 秒演示 GIF（三路并行分析 → 汇总；真实本地 claude CLI 运行，约 2 分钟压缩为 25 秒）。
 
 仓库：https://github.com/dagents/dagents
 Docker 三行起步：`git clone ... && docker compose pull dagents && docker compose up`

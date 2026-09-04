@@ -13,7 +13,7 @@ Dagents 协调 `claude`、`codex`、`qwen` 等 17 种 CLI agent：可视化 DAG 
 
 <img src="docs/assets/canvas-demo.gif" alt="Dagents 画布 —— 三个分析节点并行运行，流式汇入汇总节点" width="860">
 
-*一个 5 节点产品发现流程：三路分析并行扇出、逐节点流式输出（运行面板 live tail），汇成一份结论。演示录制用了脚本化 provider 控制节奏 —— 引擎、画布与流式均为真实应用。*
+*一个 5 节点产品发现流程：三路分析并行扇出、逐节点流式输出（运行面板 live tail），汇成一份结论。真实本地 `claude` CLI 运行 —— 约 2 分钟压缩为 25 秒。*
 
 <img src="docs/assets/flows-home-zh.png" alt="Dagents —— Flows 工作台" width="860">
 

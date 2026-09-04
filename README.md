@@ -14,7 +14,7 @@ Dagents coordinates `claude`, `codex`, `qwen` and 15+ other CLI agents: a visual
 
 <img src="docs/assets/canvas-demo.gif" alt="Dagents canvas — three analyst nodes run in parallel and stream into a synthesis node" width="860">
 
-*A 5-node product-discovery flow: three analysts fan out in parallel, stream their output live (per-node streaming + run panel), and merge into one verdict. Recorded with a scripted provider for pacing — engine, canvas and streaming are the real app.*
+*A 5-node product-discovery flow: three analysts fan out in parallel, stream their output live (per-node streaming + run panel), and merge into one verdict. A real run of the local `claude` CLI — ~2 minutes compressed to 25 seconds.*
 
 <img src="docs/assets/flows-home-en.png" alt="Dagents — Flows workbench" width="860">
 
