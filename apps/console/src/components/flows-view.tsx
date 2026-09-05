@@ -425,32 +425,34 @@ export function FlowsView({ home = false }: { home?: boolean }): React.ReactElem
               onChange={(e) => setQuery(e.target.value)}
             />
           </div>
-          <div className="grow" />
           {!listError ? (
             <span className="result-count">
               {t('{n} / {total} 个 flow', { n: visibleFlows.length, total: flows.length })}
             </span>
           ) : null}
-          <button
-            type="button"
-            className="btn btn-secondary btn-sm"
-            onClick={() => {
-              setTemplateTab('builtin')
-              setTemplateOpen(true)
-            }}
-          >
-            <Icon name="zap" style={{ width: 14, height: 14 }} />
-            {t('从模板创建')}
-          </button>
-          {/* 一句话生成（PRD F7）—— 与画布/聊天共用 flow-generator 单一服务 */}
-          <button
-            type="button"
-            className="btn btn-secondary btn-sm"
-            onClick={() => setGenerateOpen(true)}
-          >
-            <Icon name="bot" style={{ width: 14, height: 14 }} />
-            {t('一句话生成')}
-          </button>
+          <div className="toolbar-spacer" />
+          <div className="toolbar-group">
+            <button
+              type="button"
+              className="btn btn-secondary btn-sm"
+              onClick={() => {
+                setTemplateTab('builtin')
+                setTemplateOpen(true)
+              }}
+            >
+              <Icon name="zap" style={{ width: 14, height: 14 }} />
+              {t('从模板创建')}
+            </button>
+            {/* 一句话生成（PRD F7）—— 与画布/聊天共用 flow-generator 单一服务 */}
+            <button
+              type="button"
+              className="btn btn-secondary btn-sm"
+              onClick={() => setGenerateOpen(true)}
+            >
+              <Icon name="bot" style={{ width: 14, height: 14 }} />
+              {t('一句话生成')}
+            </button>
+          </div>
           <button
             type="button"
             className="btn btn-primary btn-sm"
@@ -478,7 +480,7 @@ export function FlowsView({ home = false }: { home?: boolean }): React.ReactElem
 
         <div className="flow-cards">
           {loadingList ? (
-            <SkeletonList rows={5} variant="card" />
+            <SkeletonList rows={5} shape="flow-card" />
           ) : listError && flows.length === 0 ? (
             /* Initial load failed and there is nothing to show — full-state
              * error with retry. (A failure with a rendered list shows as the
@@ -566,59 +568,60 @@ export function FlowsView({ home = false }: { home?: boolean }): React.ReactElem
                     <div className="flow-glyph">{f.name.charAt(0)}</div>
                     <div className="flow-info">
                       <div className="nm">{f.name}</div>
+                      {/* PX-F02：元信息（id/节点/运行数/状态/最近 run）全部归到
+                          标题下方行 —— 修卡片右侧空洞，操作区窄化右对齐。 */}
                       <div className="sub">
                         <span className="mono" title={f.id}>{f.id.slice(0, 8)}</span>
-                        {f.versionHash ? <span>{`sha ${f.versionHash.slice(0, 7)}`}</span> : null}
                         {/* EN 复数：n=1 用单数词条（词典无复数基建，按可见场景单值处理） */}
                         <span>{f.nodeCount === 1 ? t('1 节点') : t('{n} 节点', { n: f.nodeCount })}</span>
-                        {f.runCount === 1 ? (
-                          <span>{t('1 次运行')}</span>
-                        ) : f.runCount > 1 ? (
-                          <span>{t('{n} 次运行', { n: f.runCount })}</span>
-                        ) : null}
-                      </div>
-                    </div>
-                    <div className="flow-card-meta">
-                      {/* FR-04：徽章来自批量 summary（真实状态/次数），不再
-                          是懒加载前的假「未触发」；零运行才显示未触发 */}
-                      {(() => {
-                        const s = runSummaries[f.id]
-                        if (!s || s.runCount === 0) {
+                        {(() => {
+                          /* FR-04：徽章来自批量 summary（真实状态/次数），零运行才
+                             显示未触发；状态点走 shell .status+.dot 基线规范 */
+                          const s = runSummaries[f.id]
+                          const runCount = s?.runCount ?? f.runCount
+                          const runsText =
+                            runCount === 1
+                              ? t('1 次运行')
+                              : runCount > 1
+                                ? t('{n} 次运行', { n: runCount })
+                                : null
+                          if (!s || s.runCount === 0) {
+                            return (
+                              <>
+                                <span className="status idle"><span className="dot" />{t('未触发')}</span>
+                                {/* 列表自带 runCount（gateway 恒 0；测试桩可非 0）——
+                                    无 summary 时兜底展示 */}
+                                {runsText ? <span>{runsText}</span> : null}
+                                {f.latestRunId ? (
+                                  <span className="chip chip-outline mono" title={f.latestRunId}>
+                                    {truncateMiddle(f.latestRunId, 8)}
+                                  </span>
+                                ) : null}
+                              </>
+                            )
+                          }
+                          const st = s.latestStatus
+                          const badge =
+                            st === 'running'
+                              ? { cls: 'running', label: t('运行中') }
+                              : st === 'failed'
+                                ? { cls: 'failed', label: t('失败') }
+                                : st === 'cancelled'
+                                  ? { cls: 'offline', label: t('已取消') }
+                                  : { cls: 'done', label: t('已完成') }
                           return (
-                            <span className="muted" style={{ fontSize: 12 }}>
-                              {t('未触发')}
-                            </span>
+                            <>
+                              <span className={`status ${badge.cls}`}><span className="dot" />{badge.label}</span>
+                              {runsText ? <span>{runsText}</span> : null}
+                              {f.latestRunId ? (
+                                <span className="chip chip-outline mono" title={f.latestRunId}>
+                                  {truncateMiddle(f.latestRunId, 8)}
+                                </span>
+                              ) : null}
+                            </>
                           )
-                        }
-                        const st = s.latestStatus
-                        const badge =
-                          st === 'running' ? { color: '#f59e0b', label: t('运行中') }
-                          : st === 'failed' ? { color: '#ef4444', label: t('失败') }
-                          : st === 'cancelled' ? { color: '#6b7280', label: t('已取消') }
-                          : { color: '#10b981', label: t('已完成') }
-                        return (
-                          <span style={{ fontSize: 12, display: 'inline-flex', alignItems: 'center', gap: 5 }}>
-                            <span
-                              aria-hidden
-                              style={{
-                                width: 7,
-                                height: 7,
-                                borderRadius: '50%',
-                                background: badge.color,
-                                display: 'inline-block',
-                                animation: st === 'running' ? 'pulse 1.5s ease-in-out infinite' : undefined,
-                              }}
-                            />
-                            {badge.label}
-                            <span className="muted">· {s.runCount === 1 ? t('1 次运行') : t('{n} 次运行', { n: s.runCount })}</span>
-                          </span>
-                        )
-                      })()}
-                      {f.latestRunId ? (
-                        <span className="chip chip-outline mono" style={{ fontSize: 10 }} title={f.latestRunId}>
-                          {truncateMiddle(f.latestRunId, 8)}
-                        </span>
-                      ) : null}
+                        })()}
+                      </div>
                     </div>
                     <div className="card-actions">
                       <button

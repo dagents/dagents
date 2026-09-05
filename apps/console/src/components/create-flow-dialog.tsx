@@ -16,6 +16,9 @@ import { useEffect, useState } from 'react'
 import { Icon } from '@/components/icon'
 import { useI18n } from '@/i18n'
 import '@/styles/dialog.css'
+// flows.css 提供 PX-F05 增强态（.btn-spinner / .fdialog-field-error）；
+// 选择器均为 flow 对话框专属类名，无页面级副作用。
+import '@/styles/flows.css'
 
 // POST /api/workflows 网关封套是 {success, data:{flow:{id,name}}}（console
 // 代理原样透传）。此前这里按 data.id 取值拿到 undefined —— UI 新建 flow
@@ -142,8 +145,14 @@ export function CreateFlowDialog({
                   aria-describedby={name.length > 0 && !nameValid ? 'flow-name-error' : undefined}
                 />
                 {name.length > 0 && !nameValid ? (
-                  <div id="flow-name-error" className="field-error" role="alert">
+                  <div id="flow-name-error" className="field-error" role="alert" style={{ display: 'block' }}>
                     {t('名称需 1–200 个字符')}
+                  </div>
+                ) : null}
+                {/* PX-F05：提交错误贴字段下方（红字），不再落对话框顶部 */}
+                {error ? (
+                  <div className="fdialog-field-error" role="alert">
+                    {error}
                   </div>
                 ) : null}
               </div>
@@ -164,25 +173,31 @@ export function CreateFlowDialog({
             <div className="modal-hint" style={{ fontSize: 'var(--text-xs)', color: 'var(--meta)', padding: 'var(--space-2) 0' }}>
               {t('创建后会自动跳转到画布编辑器，可在其中添加节点和连线。')}
             </div>
-
-            {error ? <div className="modal-error">{error}</div> : null}
           </div>
 
           <div className="modal-foot">
             <button
               type="button"
-              className="btn btn-secondary btn-sm"
+              className="btn btn-secondary"
               onClick={onClose}
               disabled={submitting}
             >
               {t('取消')}
             </button>
+            {/* PX-F05：主按钮 --ctl-lg（去掉 btn-sm），加载态文字「创建中…」+ 14px spinner */}
             <button
               type="submit"
-              className="btn btn-primary btn-sm"
+              className="btn btn-primary"
               disabled={!canSubmit}
             >
-              {submitting ? t('创建中…') : t('创建并编辑')}
+              {submitting ? (
+                <>
+                  <span className="btn-spinner" aria-hidden="true" />
+                  {t('创建中…')}
+                </>
+              ) : (
+                t('创建并编辑')
+              )}
             </button>
           </div>
         </form>

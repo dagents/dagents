@@ -6,17 +6,41 @@
   width: min(760px, calc(100vw - 48px));
 }
 
-/* 卡片右下角体积/节点数 */
+/* ── PX-F04 画廊卡片契约 ───────────────────────────────────────
+   卡同高：grid 行等分 + 卡片拉伸填满行（atg-grid 基座在 agent-templates.css，
+   此处以 .ftpl-dialog 作用域覆盖，不动共享文件）。 */
+.ftpl-dialog .atg-grid {
+  grid-auto-rows: 1fr;
+}
+.ftpl-dialog .atg-card {
+  height: 100%;
+}
+
+/* tab 切换 140ms 淡入 + 4px 上移（key 重挂载触发；无高度塌陷） */
+.ftpl-tabpan {
+  animation: ftpl-tabpan-in var(--motion-fast) var(--ease-standard);
+}
+@keyframes ftpl-tabpan-in {
+  from { opacity: 0; transform: translateY(4px); }
+  to { opacity: 1; transform: translateY(0); }
+}
+@media (prefers-reduced-motion: reduce) {
+  .ftpl-tabpan { animation: none; }
+}
+
+/* 卡片 meta 行（PX-F04：节点数徽章移出标题行，归入描述下方 meta 行） */
 .ftpl-card-meta {
-  align-self: flex-start;
-  font-size: 11px;
-  color: var(--text-secondary, #888);
+  font-size: var(--text-2xs);
+  color: var(--meta);
   white-space: nowrap;
+  margin-top: 2px;
 }
 
 /* 用户模板卡片 + 内联删除按钮 */
 .ftpl-card-wrap {
   position: relative;
+  display: flex;
+  flex-direction: column;
 }
 
 .ftpl-card-wrap .ftpl-card {
@@ -62,8 +86,8 @@
   display: flex;
   flex-direction: column;
   gap: 6px;
-  font-size: 12px;
-  color: var(--text-secondary, #aaa);
+  font-size: var(--text-xs);
+  color: var(--text-secondary, var(--meta));
 }
 
 .ftpl-save-row {
@@ -76,13 +100,69 @@
 }
 
 .ftpl-save-hint {
-  font-size: 11px;
-  color: var(--text-secondary, #888);
+  font-size: var(--text-2xs);
+  color: var(--text-secondary, var(--muted));
 }
 
+/* PX-CV04：{{变量}} 参数 chip 网格（每 chip 一变量名 + 可选默认值输入），
+ * 风格与 .chip 一致（pill 容器、text-xs/500、紧凑高度）。 */
+.ftpl-save-params {
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+}
+.ftpl-save-params-label {
+  font-size: var(--text-xs);
+  color: var(--text-secondary, var(--meta));
+}
+.ftpl-save-param-grid {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 6px;
+}
+.ftpl-save-param-chip {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  height: 28px;
+  padding: 0 6px 0 10px;
+  border: 1px solid var(--border);
+  border-radius: var(--radius-pill);
+  background: var(--surface);
+  max-width: 100%;
+}
+.ftpl-save-param-name {
+  font-family: var(--font-mono);
+  font-size: var(--text-2xs);
+  font-weight: 500;
+  color: var(--accent, var(--accent));
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  max-width: 150px;
+  flex-shrink: 0;
+}
+.ftpl-save-param-default {
+  width: 110px;
+  height: 20px;
+  padding: 0 8px;
+  border: 1px solid var(--border-soft, var(--border));
+  border-radius: var(--radius-pill);
+  background: var(--bg);
+  color: var(--fg);
+  font-size: var(--text-2xs);
+  line-height: 1;
+}
+.ftpl-save-param-default:focus {
+  outline: none;
+  border-color: var(--accent);
+  box-shadow: var(--focus-ring);
+}
+.ftpl-save-param-default::placeholder { color: var(--meta); }
+
 .ftpl-save-error {
-  font-size: 12px;
-  color: #e5484d;
+  font-size: var(--text-xs);
+  color: var(--danger);
 }
 
 /* 方案 G：模板参数回填表单（实例化确认框内） */
@@ -92,9 +172,9 @@
   gap: 8px;
   margin: 10px 0;
   padding: 10px 12px;
-  border: 1px solid var(--border, #2a2f3a);
-  border-radius: 10px;
-  background: color-mix(in srgb, var(--accent, #10b981) 4%, transparent);
+  border: 1px solid var(--border);
+  border-radius: var(--radius-md);
+  background: color-mix(in srgb, var(--accent, var(--success)) 4%, transparent);
 }
 .ft-param-row {
   display: flex;
@@ -105,18 +185,18 @@
   flex: 0 0 auto;
   min-width: 110px;
   font-family: var(--mono, monospace);
-  font-size: 12px;
-  color: var(--accent, #10b981);
+  font-size: var(--text-xs);
+  color: var(--accent, var(--success));
 }
 .ft-param-input {
   flex: 1 1 auto;
   min-width: 0;
   padding: 6px 10px;
-  border-radius: 8px;
-  border: 1px solid var(--border, #2a2f3a);
+  border-radius: var(--radius-sm);
+  border: 1px solid var(--border);
   background: var(--bg-elev, #161b26);
   color: inherit;
-  font-size: 13px;
+  font-size: var(--text-sm);
 }
 
 /* ── 确认步：命名 + 流程结构预览（2026-08-30 从模板创建优化）── */
@@ -128,7 +208,7 @@
 }
 .ftpl-name-label {
   flex-shrink: 0;
-  font-size: 12px;
+  font-size: var(--text-xs);
   color: var(--muted);
 }
 .ftpl-name-input {
@@ -139,11 +219,11 @@
   margin: 10px 0;
   padding: 10px 12px;
   border: 1px solid var(--border-soft, var(--border));
-  border-radius: 8px;
+  border-radius: var(--radius-sm);
   background: var(--bg);
 }
 .ftpl-layers-title {
-  font-size: 11px;
+  font-size: var(--text-2xs);
   font-weight: 600;
   color: var(--muted);
   margin-bottom: 8px;
@@ -156,7 +236,7 @@
 }
 .ftpl-layer-arrow {
   color: var(--muted);
-  font-size: 12px;
+  font-size: var(--text-xs);
   line-height: 1;
   margin: 3px 0 3px 18px;
 }
@@ -169,14 +249,14 @@
 }
 .ftpl-layer-nodes.parallel {
   padding: 6px 8px;
-  border: 1px dashed color-mix(in oklab, var(--accent, #6366f1) 45%, transparent);
-  border-radius: 8px;
-  background: color-mix(in oklab, var(--accent, #6366f1) 6%, transparent);
+  border: 1px dashed color-mix(in oklab, var(--accent, var(--accent)) 45%, transparent);
+  border-radius: var(--radius-sm);
+  background: color-mix(in oklab, var(--accent, var(--accent)) 6%, transparent);
 }
 .ftpl-parallel-tag {
-  font-size: 10px;
+  font-size: var(--text-2xs);
   font-weight: 600;
-  color: var(--accent, #6366f1);
+  color: var(--accent, var(--accent));
   margin-right: 2px;
 }
 .ftpl-node-chip {
@@ -185,17 +265,17 @@
   gap: 6px;
   padding: 4px 10px;
   border: 1px solid var(--border);
-  border-radius: 999px;
+  border-radius: var(--radius-pill);
   background: var(--surface);
-  font-size: 12px;
+  font-size: var(--text-xs);
   max-width: 100%;
 }
 .ftpl-node-kind {
   font-family: var(--font-mono);
-  font-size: 10px;
+  font-size: var(--text-2xs);
   color: var(--muted);
   background: var(--bg);
-  border-radius: 4px;
+  border-radius: var(--radius-xs);
   padding: 1px 5px;
   flex-shrink: 0;
 }
@@ -219,17 +299,17 @@
   cursor: pointer;
 }
 .ftpl-node-more {
-  font-size: 9px;
+  font-size: var(--text-2xs);
   color: var(--muted);
   flex-shrink: 0;
 }
 .ftpl-node-prompt {
-  font-size: 11px;
+  font-size: var(--text-2xs);
   line-height: 1.5;
   color: var(--muted);
   background: var(--surface);
   border: 1px solid var(--border-soft, var(--border));
-  border-radius: 6px;
+  border-radius: var(--radius-xs);
   padding: 6px 9px;
   white-space: pre-wrap;
   word-break: break-word;

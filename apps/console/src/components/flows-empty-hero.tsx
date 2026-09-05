@@ -1,10 +1,12 @@
 'use client'
 
 /**
- * FlowsEmptyHero — Workflow-First 首页空态（PRD F1）。
+ * FlowsEmptyHero — Workflow-First 首页空态（PRD F1；PX-F03 重设计）。
  *
- * 新用户第一屏的转化入口：三入口（团队场景模板 / 一句话生成 / 空白画布）
- * + 内置模板横滑卡。旧空态只有一个「新建 Flow」按钮，撑不起主场。
+ * 新用户第一屏的转化入口。旧版「对称三卡 + 彩底图标」是典型 AI 落地页
+ * 姿势（feature-grid 黑名单款），改为纵向入口清单：每行 20px 图标槽 +
+ * 标题 + 描述 + 右缘箭头，整组限宽 560px 居中；主入口（团队场景）用
+ * accent-soft 微底，其余素卡；入场 stagger 38ms × 3。
  */
 import { useEffect, useState } from 'react'
 import { Icon } from '@/components/icon'
@@ -42,6 +44,33 @@ export function FlowsEmptyHero({
     }
   }, [])
 
+  const entries = [
+    {
+      key: 'template',
+      icon: 'dashboard',
+      title: t('从团队场景开始'),
+      desc: t('内置多 Agent 模板，一键启用'),
+      onClick: onTemplate,
+      primary: true,
+    },
+    {
+      key: 'generate',
+      icon: 'zap',
+      title: t('一句话生成'),
+      desc: t('描述目标，自动编排画布'),
+      onClick: onGenerate,
+      primary: false,
+    },
+    {
+      key: 'create',
+      icon: 'plus',
+      title: t('空白画布'),
+      desc: t('从零搭建节点与连线'),
+      onClick: onCreate,
+      primary: false,
+    },
+  ] as const
+
   return (
     <div className="flows-hero">
       <div className="flows-hero-head">
@@ -51,22 +80,33 @@ export function FlowsEmptyHero({
         </p>
       </div>
 
-      <div className="flows-hero-entries">
-        <button type="button" className="flows-hero-entry primary" onClick={onTemplate}>
-          <Icon name="dashboard" style={{ width: 18, height: 18 }} />
-          <span className="flows-hero-entry-title">{t('从团队场景开始')}</span>
-          <span className="flows-hero-entry-desc">{t('内置多 Agent 模板，一键启用')}</span>
-        </button>
-        <button type="button" className="flows-hero-entry" onClick={onGenerate}>
-          <Icon name="zap" style={{ width: 18, height: 18 }} />
-          <span className="flows-hero-entry-title">{t('一句话生成')}</span>
-          <span className="flows-hero-entry-desc">{t('描述目标，自动编排画布')}</span>
-        </button>
-        <button type="button" className="flows-hero-entry" onClick={onCreate}>
-          <Icon name="plus" style={{ width: 18, height: 18 }} />
-          <span className="flows-hero-entry-title">{t('空白画布')}</span>
-          <span className="flows-hero-entry-desc">{t('从零搭建节点与连线')}</span>
-        </button>
+      {/* 纵向入口清单（PX-F03）：行卡 --radius-md、组限宽 560px 居中、
+          stagger 38ms × 3（.enter-rise 消费 --enter-i）。 */}
+      <div className="flows-hero-entries" role="list">
+        {entries.map((e, i) => (
+          <button
+            key={e.key}
+            type="button"
+            role="listitem"
+            className={`flows-hero-entry enter-rise${e.primary ? ' primary' : ''}`}
+            style={{ '--enter-i': i } as React.CSSProperties}
+            onClick={e.onClick}
+          >
+            <span className="flows-hero-entry-icon" aria-hidden="true">
+              <Icon name={e.icon} style={{ width: 18, height: 18 }} />
+            </span>
+            <span className="flows-hero-entry-text">
+              <span className="flows-hero-entry-title">{e.title}</span>
+              <span className="flows-hero-entry-desc">{e.desc}</span>
+            </span>
+            <span className="flows-hero-entry-arrow" aria-hidden="true">
+              <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth={2} strokeLinecap="round" strokeLinejoin="round">
+                <path d="M5 12h14" />
+                <path d="m12 5 7 7-7 7" />
+              </svg>
+            </span>
+          </button>
+        ))}
       </div>
 
       {templates.length > 0 ? (

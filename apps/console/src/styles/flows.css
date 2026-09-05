@@ -1,54 +1,199 @@
-/* flows.css — page-local styles for the AgentFlows list page (v0.3-M2.1).
-   Ported 1:1 from design/agentflows.html's inline <style> list-page section
-   (flow-card / flow-runs / run-row / empty-state).
-   The detail-page (DAG + inspector) styles stay in shell.css's existing
-   `.flow-canvas-wrap` / `.flow-inspector` / `.flow-layout` blocks — this file
-   only owns the list-page surface the redesign moves onto.
+/* flows.css — AgentFlows 列表页 page-local 样式（PX-F01/F02 契约落点）。
+   覆盖：工具栏分组、流程卡片、空态、三个流程对话框的增强态（spinner/kbd/
+   字段级错误）、skeleton 形状分区（PX-F09，skeleton.tsx 共用）。
 
-   Note: .scope-tabs / .filter-chip / .result-count / .card-actions are now
-   defined once in shell.css's unified list-controls section. This file only
-   owns flow-specific layout (.flow-toolbar, .flow-card, runs). */
+   共享控件（.scope-tabs/.list-search/.filter-chip/.card-actions/.status/.btn）
+   由 shell.css 统一定义；此处只做 flow 特有布局。卡片/工具栏覆盖选择器带
+   .flow-list-page 前缀 —— shell.css 中存在同名规则（历史移植副本），前缀
+   保证优先级不依赖两个文件的加载顺序。 */
 
+/* ── PX-F01 工具栏 ─────────────────────────────────────────────
+   所有控件统一 --ctl-sm(30px)：.list-search input / .btn-sm / .scope-tabs
+   均已对齐（shell.css）。组间距 --space-3、组内 --space-2、底边一条线。
+   「新建 Flow」墨色主款（btn-primary=ink），「从模板创建」「一句话生成」
+   secondary 描边款。 */
 .flow-toolbar { display: flex; align-items: center; gap: var(--space-3); margin-bottom: var(--space-4); flex-wrap: wrap; }
-/* 搜索框复用 shell.css 统一的 .list-search（原 .flow-search 已删除）。 */
+.flow-toolbar .toolbar-group { display: flex; align-items: center; gap: var(--space-2); }
+.flow-toolbar .toolbar-spacer { flex: 1 1 auto; min-width: var(--space-2); }
 
-.flow-card { background: var(--bg); border: 1px solid var(--border-soft); border-radius: var(--radius-md); overflow: hidden; margin-bottom: var(--space-3); transition: box-shadow var(--motion-fast); }
-.flow-card:hover { box-shadow: var(--elev-raised); }
-.flow-card-head { display: flex; align-items: center; gap: var(--space-3); padding: var(--space-4) var(--space-5); cursor: pointer; }
-.flow-card-head:focus-visible { outline: none; box-shadow: inset var(--focus-ring); }
-.flow-card-head:hover { background: var(--surface-warm); }
-.flow-chev { width: 16px; height: 16px; color: var(--meta); flex-shrink: 0; transition: transform var(--motion-fast); }
-.flow-card.expanded .flow-chev { transform: rotate(90deg); }
-.flow-glyph { width: 36px; height: 36px; border-radius: 9px; background: var(--surface); border: 1px solid var(--border-soft); display: grid; place-items: center; font-family: var(--font-mono); font-size: 14px; font-weight: 600; color: var(--fg); flex-shrink: 0; }
-.flow-info { flex: 1; min-width: 0; }
-.flow-info .nm { font-size: var(--text-base); font-weight: 600; color: var(--fg); }
-.flow-info .sub { font-size: 12px; color: var(--muted); margin-top: 2px; display: flex; gap: var(--space-3); flex-wrap: wrap; }
-.flow-info .sub .mono { font-family: var(--font-mono); }
-.flow-card-meta { display: flex; align-items: center; gap: var(--space-2); flex-shrink: 0; }
-/* .flow-card-actions migrated to the unified .card-actions class in shell.css.
-   Only the flow-specific btn-sm size override remains, scoped under .flow-card. */
-.flow-card .card-actions .btn-sm { height: 28px; padding: 0 var(--space-3); font-size: 11px; }
+/* ── PX-F02 流程卡片 ───────────────────────────────────────────
+   卡 = --radius-lg(14)；内嵌元素只用 xs(6)/sm(8)。标题 --text-md/600 与
+   描述 --text-xs/muted 形成层级；状态点走 shell .status+.dot 基线规范；
+   元信息归到标题下方行（修右侧空洞），操作区窄化右对齐、次要操作 hover 才现。 */
+.flow-list-page .flow-card { background: var(--bg); border: 1px solid var(--border-soft); border-radius: var(--radius-lg); overflow: hidden; margin-bottom: var(--space-3); transition: border-color var(--motion-fast) var(--ease-standard), box-shadow var(--motion-fast) var(--ease-standard); }
+.flow-list-page .flow-card:hover { border-color: var(--border); box-shadow: var(--elev-raised); }
+.flow-list-page .flow-card-head { display: flex; align-items: center; gap: var(--space-3); padding: var(--space-4) var(--space-5); cursor: pointer; border-radius: inherit; }
+.flow-list-page .flow-card-head:focus-visible { outline: none; box-shadow: inset var(--focus-ring); }
+.flow-list-page .flow-card-head:hover { background: var(--surface-warm); }
+.flow-list-page .flow-chev { width: 16px; height: 16px; color: var(--meta); flex-shrink: 0; transition: transform var(--motion-fast) var(--ease-standard); }
+.flow-list-page .flow-card.expanded .flow-chev { transform: rotate(90deg); }
+.flow-list-page .flow-glyph { width: 36px; height: 36px; border-radius: var(--radius-sm); background: var(--surface); border: 1px solid var(--border-soft); display: grid; place-items: center; font-family: var(--font-mono); font-size: var(--text-md); font-weight: 600; color: var(--fg); flex-shrink: 0; }
+.flow-list-page .flow-info { flex: 1; min-width: 0; }
+.flow-list-page .flow-info .nm { font-size: var(--text-md); font-weight: 600; color: var(--fg); line-height: 1.4; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.flow-list-page .flow-info .sub { font-size: var(--text-xs); color: var(--muted); margin-top: 3px; display: flex; align-items: center; gap: var(--space-2); flex-wrap: wrap; }
+.flow-list-page .flow-info .sub .mono { font-family: var(--font-mono); color: var(--meta); }
+/* 卡内状态徽章：复用 shell .status（dot+词同基线），字号压到 meta 档 */
+.flow-list-page .flow-info .status { font-size: var(--text-2xs); gap: 5px; }
+.flow-list-page .flow-info .status .dot { width: 6px; height: 6px; }
+.flow-list-page .flow-info .status.failed { color: var(--danger); }
+.flow-list-page .flow-info .status.running { color: var(--accent-hover); }
+/* 右侧操作区：卡内 28px 档（不与工具栏 30px 混排——两者不同行）；
+   编辑/删除为次要操作，hover/focus 才现（触屏 hover:none 常显） */
+.flow-list-page .card-actions { gap: var(--space-1); }
+.flow-list-page .card-actions .btn-sm { height: 28px; padding: 0 var(--space-3); font-size: var(--text-2xs); }
+@media (hover: hover) {
+  .flow-list-page .card-actions .btn-secondary,
+  .flow-list-page .card-actions .btn-ghost {
+    opacity: 0;
+    transition: opacity var(--motion-fast) var(--ease-standard);
+  }
+  .flow-list-page .flow-card:hover .card-actions .btn-secondary,
+  .flow-list-page .flow-card:focus-within .card-actions .btn-secondary,
+  .flow-list-page .flow-card:hover .card-actions .btn-ghost,
+  .flow-list-page .flow-card:focus-within .card-actions .btn-ghost { opacity: 1; }
+}
 
+/* 展开区（运行历史 FlowRunsPanel 的样式在 flow-runs.css） */
 .flow-runs { display: none; border-top: 1px solid var(--border-soft); }
 .flow-card.expanded .flow-runs { display: block; }
-.run-list-head { display: grid; grid-template-columns: 90px 1fr 80px 80px 100px 80px 34px; gap: 12px; align-items: center; padding: 8px 20px; font-size: 11px; font-weight: 500; color: var(--meta); letter-spacing: 0.04em; text-transform: uppercase; border-bottom: 1px solid var(--border-soft); background: var(--surface-warm); }
-.run-row { display: grid; grid-template-columns: 90px 1fr 80px 80px 100px 80px 34px; gap: var(--space-3); align-items: center; padding: var(--space-3) var(--space-5); font-size: var(--text-sm); border-bottom: 1px solid var(--border-soft); cursor: pointer; transition: background var(--motion-fast); text-decoration: none; color: inherit; }
-.run-row:last-child { border-bottom: 0; }
-.run-row:focus-visible { outline: none; box-shadow: inset var(--focus-ring); }
-.run-row:hover { background: var(--surface-warm); }
-.run-id { font-family: var(--font-mono); font-size: 12px; color: var(--accent-hover); font-weight: 500; }
-.run-trigger { color: var(--fg-2); overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
-.run-cell { font-family: var(--font-mono); font-size: 12px; color: var(--muted); }
-.run-cell.num { color: var(--fg); text-align: right; font-variant-numeric: tabular-nums; }
-.run-time { font-family: var(--font-mono); font-size: 11px; color: var(--meta); }
-.run-arrow { color: var(--meta); text-align: right; }
 
+/* ── 空态（筛选无结果 / 加载失败；首页大空态在 flows-empty-hero.css）── */
 .empty-state { display: flex; flex-direction: column; align-items: center; justify-content: center; padding: var(--space-16); text-align: center; gap: var(--space-2); }
-.empty-state .empty-state-icon { font-size: 40px; line-height: 1; opacity: 0.7; margin-bottom: var(--space-2); }
+.empty-state .empty-state-icon { font-size: var(--text-3xl); line-height: 1; opacity: 0.7; margin-bottom: var(--space-2); }
 .empty-state .h { font-size: var(--text-base); font-weight: 600; color: var(--fg); margin-bottom: var(--space-2); }
 .empty-state .d { font-size: var(--text-sm); color: var(--muted); max-width: 320px; line-height: 1.6; }
 .empty-state .btn { margin-top: var(--space-3); }
 
-@media (max-width: 1024px) { .run-row { grid-template-columns: 1fr; gap: 2px; } .run-list-head { display: none; } .flow-card .card-actions .btn { display: none; } .flow-card .card-actions .btn:first-child { display: inline-flex; } }
-@media (max-width: 640px) { .flow-card .card-actions { display: none; } .flow-card-meta .chip { display: none; } }
-@media (prefers-reduced-motion: reduce) { .flow-card, .flow-chev { transition: none; } }
+/* ── PX-F05/F06/F07 对话框增强态 ────────────────────────────────
+   对话框基座（.modal-dialog/.field/.input/.btn）在 dialog.css+shell.css，
+   且均只读；三个流程对话框 import 本文件获得以下增强态。 */
+
+/* 主按钮 14px spinner（加载态） */
+.btn-spinner {
+  width: 14px;
+  height: 14px;
+  flex-shrink: 0;
+  border-radius: 50%;
+  border: 2px solid currentColor;
+  border-top-color: transparent;
+  animation: btn-spinner-rot 0.7s linear infinite;
+}
+@keyframes btn-spinner-rot { to { transform: rotate(360deg); } }
+@media (prefers-reduced-motion: reduce) { .btn-spinner { animation-duration: 2s; } }
+
+/* 提交错误贴字段下方（PX-F05：不再落对话框顶部） */
+.fdialog-field-error {
+  margin-top: var(--space-1);
+  font-size: var(--text-xs);
+  line-height: 1.5;
+  color: var(--danger);
+}
+
+/* PX-F06：prompt 框主视觉 —— 大一档字 + 呼吸式聚焦提示 */
+.genflow-prompt { font-size: var(--text-md); min-height: 108px; }
+/* 引擎管线说明为次级行（本入口无引擎选择器：CLI 优先 + 自动兜底是固定管线） */
+.genflow-engine {
+  display: flex;
+  align-items: center;
+  gap: var(--space-2);
+  margin-top: var(--space-2);
+  font-size: var(--text-2xs);
+  color: var(--meta);
+}
+/* 生成中动态进度：呼吸点 + 步骤文案轮换（不许死白屏） */
+.genflow-progress {
+  display: flex;
+  align-items: center;
+  gap: var(--space-2);
+  margin-top: var(--space-3);
+  padding: var(--space-3);
+  border: 1px solid var(--border-soft);
+  border-radius: var(--radius-md);
+  background: var(--surface-warm);
+  font-size: var(--text-xs);
+  color: var(--muted);
+}
+.genflow-progress .genflow-dot {
+  width: 8px;
+  height: 8px;
+  flex-shrink: 0;
+  border-radius: 50%;
+  background: var(--accent);
+  animation: genflow-breathe 1.4s var(--ease-in-out-quad) infinite;
+}
+@keyframes genflow-breathe {
+  0%, 100% { opacity: 1; transform: scale(1); }
+  50% { opacity: 0.35; transform: scale(0.8); }
+}
+
+/* PX-F07：按钮内 ⌘⏎ kbd 徽标（mono、--prose-code-bg 底、radius-xs） */
+.btn-kbd {
+  display: inline-flex;
+  align-items: center;
+  font-family: var(--font-mono);
+  font-size: var(--text-2xs);
+  line-height: 1;
+  padding: 3px 5px;
+  border-radius: var(--radius-xs);
+  background: var(--prose-code-bg);
+  color: var(--fg);
+  border: 1px solid color-mix(in srgb, var(--bg) 25%, transparent);
+}
+
+/* ── PX-F09 skeleton 形状分区 ─────────────────────────────────
+   skeleton.tsx 渲染 .skeleton-list 包裹层，形状行样式集中在此（shell.css
+   只读，.skeleton/.skeleton-text 基座不动）；shimmer 收紧到 800ms 线性扫过。 */
+.skeleton-list { display: flex; flex-direction: column; }
+.skeleton-list .skeleton,
+.skeleton-list .skeleton-text { animation-duration: 800ms; }
+
+/* flow-card 形状：复刻真实卡（glyph 方块 + 标题条 40% + meta 圆点短条 + 右侧按钮块） */
+.skel-flow-card {
+  display: flex;
+  align-items: center;
+  gap: var(--space-3);
+  padding: var(--space-4) var(--space-5);
+  background: var(--bg);
+  border: 1px solid var(--border-soft);
+  border-radius: var(--radius-lg);
+  margin-bottom: var(--space-3);
+}
+.skel-flow-card .skel-chev { width: 16px; height: 16px; border-radius: var(--radius-xs); flex-shrink: 0; }
+.skel-flow-card .skel-glyph { width: 36px; height: 36px; border-radius: var(--radius-sm); flex-shrink: 0; }
+.skel-flow-card .skel-info { flex: 1; min-width: 0; display: flex; flex-direction: column; gap: 7px; }
+.skel-flow-card .skel-meta { display: flex; align-items: center; gap: var(--space-2); }
+.skel-flow-card .skel-meta .dot { width: 6px; height: 6px; border-radius: 50%; flex-shrink: 0; }
+.skel-flow-card .skel-actions { display: flex; gap: var(--space-1); flex-shrink: 0; }
+.skel-flow-card .skel-actions .btn { width: 56px; height: 28px; border-radius: var(--radius-sm); }
+
+/* agent-card 形状：头像圆 + 标题 40% + 描述条 + meta 圆点短条 */
+.skel-agent-card {
+  display: flex;
+  align-items: flex-start;
+  gap: var(--space-3);
+  padding: var(--space-4) var(--space-4);
+  background: var(--bg);
+  border: 1px solid var(--border-soft);
+  border-radius: var(--radius-lg);
+  margin-bottom: var(--space-3);
+}
+.skel-agent-card .skel-avatar { width: 36px; height: 36px; border-radius: 50%; flex-shrink: 0; }
+.skel-agent-card .skel-info { flex: 1; min-width: 0; display: flex; flex-direction: column; gap: 7px; }
+.skel-agent-card .skel-meta { display: flex; align-items: center; gap: var(--space-2); }
+.skel-agent-card .skel-meta .dot { width: 6px; height: 6px; border-radius: 50%; flex-shrink: 0; }
+
+/* ── 移动端（PX-G10 分项）：375px 无横向滚动 ─────────────────── */
+@media (max-width: 640px) {
+  .flow-list-page .flow-toolbar { gap: var(--space-2); }
+  .flow-list-page .flow-toolbar .list-search { flex: 1 1 100%; max-width: none; min-width: 0; }
+  .flow-list-page .flow-card-head { padding: var(--space-3); gap: var(--space-2); }
+  /* 卡片操作不完全消失（shell.css 原样隐藏了整组）：只留「运行」主操作 */
+  .flow-list-page .flow-card .card-actions { display: flex; }
+  .flow-list-page .flow-card .card-actions .btn-secondary,
+  .flow-list-page .flow-card .card-actions .btn-ghost { display: none; opacity: 1; }
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .flow-list-page .flow-card, .flow-list-page .flow-chev { transition: none; }
+  .genflow-progress .genflow-dot { animation: none; opacity: 0.6; }
+}

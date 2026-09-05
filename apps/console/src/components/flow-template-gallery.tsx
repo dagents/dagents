@@ -209,9 +209,13 @@ export function FlowTemplateGallery({
         aria-label={t('查看模板 {name}', { name: tpl.name })}
       >
         <div className="atg-card-icon" aria-hidden="true">{tpl.icon}</div>
+        {/* PX-F04：节点数徽章移出标题行，归入 meta 行（不再挤压标题换行） */}
         <div className="atg-card-body">
           <div className="atg-card-name">{tpl.name}</div>
           <div className="atg-card-desc">{tpl.description}</div>
+          <div className="ftpl-card-meta">
+            {tpl.nodeCount} {t('节点')}
+          </div>
           {tpl.agentRefs.length > 0 && (
             <div className="alib-team-members">
               {tpl.agentRefs.map((r) => (
@@ -226,7 +230,6 @@ export function FlowTemplateGallery({
             </div>
           )}
         </div>
-        <span className="ftpl-card-meta">{tpl.nodeCount} {t('节点')}</span>
       </button>
       {deletable && (
         <button
@@ -536,6 +539,9 @@ export function FlowTemplateGallery({
                 ))}
               </div>
 
+              {/* PX-F04：tab 切换 140ms 淡入 + 4px 上移（key 重挂载触发，
+                  无布局跳动）；grid 同高（CSS grid-auto-rows: 1fr）。 */}
+              <div className="ftpl-tabpan" key={tab}>
               {loading ? (
                 <div className="atg-grid">
                   {Array.from({ length: 4 }, (_, i) => (
@@ -604,6 +610,7 @@ export function FlowTemplateGallery({
                   {visible.map((tpl) => tplCard(tpl, tab === 'user'))}
                 </div>
               )}
+              </div>
             </>
           )}
         </div>

@@ -95,7 +95,8 @@
   margin-top: var(--space-1);
 }
 
-/* 主按钮（打开画布）— 实底 accent pill，对齐 chat-error-retry 形态。 */
+/* 主按钮（打开画布）— 墨色实底（墨紫契约：动作=墨色，紫只做指向/状态；
+   原 accent 底违反「禁紫按钮底」，2026-09-04 PX-F 系列修正）。 */
 .flow-preview-card-btn {
   display: inline-flex;
   align-items: center;
@@ -114,14 +115,14 @@
 }
 
 .flow-preview-card-btn-primary {
-  background: var(--accent);
-  border-color: var(--accent);
-  color: var(--accent-on);
+  background: var(--fg);
+  border-color: var(--fg);
+  color: var(--bg);
 }
 
 .flow-preview-card-btn-primary:hover {
-  background: var(--accent-hover);
-  border-color: var(--accent-hover);
+  background: var(--fg-2);
+  border-color: var(--fg-2);
 }
 
 .flow-preview-card-btn:hover:not(.flow-preview-card-btn-primary) {

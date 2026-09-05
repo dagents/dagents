@@ -169,6 +169,11 @@ export const flows: Record<string, string> = {
   '保存中…': 'Saving…',
   '保存模板': 'Save template',
 
+  // ── PX-CV04 另存为模板参数 chip 网格 ──
+  '模板参数（实例化时回填）': 'Template params (filled on instantiate)',
+  '默认值': 'Default',
+  '{name} 的默认值': 'Default value of {name}',
+
   // ── flowise-canvas 保存拓扑干跑（方案 A4，toast 提示） ──
   '已保存，但该流程当前无法运行': 'Saved — but this flow cannot run in its current state',
   '已保存，流程有可疑之处': 'Saved — the flow looks suspicious',
@@ -211,4 +216,14 @@ export const flows: Record<string, string> = {
 '从工作流页或聊天触发一次运行，记录会出现在这里': 'Trigger a run from the workflows page or chat — records land here',
 '加载运行历史…': 'Loading run history…',
 '（已删除的 Flow）': '(deleted flow)',
+
+// ── 2026-09-04 像素级设计修复（PX-F01~F09）新增词条 ──
+// generate-flow-dialog：引擎管线次级行 + 生成中步骤文案轮换（PX-F06）
+'CLI 优先执行 · 自动拓扑校验 · 失败显式报错': 'CLI-first execution · automatic topology validation · explicit failures',
+'正在理解你的描述…': 'Understanding your description…',
+'正在编排节点与连线…': 'Composing nodes and edges…',
+'正在做拓扑校验…': 'Validating the topology…',
+'仍在生成，CLI 实跑可能需要 1-3 分钟…': 'Still generating — a real CLI run may take 1–3 min…',
+// flow-runs-panel：排队中状态词（PX-F08，其余状态词已在 common.ts）
+'排队中': 'Queued',
 }

@@ -7,13 +7,18 @@
  * 工作流跑完（CLI Agent 流程动辄几分钟），期间不跳详情、无进度，用户
  * 感知「点了没反应」（2026-08-29 修复）。现在：点运行先到这里收集输入
  * （作为 `{{$start.input}}` 传入 + 项目目录），提交走 `?async=1` 立即
- * 返回 runId 并打开详情页旁观（进度轮询在 flows-view 的 spans effect）。
+ * 返回 runId 并跳画布旁观。
+ *
+ * PX-F07：运行输入为主视觉在前、目录选择为次级行在后，两控件同宽对齐；
+ * 运行按钮墨色 + 按钮内显式 ⌘⏎ kbd 徽标（mono、--prose-code-bg 底）。
  */
 import { useEffect, useState } from 'react'
 import { Icon } from '@/components/icon'
 import { type Directory } from '@/lib/directories'
 import { useI18n } from '@/i18n'
 import '@/styles/dialog.css'
+// flows.css 提供 PX-F07 增强态（.btn-kbd）；类名专属无页面级副作用。
+import '@/styles/flows.css'
 
 export interface FlowRunDialogProps {
   /** 目标 flow 名（标题展示）。 */
@@ -70,24 +75,7 @@ export function FlowRunDialog({
           </button>
         </div>
         <div className="modal-body">
-          <div className="form-section">
-            <div className="form-section-label">{t('项目目录')}</div>
-            <div className="field">
-              <select className="input" value={dirId} onChange={(e) => onDirChange(e.target.value)}>
-                {directories.length === 0 ? (
-                  <option value="">{t('（无目录 — Agent 在网关目录运行）')}</option>
-                ) : null}
-                {directories.map((d) => (
-                  <option key={d.id} value={d.id}>
-                    {d.name || d.path}
-                  </option>
-                ))}
-              </select>
-              <div className="modal-hint" style={{ fontSize: 'var(--text-xs)', color: 'var(--meta)' }}>
-                {t('Agent 将在所选项目目录中读写文件、执行命令')}
-              </div>
-            </div>
-          </div>
+          {/* PX-F07：运行输入为主视觉在前；textarea 与下方 select 同宽对齐 */}
           <div className="form-section">
             <div className="form-section-label">{t('运行输入')}</div>
             <div className="field">
@@ -108,25 +96,40 @@ export function FlowRunDialog({
                 }}
               />
               {inputExample ? (
-                <div className="modal-hint" style={{ fontSize: 'var(--text-xs)', color: 'var(--meta)', marginTop: 'var(--space-1)' }}>
+                <div className="modal-hint" style={{ fontSize: 'var(--text-xs)', color: 'var(--meta)' }}>
                   {t('示例')}：{inputExample}
                 </div>
               ) : null}
             </div>
           </div>
+          <div className="form-section">
+            <div className="form-section-label">{t('项目目录')}</div>
+            <div className="field">
+              <select className="input" value={dirId} onChange={(e) => onDirChange(e.target.value)}>
+                {directories.length === 0 ? (
+                  <option value="">{t('（无目录 — Agent 在网关目录运行）')}</option>
+                ) : null}
+                {directories.map((d) => (
+                  <option key={d.id} value={d.id}>
+                    {d.name || d.path}
+                  </option>
+                ))}
+              </select>
+              <div className="modal-hint" style={{ fontSize: 'var(--text-xs)', color: 'var(--meta)' }}>
+                {t('Agent 将在所选项目目录中读写文件、执行命令')}
+              </div>
+            </div>
+          </div>
         </div>
         <div className="modal-foot">
-          <span className="modal-hint" style={{ fontSize: 'var(--text-xs)', color: 'var(--meta)' }}>
-            ⌘⏎ {t('开始运行')}
-          </span>
-          <div style={{ display: 'flex', gap: 'var(--space-2)' }}>
-            <button type="button" className="btn btn-ghost" onClick={onCancel}>
-              {t('取消')}
-            </button>
-            <button type="button" className="btn btn-primary" onClick={() => onSubmit(input)}>
-              {t('开始运行')}
-            </button>
-          </div>
+          <button type="button" className="btn btn-secondary" onClick={onCancel}>
+            {t('取消')}
+          </button>
+          {/* PX-F07：墨色运行按钮 + 显式 ⌘⏎ kbd 徽标（与画布运行面板同款快捷键） */}
+          <button type="button" className="btn btn-primary" onClick={() => onSubmit(input)}>
+            {t('开始运行')}
+            <span className="btn-kbd" aria-hidden="true">⌘⏎</span>
+          </button>
         </div>
       </div>
     </>

@@ -1,6 +1,9 @@
-/* FlowRunsPanel —— 列表卡片展开区的单 Flow 运行历史（2026-08-30，
- * 取代原 /runs 页 + 静态「暂无运行记录」提示行）。紧凑行形态，双主题
- * token 自动生效；dot-error 从 runs-view.css 迁移过来（原文件随页删除）。 */
+/* FlowRunsPanel —— 列表卡片展开区的单 Flow 运行历史（2026-08-30 打通，
+ * 2026-09-04 PX-F08 重排）。列契约：状态点+词（左固定 88px）→ 触发源 chip
+ * → 相对时间（meta）→ 输入预览（截 40ch）→ 耗时（tabular-nums 右对齐）→
+ * 画布旁观。失败摘要为第二行 --text-xs danger；running/pending 点 1.4s
+ * 呼吸不闪跳。状态点样式自包含（此前依赖 agents.css 的 .status-dot，在
+ * /flows 页不加载导致点不可见）。 */
 
 .flow-runs {
   display: flex;
@@ -10,78 +13,157 @@
 
 .flow-runs-empty {
   padding: var(--space-2) 0;
-  font-size: 12px;
-  opacity: 0.55;
+  font-size: var(--text-xs);
+  color: var(--muted);
 }
 
-.flow-runs-row {
-  display: flex;
-  align-items: center;
-  gap: var(--space-2);
-  padding: 6px 0;
-  border-bottom: 1px solid var(--border, rgba(0, 0, 0, 0.05));
-  font-size: 12px;
+.flow-runs-item {
+  padding: var(--space-1) 0;
+  border-bottom: 1px solid var(--border-soft);
 }
 
-.flow-runs-row:last-child {
+.flow-runs-item:last-child {
   border-bottom: 0;
 }
 
-.flow-runs-row.failed .flow-runs-error {
-  color: var(--danger, #dc2626);
+.flow-runs-row {
+  display: grid;
+  grid-template-columns: 88px max-content max-content minmax(0, 1fr) max-content max-content;
+  align-items: center;
+  gap: var(--space-3);
+  font-size: var(--text-xs);
+  min-width: 0;
 }
 
-/* dot-error 增量（状态点体系只有 running/done 两态） */
-.flow-runs .status-dot.dot-error {
-  background: var(--danger, #dc2626);
-}
-
-.flow-runs-source {
-  flex-shrink: 0;
-  font-size: 10px;
-}
-
+/* ── 状态点+词（自包含；shell .status 体系的列内对应物）── */
 .flow-runs-status {
+  display: inline-flex;
+  align-items: center;
+  gap: 5px;
+  font-size: var(--text-2xs);
+  color: var(--muted);
+  white-space: nowrap;
+}
+
+.flow-runs-dot {
+  width: 6px;
+  height: 6px;
+  border-radius: 50%;
+  background: var(--meta);
   flex-shrink: 0;
-  font-size: 11.5px;
-  opacity: 0.8;
+}
+
+.flow-runs-dot.d-running,
+.flow-runs-dot.d-pending {
+  background: var(--accent);
+}
+
+.flow-runs-dot.d-failed {
+  background: var(--danger);
+}
+
+.flow-runs-dot.d-completed,
+.flow-runs-dot.d-cancelled {
+  background: var(--success);
+}
+
+.flow-runs-dot.d-cancelled {
+  background: var(--meta);
+}
+
+/* running/pending：1.4s 呼吸（opacity+scale），3s 轮询重渲不闪跳 */
+.flow-runs-dot.breathe {
+  animation: flow-runs-breathe 1.4s var(--ease-in-out-quad) infinite;
+}
+
+@keyframes flow-runs-breathe {
+  0%, 100% { opacity: 1; transform: scale(1); }
+  50% { opacity: 0.35; transform: scale(0.8); }
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .flow-runs-dot.breathe { animation: none; opacity: 0.6; }
 }
 
 .flow-runs-status.st-failed {
-  color: var(--danger, #dc2626);
-  opacity: 1;
+  color: var(--danger);
 }
 
-.flow-runs-status.st-running {
-  color: var(--accent, #6366f1);
-  opacity: 1;
+.flow-runs-status.st-running,
+.flow-runs-status.st-pending {
+  color: var(--accent-hover);
 }
 
+/* ── 触发源 chip（soft 描边款，chip 基座在 shell.css）── */
+.flow-runs-source {
+  height: 18px;
+  padding: 0 var(--space-2);
+  font-size: var(--text-2xs);
+}
+
+/* ── 相对时间（meta 档；hover title 显绝对时间）── */
 .flow-runs-time {
+  font-size: var(--text-2xs);
+  color: var(--meta);
   white-space: nowrap;
-  opacity: 0.7;
-  flex-shrink: 0;
 }
 
+/* ── 输入预览：1fr 弹性 + ellipsis（内容再截 40ch）── */
 .flow-runs-input {
-  flex: 1;
   min-width: 0;
   white-space: nowrap;
   overflow: hidden;
   text-overflow: ellipsis;
-  opacity: 0.8;
+  color: var(--fg-2);
 }
 
+/* ── 耗时：tabular-nums 右对齐成列 ── */
+.flow-runs-duration {
+  font-size: var(--text-2xs);
+  color: var(--muted);
+  font-variant-numeric: tabular-nums;
+  text-align: right;
+  min-width: 52px;
+  white-space: nowrap;
+}
+
+/* ── 失败摘要：第二行整行铺开，--text-xs danger ── */
 .flow-runs-error {
-  flex: 1;
-  min-width: 0;
+  margin-top: 2px;
+  padding-left: calc(88px + var(--space-3));
+  font-size: var(--text-xs);
+  line-height: 1.5;
+  color: var(--danger);
   white-space: nowrap;
   overflow: hidden;
   text-overflow: ellipsis;
-  opacity: 0.75;
 }
 
+/* ── 旁观入口 ── */
 .flow-runs-watch {
-  flex-shrink: 0;
-  margin-left: auto;
+  height: 22px;
+  padding: 0 var(--space-2);
+  font-size: var(--text-2xs);
+}
+
+/* ── 窄屏：列收缩为两行（meta 行 + 预览行），无横向滚动 ── */
+@media (max-width: 720px) {
+  .flow-runs-row {
+    grid-template-columns: 88px max-content minmax(0, 1fr) max-content;
+  }
+  .flow-runs-time {
+    display: none;
+  }
+  .flow-runs-error {
+    padding-left: 0;
+  }
+}
+
+@media (max-width: 480px) {
+  .flow-runs-row {
+    grid-template-columns: 88px minmax(0, 1fr) max-content;
+  }
+  .flow-runs-source {
+    display: none;
+  }
 }

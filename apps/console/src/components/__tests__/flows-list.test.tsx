@@ -129,18 +129,18 @@ describe('FlowsView list-page (M2.1 fidelity)', () => {
     return { rerender: result.rerender }
   }
 
-  it('renders the scope tabs (mine / all / archived) with counts', async () => {
+  it('renders the scope tabs (all / archived) with counts — 「我的」已删（PRD D7）', async () => {
     await renderView()
-    // The three scope tabs exist, with their data-scope + count spans.
-    const mine = await screen.findByRole('tab', { name: /我的/ })
+    // 2026-08-29 PRD 决议 D7：「我的」tab 已删除（单机无账户体系，恒 0 的
+    // tab 是伪概念）—— 断言只剩 全部/已归档 两档，且「我的」不会回潮。
     const all = await screen.findByRole('tab', { name: /全部/ })
     const archived = await screen.findByRole('tab', { name: /已归档/ })
-    expect(mine).toHaveAttribute('data-scope', 'mine')
     expect(all).toHaveAttribute('data-scope', 'all')
     expect(archived).toHaveAttribute('data-scope', 'archived')
     // `all` is selected by default (matches design agentflows.html:159).
     expect(all).toHaveAttribute('aria-selected', 'true')
-    expect(mine).toHaveAttribute('aria-selected', 'false')
+    expect(archived).toHaveAttribute('aria-selected', 'false')
+    expect(screen.queryByRole('tab', { name: /我的/ })).not.toBeInTheDocument()
   })
 
   it('does not render status filter chips (list carries no live run status)', async () => {

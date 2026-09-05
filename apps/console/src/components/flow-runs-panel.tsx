@@ -14,7 +14,7 @@
 import { useCallback, useEffect, useRef, useState } from 'react'
 import Link from 'next/link'
 import { useI18n } from '@/i18n'
-import { formatDateTime, formatDuration } from '@/lib/format'
+import { formatDuration, timeAgo, timeTitle } from '@/lib/format'
 import '@/styles/flow-runs.css'
 
 interface RunRow {
@@ -35,6 +35,13 @@ const STATUS_LABEL: Record<string, string> = {
   cancelled: '已取消',
   running: '运行中',
   pending: '排队中',
+}
+
+/** gateway inputPreview 可能是 JSONB 对象（{"input":"…"}）—— 解包成文本。 */
+function previewText(p: RunRow['inputPreview']): string | null {
+  if (typeof p === 'string') return p.trim() || null
+  if (p && typeof p === 'object' && typeof p.input === 'string') return p.input.trim() || null
+  return null
 }
 
 export interface FlowRunsPanelProps {
@@ -99,46 +106,60 @@ export function FlowRunsPanel({ flowId, refreshTick = 0 }: FlowRunsPanelProps): 
       {runs.length === 0 ? (
         <div className="flow-runs-empty">{t('暂无运行记录 — 点「运行」或到画布中触发')}</div>
       ) : (
-        runs.map((r) => (
-          <div
-            key={r.runId}
-            className={`flow-runs-row${r.status === 'failed' ? ' failed' : ''}`}
-            role="listitem"
-          >
-            <span
-              className={`status-dot ${r.status === 'running' || r.status === 'pending' ? 'dot-running' : r.status === 'failed' ? 'dot-error' : 'dot-done'}`}
-              title={t(STATUS_LABEL[r.status] ?? r.status)}
-            />
-            <span className={`flow-runs-status st-${r.status}`}>
-              {t(STATUS_LABEL[r.status] ?? r.status)}
-            </span>
-            <span className="chip chip-outline flow-runs-source">
-              {r.source === 'chat' ? t('聊天') : t('画布')}
-            </span>
-            <span className="flow-runs-time">{formatDateTime(r.startedAt ?? r.createdAt)}</span>
-            <span className="flow-runs-time">
-              {r.durationMs != null ? formatDuration(r.durationMs) : r.status === 'running' ? t('进行中') : '—'}
-            </span>
-            <span
-              className="flow-runs-input"
-              title={typeof r.inputPreview === 'string' ? r.inputPreview : undefined}
+        runs.map((r) => {
+          const active = r.status === 'running' || r.status === 'pending'
+          const timeStr = r.startedAt ?? r.createdAt
+          const preview = previewText(r.inputPreview)
+          return (
+            <div
+              key={r.runId}
+              className={`flow-runs-item${r.status === 'failed' ? ' failed' : ''}`}
+              role="listitem"
             >
-              {typeof r.inputPreview === 'string' && r.inputPreview.trim() ? r.inputPreview.slice(0, 30) : '—'}
-            </span>
-            {r.error ? (
-              <span className="flow-runs-error" title={r.error}>
-                {r.error.slice(0, 60)}
-              </span>
-            ) : null}
-            <Link
-              href={`/workflows/${r.flowId}/canvas?run=${r.runId}`}
-              className="btn btn-ghost btn-sm flow-runs-watch"
-            >
-              {t('画布旁观')}
-            </Link>
-          </div>
-        ))
+              {/* PX-F08 列契约：状态点+词（88px）→ 触发源 chip → 相对时间 →
+                  输入预览（截 40ch）→ 耗时（tabular-nums 右对齐）→ 旁观。 */}
+              <div className="flow-runs-row">
+                <span className={`flow-runs-status st-${r.status}`}>
+                  <span
+                    className={`flow-runs-dot d-${r.status}${active ? ' breathe' : ''}`}
+                    aria-hidden="true"
+                  />
+                  {t(STATUS_LABEL[r.status] ?? r.status)}
+                </span>
+                <span className="chip chip-outline flow-runs-source">
+                  {r.source === 'chat' ? t('聊天') : t('画布')}
+                </span>
+                <span className="flow-runs-time" title={timeTitle(timeStr)}>
+                  {timeAgo(timeStr, t)}
+                </span>
+                <span className="flow-runs-input" title={preview ?? undefined}>
+                  {preview ? preview.slice(0, 40) : '—'}
+                </span>
+                <span className="flow-runs-duration tnum">
+                  {r.durationMs != null
+                    ? formatDuration(r.durationMs)
+                    : active
+                      ? t('进行中')
+                      : '—'}
+                </span>
+                <Link
+                  href={`/workflows/${r.flowId}/canvas?run=${r.runId}`}
+                  className="btn btn-ghost btn-sm flow-runs-watch"
+                >
+                  {t('画布旁观')}
+                </Link>
+              </div>
+              {/* 失败摘要：第二行，--text-xs danger */}
+              {r.error ? (
+                <div className="flow-runs-error" title={r.error}>
+                  {r.error.slice(0, 120)}
+                </div>
+              ) : null}
+            </div>
+          )
+        })
       )}
     </div>
   )
 }
+
