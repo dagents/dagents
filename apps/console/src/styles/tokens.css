@@ -14,14 +14,20 @@
   --fg:   #0d0d0d;
   --fg-2: #1a1a1a;
   --muted: #616165;
-  --meta:  #9b9b9b;
+  --meta:  #85858b;
 
   /* ─── Border ───────────────────────────────────────────────────── */
   --border:      #e7e4dd;
   --border-soft: #efede7;
   --border-strong: #d8d4ca;
 
-  /* ─── Accent ───────────────────────────────────────────────────── */
+  /* ─── Accent ─────────────────────────────────────────────────────
+     Ink-violet contract (PX-G04):
+       INK (--fg)  = actions: primary buttons, active controls.
+       VIOLET      = pointing & state: links, focus rings, selection,
+                     in-progress indicators, small icon accents.
+     Violet must NOT be used for: button fills, gradient headline text,
+     or large-area background fills. */
   --accent:        #6c5ce7;
   --accent-on:     #ffffff;
   --accent-hover:  #5849c2;
@@ -48,8 +54,14 @@
   --font-body:    "Inter", system-ui, -apple-system, "Segoe UI", "Helvetica Neue", sans-serif;
   --font-mono:    "JetBrains Mono", ui-monospace, "SF Mono", Menlo, Consolas, monospace;
 
+  /* Type ramp contract (PX-G01):
+     2xs = meta/timestamps/chips/badges ONLY · xs = secondary body ·
+     sm = dense body (list cards) · md = card titles & forms ·
+     base = settings forms / hero · lg+ = page titles & display. */
+  --text-2xs:  11px;
   --text-xs:   12px;
   --text-sm:   13px;
+  --text-md:   14px;
   --text-base: 16px;
   --text-lg:   18px;
   --text-xl:   20px;
@@ -74,11 +86,22 @@
   --space-16: 64px;
 
   /* ─── Radius ───────────────────────────────────────────────────── */
-  --radius-sm:   10px;
-  --radius-md:   14px;
-  --radius-lg:   16px;
-  --radius-xl:   22px; /* chat bubbles + composer capsule */
+  /* Radius scale (PX-G02) — calibrated to actual usage, 5 sizes + pill:
+     xs = chips/inline code/kbd · sm = buttons/inputs · md = nested blocks ·
+     lg = cards/dialogs · xl = hero/empty-state/chat bubbles. */
+  --radius-xs:   6px;
+  --radius-sm:   8px;
+  --radius-md:   10px;
+  --radius-lg:   14px;
+  --radius-xl:   20px; /* chat bubbles + composer capsule */
   --radius-pill: 9999px;
+
+  /* Control heights (PX-G05) — one size per row, never mixed:
+     sm = toolbar-inline (search/filter/btn-sm) · md = compact forms ·
+     lg = default buttons & inputs / dialog primary. */
+  --ctl-sm: 30px;
+  --ctl-md: 32px;
+  --ctl-lg: 36px;
 
   /* ─── Elevation ────────────────────────────────────────────────── */
   --elev-flat:   none;
@@ -181,7 +204,7 @@
     --fg:   #f0f0f0;
     --fg-2: #e0e0e0;
     --muted: #96969c;
-    --meta:  #6e6e6e;
+    --meta:  #7f7f86;
 
     --border:      #2a2a2a;
     --border-soft: #222222;
@@ -253,7 +276,7 @@
   --fg:   #f0f0f0;
   --fg-2: #e0e0e0;
   --muted: #96969c;
-  --meta:  #6e6e6e;
+  --meta:  #7f7f86;
 
   --border:      #2a2a2a;
   --border-soft: #222222;

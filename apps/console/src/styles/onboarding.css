@@ -83,8 +83,8 @@
   background: transparent;
   color: var(--meta);
   cursor: pointer;
-  border-radius: 4px;
-  font-size: 14px;
+  border-radius: var(--radius-xs);
+  font-size: var(--text-md);
   line-height: 1;
   flex-shrink: 0;
   transition: background var(--motion-fast), color var(--motion-fast);
