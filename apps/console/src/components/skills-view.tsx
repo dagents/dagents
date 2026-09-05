@@ -111,7 +111,8 @@ export function SkillsView(): React.ReactElement {
   const [detail, setDetail] = useState<SkillDefinition | null>(null)
   const [detailLoading, setDetailLoading] = useState(false)
   const [detailError, setDetailError] = useState<string | null>(null)
-  const [footerAdding, setFooterAdding] = useState(false)
+  // PX-S01：「添加目录」升为工具栏按钮 —— 点击在工具栏下方展开 AddDirInput 行
+  const [toolbarAdding, setToolbarAdding] = useState(false)
   // Two-step remove confirmation for a configured root directory.
   const [confirmRemoveDir, setConfirmRemoveDir] = useState<string | null>(null)
   // Monotonic toggle sequence — expanding A then quickly B drops A's late
@@ -236,7 +237,29 @@ export function SkillsView(): React.ReactElement {
           <Icon name={loading ? 'loader' : 'refresh'} style={{ width: 14, height: 14 }} />
           {t('刷新')}
         </button>
+        {/* PX-S01：「添加目录」从页角文字链升为工具栏按钮 */}
+        <button
+          type="button"
+          className="btn btn-secondary btn-sm"
+          aria-expanded={toolbarAdding}
+          onClick={() => setToolbarAdding((v) => !v)}
+        >
+          <Icon name="plus" style={{ width: 14, height: 14 }} />
+          {t('添加目录')}
+        </button>
       </div>
+
+      {/* 工具栏下方展开的目录输入行（加载成功自动收起） */}
+      {toolbarAdding ? (
+        <div className="skills-add-row">
+          <AddDirInput
+            onCatalog={(catalog) => {
+              applyCatalog(catalog)
+              setToolbarAdding(false)
+            }}
+          />
+        </div>
+      ) : null}
 
       {error ? (
         <div className="skills-error">
@@ -251,7 +274,8 @@ export function SkillsView(): React.ReactElement {
         <SkeletonList rows={6} />
       ) : visible.length === 0 && !error ? (
         sourceFilter === 'custom' && !hasCustomRoots ? (
-          <div className="skills-empty skills-add-state">
+          /* PX-S01：空态走 shell 的 .empty-state 共享样式 */
+          <div className="empty-state skills-empty skills-add-state">
             <div className="h">{t('添加自定义技能目录')}</div>
             <div className="d">
               {t('输入本机目录路径，立即加载其中的技能包（<名称>/SKILL.md 或 <名称>.md，frontmatter 含 name 与 description）。支持 ~/ 展开，保存后无需重启。')}
@@ -259,7 +283,7 @@ export function SkillsView(): React.ReactElement {
             <AddDirInput onCatalog={applyCatalog} />
           </div>
         ) : (
-          <div className="skills-empty">
+          <div className="empty-state skills-empty">
             <div className="h">{skills.length === 0 ? t('没有发现技能') : t('没有匹配的技能')}</div>
             <div className="d">
               {t('技能来自运行时目录（不落库）：在 ~/.agents/skills/<name>/SKILL.md 或自定义目录放置 Agent Skills 标准格式的技能包后刷新。')}
@@ -282,10 +306,13 @@ export function SkillsView(): React.ReactElement {
                 aria-expanded={expanded === s.name}
                 onClick={() => toggle(s.name)}
               >
-                <Icon name="chevronRight" className="skill-chev" />
-                <span className="skill-name">{s.name}</span>
+                {/* PX-S01 卡统一结构：标题行（名称 + 来源 chip 右浮）→ 描述 2 行截断 */}
+                <span className="skill-title-row">
+                  <Icon name="chevronRight" className="skill-chev" />
+                  <span className="skill-name">{s.name}</span>
+                  <span className="skill-source">{t(sourceLabel(s.source))}</span>
+                </span>
                 <span className="skill-desc">{s.description}</span>
-                <span className="skill-source">{t(sourceLabel(s.source))}</span>
               </button>
               {expanded === s.name ? (
                 <div className="skill-detail">
@@ -335,27 +362,12 @@ export function SkillsView(): React.ReactElement {
                 }}
               >
                 <Icon name="close" />
-                {confirmRemoveDir === r.dir ? <span style={{ fontSize: 10 }}>{t('确认？')}</span> : null}
+                {confirmRemoveDir === r.dir ? <span style={{ fontSize: 'var(--text-2xs)' }}>{t('确认？')}</span> : null}
               </button>
             ) : null}
           </div>
         ))}
-        {footerAdding ? (
-          <AddDirInput
-            onCatalog={(catalog) => {
-              applyCatalog(catalog)
-              setFooterAdding(false)
-            }}
-          />
-        ) : (
-          <button
-            type="button"
-            className="skills-add-trigger"
-            onClick={() => setFooterAdding(true)}
-          >
-            {t('+ 添加目录')}
-          </button>
-        )}
+        {/* 「添加目录」入口已升为工具栏按钮（PX-S01），页脚只保留发现根清单 */}
       </div>
     </PageShell>
   )

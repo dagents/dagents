@@ -41,6 +41,7 @@ import {
   type LlmProviderStatus,
 } from '@/lib/llm-providers'
 import { useI18n } from '@/i18n'
+import '@/styles/settings.css'
 
 /** The settings tabs, grouped as the design's sub-nav renders them. */
 type TabId = 'keys' | 'runtimes' | 'models' | 'usage' | 'notify' | 'audit' | 'planned'
@@ -61,6 +62,12 @@ interface TabDef {
   a11y?: string
   /** Sub-nav group label. */
   group: TabGroupKey
+  /**
+   * Placeholder tab whose content is not wired to a backend (design shape
+   * only). ST01: dimmed to 40% opacity + an 11px 「未接入」 suffix so it
+   * doesn't carry the same visual weight as live tabs.
+   */
+  stub?: boolean
 }
 
 /**
@@ -72,23 +79,23 @@ interface TabDef {
 const TABS: readonly TabDef[] = [
   { id: 'keys', label: 'LLM Provider 管理', a11y: 'LLM Provider', group: '密钥' },
   { id: 'runtimes', label: 'CLI 运行时', a11y: 'CLI 运行时', group: '密钥' },
-  { id: 'models', label: '默认模型', group: '模型' },
+  { id: 'models', label: '默认模型', group: '模型', stub: true },
   { id: 'usage', label: '用量与成本', a11y: '用量与成本', group: '治理' },
   { id: 'notify', label: '通知', group: '治理' },
   { id: 'audit', label: '审计日志', a11y: '审计日志', group: '治理' },
-  { id: 'planned', label: '规划中', group: '账户' },
+  { id: 'planned', label: '规划中', group: '账户', stub: true },
 ] as const
 
 interface TabGroup {
   label: TabGroupKey
-  tabs: { id: TabId; label: string }[]
+  tabs: { id: TabId; label: string; stub?: boolean }[]
 }
 
 const TAB_GROUPS: TabGroup[] = (
   ['密钥', '模型', '治理', '账户'] as const
 ).map((g) => ({
   label: g,
-  tabs: TABS.filter((t) => t.group === g).map((t) => ({ id: t.id, label: t.label })),
+  tabs: TABS.filter((t) => t.group === g).map((t) => ({ id: t.id, label: t.label, stub: t.stub })),
 }))
 
 const TAB_A11Y: Record<TabId, string> = TABS.reduce(
@@ -137,12 +144,16 @@ export function SettingsView(): React.ReactElement {
                   key={it.id}
                   type="button"
                   role="tab"
-                  className="settings-tab"
+                  className={`settings-tab${it.stub ? ' settings-tab-stub' : ''}`}
                   aria-selected={tab === it.id}
                   aria-label={t(TAB_A11Y[it.id])}
                   onClick={() => setTab(it.id)}
                 >
                   {t(it.label)}
+                  {/* aria-hidden：后缀不进 accessible name（tab 名保持纯标签） */}
+                  {it.stub ? (
+                    <span className="settings-tab-stub-note" aria-hidden="true">{t('未接入')}</span>
+                  ) : null}
                 </button>
               ))}
             </div>
@@ -178,6 +189,8 @@ function LlmProvidersTab(): React.ReactElement {
   const [pendingDelete, setPendingDelete] = useState<LlmProvider | null>(null)
   const [busy, setBusy] = useState(false)
   const [testingId, setTestingId] = useState<string | null>(null)
+  /** ST02：测试连接 inline 结果（✓/✗ + 语义色文字），按 provider 记住最近一次 */
+  const [testResults, setTestResults] = useState<Record<string, { ok: boolean; msg: string }>>({})
 
   const load = useCallback(async () => {
     setLoading(true)
@@ -286,9 +299,14 @@ function LlmProvidersTab(): React.ReactElement {
     setTestingId(p.id)
     try {
       const result = await testLlmProvider(p.id)
-      toast.success(t('连接成功，发现 {n} 个模型', { n: result.models.length }))
+      // inline 结果而非 toast —— 结果要能留在行内被反复查看（PX-ST02）
+      setTestResults((prev) => ({
+        ...prev,
+        [p.id]: { ok: true, msg: t('连接成功 · {n} 个模型', { n: result.models.length }) },
+      }))
     } catch (err) {
-      toast.error(err instanceof Error ? err.message : String(err))
+      const msg = err instanceof Error ? err.message : String(err)
+      setTestResults((prev) => ({ ...prev, [p.id]: { ok: false, msg } }))
     } finally {
       setTestingId(null)
     }
@@ -314,7 +332,7 @@ function LlmProvidersTab(): React.ReactElement {
       <div className="row-between mb-4">
         <div>
           <div className="card-title" style={{ fontSize: 'var(--text-lg)' }}>{t(TAB_LABEL.keys)}</div>
-          <div className="muted mt-2" style={{ fontSize: 13 }}>
+          <div className="muted mt-2" style={{ fontSize: 'var(--text-sm)' }}>
             {t('管理 LLM 服务商配置，支持多 Provider 接入与统一鉴权')}
           </div>
         </div>
@@ -346,7 +364,9 @@ function LlmProvidersTab(): React.ReactElement {
           {t('{n} / {total} 个 Provider', { n: filtered.length, total: providers.length })}
         </span>
         <div className="grow" />
-        <button type="button" className="btn btn-accent btn-sm" onClick={openCreate}>
+        {/* 墨紫契约：主按钮 = 墨色（btn-primary），紫不上面板按钮底 */}
+        <button type="button" className="btn btn-primary btn-sm" onClick={openCreate}>
+          <Icon name="plus" style={{ width: 14, height: 14 }} />
           {t('+ 新建 Provider')}
         </button>
       </div>
@@ -402,10 +422,10 @@ function LlmProvidersTab(): React.ReactElement {
                     <span className="tk-group">{p.providerType}</span>
                   </td>
                   <td>
-                    <span className="mono" style={{ fontSize: 12, wordBreak: 'break-all' }}>{p.baseUrl}</span>
+                    <span className="mono" style={{ fontSize: 'var(--text-xs)', wordBreak: 'break-all' }}>{p.baseUrl}</span>
                   </td>
                   <td>
-                    <span className="mono" style={{ fontSize: 12 }}>{p.defaultModel}</span>
+                    <span className="mono" style={{ fontSize: 'var(--text-xs)' }}>{p.defaultModel}</span>
                   </td>
                   <td>
                     <span className={`status ${p.status === 'active' ? 'running' : 'idle'}`}>
@@ -433,7 +453,11 @@ function LlmProvidersTab(): React.ReactElement {
                         disabled={busy || testingId === p.id}
                         onClick={() => void testConnection(p)}
                       >
-                        <Icon name={testingId === p.id ? 'loader' : 'refresh'} style={{ width: 12, height: 12 }} />
+                        <Icon
+                          name={testingId === p.id ? 'loader' : 'refresh'}
+                          className={testingId === p.id ? 'icon-spin' : undefined}
+                          style={{ width: 12, height: 12 }}
+                        />
                       </button>
                       <button
                         type="button"
@@ -456,6 +480,24 @@ function LlmProvidersTab(): React.ReactElement {
                         <Icon name="close" style={{ width: 12, height: 12 }} />
                       </button>
                     </div>
+                    {/* ST02：测试连接 inline 结果 —— 测试中 spinner，终态 ✓/✗ + 语义色文字 */}
+                    {testingId === p.id ? (
+                      <div className="tk-test-result">
+                        <Icon name="loader" className="icon-spin" style={{ width: 12, height: 12 }} />
+                        <span className="msg">{t('测试中…')}</span>
+                      </div>
+                    ) : testResults[p.id] ? (
+                      <div
+                        className={`tk-test-result ${testResults[p.id].ok ? 'ok' : 'err'}`}
+                        title={testResults[p.id].msg}
+                      >
+                        <Icon
+                          name={testResults[p.id].ok ? 'check' : 'close'}
+                          style={{ width: 12, height: 12 }}
+                        />
+                        <span className="msg">{testResults[p.id].msg}</span>
+                      </div>
+                    ) : null}
                   </td>
                 </tr>
               ))
@@ -464,7 +506,7 @@ function LlmProvidersTab(): React.ReactElement {
         </table>
       </div>
 
-      <p className="muted mt-3" style={{ fontSize: 12, lineHeight: 1.6 }}>
+      <p className="muted mt-3" style={{ fontSize: 'var(--text-xs)', lineHeight: 1.6 }}>
         {t('Provider 配置由网关统一管理，API Key 以掩码形式显示，原文不返回前端。所有 LLM 调用经网关统一鉴权与路由。')}
       </p>
 
@@ -557,7 +599,7 @@ function RuntimesTab(): React.ReactElement {
       <div className="row-between mb-4">
         <div>
           <div className="card-title" style={{ fontSize: 'var(--text-lg)' }}>{t(TAB_LABEL.runtimes)}</div>
-          <div className="muted mt-2" style={{ fontSize: 13 }}>
+          <div className="muted mt-2" style={{ fontSize: 'var(--text-sm)' }}>
             {t('平台支持的全部 CLI agent 运行时。Gateway 自动检测本机 ')}
             <code className="mono">PATH</code>
             {t('，已安装的可直接在对话中使用。')}
@@ -612,14 +654,14 @@ function RuntimesTab(): React.ReactElement {
                     <div className="tk-name">
                       <div className="nm">{t(r.label)}</div>
                       <div className="meta">
-                        <span className="mono" style={{ fontSize: 11 }}>{r.kind}</span>
+                        <span className="mono" style={{ fontSize: 'var(--text-2xs)' }}>{r.kind}</span>
                       </div>
                     </div>
                   </td>
                   <td>
-                    <span className="mono" style={{ fontSize: 12 }}>{r.binary}</span>
+                    <span className="mono" style={{ fontSize: 'var(--text-xs)' }}>{r.binary}</span>
                     {det?.path && (
-                      <div className="meta mono" style={{ fontSize: 10, color: 'var(--muted)', marginTop: 2 }}>
+                      <div className="meta mono" style={{ fontSize: 'var(--text-2xs)', color: 'var(--muted)', marginTop: 2 }}>
                         {det.path}
                       </div>
                     )}
@@ -628,7 +670,7 @@ function RuntimesTab(): React.ReactElement {
                     <span className="tk-group">{PROTOCOL_LABEL[r.protocol] ?? r.protocol}</span>
                   </td>
                   <td>
-                    <span className="chip chip-outline" style={{ fontSize: 11 }}>{t(r.group)}</span>
+                    <span className="chip chip-outline" style={{ fontSize: 'var(--text-2xs)' }}>{t(r.group)}</span>
                   </td>
                   <td>
                     {loading ? (
@@ -649,7 +691,7 @@ function RuntimesTab(): React.ReactElement {
                     )}
                   </td>
                   <td>
-                    <span className="muted" style={{ fontSize: 12 }}>{t(r.hint)}</span>
+                    <span className="muted" style={{ fontSize: 'var(--text-xs)' }}>{t(r.hint)}</span>
                   </td>
                 </tr>
               )
@@ -658,7 +700,7 @@ function RuntimesTab(): React.ReactElement {
         </table>
       </div>
 
-      <p className="muted mt-3" style={{ fontSize: 12, lineHeight: 1.6 }}>
+      <p className="muted mt-3" style={{ fontSize: 'var(--text-xs)', lineHeight: 1.6 }}>
         {t('状态由 Gateway 实时检测（')}
         <code className="mono">which &lt;binary&gt;</code>
         {t('）。已安装的 CLI 可直接在对话中选择对应 Agent 使用——无需手动启动 daemon。未安装的请参考各 CLI 官方文档安装。')}
@@ -666,6 +708,11 @@ function RuntimesTab(): React.ReactElement {
     </section>
   )
 }
+
+/** Eye glyph for the API-key show/hide toggle (icon.tsx has no eye; kept
+ *  local to avoid growing the shared icon set for one consumer). */
+const EYE_SVG =
+  '<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"><path d="M2 12s3.5-7 10-7 10 7 10 7-3.5 7-10 7-10-7-10-7Z"/><circle cx="12" cy="12" r="3"/></svg>'
 
 function LlmProviderModal(props: {
   form: LlmProviderFormInput
@@ -678,6 +725,8 @@ function LlmProviderModal(props: {
   const { t } = useI18n()
   const { form, isEdit, busy, onChange, onCancel, onSave } = props
   const [touched, setTouched] = useState(false)
+  /** ST02：密钥掩码显隐 —— 按钮绝对定位在输入框右缘内 8px，错误信息出现不位移 */
+  const [showKey, setShowKey] = useState(false)
   const nameInvalid = form.name.trim().length === 0
   const baseUrlInvalid = form.baseUrl.trim().length === 0
   const defaultModelInvalid = form.defaultModel.trim().length === 0
@@ -747,21 +796,35 @@ function LlmProviderModal(props: {
                 />
                 <span className="field-error">{t('Base URL 不能为空。')}</span>
               </div>
-              <div className={`field full ${touched && apiKeyRequired ? 'invalid' : ''}`}>
+              <div className={`field full api-key-field ${touched && apiKeyRequired ? 'invalid' : ''}`}>
                 <label htmlFor="f-api-key">
                   API Key {isEdit ? <span className="hint">{t('（留空表示不修改）')}</span> : t(' *')}
                 </label>
-                <input
-                  id="f-api-key"
-                  className="input"
-                  type="password"
-                  placeholder={isEdit ? t('••••••••（留空不修改）') : 'sk-...'}
-                  value={form.apiKey ?? ''}
-                  onChange={(e) => set('apiKey', e.target.value)}
-                  onBlur={() => setTouched(true)}
-                  aria-invalid={touched && apiKeyRequired}
-                />
-                {touched && apiKeyRequired && <span className="field-error">{t('API Key 不能为空。')}</span>}
+                <div className="api-key-input">
+                  <input
+                    id="f-api-key"
+                    className="input"
+                    type={showKey ? 'text' : 'password'}
+                    placeholder={isEdit ? t('••••••••（留空不修改）') : 'sk-...'}
+                    value={form.apiKey ?? ''}
+                    onChange={(e) => set('apiKey', e.target.value)}
+                    onBlur={() => setTouched(true)}
+                    aria-invalid={touched && apiKeyRequired}
+                  />
+                  <button
+                    type="button"
+                    className="api-key-toggle"
+                    aria-label={showKey ? t('隐藏密钥') : t('显示密钥')}
+                    aria-pressed={showKey}
+                    onClick={() => setShowKey((v) => !v)}
+                  >
+                    <span dangerouslySetInnerHTML={{ __html: EYE_SVG }} />
+                    {showKey ? t('隐藏') : t('显示')}
+                  </button>
+                </div>
+                {/* 与其他字段一致：错误 span 常驻 DOM，由 .invalid 控制显隐 ——
+                    错误出现/消失零位移（PX-ST02） */}
+                <span className="field-error">{t('API Key 不能为空。')}</span>
               </div>
               <div className={`field ${touched && defaultModelInvalid ? 'invalid' : ''}`}>
                 <label htmlFor="f-default-model">{t('默认模型 *')}</label>
@@ -828,7 +891,7 @@ function LlmProviderModal(props: {
           </button>
           <button
             type="button"
-            className="btn btn-accent btn-sm"
+            className="btn btn-primary btn-sm"
             onClick={onSave}
             disabled={busy || nameInvalid || baseUrlInvalid || defaultModelInvalid || apiKeyRequired}
           >
@@ -859,7 +922,7 @@ function DeleteModal(props: {
           <p style={{ fontSize: 'var(--text-sm)', color: 'var(--fg-2)', lineHeight: 1.6 }}>
             {t('即将删除 Provider「{name}」。', { name: provider.name })}
           </p>
-          <p className="muted mt-3" style={{ fontSize: 12, lineHeight: 1.6 }}>
+          <p className="muted mt-3" style={{ fontSize: 'var(--text-xs)', lineHeight: 1.6 }}>
             {t('删除后该 Provider 配置立即失效，关联的调用会失败。此操作不可撤销。')}
           </p>
         </div>
@@ -898,12 +961,12 @@ function StubNotice({ note }: { note: string }): React.ReactElement {
       className="muted"
       role="note"
       style={{
-        fontSize: 13,
+        fontSize: 'var(--text-sm)',
         lineHeight: 1.6,
         padding: '10px 14px',
         marginBottom: 16,
         border: '1px dashed var(--border)',
-        borderRadius: 8,
+        borderRadius: 'var(--radius-sm)',
       }}
     >
       {t('⚠️ 未接入后端 — ')}{t(note)}
@@ -1031,7 +1094,7 @@ function NotifyTab(): React.ReactElement {
             </span>
           </div>
         ))}
-        <p className="muted mt-3" style={{ fontSize: 12 }}>
+        <p className="muted mt-3" style={{ fontSize: 'var(--text-xs)' }}>
           {t('平台级通知事件与多渠道（邮件 / Webhook）由网关统一调度，`notifications` 表落地后接入；上方的桌面通知与提示音已即时生效。')}
         </p>
       </div>
@@ -1053,10 +1116,10 @@ function PlannedTab(): React.ReactElement {
     <section className="settings-section active" aria-label={t('规划中')}>
       <div className="card-title mb-4" style={{ fontSize: 'var(--text-lg)' }}>{t('规划中')}</div>
       <div className="card">
-        <p className="muted" style={{ fontSize: 13, lineHeight: 1.7 }}>
+        <p className="muted" style={{ fontSize: 'var(--text-sm)', lineHeight: 1.7 }}>
           {t('以下能力在产品规划中，尚未实现 —— 当前版本是单机单人模式（docs/product-plan.md Non-Goals）。')}
         </p>
-        <ul style={{ margin: '10px 0 0 18px', fontSize: 13, lineHeight: 1.9 }}>
+        <ul style={{ margin: '10px 0 0 18px', fontSize: 'var(--text-sm)', lineHeight: 1.9 }}>
           {PLANNED_AREAS.map((a) => (
             <li key={a}>{t(a)}</li>
           ))}

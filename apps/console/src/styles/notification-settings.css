@@ -110,18 +110,43 @@
   border-top: 1px solid var(--border-soft);
   padding-top: var(--space-2);
 }
-/* Make the global .toggle-row comfortable inside this card. */
+
+/* PX-ST05：开关行统一节奏 —— label 13px/500 + 描述 11px/meta，
+ * 行高 40px 上下（min-height 保证单行描述时也撑住节奏）、开关垂直居中。 */
 .notif-toggle-row {
-  padding: var(--space-4) 0;
+  padding: var(--space-2) 0;
+  min-height: 40px;
 }
 .notif-toggle-row + .notif-toggle-row {
   border-top: 1px solid var(--border-soft);
 }
+.notif-toggle-row .info .t {
+  font-size: var(--text-sm);
+  font-weight: 500;
+  color: var(--fg);
+}
+.notif-toggle-row .info .d {
+  font-size: var(--text-2xs);
+  color: var(--meta);
+  margin-top: 1px;
+  max-width: 56ch;
+}
 
-/* The switch reuses the global `.switch` from shell.css — no overrides
-   needed. The extra class just scopes future tweaks. */
+/* PX-ST05：开关统一 32×18（基座 .switch 是 36×20 —— 此前三处尺寸不一，
+ * 本卡片内收敛到单一规格；knob 14px、行程 14px）。 */
 .notif-switch {
   flex-shrink: 0;
+}
+.notif-switch .track {
+  width: 32px;
+  height: 18px;
+}
+.notif-switch .track::after {
+  width: 14px;
+  height: 14px;
+}
+.notif-switch input:checked ~ .track::after {
+  transform: translateX(14px);
 }
 
 /* ─── Action row ─────────────────────────────────────────────── */

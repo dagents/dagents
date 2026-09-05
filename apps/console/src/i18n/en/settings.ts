@@ -358,4 +358,13 @@ export const settings: Record<string, string> = {
   '桌面通知未授权 — 本次仅播放声音': 'Desktop notifications not granted — playing sound only',
   '已加载 {n} 条': '{n} loaded',
   'CLI 检测失败：{error} — 表内「未安装」状态不可信': 'CLI detection failed: {error} — “not installed” in the table is unreliable',
+
+  // ── 2026-09-04 像素级设计修复（PX-ST01/ST02）──
+  '未接入': 'not wired',
+  '显示密钥': 'Show API key',
+  '隐藏密钥': 'Hide API key',
+  '显示': 'Show',
+  '隐藏': 'Hide',
+  '测试中…': 'Testing…',
+  '连接成功 · {n} 个模型': 'Connected · {n} models',
 }

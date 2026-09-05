@@ -1,0 +1,132 @@
+/* settings.css — /settings 页面级覆盖（PX-ST01/ST02）.
+ *
+ * shell.css 提供基座（.settings-layout / .settings-tab / .field / .modal …）
+ * 但属全局基线（本页不可改）。本文件承载设置页的像素契约：
+ *   ST01 tab 壳 —— 左列 200px + 32px 间距；选中态 = 左 2px 紫条 + fg 文字
+ *        + surface-warm 底（导航语义，与 segmented 筛选语义二分）；未接入
+ *        tab 整体 40% 透明 + 11px「未接入」后缀。
+ *   ST02 LLM Provider 表单 —— 密钥显隐按钮固定输入框右缘内 8px（错误信息
+ *        出现不位移）；「测试连接」inline 结果（✓/✗ + 语义色 + spinner）。
+ *
+ * 约束：颜色/字号/圆角全走 token，无硬编码 hex。 */
+
+/* ─── ST01 布局与 tab 壳 ─────────────────────────────────────── */
+
+.settings-layout {
+  grid-template-columns: 200px 1fr;
+  gap: var(--space-8); /* 32px */
+}
+
+/* 选中态指示：左侧 2px 紫条（导航语义）。基座的 [aria-current] 选择器与
+ * 组件的 role=tab aria-selected 不匹配（选中态此前无任何指示），此处按
+ * aria-selected 落样式；2px 边框常驻（未选中 transparent）避免切换位移。 */
+.settings-nav .settings-tab {
+  border-left: 2px solid transparent;
+  border-radius: 0 var(--radius-xs) var(--radius-xs) 0;
+}
+.settings-nav .settings-tab[aria-selected="true"],
+.settings-nav .settings-tab[aria-selected="true"]:hover {
+  background: var(--surface-warm);
+  color: var(--fg);
+  border-left-color: var(--accent);
+}
+
+/* 未接入 tab：整体降权（40% 透明），hover 轻微回升保持可点性 */
+.settings-tab.settings-tab-stub { opacity: 0.4; }
+.settings-tab.settings-tab-stub:hover { opacity: 0.72; }
+.settings-tab-stub-note {
+  margin-left: var(--space-1);
+  font-size: var(--text-2xs);
+  font-weight: 400;
+  color: var(--meta);
+}
+
+/* ≤768px：shell 把 tab 列折叠成横向滚动行 —— 左紫条在横排里语义错位，
+ * 选中态收敛为 surface-warm 底 + fg 文字（全圆角），左条仅桌面竖排使用。 */
+@media (max-width: 768px) {
+  .settings-nav .settings-tab {
+    border-left: 0;
+    border-radius: var(--radius-sm);
+  }
+  .settings-nav .settings-tab[aria-selected="true"],
+  .settings-nav .settings-tab[aria-selected="true"]:hover {
+    border-left-color: transparent;
+  }
+}
+
+/* ─── ST02 密钥输入：显隐按钮 ────────────────────────────────── */
+
+/* 按钮绝对定位在输入框右缘内 8px —— 字段下方错误信息出现/消失时
+ * （.field-error 由 .invalid 控制显隐）按钮零位移。 */
+.api-key-input {
+  position: relative;
+}
+.api-key-input .input {
+  width: 100%;
+  padding-right: 62px;
+}
+.api-key-toggle {
+  position: absolute;
+  right: 8px;
+  top: 50%;
+  transform: translateY(-50%);
+  display: inline-flex;
+  align-items: center;
+  gap: 4px;
+  height: 22px;
+  padding: 0 6px;
+  border: 0;
+  border-radius: var(--radius-xs);
+  background: transparent;
+  color: var(--meta);
+  font-size: var(--text-2xs);
+  cursor: pointer;
+  transition: color var(--motion-fast), background var(--motion-fast);
+}
+.api-key-toggle:hover {
+  color: var(--fg);
+  background: var(--surface);
+}
+.api-key-toggle:focus-visible {
+  outline: none;
+  box-shadow: var(--focus-ring);
+}
+.api-key-toggle svg {
+  width: 14px;
+  height: 14px;
+}
+
+/* ─── ST02 测试连接 inline 结果 ─────────────────────────────── */
+
+/* 表格操作列内、按钮行下方右对齐的结果行：✓ success / ✗ danger，
+ * 测试期间 loader spinner + 文案。 */
+.tk-test-result {
+  display: flex;
+  align-items: center;
+  justify-content: flex-end;
+  gap: 4px;
+  margin-top: 4px;
+  max-width: 220px;
+  font-size: var(--text-2xs);
+  line-height: 1.4;
+}
+.tk-test-result.ok { color: var(--success); }
+.tk-test-result.err { color: var(--danger); }
+.tk-test-result .msg {
+  min-width: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+.tk-test-result svg {
+  flex-shrink: 0;
+}
+
+/* spinner —— loader 图标旋转（测试中/加载中通用，页面级作用域） */
+.settings-section .icon-spin {
+  display: inline-flex;
+  animation: settings-icon-spin 1s linear infinite;
+}
+@keyframes settings-icon-spin {
+  to { transform: rotate(360deg); }
+}

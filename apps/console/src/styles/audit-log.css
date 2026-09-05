@@ -79,7 +79,7 @@
   font-size: var(--text-sm);
 }
 .audit-table thead th {
-  font-size: 11px;
+  font-size: var(--text-2xs);
 }
 
 /* ─── 操作者单元格 ───────────────────────────────────────────── */
@@ -119,17 +119,19 @@
 /* ─── 动作徽章 ───────────────────────────────────────────────── */
 
 .audit-cell-action {
-  /* 动作单元格：徽章 + 动作全名堆叠 */
+  /* 动作单元格：动词 + 动作全名堆叠 */
 }
 .audit-badge {
+  /* PX-ST03：动词统一 fg 色、无底色 —— 审计表密度高，彩色徽章成「彩点阵」；
+     仅删除/危险类保留 danger 色。 */
   display: inline-flex;
   align-items: center;
-  font-size: 10px;
+  font-size: var(--text-xs);
   font-weight: 500;
-  padding: 1px 8px;
-  border-radius: var(--radius-pill);
-  letter-spacing: var(--tracking-label);
+  padding: 0;
+  border-radius: 0;
   margin-bottom: 2px;
+  color: var(--fg);
 }
 .audit-action-name {
   display: block;
@@ -141,22 +143,14 @@
   max-width: 160px;
 }
 
-/* 配色 by tone —— 全部用 token，soft 背景 + 实色前景 */
-.audit-badge-create {
-  background: var(--success-soft);
-  color: var(--success);
-}
-.audit-badge-update {
-  background: var(--info-soft);
-  color: var(--info);
+/* 仅删除/危险类着色（revoke/remove 同级） */
+.audit-badge-create,
+.audit-badge-update,
+.audit-badge-default {
+  color: var(--fg);
 }
 .audit-badge-delete {
-  background: var(--danger-soft);
   color: var(--danger);
-}
-.audit-badge-default {
-  background: var(--surface);
-  color: var(--muted);
 }
 
 /* ─── 目标单元格 ─────────────────────────────────────────────── */
@@ -413,7 +407,7 @@
 @media (max-width: 420px) {
   .audit-table tbody td::before {
     width: 52px;
-    font-size: 10px;
+    font-size: var(--text-2xs);
   }
   .audit-empty {
     padding: var(--space-8) var(--space-3);

@@ -31,10 +31,10 @@
 
 .skill-row-head {
   display: flex;
-  align-items: baseline;
-  gap: 12px;
+  flex-direction: column;
+  gap: 3px;
   width: 100%;
-  padding: 14px 6px;
+  padding: 12px 6px;
   border: none;
   background: none;
   text-align: left;
@@ -53,9 +53,16 @@
   border-radius: var(--radius-sm);
 }
 
+/* PX-S01 卡统一结构：标题行（名称 + 来源 chip 右浮） */
+.skill-title-row {
+  display: flex;
+  align-items: center;
+  gap: var(--space-2);
+  min-width: 0;
+}
+
 .skill-chev {
   flex-shrink: 0;
-  align-self: center;
   color: var(--meta);
   transition: transform var(--motion-fast) var(--ease-standard);
 }
@@ -73,23 +80,41 @@
 
 .skill-name {
   font-family: var(--font-mono);
-  font-size: 13px;
+  font-size: var(--text-sm);
+  font-weight: 600;
   color: var(--fg);
   flex-shrink: 0;
 }
 
+/* 描述：2 行截断 + 右下 24px 线性渐隐（渐隐只在文本溢出区可见，
+   短文本时渐隐落在空白上不可见）。左缘与标题文字对齐（chevron 槽 22px）。 */
 .skill-desc {
-  font-size: 12px;
-  color: var(--muted);
+  position: relative;
+  display: -webkit-box;
+  -webkit-box-orient: vertical;
+  -webkit-line-clamp: 2;
   overflow: hidden;
-  text-overflow: ellipsis;
-  white-space: nowrap;
-  min-width: 0;
+  padding-left: 22px;
+  padding-right: 24px;
+  font-size: var(--text-xs);
+  color: var(--muted);
+  line-height: 1.6;
+}
+.skill-desc::after {
+  content: "";
+  position: absolute;
+  right: 0;
+  bottom: 0;
+  width: 24px;
+  height: 1.2em;
+  background: linear-gradient(90deg, transparent, var(--bg));
+  pointer-events: none;
 }
 
 .skill-source {
+  margin-left: auto;
   flex-shrink: 0;
-  font-size: 11px;
+  font-size: var(--text-2xs);
   color: var(--meta);
   border: 1px solid var(--border);
   border-radius: var(--radius-pill, 999px);
@@ -105,7 +130,7 @@
 }
 
 .skill-detail-meta {
-  font-size: 11px;
+  font-size: var(--text-2xs);
   color: var(--meta);
   font-family: var(--font-mono);
   word-break: break-all;
@@ -128,7 +153,7 @@
   border-radius: var(--radius-md);
   background: color-mix(in srgb, var(--fg) 2%, var(--bg));
   font-family: var(--font-mono);
-  font-size: 12px;
+  font-size: var(--text-xs);
   line-height: 1.6;
   color: var(--fg);
   white-space: pre-wrap;
@@ -136,7 +161,7 @@
 }
 
 .skill-detail-error {
-  font-size: 12px;
+  font-size: var(--text-xs);
   color: var(--danger);
 }
 
@@ -147,7 +172,7 @@
   display: flex;
   flex-direction: column;
   gap: 4px;
-  font-size: 11px;
+  font-size: var(--text-2xs);
   color: var(--meta);
 }
 
@@ -156,27 +181,37 @@
 }
 
 .skills-error {
-  padding: 12px 16px;
-  border: 1px solid var(--danger);
-  border-radius: var(--radius-md);
+  padding: var(--space-3) var(--space-4);
+  border: 1px solid color-mix(in srgb, var(--danger) 25%, transparent);
+  background: var(--danger-soft);
+  border-radius: var(--radius-sm);
   color: var(--danger);
-  font-size: 13px;
+  font-size: var(--text-sm);
   margin-bottom: var(--space-4);
 }
 
+/* 空态走 shell 的 .empty-state 共享样式；此处只覆盖页面级差异：
+   描述行更紧凑（xs）+ 引导宽度 + 多行描述的行距。 */
 .skills-empty {
-  display: flex;
-  flex-direction: column;
-  align-items: center;
-  gap: 8px;
-  padding: var(--space-8) var(--space-4);
-  text-align: center;
+  gap: var(--space-2);
+}
+.skills-empty .d {
+  font-size: var(--text-xs);
+  color: var(--muted);
+  max-width: 480px;
+  line-height: 1.7;
 }
 
 .skills-empty .h {
-  font-size: 14px;
-  font-weight: 600;
-  color: var(--fg);
+  font-size: var(--text-md);
+}
+
+.skills-empty code {
+  font-family: var(--font-mono);
+  font-size: var(--text-2xs);
+  background: color-mix(in srgb, var(--fg) 5%, transparent);
+  padding: 1px 5px;
+  border-radius: var(--radius-xs);
 }
 
 /* ─── 自定义目录：直接输入加载 ────────────────────────────────
@@ -218,7 +253,7 @@
 
 .skills-add-error {
   width: 100%;
-  font-size: 12px;
+  font-size: var(--text-xs);
   color: var(--danger);
   text-align: left;
 }
@@ -236,7 +271,7 @@
   width: 18px;
   height: 18px;
   border: 0;
-  border-radius: 5px;
+  border-radius: var(--radius-xs);
   background: transparent;
   color: var(--meta);
   cursor: pointer;
@@ -253,36 +288,12 @@
   height: 11px;
 }
 
-.skills-add-trigger {
-  align-self: flex-start;
-  border: 0;
-  background: transparent;
-  padding: 0;
-  font-size: 11px;
-  color: var(--meta);
-  cursor: pointer;
-  transition: color var(--motion-fast);
+/* PX-S01：「添加目录」工具栏按钮展开的输入行 */
+.skills-add-row {
+  display: flex;
+  margin-bottom: var(--space-4);
 }
 
-.skills-add-trigger:hover {
-  color: var(--accent-hover);
-}
-
-.skills-footer .skills-add-dir {
-  max-width: 420px;
-}
-
-.skills-empty .d {
-  font-size: 12px;
-  color: var(--muted);
+.skills-add-row .skills-add-dir {
   max-width: 480px;
-  line-height: 1.7;
-}
-
-.skills-empty code {
-  font-family: var(--font-mono);
-  font-size: 11px;
-  background: color-mix(in srgb, var(--fg) 5%, transparent);
-  padding: 1px 5px;
-  border-radius: 4px;
 }

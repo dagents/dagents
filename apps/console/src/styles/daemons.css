@@ -194,25 +194,8 @@
   text-overflow: ellipsis;
   white-space: nowrap;
 }
-.daemon-badge {
-  font-size: 10px;
-  padding: 1px 8px;
-  border-radius: var(--radius-pill);
-  font-weight: 500;
-  flex-shrink: 0;
-}
-.daemon-badge-online {
-  background: var(--accent-soft);
-  color: var(--accent);
-}
-.daemon-badge-offline {
-  background: var(--surface);
-  color: var(--meta);
-}
-.daemon-badge-draining {
-  background: var(--warn-soft, rgba(234, 179, 8, 0.12));
-  color: var(--warn);
-}
+/* PX-D01：状态降为「点+词」—— 卡片头部状态走 shell 的 .status 家族
+   （online/offline/draining），不再有彩色底徽章。 */
 
 .daemon-card-meta {
   display: flex;
@@ -223,7 +206,7 @@
   flex-wrap: wrap;
 }
 .daemon-cap {
-  font-size: 10px;
+  font-size: var(--text-2xs);
   padding: 1px 6px;
   border-radius: var(--radius-pill);
   background: var(--surface);
@@ -232,11 +215,11 @@
 }
 .daemon-card-id {
   color: var(--meta);
-  font-size: 10px;
+  font-size: var(--text-2xs);
 }
 .daemon-card-endpoint {
   color: var(--meta);
-  font-size: 10px;
+  font-size: var(--text-2xs);
   overflow: hidden;
   text-overflow: ellipsis;
   white-space: nowrap;
@@ -261,7 +244,7 @@
   width: 24px;
   height: 24px;
   border: none;
-  border-radius: 4px;
+  border-radius: var(--radius-xs);
   background: transparent;
   color: var(--meta);
   cursor: pointer;
@@ -278,7 +261,7 @@
 .daemon-delete-overlay {
   position: fixed;
   inset: 0;
-  background: rgba(0, 0, 0, 0.4);
+  background: rgba(13, 13, 13, 0.45);
   display: flex;
   align-items: center;
   justify-content: center;
@@ -287,7 +270,7 @@
 .daemon-delete-dialog {
   background: var(--bg);
   border: 1px solid var(--border);
-  border-radius: 12px;
+  border-radius: var(--radius-md);
   padding: var(--space-5);
   max-width: 360px;
   width: 90%;
@@ -351,11 +334,18 @@
   border: 1px solid var(--border);
   border-radius: var(--radius-sm);
   padding: 4px 10px;
-  color: var(--accent-1);
+  color: var(--prose-code-fg);
   user-select: all;
 }
 .daemons-error {
-  padding: var(--space-3);
+  /* PX-D01：大面积色底只留给错误横幅 —— soft 底 + danger 字 */
+  display: flex;
+  align-items: center;
+  gap: var(--space-3);
+  padding: var(--space-3) var(--space-4);
+  background: var(--danger-soft);
+  border: 1px solid color-mix(in srgb, var(--danger) 25%, transparent);
+  border-radius: var(--radius-sm);
   color: var(--danger);
   font-size: var(--text-sm);
 }
@@ -409,7 +399,7 @@
 }
 .daemons-count {
   margin-left: auto;
-  font-size: 10px;
+  font-size: var(--text-2xs);
   color: var(--meta);
   background: var(--surface);
   padding: 1px 6px;
@@ -461,7 +451,7 @@
   white-space: nowrap;
 }
 .task-priority {
-  font-size: 10px;
+  font-size: var(--text-2xs);
   color: var(--meta);
   background: var(--surface);
   padding: 1px 5px;
@@ -477,7 +467,7 @@
 .task-card-meta {
   display: flex;
   justify-content: space-between;
-  font-size: 10px;
+  font-size: var(--text-2xs);
   color: var(--meta);
 }
 
@@ -514,15 +504,7 @@
   color: var(--fg);
   font-weight: 500;
 }
-.detail-status {
-  font-size: 10px;
-  color: var(--muted);
-  background: var(--surface);
-  padding: 2px 8px;
-  border-radius: var(--radius-pill);
-}
-.detail-status.running { color: var(--accent); }
-.detail-status.failed { color: var(--danger); }
+/* 任务状态同样走 .status 点+词（PX-D01），旧 .detail-status 徽章已删 */
 .detail-type {
   font-size: var(--text-xs);
   color: var(--meta);
@@ -538,7 +520,7 @@
 .detail-section-head {
   padding-bottom: var(--space-2);
   margin-bottom: var(--space-3);
-  font-size: 11px;
+  font-size: var(--text-2xs);
   color: var(--meta);
   letter-spacing: var(--tracking-label);
   text-transform: uppercase;
@@ -616,20 +598,70 @@
   color: var(--fg-2);
 }
 
-/* logs */
+/* logs — PX-D02 任务事件流：结构化行替代整块 <pre>。
+   时间列固定 72px 右对齐 tabular-nums（mono），所有行文本起点对齐一条竖线；
+   错误行前置 12px ⚠ danger 图标；连续同类事件由渲染层折叠（…重复 N 次）。 */
 .detail-logs {
   background: var(--surface-warm);
   border: 1px solid var(--border-soft);
   border-radius: var(--radius-sm);
 }
-.detail-logs-body {
+.evt-list {
+  display: flex;
+  flex-direction: column;
+  gap: 2px;
   padding: var(--space-3);
-  font-family: var(--font-mono);
   font-size: var(--text-xs);
+}
+.evt-row {
+  display: flex;
+  align-items: baseline;
+  gap: var(--space-2);
+  min-width: 0;
   color: var(--fg-2);
-  white-space: pre-wrap;
+  font-family: var(--font-mono);
   line-height: 1.6;
-  margin: 0;
+}
+.evt-time {
+  flex: 0 0 72px;
+  width: 72px;
+  text-align: right;
+  color: var(--meta);
+  font-variant-numeric: tabular-nums;
+  white-space: nowrap;
+}
+.evt-warn-slot {
+  /* 常驻 12px 槽 —— 错误行放 ⚠，其余行留空，正文列不漂移 */
+  flex: 0 0 12px;
+  display: inline-flex;
+  align-self: center;
+}
+.evt-warn {
+  color: var(--danger);
+}
+.evt-kind {
+  /* 固定 kind 列宽 —— 消息正文起点对齐一条竖线（kind 词长不等不漂移） */
+  flex: 0 0 84px;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+  color: var(--muted);
+}
+.evt-msg {
+  flex: 1;
+  min-width: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+.evt-row.evt-error,
+.evt-row.evt-error .evt-kind {
+  color: var(--danger);
+}
+.evt-repeat {
+  flex-shrink: 0;
+  color: var(--meta);
+  font-size: var(--text-2xs);
 }
 
 /* ─── detail empty state (no task selected) ─── */
@@ -653,7 +685,7 @@
   display: flex;
   align-items: center;
   justify-content: center;
-  background: rgba(0, 0, 0, 0.4);
+  background: rgba(13, 13, 13, 0.45);
   backdrop-filter: blur(2px);
 }
 
@@ -744,7 +776,7 @@
   background: var(--surface-warm);
   color: var(--muted);
   cursor: pointer;
-  transition: all var(--motion-fast);
+  transition: background-color var(--motion-fast), border-color var(--motion-fast), color var(--motion-fast);
 }
 .daemon-dialog-chip:hover {
   border-color: var(--border);
@@ -783,7 +815,7 @@
   border: 1px solid var(--border);
   border-radius: var(--radius-sm);
   padding: 8px 12px;
-  color: var(--accent-1);
+  color: var(--prose-code-fg);
   user-select: all;
   overflow-x: auto;
   white-space: nowrap;
@@ -799,7 +831,8 @@
   font-size: var(--text-sm);
   color: var(--danger);
   padding: 8px 12px;
-  background: rgba(239, 68, 68, 0.08);
+  background: var(--danger-soft);
+  border: 1px solid color-mix(in srgb, var(--danger) 25%, transparent);
   border-radius: var(--radius-sm);
 }
 
@@ -813,13 +846,13 @@
 
 /* 方案 E：core 适配器徽标（与名称同行，主色调弱化） */
 .local-cli-core-badge {
-  font-size: 10px;
+  font-size: var(--text-2xs);
   line-height: 1;
   padding: 3px 7px;
-  border-radius: 999px;
+  border-radius: var(--radius-pill);
   font-weight: 600;
-  background: color-mix(in srgb, var(--accent, #10b981) 20%, transparent);
-  color: var(--accent, #10b981);
-  border: 1px solid color-mix(in srgb, var(--accent, #10b981) 45%, transparent);
+  background: color-mix(in srgb, var(--accent, var(--success)) 20%, transparent);
+  color: var(--accent, var(--success));
+  border: 1px solid color-mix(in srgb, var(--accent, var(--success)) 45%, transparent);
   white-space: nowrap;
 }

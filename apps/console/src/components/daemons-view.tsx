@@ -25,7 +25,7 @@ import {
   type FleetStats,
 } from '@/lib/daemons'
 import { useI18n } from '@/i18n'
-import { timeAgo, formatClock } from '@/lib/format'
+import { timeAgo, formatClock, formatClockSeconds } from '@/lib/format'
 import '@/styles/daemons.css'
 
 // ─── local CLI runtimes (auto-detected) ──────────────────────────────
@@ -63,6 +63,14 @@ const DAEMON_STATUS_LABEL: Record<string, string> = {
   online: '在线',
   offline: '离线',
   draining: '排空中',
+}
+
+/** PX-D01：状态降为「点+词」—— 统一走 shell 的 .status 家族
+ *  （online/offline/draining 均有对应 dot 配色），去彩色底徽章。 */
+const DAEMON_STATUS_CLASS: Record<string, string> = {
+  online: 'online',
+  offline: 'offline',
+  draining: 'draining',
 }
 
 /** Base poll interval (ms) when healthy and tab visible. */
@@ -428,7 +436,8 @@ export function DaemonsView(): React.ReactElement {
               <div className="daemon-card-body">
                 <div className="daemon-card-head">
                   <span className="daemon-card-label">{d.label}</span>
-                  <span className={`daemon-badge daemon-badge-${d.status}`}>
+                  <span className={`status ${DAEMON_STATUS_CLASS[d.status] ?? 'idle'}`}>
+                    <span className="dot" />
                     {t(DAEMON_STATUS_LABEL[d.status] ?? d.status)}
                   </span>
                 </div>
@@ -564,6 +573,14 @@ const TASK_STATUS_LABEL: Record<string, string> = {
   failed: '失败',
 }
 
+/** shell .status 家族的类名映射（任务状态 → .status.*） */
+const TASK_STATUS_CLASS: Record<string, string> = {
+  running: 'running',
+  queued: 'queued',
+  done: 'done',
+  failed: 'failed',
+}
+
 // ─── task events (real, from dispatch_task_events) ────────────────────
 
 /** One row of the gateway's GET /api/v1/dispatch/tasks/:id/events. */
@@ -589,6 +606,41 @@ function summarizeEventPayload(payload: unknown): string {
     text = String(payload)
   }
   return text.length > 200 ? `${text.slice(0, 200)}…` : text
+}
+
+// ─── PX-D02：任务事件流的结构化渲染 ─────────────────────────────
+// 旧版是整块 <pre> 文本（时间戳变长导致起点漂移、错误行无图标、重复行刷屏）。
+// 渲染层做两件事：连续同类（kind + 摘要一致）事件折叠为一行 +「…重复 N 次」；
+// 错误行（kind 含 err/fail）前置 12px ⚠ danger 图标。数据原样，仅展示折叠。
+
+/** 折叠后的一组连续同类事件。 */
+interface EventGroup {
+  /** 组内首条（kind + 摘要代表整组）。 */
+  ev: TaskEvent
+  /** 组内条数（≥2 时显示「…重复 N 次」）。 */
+  count: number
+  /** 组内最后一条的时间（时间列显示它，最近的活性可见）。 */
+  lastAt: string | null
+}
+
+/** 连续同类（kind + payload 摘要一致）事件折叠。 */
+function groupEvents(events: TaskEvent[]): EventGroup[] {
+  const groups: EventGroup[] = []
+  for (const ev of events) {
+    const prev = groups[groups.length - 1]
+    if (prev && prev.ev.kind === ev.kind && summarizeEventPayload(prev.ev.payload) === summarizeEventPayload(ev.payload)) {
+      prev.count += 1
+      prev.lastAt = ev.created_at
+    } else {
+      groups.push({ ev, count: 1, lastAt: ev.created_at })
+    }
+  }
+  return groups
+}
+
+/** 错误类事件判定：kind 含 err/fail（dispatch 事件流用 'error'/'failed'）。 */
+function isErrorEventKind(kind: string): boolean {
+  return /err|fail/i.test(kind)
 }
 
 function DaemonTasksView({
@@ -705,7 +757,8 @@ function DaemonTasksView({
         </button>
         <span className={`status-dot ${DAEMON_STATUS_DOT[daemon.status] ?? 'dot-done'}`} />
         <span className="daemon-detail-title">{daemon.label}</span>
-        <span className={`daemon-badge daemon-badge-${daemon.status}`}>
+        <span className={`status ${DAEMON_STATUS_CLASS[daemon.status] ?? 'idle'}`}>
+          <span className="dot" />
           {t(DAEMON_STATUS_LABEL[daemon.status] ?? daemon.status)}
         </span>
         <span className="daemon-card-id mono">{daemon.id.slice(0, 8)}</span>
@@ -829,7 +882,8 @@ function DaemonTasksView({
                 <div className="detail-head-left">
                   <span className={`status-dot ${TASK_STATUS_DOT[selectedTask.status] ?? ''}`} />
                   <span className="detail-id mono">{selectedTask.id.slice(0, 8)}</span>
-                  <span className={`detail-status ${selectedTask.status}`}>
+                  <span className={`status ${TASK_STATUS_CLASS[selectedTask.status] ?? 'idle'}`}>
+                    <span className="dot" />
                     {t(TASK_STATUS_LABEL[selectedTask.status] ?? selectedTask.status)}
                   </span>
                 </div>
@@ -890,11 +944,36 @@ function DaemonTasksView({
                       <span className="daemons-empty-title">{t('暂无事件记录')}</span>
                     </div>
                   ) : (
-                    <pre className="detail-logs-body">
-{taskEvents
-  .map((ev) => `[${ev.seq}] ${ev.kind} ${summarizeEventPayload(ev.payload)}`)
-  .join('\n')}
-                    </pre>
+                    /* PX-D02：时间列固定 72px 右对齐 tabular（mono）——
+                       50 条事件文本起点对齐一条竖线；错误行 ⚠ 图标；
+                       连续同类折叠「…重复 N 次」。 */
+                    <div className="evt-list" role="log">
+                      {groupEvents(taskEvents).map((g) => {
+                        const error = isErrorEventKind(g.ev.kind)
+                        return (
+                          <div
+                            key={g.ev.seq}
+                            className={`evt-row${error ? ' evt-error' : ''}`}
+                            title={g.count > 1 ? t('连续 {n} 条同类事件已折叠', { n: g.count }) : undefined}
+                          >
+                            <span className="evt-time mono">
+                              {g.lastAt ? formatClockSeconds(g.lastAt) : '—'}
+                            </span>
+                            {/* 槽位常驻（非错误行留空 12px）—— 消息正文起点全行对齐 */}
+                            <span className="evt-warn-slot">
+                              {error ? (
+                                <Icon name="alertTriangle" className="evt-warn" style={{ width: 12, height: 12 }} />
+                              ) : null}
+                            </span>
+                            <span className="evt-kind mono">{g.ev.kind}</span>
+                            <span className="evt-msg">{summarizeEventPayload(g.ev.payload)}</span>
+                            {g.count > 1 ? (
+                              <span className="evt-repeat">…{t('重复 {n} 次', { n: g.count })}</span>
+                            ) : null}
+                          </div>
+                        )
+                      })}
+                    </div>
                   )}
                 </div>
               </div>

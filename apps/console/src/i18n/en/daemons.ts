@@ -115,4 +115,8 @@ export const daemons: Record<string, string> = {
   '腾讯 CodeBuddy（Claude fork）': 'Tencent CodeBuddy (Claude fork)',
   '华为鸿蒙编码助手': 'Huawei HarmonyOS coding assistant',
   '字节 TRAE CLI': 'ByteDance TRAE CLI',
+
+  // ── 2026-09-04 像素级设计修复（PX-D02 任务事件流折叠）──
+  '重复 {n} 次': 'repeated {n}×',
+  '连续 {n} 条同类事件已折叠': '{n} consecutive identical events collapsed',
 }

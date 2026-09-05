@@ -175,7 +175,7 @@ export function NotificationSettings(): React.ReactElement {
         {permission === 'default' ? (
           <button
             type="button"
-            className="btn btn-accent btn-sm notif-perm-request"
+            className="btn btn-primary btn-sm notif-perm-request"
             onClick={() => void handleRequestPermission()}
           >
             {t('请求通知权限')}

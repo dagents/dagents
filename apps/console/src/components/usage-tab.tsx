@@ -18,6 +18,7 @@ import { Icon } from '@/components/icon'
 import { SkeletonList } from '@/components/skeleton'
 import { useI18n } from '@/i18n'
 import {
+  type UsageByDay,
   type UsageSummary,
   fetchUsageSummary,
   formatTokens,
@@ -26,6 +27,30 @@ import {
 } from '@/lib/usage-summary'
 
 const RANGE_OPTIONS = [7, 30, 90] as const
+
+/**
+ * PX-ST04：把 formatTokens/formatUsd 的产物拆成「数值 + 单位」两段
+ * （"12.3k" → ["12.3","k"]；"$1.23"/"<$0.01"/"—" 无尾随单位）——
+ * 单位以 11px meta 挂尾，主数字保持大字号 + tabular-nums。
+ */
+function splitUnit(formatted: string): [value: string, unit: string] {
+  const m = /^(.*?)(k|M)$/.exec(formatted)
+  return m ? [m[1], m[2]] : [formatted, '']
+}
+
+/** 数字单元格的公共度量：mono + tabular-nums + 右对齐（px 值挂尾）。 */
+const numCellStyle: React.CSSProperties = {
+  textAlign: 'right',
+  fontVariantNumeric: 'tabular-nums',
+}
+
+/** 单位后缀 —— 11px meta，随数字尾部。 */
+function UnitSuffix({ unit }: { unit: string }): React.ReactElement | null {
+  if (!unit) return null
+  return (
+    <span style={{ fontSize: 'var(--text-2xs)', color: 'var(--meta)', marginLeft: 2 }}>{unit}</span>
+  )
+}
 
 export function UsageTab(props: { label: string }): React.ReactElement {
   const { t } = useI18n()
@@ -60,7 +85,7 @@ export function UsageTab(props: { label: string }): React.ReactElement {
       <div className="row-between mb-4">
         <div>
           <div className="card-title" style={{ fontSize: 'var(--text-lg)' }}>{t(heading)}</div>
-          <div className="muted mt-2" style={{ fontSize: 13 }}>
+          <div className="muted mt-2" style={{ fontSize: 'var(--text-sm)' }}>
             {t('按实测 token 用量与模型单价汇总的成本账单。数据自埋点上线起累计，历史执行不回填。')}
           </div>
         </div>
@@ -98,9 +123,9 @@ export function UsageTab(props: { label: string }): React.ReactElement {
             padding: '10px 14px',
             marginBottom: 16,
             border: '1px solid var(--danger-soft)',
-            borderRadius: 8,
+            borderRadius: 'var(--radius-sm)',
             color: 'var(--danger)',
-            fontSize: 13,
+            fontSize: 'var(--text-sm)',
           }}
         >
           {t('加载失败：{error}', { error })}
@@ -120,12 +145,13 @@ export function UsageTab(props: { label: string }): React.ReactElement {
         </div>
       ) : (
         <div style={loading ? { opacity: 0.55, transition: 'opacity .15s', pointerEvents: 'none' } : { transition: 'opacity .15s' }}>
-          {/* 总览卡 */}
+          {/* 总览卡（成本卡带 7d mini bar —— 纯 CSS 高度比例） */}
           <div className="usage-cards">
             <UsageCard
               label={t('成本')}
               value={formatUsd(summary?.totals.cost)}
               hint={t('已计价事件的成本合计')}
+              mini={<UsageMiniBars byDay={summary?.byDay ?? []} />}
             />
             <UsageCard
               label={t('Token 用量')}
@@ -186,22 +212,27 @@ export function UsageTab(props: { label: string }): React.ReactElement {
                 </thead>
                 <tbody>
                   {summary && summary.byAgent.length > 0 ? (
-                    summary.byAgent.map((a) => (
-                      <tr key={a.agentId ?? a.agentName}>
-                        <td>
-                          <span className="nm">{a.agentName ?? t('（已删除）')}</span>
-                        </td>
-                        <td className="mono" style={{ textAlign: 'right' }}>{formatUsd(a.cost)}</td>
-                        <td className="mono" style={{ textAlign: 'right' }}>{formatTokens(a.tokens)}</td>
-                        <td style={{ textAlign: 'right' }}>
-                          {a.priced ? (
-                            <span className="chip chip-outline" style={{ fontSize: 11 }}>{t('已计价')}</span>
-                          ) : (
-                            <span className="chip chip-outline" style={{ fontSize: 11 }}>{t('含未计价')}</span>
-                          )}
-                        </td>
-                      </tr>
-                    ))
+                    summary.byAgent.map((a) => {
+                      const [tokVal, tokUnit] = splitUnit(formatTokens(a.tokens))
+                      return (
+                        <tr key={a.agentId ?? a.agentName}>
+                          <td>
+                            <span className="nm">{a.agentName ?? t('（已删除）')}</span>
+                          </td>
+                          <td className="mono" style={numCellStyle}>{formatUsd(a.cost)}</td>
+                          <td className="mono" style={numCellStyle}>
+                            {tokVal}<UnitSuffix unit={tokUnit} />
+                          </td>
+                          <td style={{ textAlign: 'right' }}>
+                            {a.priced ? (
+                              <span className="chip chip-outline" style={{ fontSize: 'var(--text-2xs)' }}>{t('已计价')}</span>
+                            ) : (
+                              <span className="chip chip-outline" style={{ fontSize: 'var(--text-2xs)' }}>{t('含未计价')}</span>
+                            )}
+                          </td>
+                        </tr>
+                      )
+                    })
                   ) : (
                     <tr>
                       <td colSpan={4} className="tc muted" style={{ padding: 'var(--space-12)' }}>
@@ -230,15 +261,20 @@ export function UsageTab(props: { label: string }): React.ReactElement {
                 </thead>
                 <tbody>
                   {summary && summary.byFlow.length > 0 ? (
-                    summary.byFlow.map((f) => (
-                      <tr key={f.flowId ?? f.flowName}>
-                        <td>
-                          <span className="nm">{f.flowName ?? t('（已删除）')}</span>
-                        </td>
-                        <td className="mono" style={{ textAlign: 'right' }}>{formatUsd(f.cost)}</td>
-                        <td className="mono" style={{ textAlign: 'right' }}>{formatTokens(f.tokens)}</td>
-                      </tr>
-                    ))
+                    summary.byFlow.map((f) => {
+                      const [tokVal, tokUnit] = splitUnit(formatTokens(f.tokens))
+                      return (
+                        <tr key={f.flowId ?? f.flowName}>
+                          <td>
+                            <span className="nm">{f.flowName ?? t('（已删除）')}</span>
+                          </td>
+                          <td className="mono" style={numCellStyle}>{formatUsd(f.cost)}</td>
+                          <td className="mono" style={numCellStyle}>
+                            {tokVal}<UnitSuffix unit={tokUnit} />
+                          </td>
+                        </tr>
+                      )
+                    })
                   ) : (
                     <tr>
                       <td colSpan={3} className="tc muted" style={{ padding: 'var(--space-12)' }}>
@@ -251,7 +287,7 @@ export function UsageTab(props: { label: string }): React.ReactElement {
             </div>
           </div>
 
-          <p className="muted mt-3" style={{ fontSize: 12, lineHeight: 1.6 }}>
+          <p className="muted mt-3" style={{ fontSize: 'var(--text-xs)', lineHeight: 1.6 }}>
             {t('成本 = 实测 token × 模型单价（内置参考价可用环境变量 DAGENTS_PRICE_OVERRIDES 校正）。单价未知的模型只记 token，不计成本。')}
           </p>
         </div>
@@ -268,23 +304,67 @@ function UsageCard(props: {
   /** Numeric zero (the formatted string '$0.00' never matched the old
    *  string check — 0 unpriced tokens still lit the warn color). */
   zero?: boolean
+  /** Optional trailing visual (7d mini bar on the cost card). */
+  mini?: React.ReactNode
 }): React.ReactElement {
   const isZero = props.zero === true || props.value === '—'
+  const [value, unit] = splitUnit(props.value)
   return (
     <div className="card usage-card">
-      <div className="muted" style={{ fontSize: 12 }}>{props.label}</div>
+      <div className="muted" style={{ fontSize: 'var(--text-xs)' }}>{props.label}</div>
       <div
         className="mono"
         style={{
-          fontSize: 22,
+          fontSize: 'var(--text-xl)',
           fontWeight: 600,
           marginTop: 6,
           color: props.warn && !isZero ? 'var(--warn)' : undefined,
+          fontVariantNumeric: 'tabular-nums',
+          lineHeight: 1.2,
         }}
       >
-        {props.value}
+        {value}<UnitSuffix unit={unit} />
       </div>
-      <div className="meta" style={{ fontSize: 11, marginTop: 4 }}>{props.hint}</div>
+      {props.mini}
+      <div className="meta" style={{ fontSize: 'var(--text-2xs)', marginTop: 4 }}>{props.hint}</div>
+    </div>
+  )
+}
+
+/**
+ * 7d mini bar（PX-ST04）—— 纯 CSS div 高度比例（max 日成本 → 100%），
+ * 不引图表库。空数据（byDay 为空）不塌陷：返回 null，卡片高度由其余行撑住。
+ */
+function UsageMiniBars({ byDay }: { byDay: UsageByDay[] }): React.ReactElement | null {
+  const days = byDay.slice(-7)
+  if (days.length === 0) return null
+  const max = Math.max(...days.map((d) => d.cost), 0)
+  return (
+    <div
+      aria-hidden="true"
+      style={{
+        display: 'flex',
+        alignItems: 'flex-end',
+        gap: 3,
+        height: 28,
+        marginTop: 8,
+      }}
+    >
+      {days.map((d) => {
+        const pct = max > 0 ? Math.round((d.cost / max) * 100) : 0
+        return (
+          <span
+            key={d.date}
+            style={{
+              flex: 1,
+              minWidth: 4,
+              height: pct > 0 ? `${Math.max(pct, 6)}%` : 2,
+              background: pct > 0 ? 'var(--accent)' : 'var(--border)',
+              borderRadius: 'var(--radius-xs)',
+            }}
+          />
+        )
+      })}
     </div>
   )
 }

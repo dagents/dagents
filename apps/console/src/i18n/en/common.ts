@@ -187,4 +187,7 @@ export const common = {
 '生成并进入画布': 'Generate & open canvas',
 '生成失败（HTTP {status}）': 'Generation failed (HTTP {status})',
 '未生成有效的流程节点，请换一种描述重试': 'No valid nodes generated — try another description',
+
+// ── 2026-09-04 像素级设计修复（PX-S01 技能库工具栏）──
+'添加目录': 'Add directory',
 } as const

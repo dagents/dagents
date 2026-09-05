@@ -179,7 +179,7 @@ export function AuditLog(): React.ReactElement {
       <div className="row-between mb-4 audit-log-head">
         <div>
           <div className="card-title" style={{ fontSize: 'var(--text-lg)' }}>{t('审计日志')}</div>
-          <div className="muted mt-2" style={{ fontSize: 13 }}>
+          <div className="muted mt-2" style={{ fontSize: 'var(--text-sm)' }}>
             {t('平台全部写操作的安全审计轨迹。记录操作者、动作、目标与来源 IP，便于追溯与合规排查。')}
           </div>
         </div>
@@ -418,7 +418,7 @@ function AuditSkeleton(): React.ReactElement {
                   <div className="skeleton skeleton-text" style={{ width: '60%' }} />
                 </div>
               </td>
-              <td><div className="skeleton" style={{ width: 40, height: 18, borderRadius: 'var(--radius-pill)' }} /></td>
+                  <td><div className="skeleton" style={{ width: 40, height: 14, borderRadius: 'var(--radius-xs)' }} /></td>
               <td><div className="skeleton skeleton-text" style={{ width: '70%' }} /></td>
               <td><div className="skeleton skeleton-text" style={{ width: '30%' }} /></td>
               <td><div className="skeleton skeleton-text" style={{ width: '60%' }} /></td>
