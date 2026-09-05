@@ -75,6 +75,11 @@ export const agents: Record<string, string> = {
   '运行趋势（30 天）': 'Run trend (30 days)',
   '30 天前': '30 days ago',
   今天: 'Today',
+  '30 天运行趋势，总 {total} 次，失败 {fail} 次':
+    '30-day run trend — {total} runs, {fail} failed',
+  '近 7 天 {n} 次运行 · 失败 {fail} 次': '{n} runs in the last 7 days · {fail} failed',
+  '{n} 天前': '{n} days ago',
+  '{day} · {n} 次': '{day} · {n} runs',
   最近活动: 'Recent activity',
   暂无活动: 'No activity yet',
   系统提示词: 'System prompt',
@@ -197,6 +202,8 @@ export const agents: Record<string, string> = {
   '库中已移除': 'Removed upstream',
   '从人格库启用': 'Persona library',
   '加载人格库失败：{error}': 'Failed to load persona library: {error}',
+  预览: 'Preview',
+  全部人格: 'All personas',
 
   // ── agent-library-gallery（团队场景） ──
   人格: 'Personas',
@@ -237,4 +244,6 @@ export const agents: Record<string, string> = {
   '按负载排序': 'Sort by load',
   'id “{id}” 不存在，可能已被删除。': 'id “{id}” does not exist — it may have been deleted.',
   '编辑 Agent': 'Edit agent',
+  '未保存的更改': 'Unsaved changes',
+  '有未保存的更改，确定离开？': 'You have unsaved changes. Leave anyway?',
 }

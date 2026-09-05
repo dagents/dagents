@@ -41,6 +41,10 @@ import '@/styles/agent-library.css'
  *  shared AGENT_KINDS catalog (previously a hardcoded lowercase list). */
 const RUNTIME_KINDS = ['claude', 'codex', 'copilot', 'qwen'] as const
 
+/** Quickstart division key (gateway quickstart-library root) — rendered as
+ *  its own section above the general grid (PX-A03 分区标题). */
+const QUICKSTART_DIVISION = 'quickstart'
+
 const PROFILE_LABELS: { key: PersonaProfile; zh: string }[] = [  { key: 'slim', zh: '均衡（推荐）' },
   { key: 'full', zh: '完整' },
   { key: 'minimal', zh: '精简' },
@@ -181,6 +185,23 @@ export function AgentLibraryGallery({
     (key: string): string => catalog?.divisions.find((d) => d.key === key)?.label ?? key,
     [catalog],
   )
+
+  /** PX-A03 sections — 快速开始 gets its own titled section on top; a picked
+   *  division renders one titled section; a search collapses to a single
+   *  untitled grid (result mode). */
+  const sections = useMemo(() => {
+    const searching = search.trim().length > 0
+    if (searching) return [{ key: '__results__', title: '', entries: visible }]
+    if (division !== 'all') {
+      return [{ key: division, title: divisionLabel(division), entries: visible }]
+    }
+    const quick = visible.filter((e) => e.division === QUICKSTART_DIVISION)
+    const rest = visible.filter((e) => e.division !== QUICKSTART_DIVISION)
+    const out: { key: string; title: string; entries: typeof visible }[] = []
+    if (quick.length > 0) out.push({ key: QUICKSTART_DIVISION, title: divisionLabel(QUICKSTART_DIVISION), entries: quick })
+    if (rest.length > 0) out.push({ key: '__all__', title: '全部人格', entries: rest })
+    return out
+  }, [visible, division, search, divisionLabel])
 
   if (!open) return null
 
@@ -574,31 +595,49 @@ export function AgentLibraryGallery({
               ) : visible.length === 0 ? (
                 <div className="atg-empty">{t('没有匹配的人格。')}</div>
               ) : (
-                <div className="atg-grid">
-                  {visible.map((entry) => {
-                    const d = driftById.get(entry.id)
-                    return (
-                      <button
-                        key={entry.id}
-                        type="button"
-                        className="atg-card alib-card"
-                        onClick={() => void openDetail(entry.id)}
-                        aria-label={t('查看人格 {name}', { name: entry.name })}
-                      >
-                        <div className="atg-card-icon" aria-hidden="true">{entry.emoji ?? '🤖'}</div>
-                        <div className="atg-card-body">
-                          <div className="atg-card-name">{entry.name}</div>
-                          <div className="atg-card-desc">{entry.description}</div>
-                        </div>
-                        {d ? (
-                          <span className={`alib-badge alib-badge-${d.state}`}>{t(DRIFT_BADGES[d.state] ?? d.state)}</span>
-                        ) : (
-                          <span className="alib-card-size">{formatBytes(entry.sizeBytes)}</span>
-                        )}
-                      </button>
-                    )
-                  })}
-                </div>
+                sections.map((section) => (
+                  <div key={section.key} className="alib-section">
+                    {section.title ? <div className="alib-section-title">{t(section.title)}</div> : null}
+                    <div className="atg-grid">
+                      {section.entries.map((entry) => {
+                        const d = driftById.get(entry.id)
+                        return (
+                          <div
+                            key={entry.id}
+                            className="atg-card alib-card"
+                            onClick={() => void openDetail(entry.id)}
+                          >
+                            <div className="atg-card-icon" aria-hidden="true">{entry.emoji ?? '🤖'}</div>
+                            <div className="atg-card-body">
+                              <div className="atg-card-name">{entry.name}</div>
+                              <div className="atg-card-desc">{entry.description}</div>
+                            </div>
+                            {/* 唯一主操作（启用/更新 = 墨色）；整卡可点开预览确认步，
+                                hover 时 meta 行才浮现「预览」提示（PX-A03）。 */}
+                            <div className="alib-card-side">
+                              {d ? (
+                                <span className={`alib-badge alib-badge-${d.state}`}>{t(DRIFT_BADGES[d.state] ?? d.state)}</span>
+                              ) : (
+                                <span className="alib-card-size">{formatBytes(entry.sizeBytes)}</span>
+                              )}
+                              <span className="alib-card-preview" aria-hidden="true">{t('预览')}</span>
+                              <button
+                                type="button"
+                                className="btn btn-primary btn-sm"
+                                onClick={(e) => {
+                                  e.stopPropagation()
+                                  void openDetail(entry.id)
+                                }}
+                              >
+                                {d ? t('重新导入') : t('启用')}
+                              </button>
+                            </div>
+                          </div>
+                        )
+                      })}
+                    </div>
+                  </div>
+                ))
               )}
               </>
               )}

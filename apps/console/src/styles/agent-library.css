@@ -1,21 +1,45 @@
 /**
- * agent-library.css — AgentLibraryGallery 的专属样式。
+ * agent-library.css — AgentLibraryGallery 的专属样式（PX-A03, 2026-09-04）.
  *
  * 复用 agent-templates.css 的 atg-dialog/modal 骨架与 atg-grid/atg-card
- * 卡片网格（该文件由组件一并 import）；这里只放库特有的：部门 chips、
- * drift 角标、确认步的 profile 单选组、空态挂载表单。
+ * 卡片网格（该文件由组件一并 import）；这里只放库特有的：分区标题、
+ * 部门 chips、卡右侧 drift 角标 + 主操作列、确认步的 profile 单选组、
+ * 空态挂载表单。
+ *
+ * 灰阶契约：卡内文字只有两档灰 —— muted（次级描述）/ meta（体积、提示、
+ * 子标签）；不再出现第三档灰或透明度变体。
  */
 
 .modal-dialog.alib-dialog {
   width: min(760px, calc(100vw - 48px));
 }
 
+/* ── 分区（快速开始 / 全部人格；选中部门时单分区）──
+   标题 12px/600 + 上方 24px + hairline（PX-A03）。 */
+.alib-section {
+  margin-top: var(--space-6); /* 24px */
+}
+.alib-section:first-child {
+  margin-top: 0;
+}
+.alib-section-title {
+  display: flex;
+  align-items: baseline;
+  gap: var(--space-2);
+  font-size: var(--text-xs); /* 12px/600 */
+  font-weight: 600;
+  color: var(--fg);
+  padding-bottom: var(--space-2);
+  border-bottom: 1px solid var(--border-soft); /* hairline */
+  margin-bottom: var(--space-3);
+}
+
 /* ── 顶栏：搜索 + 计数 ── */
 .alib-toolbar {
   display: flex;
   align-items: center;
-  gap: 12px;
-  margin-bottom: 10px;
+  gap: var(--space-3);
+  margin-bottom: var(--space-2);
 }
 
 .alib-search {
@@ -24,8 +48,8 @@
 }
 
 .alib-count {
-  color: var(--text-secondary, #888);
-  font-size: 12px;
+  color: var(--muted);
+  font-size: var(--text-xs);
   white-space: nowrap;
 }
 
@@ -34,7 +58,7 @@
   display: flex;
   flex-wrap: wrap;
   gap: 6px;
-  margin-bottom: 14px;
+  margin-bottom: var(--space-3);
 }
 
 .alib-chip {
@@ -42,106 +66,130 @@
   align-items: center;
   gap: 6px;
   padding: 4px 10px;
-  border-radius: 999px;
-  border: 1px solid var(--border, #333);
+  border-radius: var(--radius-pill);
+  border: 1px solid var(--border-strong);
   background: transparent;
-  color: var(--text-secondary, #aaa);
-  font-size: 12px;
+  color: var(--muted);
+  font-size: var(--text-xs);
   line-height: 1.4;
   cursor: pointer;
+  transition: color var(--motion-fast) var(--ease-standard),
+    border-color var(--motion-fast) var(--ease-standard),
+    background var(--motion-fast) var(--ease-standard);
 }
 
 .alib-chip:hover {
-  color: var(--text, #eee);
+  color: var(--fg);
 }
 
+/* 选中态 = 紫（指向色），仅描边+浅底，不上实底 */
 .alib-chip.active {
-  border-color: var(--accent, #6c8cff);
-  color: var(--text, #eee);
-  background: color-mix(in srgb, var(--accent, #6c8cff) 14%, transparent);
+  border-color: var(--accent);
+  color: var(--fg);
+  background: color-mix(in srgb, var(--accent) 10%, transparent);
 }
 
 .alib-chip-count {
-  font-size: 11px;
-  opacity: 0.7;
+  font-size: var(--text-2xs);
+  color: var(--meta);
 }
 
-/* ── 卡片右侧：体积 / drift 角标 ── */
+/* ── 卡片右列：drift 角标/体积（上） + 预览提示（hover） + 主操作（下） ──
+   每卡唯一主操作（启用/更新 = 墨色 btn）；预览整卡可点，hover 才浮现。 */
+.alib-card-side {
+  display: flex;
+  flex-direction: column;
+  align-items: flex-end;
+  justify-content: flex-end;
+  gap: var(--space-2);
+  flex-shrink: 0;
+}
+.alib-card-preview {
+  height: 16px;
+  font-size: var(--text-2xs);
+  color: var(--meta);
+  opacity: 0;
+  transition: opacity var(--motion-fast) var(--ease-standard);
+  white-space: nowrap;
+}
+.alib-card:hover .alib-card-preview,
+.alib-card:focus-within .alib-card-preview {
+  opacity: 1;
+}
+
 .alib-card-size {
-  align-self: flex-start;
-  font-size: 11px;
-  color: var(--text-secondary, #888);
+  font-size: var(--text-2xs);
+  color: var(--meta); /* 体积 = 第三层级 → meta 灰 */
   white-space: nowrap;
 }
 
 .alib-badge {
-  align-self: flex-start;
-  font-size: 11px;
+  font-size: var(--text-2xs);
   padding: 2px 8px;
-  border-radius: 999px;
+  border-radius: var(--radius-pill);
   white-space: nowrap;
   border: 1px solid transparent;
 }
 
 .alib-badge-up-to-date {
-  color: #4cc38a;
-  border-color: #4cc38a55;
-  background: #4cc38a14;
+  color: var(--success);
+  border-color: color-mix(in srgb, var(--success) 33%, transparent);
+  background: color-mix(in srgb, var(--success) 8%, transparent);
 }
 
 .alib-badge-upstream-updated {
-  color: #f5a623;
-  border-color: #f5a62355;
-  background: #f5a62314;
+  color: var(--warn);
+  border-color: color-mix(in srgb, var(--warn) 33%, transparent);
+  background: color-mix(in srgb, var(--warn) 8%, transparent);
 }
 
 .alib-badge-locally-modified {
-  color: #6c8cff;
-  border-color: #6c8cff55;
-  background: #6c8cff14;
+  color: var(--accent);
+  border-color: color-mix(in srgb, var(--accent) 33%, transparent);
+  background: color-mix(in srgb, var(--accent) 8%, transparent);
 }
 
 .alib-badge-diverged {
-  color: #e5484d;
-  border-color: #e5484d55;
-  background: #e5484d14;
+  color: var(--danger);
+  border-color: color-mix(in srgb, var(--danger) 33%, transparent);
+  background: color-mix(in srgb, var(--danger) 8%, transparent);
 }
 
 .alib-badge-missing-upstream {
-  color: var(--text-secondary, #888);
-  border-color: var(--border, #333);
+  color: var(--muted);
+  border-color: var(--border-strong);
 }
 
 /* ── 确认步 ── */
 .alib-confirm-head {
   display: flex;
-  gap: 12px;
+  gap: var(--space-3);
   align-items: flex-start;
-  margin-bottom: 14px;
+  margin-bottom: var(--space-3);
 }
 
 .alib-confirm-emoji {
-  font-size: 28px;
+  font-size: var(--text-2xl);
   line-height: 1;
 }
 
 .alib-confirm-name {
   font-weight: 600;
-  font-size: 15px;
+  font-size: var(--text-md);
 }
 
 .alib-confirm-desc {
-  color: var(--text-secondary, #aaa);
-  font-size: 13px;
-  margin-top: 4px;
+  color: var(--muted);
+  font-size: var(--text-sm);
+  margin-top: var(--space-1);
 }
 
 .alib-confirm-meta {
   display: flex;
   flex-wrap: wrap;
-  gap: 18px;
-  margin: 0 0 16px;
-  font-size: 12px;
+  gap: var(--space-4);
+  margin: 0 0 var(--space-4);
+  font-size: var(--text-xs);
 }
 
 .alib-confirm-meta div {
@@ -150,45 +198,45 @@
 }
 
 .alib-confirm-meta dt {
-  color: var(--text-secondary, #888);
+  color: var(--muted);
 }
 
 .alib-profile-fieldset {
-  border: 1px solid var(--border, #333);
-  border-radius: 8px;
-  padding: 12px;
+  border: 1px solid var(--border-strong);
+  border-radius: var(--radius-sm);
+  padding: var(--space-3);
 }
 
 .alib-profile-label {
-  font-size: 12px;
-  color: var(--text-secondary, #aaa);
-  margin-bottom: 10px;
+  font-size: var(--text-xs);
+  color: var(--muted);
+  margin-bottom: var(--space-2);
 }
 
 .alib-profile-options {
   display: flex;
   flex-direction: column;
-  gap: 8px;
+  gap: var(--space-2);
 }
 
 .alib-profile-option {
   display: flex;
   align-items: center;
-  gap: 10px;
-  padding: 8px 10px;
-  border: 1px solid var(--border, #333);
-  border-radius: 6px;
+  gap: var(--space-3);
+  padding: var(--space-2) var(--space-3);
+  border: 1px solid var(--border-strong);
+  border-radius: var(--radius-xs);
   cursor: pointer;
-  font-size: 13px;
+  font-size: var(--text-sm);
 }
 
 .alib-profile-option.active {
-  border-color: var(--accent, #6c8cff);
-  background: color-mix(in srgb, var(--accent, #6c8cff) 10%, transparent);
+  border-color: var(--accent);
+  background: color-mix(in srgb, var(--accent) 10%, transparent);
 }
 
 .alib-profile-option input {
-  accent-color: var(--accent, #6c8cff);
+  accent-color: var(--accent);
 }
 
 .alib-profile-name {
@@ -196,37 +244,37 @@
 }
 
 .alib-profile-chars {
-  font-size: 11px;
-  color: var(--text-secondary, #888);
+  font-size: var(--text-2xs);
+  color: var(--meta);
   font-variant-numeric: tabular-nums;
 }
 
 .alib-profile-hint {
-  margin-top: 10px;
-  font-size: 11px;
-  color: var(--text-secondary, #888);
+  margin-top: var(--space-2);
+  font-size: var(--text-2xs);
+  color: var(--meta);
 }
 
 /* ── 空态：挂载目录表单 ── */
 .alib-empty {
-  padding: 24px 8px;
+  padding: var(--space-6) var(--space-2);
   text-align: center;
 }
 
 .alib-empty-title {
   font-weight: 600;
-  margin-bottom: 8px;
+  margin-bottom: var(--space-2);
 }
 
 .alib-empty-hint {
-  color: var(--text-secondary, #aaa);
-  font-size: 12px;
-  margin-bottom: 14px;
+  color: var(--muted);
+  font-size: var(--text-xs);
+  margin-bottom: var(--space-3);
 }
 
 .alib-empty-form {
   display: flex;
-  gap: 8px;
+  gap: var(--space-2);
   justify-content: center;
 }
 
@@ -235,9 +283,9 @@
 }
 
 .alib-roots {
-  margin-top: 14px;
-  font-size: 11px;
-  color: var(--text-secondary, #888);
+  margin-top: var(--space-3);
+  font-size: var(--text-2xs);
+  color: var(--meta);
   word-break: break-all;
 }
 
@@ -245,7 +293,7 @@
 .alib-mode-tabs {
   display: flex;
   gap: 6px;
-  margin-bottom: 14px;
+  margin-bottom: var(--space-3);
 }
 
 /* ── 团队场景卡片 ── */
@@ -258,21 +306,21 @@
   display: flex;
   flex-wrap: wrap;
   gap: 4px;
-  margin-top: 8px;
+  margin-top: var(--space-2);
 }
 
 .alib-member-chip {
-  font-size: 11px;
+  font-size: var(--text-2xs);
   padding: 2px 7px;
-  border-radius: 999px;
-  border: 1px solid var(--border, #333);
-  color: var(--text-secondary, #aaa);
+  border-radius: var(--radius-pill);
+  border: 1px solid var(--border-strong);
+  color: var(--muted);
   white-space: nowrap;
 }
 
 .alib-member-chip.missing {
-  border-color: #e5484d66;
-  color: #e5484d;
+  border-color: color-mix(in srgb, var(--danger) 40%, transparent);
+  color: var(--danger);
 }
 
 .alib-member-chip em {
@@ -282,9 +330,9 @@
 
 /* ── 团队确认步 ── */
 .alib-team-shape-hint {
-  font-size: 12px;
-  color: var(--text-secondary, #aaa);
-  margin-bottom: 14px;
+  font-size: var(--text-xs);
+  color: var(--muted);
+  margin-bottom: var(--space-3);
   display: flex;
   flex-direction: column;
   gap: 2px;
@@ -293,20 +341,20 @@
 .alib-team-member-list {
   display: flex;
   flex-direction: column;
-  gap: 8px;
+  gap: var(--space-2);
 }
 
 .alib-team-member {
   display: flex;
   align-items: center;
-  gap: 10px;
-  padding: 8px 10px;
-  border: 1px solid var(--border, #333);
-  border-radius: 6px;
+  gap: var(--space-3);
+  padding: var(--space-2) var(--space-3);
+  border: 1px solid var(--border-strong);
+  border-radius: var(--radius-xs);
 }
 
 .alib-member-emoji {
-  font-size: 20px;
+  font-size: var(--text-xl);
   line-height: 1;
 }
 
@@ -316,20 +364,25 @@
 }
 
 .alib-member-name {
-  font-size: 13px;
+  font-size: var(--text-sm);
   font-weight: 600;
 }
 
 .alib-member-label {
-  font-size: 11px;
-  color: var(--text-secondary, #aaa);
+  font-size: var(--text-2xs);
+  color: var(--meta);
   margin-top: 2px;
 }
 
 /* 确认步：运行时/模型档位选择 */
 .alib-runtime-dd { display: flex; gap: 6px; align-items: center; }
 .alib-runtime-select {
-  border: 1px solid var(--border); border-radius: 6px;
+  border: 1px solid var(--border); border-radius: var(--radius-xs);
   background: var(--bg); color: var(--fg);
-  font-size: 12px; padding: 3px 6px; font-family: var(--font-mono);
+  font-size: var(--text-xs); padding: 3px 6px; font-family: var(--font-mono);
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .alib-chip,
+  .alib-card-preview { transition: none; }
 }

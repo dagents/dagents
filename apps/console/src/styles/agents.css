@@ -1,10 +1,13 @@
-/* agents.css — multica-inspired clean list layout.
+/* agents.css — multica-inspired clean list layout (PX-A01, 2026-09-04).
    Design principles: 克制即高级, 层次靠灰度, 字号纪律 (text-sm primary),
    间距 > 分割线, hover vs active distinction.
 
-   Note: .scope-tabs / .filter-chip / .result-count / .list-search are now defined once in
-   shell.css's unified list-controls section. This file only owns agents-specific
-   layout (.agents-toolbar, .filter-group, list rows, drawer). */
+   Card rhythm (PX-A01): 标题块 →(8px) 描述 →(12px) meta 行; card vertical
+   padding 16px. Status dots use the shell.css `.status` baseline primitive —
+   no per-page dot CSS. The legacy agent-drawer styles (agent-detail-head /
+   instructions-block / task-history-table / capability-card / task-card /
+   mini-spark / drawer-wide) were removed with the drawer itself; the detail
+   page owns agent-detail.css. */
 
 /* ─── scope tabs + actions row ─── */
 .scope-tabs-row {
@@ -21,7 +24,7 @@
   margin-bottom: var(--space-4);
   flex-wrap: wrap;
 }
-/* 搜索框复用 shell.css 统一的 .list-search（原 .agents-search 已删除）。 */
+/* 搜索框复用 shell.css 统一的 .list-search。 */
 
 /* ─── error ─── */
 .agents-error {
@@ -44,76 +47,113 @@
 .agent-card {
   background: var(--bg);
   border: 1px solid var(--border-soft);
-  border-radius: var(--radius-md);
-  overflow: hidden;
+  border-radius: var(--radius-lg);
+  padding: var(--space-4) var(--space-5);
   margin-bottom: var(--space-3);
-  transition: box-shadow var(--motion-fast);
+  transition: box-shadow var(--motion-fast) var(--ease-standard),
+    border-color var(--motion-fast) var(--ease-standard);
   cursor: pointer;
 }
 .agent-card:hover {
-  box-shadow: var(--elev-raised);
+  border-color: var(--border);
+  box-shadow: var(--elev-hover);
 }
 .agent-card:focus-visible {
   outline: none;
-  box-shadow: inset var(--focus-ring);
+  box-shadow: var(--focus-ring);
 }
+
+/* head = avatar + title block + actions (meta row sits 12px below) */
 .agent-card-head {
   display: flex;
-  align-items: center;
+  align-items: flex-start;
   gap: var(--space-3);
-  padding: var(--space-4) var(--space-5);
-}
-.agent-card-head:hover {
-  background: var(--surface-warm);
 }
 
-/* glyph — 36px like flow-glyph */
-.agent-card .agent-glyph {
+/* avatar — 36px sunk square with the agent's initial (kind brand tints
+   allowed for claude/codex; no gradients per the ink-violet contract). */
+.agent-glyph {
   width: 36px;
   height: 36px;
-  border-radius: 9px;
-  font-size: 14px;
+  border-radius: var(--radius-sm);
+  background: var(--surface-sunk);
+  color: var(--fg);
+  display: grid;
+  place-items: center;
+  font-family: var(--font-mono);
+  font-size: var(--text-lg);
+  font-weight: 600;
   flex-shrink: 0;
 }
+/* claude/codex 品牌色以 color-mix 挂到主题令牌上 —— 暗色自动变深底浅字，
+   不再是硬编码的亮色块（PX-A01 暗色回归修复）。 */
+.agent-glyph.kind-claude {
+  background: color-mix(in srgb, #8b5a2b 14%, var(--surface-sunk));
+  color: color-mix(in srgb, #8b5a2b 60%, var(--fg));
+}
+.agent-glyph.kind-codex {
+  background: color-mix(in srgb, #1f6b3f 16%, var(--surface-sunk));
+  color: color-mix(in srgb, #1f6b3f 70%, var(--fg));
+}
+.agent-glyph.kind-prompt { background: var(--accent-soft); color: var(--accent-hover); }
+.agent-glyph.kind-remote { background: var(--info-soft); color: var(--info); }
 
-/* info — name + sub, matching flow-info structure */
+/* info — title row + description preview */
 .agent-info {
   flex: 1;
   min-width: 0;
 }
+.agent-title {
+  display: flex;
+  align-items: center;
+  gap: var(--space-2);
+  min-width: 0;
+  padding-top: 1px; /* optical alignment with the 36px avatar cap-height */
+}
 .agent-info .nm {
-  font-size: var(--text-base);
+  font-size: var(--text-sm);
   font-weight: 600;
   color: var(--fg);
   white-space: nowrap;
   overflow: hidden;
   text-overflow: ellipsis;
 }
-.agent-info .sub {
-  font-size: 12px;
-  color: var(--muted);
-  margin-top: 2px;
-  display: flex;
-  gap: var(--space-3);
-  flex-wrap: wrap;
+/* kind badge — one ghost style everywhere (sunk bottom + deep text) */
+.kind-badge {
+  flex-shrink: 0;
+  display: inline-flex;
+  align-items: center;
+  height: 20px;
+  padding: 0 8px;
+  border-radius: var(--radius-pill);
+  background: var(--surface-sunk);
+  color: var(--fg-2);
+  font-size: var(--text-2xs);
+  font-weight: 500;
+  line-height: 1;
+  white-space: nowrap;
 }
-.agent-info .sub .mono {
-  font-family: var(--font-mono);
+.agent-info .desc {
+  margin-top: var(--space-2); /* 标题块 → 描述：8px */
+  font-size: var(--text-xs);
+  color: var(--muted);
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  min-height: 17px; /* cards without a summary keep the same rhythm */
 }
 
-/* meta — status badge + load + cost chip */
+/* meta row — status / run / load / cost（描述 → meta 行：12px） */
 .agent-card-meta {
   display: flex;
   align-items: center;
-  gap: var(--space-2);
-  flex-shrink: 0;
+  gap: var(--space-3);
+  margin-top: var(--space-3);
 }
-.agent-status {
-  display: inline-flex;
-  align-items: center;
-  gap: 6px;
-  font-size: var(--text-xs);
-  color: var(--muted);
+.agent-card-meta .meta-run {
+  font-family: var(--font-mono);
+  font-size: var(--text-2xs);
+  color: var(--meta);
 }
 .agent-load {
   display: flex;
@@ -123,350 +163,32 @@
 .agent-card .load-bar {
   width: 48px;
   height: 4px;
-  background: var(--surface);
-  border-radius: 2px;
+  background: var(--border); /* visible track in both light and dark */
+  border-radius: var(--radius-pill);
   overflow: hidden;
 }
 .agent-card .load-fill {
   display: block;
   height: 100%;
   background: var(--accent);
-  border-radius: 2px;
+  border-radius: var(--radius-pill);
   transition: width var(--motion-fast);
 }
 .agent-card .load-fill.warn { background: var(--warn); }
 .agent-card .load-fill.danger { background: var(--danger); }
 .agent-card .load-val {
-  font-size: 10px;
+  font-size: var(--text-2xs);
   color: var(--meta);
 }
 
-/* card action button sizing — matches flow-card */
-.agent-card .card-actions .btn-sm {
-  height: 28px;
-  padding: 0 var(--space-3);
-  font-size: 11px;
+/* ─── spinner (button loading state) ─── */
+.icon-spin {
+  display: inline-flex;
+  animation: agent-spin 1s linear infinite;
 }
-
-/* status dot — shared primitive */
-.status-dot {
-  width: 6px;
-  height: 6px;
-  border-radius: 50%;
-  flex-shrink: 0;
-  background: var(--meta);
+@keyframes agent-spin {
+  to { transform: rotate(360deg); }
 }
-.status-dot.dot-running {
-  background: var(--accent);
-  box-shadow: 0 0 0 2px var(--accent-soft);
+@media (prefers-reduced-motion: reduce) {
+  .icon-spin { animation: none; }
 }
-.status-dot.dot-queued { background: var(--warn); }
-.status-dot.dot-idle { background: var(--meta); }
-.status-dot.dot-failed { background: var(--danger); }
-.status-dot.dot-paused { background: var(--info); }
-.status-dot.dot-done { background: var(--meta); }
-
-/* agent glyph — base + kind variants */
-.agent-glyph {
-  width: 28px;
-  height: 28px;
-  border-radius: 7px;
-  background: var(--surface);
-  color: var(--fg);
-  display: grid;
-  place-items: center;
-  font-family: var(--font-mono);
-  font-size: 11px;
-  font-weight: 600;
-  flex-shrink: 0;
-  border: 1px solid var(--border-soft);
-}
-.agent-glyph.kind-claude { background: #f4eee6; color: #8b5a2b; }
-.agent-glyph.kind-codex { background: #eef4ee; color: #1f6b3f; }
-.agent-glyph.kind-prompt { background: var(--accent-soft); color: var(--accent-hover); }
-.agent-glyph.kind-remote { background: var(--info-soft); color: var(--info); }
-
-/* ─── empty ─── */
-.agents-empty {
-  padding: var(--space-12);
-  text-align: center;
-  color: var(--meta);
-  font-size: var(--text-sm);
-}
-
-/* ─── drawer (shared with shell.css, only new pieces here) ─── */
-.drawer-loading,
-.drawer-error {
-  padding: var(--space-4);
-  color: var(--meta);
-  font-size: var(--text-sm);
-}
-.drawer-error { color: var(--danger); }
-
-/* capability card */
-.capability-card {
-  background: var(--surface-warm);
-  border: 1px solid var(--border-soft);
-  border-radius: var(--radius-sm);
-  padding: var(--space-3);
-  margin-bottom: var(--space-4);
-}
-.cap-row {
-  display: flex;
-  justify-content: space-between;
-  align-items: center;
-  margin-bottom: var(--space-2);
-  font-size: var(--text-xs);
-}
-.cap-label {
-  color: var(--meta);
-}
-.cap-row .mono {
-  font-size: 11px;
-  color: var(--fg-2);
-}
-.cap-desc {
-  font-size: var(--text-xs);
-  color: var(--muted);
-  margin-top: var(--space-2);
-  line-height: 1.5;
-}
-
-/* task card */
-.task-card {
-  background: var(--surface-warm);
-  border: 1px solid var(--border-soft);
-  border-radius: var(--radius-sm);
-  padding: var(--space-3);
-  margin-bottom: var(--space-4);
-}
-.task-head {
-  display: flex;
-  justify-content: space-between;
-  align-items: center;
-  margin-bottom: var(--space-2);
-}
-.task-name {
-  font-size: var(--text-sm);
-  font-weight: 500;
-  color: var(--fg);
-}
-.task-status-chip {
-  font-size: 10px;
-  color: var(--muted);
-  background: var(--surface);
-  padding: 2px 8px;
-  border-radius: var(--radius-pill);
-}
-.task-progress {
-  height: 3px;
-  background: var(--surface);
-  border-radius: 2px;
-  overflow: hidden;
-  margin-bottom: var(--space-2);
-}
-.task-progress span {
-  display: block;
-  height: 100%;
-  background: var(--accent);
-  border-radius: 2px;
-  transition: width var(--motion-fast);
-}
-.task-meta {
-  font-size: 11px;
-  color: var(--meta);
-}
-
-/* resource summary */
-.resource-summary {
-  font-size: 11px;
-  color: var(--meta);
-  margin-bottom: var(--space-4);
-}
-.mini-spark {
-  width: 100%;
-  height: 36px;
-  margin-bottom: var(--space-2);
-}
-
-/* ─── create-agent modal ───
-   The modal-dialog / form-section / kind-option styles moved to
-   dialog.css (imported by the dialog components themselves) — they are
-   shared with create-flow-dialog + agent-template-gallery and must load
-   on /flows too, not just /agents. */
-
-/* ─── agent detail (multica-style tabbed drawer) ─── */
-.drawer-wide {
-  width: 640px;
-  max-width: 92vw;
-}
-
-.agent-detail-head {
-  display: flex;
-  align-items: center;
-  justify-content: space-between;
-  gap: var(--space-4);
-  padding: var(--space-4) var(--space-6);
-  border-bottom: 1px solid var(--border-soft);
-  flex-shrink: 0;
-}
-.agent-detail-head-left {
-  display: flex;
-  align-items: center;
-  gap: var(--space-3);
-  min-width: 0;
-  flex: 1;
-}
-.agent-detail-head .agent-glyph {
-  width: 36px;
-  height: 36px;
-  font-size: 13px;
-}
-.agent-detail-head-info {
-  display: flex;
-  flex-direction: column;
-  gap: 2px;
-  min-width: 0;
-}
-.agent-detail-name-row {
-  display: flex;
-  align-items: center;
-  gap: var(--space-2);
-}
-.agent-detail-name {
-  font-size: var(--text-base);
-  font-weight: 600;
-  color: var(--fg);
-  margin: 0;
-  white-space: nowrap;
-  overflow: hidden;
-  text-overflow: ellipsis;
-  max-width: 320px;
-}
-.agent-detail-status {
-  font-size: var(--text-xs);
-  color: var(--muted);
-}
-.agent-detail-meta {
-  display: flex;
-  align-items: center;
-  gap: 6px;
-  font-size: 11px;
-  color: var(--meta);
-}
-.agent-detail-meta .sep {
-  opacity: 0.6;
-}
-
-.agent-detail-tabs {
-  display: flex;
-  border-bottom: 1px solid var(--border-soft);
-  flex-shrink: 0;
-}
-.agent-detail-tab {
-  padding: var(--space-3) var(--space-4);
-  font-size: var(--text-sm);
-  color: var(--muted);
-  font-weight: 500;
-  cursor: pointer;
-  border: 0;
-  background: transparent;
-  border-bottom: 2px solid transparent;
-  transition: color var(--motion-fast), border-color var(--motion-fast);
-}
-.agent-detail-tab:hover {
-  color: var(--fg);
-}
-.agent-detail-tab.active {
-  color: var(--fg);
-  border-bottom-color: var(--accent);
-  font-weight: 600;
-}
-
-/* drawer body needs vertical scroll + spacing for section-labels */
-.drawer .drawer-body {
-  display: flex;
-  flex-direction: column;
-  gap: var(--space-5);
-}
-
-/* ─── instructions tab ─── */
-.instructions-preview {
-  margin-bottom: var(--space-2);
-}
-.instructions-block {
-  background: var(--surface-warm);
-  border: 1px solid var(--border-soft);
-  border-radius: var(--radius-sm);
-  padding: var(--space-3) var(--space-4);
-  font-family: var(--font-mono);
-  font-size: 12px;
-  color: var(--fg-2);
-  white-space: pre-wrap;
-  word-break: break-word;
-  line-height: 1.55;
-  margin: 0;
-  max-height: 320px;
-  overflow-y: auto;
-}
-.instructions-empty {
-  padding: var(--space-4);
-  font-size: var(--text-sm);
-  color: var(--meta);
-  background: var(--surface-warm);
-  border-radius: var(--radius-sm);
-  text-align: center;
-}
-
-/* ─── tag list ─── */
-.tag-list {
-  display: flex;
-  flex-wrap: wrap;
-  gap: var(--space-2);
-  margin-bottom: var(--space-2);
-}
-.tag-list .muted {
-  font-size: var(--text-xs);
-  color: var(--meta);
-}
-
-/* ─── task history table (activity tab) ─── */
-.task-history-table {
-  border: 1px solid var(--border-soft);
-  border-radius: var(--radius-sm);
-  overflow: hidden;
-  margin-bottom: var(--space-2);
-}
-.task-history-head,
-.task-history-row {
-  display: grid;
-  grid-template-columns: 1fr 1fr 100px 80px 100px;
-  gap: var(--space-3);
-  align-items: center;
-  padding: var(--space-2) var(--space-3);
-  font-size: var(--text-xs);
-}
-.task-history-head {
-  background: var(--surface-warm);
-  color: var(--meta);
-  font-weight: 500;
-  letter-spacing: var(--tracking-label);
-  text-transform: uppercase;
-  font-size: 10px;
-}
-.task-history-row {
-  border-top: 1px solid var(--border-soft);
-  color: var(--fg-2);
-}
-.task-history-row:hover {
-  background: var(--surface-warm);
-}
-.task-history-status {
-  font-weight: 500;
-  text-transform: capitalize;
-}
-.task-history-status.status-running { color: var(--accent-hover); }
-.task-history-status.status-claimed { color: var(--info); }
-.task-history-status.status-done { color: var(--meta); }
-.task-history-status.status-failed { color: var(--danger); }
-.task-history-status.status-queued { color: var(--warn); }

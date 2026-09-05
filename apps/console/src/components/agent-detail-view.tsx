@@ -58,12 +58,13 @@ import {
 } from '@/lib/agent-detail'
 import { AgentActivitySparkline } from '@/components/agent-activity-sparkline'
 import { useWsFrame } from '@/lib/ws-client'
-import { kindLabel, kindGlyph, AGENT_STATUS_LABEL } from '@/lib/agents-catalog'
+import { kindLabel, AGENT_STATUS_LABEL } from '@/lib/agents-catalog'
 import { fetchSkills, type SkillSummary } from '@/lib/skills'
 import { Icon } from '@/components/icon'
 import { useToast } from '@/components/toast'
 import { useI18n } from '@/i18n'
 import { formatDateTime, formatClockSeconds } from '@/lib/format'
+import '@/styles/agents.css' // shared agents-domain primitives (.kind-badge)
 import '@/styles/agent-detail.css'
 
 /** Log timestamps come from the gateway as ISO strings — render in the
@@ -450,12 +451,17 @@ function Inspector({ model, archiving, onEdit, onArchive, onDelete }: InspectorP
   const { t } = useI18n()
   return (
     <aside className="inspector" id="inspector" data-od-id="inspector">
+      {/* identity card (PX-AD01): warm surface, name md/600 + kind ghost
+       * badge + availability pill on the shared shell .status baseline. */}
       <div className="ins-head">
         <div className={`ins-avatar kind-${model.kind}`} aria-hidden="true">
-          {kindGlyph(model.kind)}
+          {(model.name.trim().charAt(0) || '?').toUpperCase()}
         </div>
-        <div style={{ minWidth: 0 }}>
-          <div className="ins-name">{model.name}</div>
+        <div className="ins-head-info">
+          <div className="ins-name-row">
+            <div className="ins-name">{model.name}</div>
+            <span className="kind-badge">{t(kindLabel(model.kind))}</span>
+          </div>
           <div className="ins-desc">{model.summary}</div>
           <div className="ins-presence">
             <span className={`status ${availabilityClass(model.availability)}`}>
@@ -465,11 +471,12 @@ function Inspector({ model, archiving, onEdit, onArchive, onDelete }: InspectorP
           </div>
         </div>
       </div>
-      {/* Action buttons */}
+      {/* Action buttons — 编辑 secondary（组内主操作）/ 归档 ghost / 删除
+          收进右端、hover danger（确认弹窗在下方）。 */}
       {(onEdit || onArchive || onDelete) && (
         <div className="ins-actions">
           {onEdit && (
-            <button type="button" className="btn btn-ghost btn-sm" onClick={onEdit}>
+            <button type="button" className="btn btn-secondary btn-sm" onClick={onEdit}>
               <Icon name="pencil" style={{ width: 12, height: 12 }} />
               <span>{t('编辑')}</span>
             </button>
@@ -679,10 +686,6 @@ function ActivityPanel({ model }: { model: AgentDetailPageModel }): React.ReactE
       </div>
       <div className="ins-section-label">{t('运行趋势（30 天）')}</div>
       <AgentActivitySparkline buckets={model.activity} />
-      <div className="act-axis-row">
-        <span>{t('30 天前')}</span>
-        <span>{t('今天')}</span>
-      </div>
       <div className="act-recent">
         <div className="ins-section-label">{t('最近活动')}</div>
         {model.logs.length > 0 ? (

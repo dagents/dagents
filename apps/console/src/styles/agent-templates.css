@@ -99,7 +99,7 @@
   flex-shrink: 0;
   display: grid;
   place-items: center;
-  font-size: 22px;
+  font-size: var(--text-xl);
   line-height: 1;
   background: var(--bg);
   border: 1px solid var(--border-soft);
@@ -133,7 +133,7 @@
 .atg-card-kind {
   flex-shrink: 0;
   font-family: var(--font-mono);
-  font-size: 10px;
+  font-size: var(--text-2xs);
   color: var(--meta);
   text-transform: lowercase;
   padding: 2px var(--space-2);
@@ -184,7 +184,7 @@
   flex-shrink: 0;
   display: grid;
   place-items: center;
-  font-size: 30px;
+  font-size: var(--text-2xl);
   line-height: 1;
   background: var(--surface);
   border: 1px solid var(--border-soft);
@@ -224,7 +224,7 @@
 }
 
 .atg-confirm-meta dt {
-  font-size: 10px;
+  font-size: var(--text-2xs);
   text-transform: uppercase;
   letter-spacing: var(--tracking-label);
   color: var(--meta);

@@ -34,18 +34,8 @@ import {
   filterAgents,
   fetchAgents,
   kindLabel,
-  kindGlyph,
 } from '@/lib/agents-catalog'
 
-
-const STATUS_DOT_CLASS: Record<AgentStatus, string> = {
-  running: 'dot-running',
-  queued: 'dot-queued',
-  idle: 'dot-idle',
-  failed: 'dot-failed',
-  paused: 'dot-paused',
-  done: 'dot-done',
-}
 
 // Filter chips show the 主流 (mainstream) CLI kinds — the 6 most common —
 // so the toolbar stays scannable. Less-common kinds (国产/ACP/特殊) are
@@ -78,6 +68,13 @@ function compareAgents(a: CatalogAgent, b: CatalogAgent, field: SortField): numb
 
 function glyphClass(kind: AgentKind): string {
   return `agent-glyph kind-${kind}`
+}
+
+/** Avatar initial — the agent NAME's first letter (identity), not the kind
+ *  glyph; the kind reads from the ghost badge beside the title (PX-A01). */
+function nameInitial(name: string): string {
+  const ch = name.trim().charAt(0)
+  return (ch || '?').toUpperCase()
 }
 
 export function AgentsView(): React.ReactElement {
@@ -300,7 +297,8 @@ export function AgentsView(): React.ReactElement {
       {/* card list — mirrors flow-card visual language */}
       <div className="agent-cards">
         {loading && agents.length === 0 ? (
-          <SkeletonList rows={5} />
+          /* PX-F09：骨架复刻 agent 卡真实分区（头像+标题+描述+meta） */
+          <SkeletonList rows={5} shape="agent-card" />
         ) : visibleSorted.length === 0 && !error ? (
           <div className="empty-state">
             <div className="empty-state-icon" aria-hidden="true">🤖</div>
@@ -357,41 +355,18 @@ export function AgentsView(): React.ReactElement {
               }}
             >
               <div className="agent-card-head">
-                <div className={glyphClass(a.kind)}>{kindGlyph(a.kind)}</div>
-                <div className="agent-info">
-                  <div className="nm">{a.name}</div>
-                  <div className="sub">
-                    <span className="mono">{a.id.slice(0, 8)}</span>
-                    <span>{t(kindLabel(a.kind))}</span>
-                    {a.run ? <span className="mono">{a.run}</span> : null}
-                  </div>
+                <div className={glyphClass(a.kind)} aria-hidden="true">
+                  {nameInitial(a.name)}
                 </div>
-                <div className="agent-card-meta">
-                  <span className={`agent-status ${a.status}`}>
-                    <span className={`status-dot ${STATUS_DOT_CLASS[a.status]}`} />
-                    {t(AGENT_STATUS_LABEL[a.status])}
-                  </span>
-                  {/* load 仍是前端按运行时长的推算（带「估」标记）；cost 自
-                      2026-08-22 方案 D 起只显示实测值（usage.cost），无计价
-                      数据时显示「—」（未计价），不再折算。 */}
-                  <div className="agent-load" title={t('按运行时长推算的负载估计，非实时监控')}>
-                    <div className="load-bar">
-                      <span
-                        className={`load-fill${a.load > 85 ? ' danger' : a.load > 70 ? ' warn' : ''}`}
-                        style={{ width: `${a.load}%` }}
-                      />
-                    </div>
-                    <span className="load-val mono">{t('{n}% 估', { n: a.load })}</span>
+                <div className="agent-info">
+                  <div className="agent-title">
+                    <span className="nm">{a.name}</span>
+                    <span className="kind-badge">{t(kindLabel(a.kind))}</span>
                   </div>
-                  {a.cost != null ? (
-                    <span
-                      className="chip chip-outline mono"
-                      style={{ fontSize: 10 }}
-                      title={t('最近任务的实测成本；无单价数据时显示「—」（未计价）')}
-                    >
-                      {a.cost}
-                    </span>
-                  ) : null}
+                  {/* instructions/summary preview — xs/muted, single line (PX-A01) */}
+                  <div className="desc" title={a.summary || a.capability.summary || undefined}>
+                    {a.summary || a.capability.summary}
+                  </div>
                 </div>
                 <div className="card-actions">
                   {/* Whole card already navigates to the detail page — this
@@ -409,6 +384,36 @@ export function AgentsView(): React.ReactElement {
                     {t('编辑')}
                   </button>
                 </div>
+              </div>
+              {/* meta row — status via the shell .status baseline primitive;
+                  quantitative meta (load/cost) anchors the right edge. */}
+              <div className="agent-card-meta">
+                <span className={`status ${a.status}`}>
+                  <span className="dot" />
+                  {t(AGENT_STATUS_LABEL[a.status])}
+                </span>
+                {a.run ? <span className="meta-run">{a.run}</span> : null}
+                <div className="grow" />
+                {/* load 仍是前端按运行时长的推算（带「估」标记）；cost 自
+                    2026-08-22 方案 D 起只显示实测值（usage.cost），无计价
+                    数据时显示「—」（未计价），不再折算。 */}
+                <div className="agent-load" title={t('按运行时长推算的负载估计，非实时监控')}>
+                  <div className="load-bar">
+                    <span
+                      className={`load-fill${a.load > 85 ? ' danger' : a.load > 70 ? ' warn' : ''}`}
+                      style={{ width: `${a.load}%` }}
+                    />
+                  </div>
+                  <span className="load-val mono">{t('{n}% 估', { n: a.load })}</span>
+                </div>
+                {a.cost != null ? (
+                  <span
+                    className="chip chip-tag"
+                    title={t('最近任务的实测成本；无单价数据时显示「—」（未计价）')}
+                  >
+                    {a.cost}
+                  </span>
+                ) : null}
               </div>
             </div>
           ))

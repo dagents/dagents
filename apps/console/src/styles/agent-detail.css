@@ -11,7 +11,7 @@
   gap: var(--space-2);
   height: 28px;
   padding: 0 var(--space-2);
-  border-radius: 8px;
+  border-radius: var(--radius-sm);
   color: var(--muted);
   font-size: var(--text-xs);
   text-decoration: none;
@@ -42,26 +42,58 @@
   scrollbar-gutter: stable;
   min-height: 0;
 }
-.ins-head { display: flex; gap: var(--space-3); align-items: flex-start; }
+/* identity card (PX-AD01) — warm surface block, 16px padding */
+.ins-head {
+  display: flex;
+  gap: var(--space-3);
+  align-items: flex-start;
+  background: var(--surface-warm);
+  border: 1px solid var(--border-soft);
+  border-radius: var(--radius-md);
+  padding: var(--space-4);
+}
+.ins-head-info { min-width: 0; }
+.ins-name-row {
+  display: flex;
+  align-items: center;
+  gap: var(--space-2);
+  min-width: 0;
+}
 .ins-avatar {
   width: 56px;
   height: 56px;
-  border-radius: 12px;
+  border-radius: var(--radius-md);
   display: grid;
   place-items: center;
   font-family: var(--font-mono);
-  font-size: 20px;
+  font-size: var(--text-xl);
   font-weight: 600;
   flex-shrink: 0;
   border: 1px solid var(--border-soft);
+  background: var(--surface-sunk);
+  color: var(--fg);
 }
-.ins-avatar.kind-claude { background: #f4eee6; color: #8b5a2b; }
-.ins-avatar.kind-codex { background: #eef4ee; color: #1f6b3f; }
+/* claude/codex 品牌色挂主题令牌（color-mix），暗色自动深底浅字 */
+.ins-avatar.kind-claude {
+  background: color-mix(in srgb, #8b5a2b 14%, var(--surface-sunk));
+  color: color-mix(in srgb, #8b5a2b 60%, var(--fg));
+}
+.ins-avatar.kind-codex {
+  background: color-mix(in srgb, #1f6b3f 16%, var(--surface-sunk));
+  color: color-mix(in srgb, #1f6b3f 70%, var(--fg));
+}
 .ins-avatar.kind-prompt { background: var(--accent-soft); color: var(--accent-hover); }
 .ins-avatar.kind-remote { background: var(--info-soft); color: var(--info); }
-.ins-name { font-size: var(--text-base); font-weight: 600; color: var(--fg); }
-.ins-desc { font-size: 12px; color: var(--muted); margin-top: 4px; line-height: 1.5; }
-.ins-presence { display: inline-flex; align-items: center; gap: 6px; margin-top: 6px; font-size: 11px; }
+.ins-name {
+  font-size: var(--text-md);
+  font-weight: 600;
+  color: var(--fg);
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+.ins-desc { font-size: var(--text-xs); color: var(--muted); margin-top: var(--space-1); line-height: 1.5; }
+.ins-presence { display: inline-flex; align-items: center; margin-top: var(--space-1); }
 
 .prop-row {
   display: grid;
@@ -72,9 +104,9 @@
   font-size: var(--text-sm);
 }
 .prop-row + .prop-row { border-top: 1px solid var(--border-soft); }
-.prop-row .lbl { color: var(--muted); font-size: 12px; }
+.prop-row .lbl { color: var(--muted); font-size: var(--text-xs); }
 .prop-row .val { color: var(--fg); font-weight: 500; min-width: 0; }
-.prop-row .val.mono { font-family: var(--font-mono); font-size: 12px; font-weight: 400; }
+.prop-row .val.mono { font-family: var(--font-mono); font-size: var(--text-xs); font-weight: 400; }
 .prop-row .val .pick {
   display: inline-flex;
   align-items: center;
@@ -82,19 +114,24 @@
   padding: 3px 8px;
   background: var(--surface);
   border: 1px solid var(--border-soft);
-  border-radius: 6px;
-  font-size: 12px;
+  border-radius: var(--radius-xs);
+  font-size: var(--text-xs);
 }
 
 .skill-chips { display: flex; flex-wrap: wrap; gap: 4px; }
-.skill-chip { font-size: 11px; padding: 2px 8px; background: var(--surface); border-radius: 6px; color: var(--muted); font-weight: 500; }
+.skill-chip { font-size: var(--text-2xs); padding: 2px 8px; background: var(--surface); border-radius: var(--radius-xs); color: var(--muted); font-weight: 500; }
 
+/* 小节标题（PX-AD01）：2xs/500/meta 大写 + hairline —— instructions/属性/
+ * Skills/日志等全部小节共用同一节奏。 */
 .ins-section-label {
-  font-size: 11px;
+  font-size: var(--text-2xs);
+  font-weight: 500;
   color: var(--meta);
   letter-spacing: var(--tracking-label);
   text-transform: uppercase;
   margin-bottom: var(--space-2);
+  padding-bottom: var(--space-2);
+  border-bottom: 1px solid var(--border-soft);
 }
 
 /* ── overview (right) ── */
@@ -139,12 +176,37 @@
 /* activity tab */
 .act-kpi-row { display: grid; grid-template-columns: repeat(3, 1fr); gap: var(--space-3); margin-bottom: var(--space-5); }
 .act-kpi { background: var(--surface-warm); border: 1px solid var(--border-soft); border-radius: var(--radius-sm); padding: var(--space-4); }
-.act-kpi .v { font-family: var(--font-mono); font-size: 22px; font-weight: 500; color: var(--fg); letter-spacing: -0.02em; }
-.act-kpi .l { font-size: 11px; color: var(--muted); margin-top: 4px; }
+.act-kpi .v { font-family: var(--font-mono); font-size: var(--text-xl); font-weight: 500; color: var(--fg); letter-spacing: -0.02em; }
+.act-kpi .l { font-size: var(--text-2xs); color: var(--muted); margin-top: 4px; }
+/* activity tab — line sparkline (PX-AD02): accent line at 60% transparency,
+ * solid 3px dot on the latest point, native <title> hover per bucket slot. */
+.act-sparkline { display: flex; flex-direction: column; }
 .act-chart { width: 100%; height: 120px; display: block; }
-.act-chart-bar { fill: var(--accent); }
-.act-chart-bar.fail { fill: var(--danger); }
-.act-axis-row { display: flex; justify-content: space-between; margin-top: 4px; font-size: 10px; font-family: var(--font-mono); color: var(--meta); }
+.act-chart-line { stroke: color-mix(in srgb, var(--accent) 60%, transparent); }
+.act-chart-point { fill: var(--accent); }
+.act-chart-hit { cursor: default; }
+.act-chart-empty {
+  height: 24px;
+  display: flex;
+  align-items: center;
+  gap: var(--space-2);
+}
+.act-chart-empty-text {
+  font-size: var(--text-2xs);
+  color: var(--meta);
+  white-space: nowrap;
+}
+.act-chart-empty-line {
+  flex: 1;
+  border-top: 1px dashed color-mix(in srgb, var(--meta) 55%, transparent);
+}
+.act-chart-meta {
+  margin-top: var(--space-1);
+  font-size: var(--text-2xs);
+  color: var(--meta);
+  font-variant-numeric: tabular-nums;
+}
+.act-axis-row { display: flex; justify-content: space-between; margin-top: var(--space-1); font-size: var(--text-2xs); font-family: var(--font-mono); color: var(--meta); }
 .act-recent { margin-top: var(--space-5); }
 .act-recent-item { display: flex; gap: var(--space-3); padding: var(--space-2) 0; font-size: var(--text-sm); border-bottom: 1px solid var(--border-soft); }
 .act-recent-item:last-child { border-bottom: 0; }
@@ -165,12 +227,12 @@
 .skills-grid { display: grid; grid-template-columns: repeat(auto-fill, minmax(180px, 1fr)); gap: var(--space-3); }
 .skill-card { background: var(--bg); border: 1px solid var(--border-soft); border-radius: var(--radius-sm); padding: var(--space-3); }
 .skill-card .nm { font-size: var(--text-sm); font-weight: 500; color: var(--fg); font-family: var(--font-mono); }
-.skill-card .ds { font-size: 11px; color: var(--muted); margin-top: 4px; line-height: 1.5; }
+.skill-card .ds { font-size: var(--text-2xs); color: var(--muted); margin-top: 4px; line-height: 1.5; }
 
 /* skeleton (shared .sk shimmer) */
 .sk {
   display: inline-block;
-  border-radius: 6px;
+  border-radius: var(--radius-xs);
   background: linear-gradient(90deg, var(--surface) 25%, var(--surface-warm) 50%, var(--surface) 75%);
   background-size: 200% 100%;
   animation: shimmer 1.4s infinite;
@@ -195,16 +257,22 @@
   .tab, .detail-back { transition: none; }
 }
 
-/* Action buttons in inspector */
+/* Action buttons in inspector — 编辑/归档 常规 ghost，删除（危险）收进右端
+ * 次级位置，hover 才显 danger 色（PX-AD01；确认弹窗在组件层）。 */
 .ins-actions {
   display: flex;
-  gap: 6px;
+  align-items: center;
+  gap: var(--space-2);
   padding: var(--space-2) 0;
-  border-bottom: 1px solid var(--border);
+  border-bottom: 1px solid var(--border-soft);
   margin-bottom: var(--space-2);
 }
-.ins-action-danger:hover {
+.ins-actions .ins-action-danger {
+  margin-left: auto;
+}
+.ins-actions .ins-action-danger:hover {
   color: var(--danger);
+  background: var(--danger-soft);
 }
 
 /* Delete confirmation dialog */
@@ -221,11 +289,11 @@
 .agent-delete-dialog {
   background: var(--bg);
   border: 1px solid var(--border);
-  border-radius: 12px;
+  border-radius: var(--radius-lg);
   padding: var(--space-5);
   max-width: 360px;
   width: 90%;
-  box-shadow: 0 8px 32px rgba(0, 0, 0, 0.2);
+  box-shadow: var(--elev-overlay);
 }
 .agent-delete-title {
   font-size: var(--text-lg);
@@ -260,4 +328,92 @@
 }
 .skill-import-grid .skill-chip:hover { border-color: var(--border-strong); color: var(--fg); }
 .skill-import-grid .skill-chip.on { border-color: var(--accent); color: var(--accent); }
-.skill-chip-check { font-size: 10px; line-height: 1; }
+.skill-chip-check { font-size: var(--text-2xs); line-height: 1; }
+
+/* ─── Agent edit page (PX-AE01) ─────────────────────────────── */
+
+.agent-edit-page {
+  padding: var(--space-6);
+  max-width: 720px;
+  padding-bottom: 0; /* sticky action bar supplies the bottom spacing */
+}
+.agent-edit-head {
+  margin-bottom: var(--space-4);
+}
+.agent-edit-title {
+  font-size: var(--text-xl);
+  font-weight: 600;
+  color: var(--fg);
+  margin: var(--space-3) 0 0;
+}
+
+/* Two-column grid: fixed 120px label column + field column (≥480px at
+   desktop widths; collapses to stacked labels ≤640px). */
+.agent-edit-form {
+  display: grid;
+  grid-template-columns: 120px minmax(0, 1fr);
+  column-gap: var(--space-4);
+  row-gap: var(--space-4);
+  align-items: start;
+}
+.agent-edit-label {
+  font-size: var(--text-xs);
+  font-weight: 500;
+  color: var(--fg-2);
+  line-height: var(--ctl-lg); /* optically centers on the field's first line */
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+
+/* instructions — mono + generous leading for long system prompts */
+.agent-edit-instructions {
+  font-family: var(--font-mono);
+  font-size: var(--text-xs);
+  line-height: 1.7;
+  min-height: 280px;
+}
+
+/* Sticky bottom action bar: blur + hairline top edge, actions right */
+/* PX-AE01 补：未保存标记占住左端（动作仍右对齐） */
+.agent-edit-dirty {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  margin-right: auto;
+  font-size: var(--text-2xs);
+  color: var(--muted);
+}
+.agent-edit-dirty .dot {
+  width: 7px;
+  height: 7px;
+  border-radius: 50%;
+  background: var(--warn);
+  flex-shrink: 0;
+}
+.agent-edit-actions {
+  position: sticky;
+  bottom: 0;
+  z-index: 5;
+  display: flex;
+  justify-content: flex-end;
+  gap: var(--space-2);
+  margin: var(--space-5) calc(var(--space-6) * -1) 0;
+  padding: var(--space-3) var(--space-6);
+  background: color-mix(in srgb, var(--bg) 80%, transparent);
+  backdrop-filter: blur(8px);
+  border-top: 1px solid var(--border-soft);
+}
+
+@media (max-width: 640px) {
+  .agent-edit-form {
+    grid-template-columns: 1fr;
+    row-gap: var(--space-3);
+  }
+  .agent-edit-label {
+    line-height: 1.4;
+    margin-bottom: var(--space-1);
+  }
+}
+
+/* probe: force HMR re-extract for .agent-edit-actions backdrop-filter */

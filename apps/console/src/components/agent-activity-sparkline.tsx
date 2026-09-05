@@ -1,39 +1,35 @@
 /**
- * AgentActivitySparkline — 30-bucket daily activity bar chart (v0.3-M4.1).
+ * AgentActivitySparkline — 30-day activity line sparkline (PX-AD02, 2026-09-04).
  *
- * Ports design/agent-detail.html:227-245 `renderActivity`'s SVG: an
- * `.act-chart` SVG (viewBox `0 0 600 120`) with one `.act-chart-bar` rect per
- * 30-day bucket, height ∝ bucket.total / max, plus a stacked red
- * `.act-chart-bar.fail` rect on top whose height ∝ bucket.fail / total. The
- * chart is aria-labeled with the totals so screen readers get the shape
- * without the bars; the KPI row (rendered by the page, not here) carries the
- * numeric rollup.
+ * A single accent line (60% transparency) through one point per daily bucket,
+ * height ∝ bucket.total / max, with a solid 3px dot on the most recent point.
+ * Each bucket exposes a native SVG `<title>` tooltip ("N 天前 · 事件数") via a
+ * full-height hit rect. Empty history renders a 24px flat dashed baseline +
+ * 「暂无活动」 meta copy instead of a collapsed chart, and a meta row below
+ * the chart carries the 7-day rollup.
  *
- * ## Why a component, not raw markup
- *
- * The design emitted a template-string of `<rect>`s via innerHTML. In React
- * the bars are an array of `<rect>` keyed by bucket index — the only
- * presentation logic worth extracting, because the same derivation is unit-
- * tested in `agent-detail.ts` (`deriveActivityBuckets`) and the SVG geometry
- * is pure given that array. Kept a leaf component (no fetch, no state) so it
- * renders deterministically under jsdom for the sparkline fidelity test.
+ * The page model (`deriveActivityBuckets` in lib/agent-detail.ts) is the data
+ * truth; the geometry here is pure given that array, extracted so the unit
+ * tests can pin point count / y-proportionality / last-point presence without
+ * the DOM. Kept a leaf component (no fetch) so it renders deterministically
+ * under jsdom.
  *
  * ## Geometry
- *
- * Matches the design's math exactly (W=600, H=120, PAD=8, bar width =
- * `(W - PAD*2) / count`, bar height = `(total / max) * (H - PAD*2)`, fail
- * height = `(fail / total) * barHeight`). `max` floored at 1 so an all-zero
- * history still draws zero-height bars (not NaN). Rect width floored at 0.8
- * and height at 0.5 (design's `Math.max(0.8, …)` / `Math.max(0.5, …)`).
+ * W=600, H=120, PAD=8. Point x centers each bucket's slot:
+ * `x = PAD + (i + 0.5) * (W - 2*PAD) / count`; `y = H - PAD - (total/max) *
+ * (H - 2*PAD)` (max floored at 1 so all-zero history still resolves). The
+ * stroke uses `vector-effect: non-scaling-stroke` so the stretched viewBox
+ * (preserveAspectRatio="none") keeps a constant 2px weight.
  */
 
 import type { AgentActivityBucket } from '@/lib/agent-detail'
 import { sumBuckets } from '@/lib/agent-detail'
+import { useI18n } from '@/i18n'
 
 export interface AgentActivitySparklineProps {
   /** 30 daily buckets, oldest→newest (bucket 0 = 29 days ago, 29 = today).
-   *  Any length is accepted (the design pads to 30); the chart lays bars
-   *  evenly across the viewBox regardless. */
+   *  Any length is accepted (the derivation pads to 30); the chart lays
+   *  points evenly across the viewBox regardless. */
   buckets: ReadonlyArray<AgentActivityBucket>
   /** Optional aria-label override; defaults to a totals summary. */
   ariaLabel?: string
@@ -43,44 +39,34 @@ const CHART_W = 600
 const CHART_H = 120
 const PAD = 8
 
-/** A single bar's rects (one ok rect + one optional fail overlay). */
-interface BarRects {
+/** A single day's plot point + its hover slot. */
+export interface SparkPoint {
   key: number
-  okRect: { x: number; y: number; width: number; height: number }
-  failRect: { x: number; y: number; width: number; height: number } | null
+  /** Plot point (slot center, value-scaled). */
+  x: number
+  y: number
+  /** Full-height hover hit-slot for the native <title> tooltip. */
+  hitX: number
+  hitW: number
 }
 
 /**
- * Pure geometry for the sparkline bars — extracted so the fidelity test can
- * assert bar count, fail-overlay presence, and bar heights without going
- * through the DOM. Returns one entry per bucket; `failRect` is null when the
- * bucket has zero failures (matching the design's `b.fail > 0` guard).
+ * Pure geometry for the sparkline points — extracted so the fidelity test can
+ * assert point count and y-proportionality without going through the DOM.
+ * One entry per bucket; y = baseline − (total/max)·usable, so the max bucket
+ * touches the top padding and zero buckets sit on the baseline.
  */
-export function sparklineBarGeometry(
+export function sparklinePointGeometry(
   buckets: ReadonlyArray<AgentActivityBucket>,
-): BarRects[] {
+): SparkPoint[] {
   const count = Math.max(1, buckets.length)
   const max = Math.max(1, ...buckets.map((b) => b.total))
-  const bw = (CHART_W - PAD * 2) / count
   const usable = CHART_H - PAD * 2
+  const slot = (CHART_W - PAD * 2) / count
   return buckets.map((b, i) => {
-    const h = (b.total / max) * usable
-    const fh = b.fail > 0 && b.total > 0 ? (b.fail / b.total) * h : 0
-    const x = PAD + i * bw
-    const y = CHART_H - PAD - h
-    const fy = CHART_H - PAD - fh
-    const width = Math.max(0.8, bw - 0.5)
-    const okRect = {
-      x,
-      y,
-      width,
-      height: Math.max(0.5, h),
-    }
-    const failRect =
-      b.fail > 0 && b.total > 0
-        ? { x, y: fy, width, height: Math.max(0.5, fh) }
-        : null
-    return { key: i, okRect, failRect }
+    const x = PAD + (i + 0.5) * slot
+    const y = CHART_H - PAD - (b.total / max) * usable
+    return { key: i, x, y, hitX: PAD + i * slot, hitW: slot }
   })
 }
 
@@ -88,40 +74,80 @@ export function AgentActivitySparkline({
   buckets,
   ariaLabel,
 }: AgentActivitySparklineProps): React.ReactElement {
-  const bars = sparklineBarGeometry(buckets)
+  const { t } = useI18n()
+  const points = sparklinePointGeometry(buckets)
   const { total, fail } = sumBuckets(buckets)
+  // 7-day rollup (the trailing week of buckets) for the meta row below.
+  const week = sumBuckets(buckets.slice(-7))
+  const lineD = points
+    .map((p, i) => `${i === 0 ? 'M' : 'L'}${p.x.toFixed(1)} ${p.y.toFixed(1)}`)
+    .join(' ')
+  const last = points[points.length - 1]
   const label =
-    ariaLabel ?? `30 天运行趋势，总 ${total} 次，失败 ${fail} 次`
+    ariaLabel ?? t('30 天运行趋势，总 {total} 次，失败 {fail} 次', { total, fail })
+
   return (
-    <svg
-      className="act-chart"
-      viewBox={`0 0 ${CHART_W} ${CHART_H}`}
-      preserveAspectRatio="none"
-      role="img"
-      aria-label={label}
-    >
-      {bars.map((bar) => (
-        <g key={bar.key}>
-          <rect
-            className="act-chart-bar"
-            x={bar.okRect.x.toFixed(1)}
-            y={bar.okRect.y.toFixed(1)}
-            width={bar.okRect.width.toFixed(1)}
-            height={bar.okRect.height.toFixed(1)}
-            rx={0.8}
+    <div className="act-sparkline">
+      {total === 0 ? (
+        // Empty history — flat dashed baseline + meta copy (PX-AD02)
+        <div className="act-chart-empty" role="img" aria-label={label}>
+          <span className="act-chart-empty-text">{t('暂无活动')}</span>
+          <span className="act-chart-empty-line" aria-hidden="true" />
+        </div>
+      ) : (
+        <svg
+          className="act-chart"
+          viewBox={`0 0 ${CHART_W} ${CHART_H}`}
+          preserveAspectRatio="none"
+          role="img"
+          aria-label={label}
+        >
+          <path
+            className="act-chart-line"
+            d={lineD}
+            fill="none"
+            strokeWidth={2}
+            vectorEffect="non-scaling-stroke"
+            strokeLinejoin="round"
+            strokeLinecap="round"
           />
-          {bar.failRect ? (
-            <rect
-              className="act-chart-bar fail"
-              x={bar.failRect.x.toFixed(1)}
-              y={bar.failRect.y.toFixed(1)}
-              width={bar.failRect.width.toFixed(1)}
-              height={bar.failRect.height.toFixed(1)}
-              rx={0.8}
+          {last ? (
+            <circle
+              className="act-chart-point"
+              cx={last.x.toFixed(1)}
+              cy={last.y.toFixed(1)}
+              r={3}
             />
           ) : null}
-        </g>
-      ))}
-    </svg>
+          {/* Hover tooltips: full-height hit slots with native <title> */}
+          {buckets.map((b, i) => {
+            const p = points[i]
+            if (!p) return null
+            const daysAgo = buckets.length - 1 - i
+            const dayLabel = daysAgo === 0 ? t('今天') : t('{n} 天前', { n: daysAgo })
+            return (
+              <rect
+                key={p.key}
+                className="act-chart-hit"
+                x={p.hitX.toFixed(1)}
+                y={0}
+                width={Math.max(1, p.hitW - 1).toFixed(1)}
+                height={CHART_H}
+                fill="transparent"
+              >
+                <title>{t('{day} · {n} 次', { day: dayLabel, n: b.total })}</title>
+              </rect>
+            )
+          })}
+        </svg>
+      )}
+      <div className="act-axis-row" aria-hidden="true">
+        <span>{t('30 天前')}</span>
+        <span>{t('今天')}</span>
+      </div>
+      <div className="act-chart-meta">
+        {t('近 7 天 {n} 次运行 · 失败 {fail} 次', { n: week.total, fail: week.fail })}
+      </div>
+    </div>
   )
 }

@@ -22,6 +22,7 @@ import { useCallback, useEffect, useMemo, useRef, useState } from 'react'
 import { Icon } from '@/components/icon'
 import { useI18n } from '@/i18n'
 import '@/styles/dialog.css'
+import '@/styles/agents.css' // .icon-spin loading state
 import {
   type AgentKind,
   type AgentKindGroup,
@@ -251,8 +252,12 @@ export function CreateAgentDialog({
             <div className="form-section">
               <div className="form-section-label">{t('执行')}</div>
               <div className="field">
-                <label htmlFor="agent-kind">{t('类型')}</label>
-                <div className="kind-options-grouped">
+                {/* Segmented kind chips (dialog.css .kind-option) — same visual
+                 * language as the persona library's profile picker (PX-A02).
+                 * The chips are buttons, so the label associates via
+                 * aria-labelledby instead of htmlFor. */}
+                <label id="agent-kind-label">{t('类型')}</label>
+                <div className="kind-options-grouped" role="group" aria-labelledby="agent-kind-label">
                   {groupedOptions.map((g) => (
                     <div key={g.group} className="kind-group">
                       <div className="kind-group-label">{t(g.group)}</div>
@@ -262,6 +267,7 @@ export function CreateAgentDialog({
                             key={k.kind}
                             type="button"
                             className={`kind-option${kind === k.kind ? ' active' : ''}`}
+                            aria-pressed={kind === k.kind}
                             onClick={() => selectKind(k.kind)}
                             title={t(k.hint)}
                           >
@@ -321,13 +327,14 @@ export function CreateAgentDialog({
             <div className="form-section">
               <div className="form-section-label">{t('访问')}</div>
               <div className="field">
-                <label>{t('可见性')}</label>
-                <div className="kind-options">
+                <label id="agent-visibility-label">{t('可见性')}</label>
+                <div className="kind-options" role="group" aria-labelledby="agent-visibility-label">
                   {VISIBILITY_OPTIONS.map((v) => (
                     <button
                       key={v.value}
                       type="button"
                       className={`kind-option${visibility === v.value ? ' active' : ''}`}
+                      aria-pressed={visibility === v.value}
                       onClick={() => setVisibility(v.value)}
                     >
                       {t(v.label)}
@@ -356,6 +363,7 @@ export function CreateAgentDialog({
             onClick={() => void handleSubmit()}
             disabled={!canSubmit}
           >
+            {submitting ? <Icon name="loader" className="icon-spin" style={{ width: 13, height: 13 }} /> : null}
             {submitting ? t('创建中…') : t('创建')}
           </button>
         </div>

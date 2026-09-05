@@ -40,7 +40,7 @@ import {
   sumBuckets,
 } from '@/lib/agent-detail'
 import {
-  sparklineBarGeometry,
+  sparklinePointGeometry,
   AgentActivitySparkline,
 } from '@/components/agent-activity-sparkline'
 import { AgentDetailView } from '@/components/agent-detail-view'
@@ -216,54 +216,53 @@ describe('deriveActivityBuckets (30-day window)', () => {
   })
 })
 
-describe('AgentActivitySparkline (30-bar SVG, ok/fail 双色)', () => {
+describe('AgentActivitySparkline (line sparkline, PX-AD02)', () => {
   const buckets = deriveActivityBuckets(makeDetail().tasks, NOW_MS)
 
-  it('emits one geometry entry per bucket (30)', () => {
-    const geo = sparklineBarGeometry(buckets)
+  it('emits one geometry point per bucket (30)', () => {
+    const geo = sparklinePointGeometry(buckets)
     expect(geo).toHaveLength(ACTIVITY_BUCKET_COUNT)
-    // every entry carries an ok rect
-    expect(geo.every((g) => g.okRect != null)).toBe(true)
+    // every point sits inside the padded viewBox
+    expect(geo.every((p) => p.x >= 8 && p.x <= 592 && p.y >= 8 && p.y <= 112)).toBe(true)
   })
 
-  it('only failing buckets produce a fail overlay rect', () => {
-    const geo = sparklineBarGeometry(buckets)
-    // bucket 29 (today) has fail=1 → failRect present; bucket 24 has fail=0 → null
-    expect(geo[29]!.failRect).not.toBeNull()
-    expect(geo[24]!.failRect).toBeNull()
-    const failCount = geo.filter((g) => g.failRect != null).length
-    expect(failCount).toBe(1) // only today
+  it('y ∝ total/max — the max bucket touches the top padding', () => {
+    const geo = sparklinePointGeometry(buckets)
+    // bucket 29 (today) has total=2 (the max) → highest point (smallest y, PAD=8)
+    const today = geo[29]!
+    const fiveDay = geo[24]!
+    expect(today.y).toBeLessThan(fiveDay.y)
+    expect(today.y).toBeCloseTo(8, 0)
   })
 
-  it('renders an .act-chart svg with 30 .act-chart-bar (incl. fail overlays)', () => {
+  it('renders one .act-chart line path, a single last-point dot, and a hover title per bucket', () => {
     const { container } = render(<AgentActivitySparkline buckets={buckets} />)
     const svg = container.querySelector('svg.act-chart')
     expect(svg).not.toBeNull()
-    const bars = container.querySelectorAll('rect.act-chart-bar')
-    // 30 ok bars + 1 fail overlay (today) = 31 total rects
-    expect(bars.length).toBe(ACTIVITY_BUCKET_COUNT + 1)
-    const failBars = container.querySelectorAll('rect.act-chart-bar.fail')
-    expect(failBars.length).toBe(1)
+    expect(container.querySelectorAll('path.act-chart-line')).toHaveLength(1)
+    // 最近点实心圆 — exactly one marker, on the newest bucket
+    const dots = container.querySelectorAll('circle.act-chart-point')
+    expect(dots).toHaveLength(1)
+    // native <title> tooltip per daily bucket
+    expect(container.querySelectorAll('.act-chart-hit title')).toHaveLength(ACTIVITY_BUCKET_COUNT)
   })
 
-  it('bar height ∝ total/max and fail overlay height ∝ fail/total', () => {
-    const geo = sparklineBarGeometry(buckets)
-    const today = geo[29]!.okRect
-    const fiveDay = geo[24]!.okRect
-    // today has total=2 (the max), 5d-ago has total=1 → today bar is taller
-    expect(today.height).toBeGreaterThan(fiveDay.height)
-    // fail overlay is shorter than its ok bar (fail=1 of total=2 → half height)
-    const fail = geo[29]!.failRect!
-    expect(fail.height).toBeLessThan(today.height)
-    expect(fail.height).toBeCloseTo(today.height / 2, 0)
+  it('empty history renders the flat dashed baseline + 「暂无活动」, no svg', () => {
+    const empty = deriveActivityBuckets([], NOW_MS)
+    const { container } = render(<AgentActivitySparkline buckets={empty} />)
+    expect(container.querySelector('svg.act-chart')).toBeNull()
+    expect(container.querySelector('.act-chart-empty')).not.toBeNull()
+    expect(container.textContent).toContain('暂无活动')
   })
 
-  it('carries an aria-label summarizing the totals', () => {
+  it('carries an aria-label summarizing the totals + the 7d meta row', () => {
     const { container } = render(<AgentActivitySparkline buckets={buckets} />)
     const svg = container.querySelector('svg.act-chart')!
     expect(svg.getAttribute('aria-label')).toContain('3')
     expect(svg.getAttribute('aria-label')).toContain('1')
     expect(svg.getAttribute('role')).toBe('img')
+    const meta = container.querySelector('.act-chart-meta')
+    expect(meta?.textContent).toContain('近 7 天')
   })
 })
 
