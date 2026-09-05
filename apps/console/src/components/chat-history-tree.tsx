@@ -561,8 +561,12 @@ export function ChatHistoryTree(): React.ReactElement {
                     <Icon name={isCreating ? 'loader' : 'plus'} style={{ width: 12, height: 12 }} />
                   </button>
                 </div>
-                {expanded && (
-                  <div className="chat-nav-dir-items">
+                {/* Always-mounted expand container (PX-C09): the 0fr→1fr
+                    grid transition in chat-nav-sidebar.css animates height +
+                    opacity over 140ms; contents stay in the DOM but are
+                    visibility-hidden while collapsed (not focusable). */}
+                <div className={`chat-nav-dir-items${expanded ? ' open' : ''}`}>
+                  <div className="chat-nav-dir-items-inner">
                     {visibleChats.map((chat) => (
                       <HoverCard
                         key={chat.id}
@@ -670,7 +674,7 @@ export function ChatHistoryTree(): React.ReactElement {
                       </button>
                     ) : null}
                   </div>
-                )}
+                </div>
               </div>
             )
           })

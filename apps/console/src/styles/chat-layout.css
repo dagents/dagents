@@ -103,6 +103,10 @@
   /* Composer sticks to bottom on mobile */
   .chat-composer-wrap {
     padding: var(--space-2) var(--space-3) var(--space-3);
+    /* safe-area must be re-declared AFTER the shorthand above (PX-C02):
+       env() resolves 0 on desktop/no-notch, full inset on Home-indicator
+       devices so the composer never hides under the gesture bar. */
+    padding-bottom: calc(var(--space-3) + env(safe-area-inset-bottom, 0px));
   }
   .chat-composer-card {
     max-width: 100%;
@@ -153,7 +157,7 @@
   box-shadow: var(--elev-dropdown);
   z-index: 200;
   padding: 4px;
-  animation: account-menu-in 0.12s var(--ease-standard);
+  animation: account-menu-in var(--motion-fast) var(--ease-standard);
 }
 @keyframes account-menu-in {
   from { opacity: 0; transform: translateY(-4px); }

@@ -6,30 +6,47 @@
    button right) riding above the scrollable pre. Highlighted output
    (shiki) and the plain fallback share identical geometry so a lazy
    grammar landing mid-view doesn't shift layout.
+
+   PX-C04:
+   - banner is STICKY (long blocks keep their language label + copy
+     seat while scrolling); `.code-block` uses `overflow: clip` so it
+     still crops children to the rounded corners WITHOUT becoming a
+     scroll container (which would trap the sticky banner).
+   - lines are numbered: right-aligned gutter, same line-height as the
+     code, pinned (sticky left) so it survives horizontal scrolling.
+   - horizontal scrollbar is a thin overlay-style track (6px) that
+     doesn't jump the content height.
    ============================================================ */
 
 .code-block {
   margin: 0.75em 0;
   border: 1px solid var(--border-soft);
-  border-radius: 12px;
+  border-radius: var(--radius-md);
   background: var(--prose-code-bg);
-  overflow: hidden;
+  /* clip (not hidden): crops to the rounded corners without creating a
+     scroll box that would trap the sticky banner (PX-C04). */
+  overflow: clip;
   min-width: 0;
 }
 
 .code-block-banner {
+  position: sticky;
+  top: 0;
+  z-index: 1;
   display: flex;
   align-items: center;
   justify-content: space-between;
   gap: var(--space-2);
   padding: 5px var(--space-2) 5px var(--space-3);
   border-bottom: 1px solid var(--border-soft);
-  background: color-mix(in oklab, var(--prose-code-bg) 60%, var(--surface));
+  background: color-mix(in oklab, var(--prose-code-bg) 92%, var(--surface));
+  backdrop-filter: blur(4px);
+  -webkit-backdrop-filter: blur(4px);
 }
 
 .code-block-lang {
   font-family: var(--font-mono);
-  font-size: 11px;
+  font-size: var(--text-2xs);
   color: var(--meta);
   text-transform: lowercase;
   overflow: hidden;
@@ -38,17 +55,19 @@
   min-width: 0;
 }
 
+/* Copy — icon-only, fixed square slot. The glyph swaps copy ⇄ ✓ inside the
+   same 22px seat so the button (and the banner layout) never resizes. */
 .code-block-copy {
-  display: inline-flex;
-  align-items: center;
-  gap: 4px;
+  display: inline-grid;
+  place-items: center;
   flex-shrink: 0;
-  padding: 2px var(--space-2);
+  width: 22px;
+  height: 22px;
+  padding: 0;
   border: none;
-  border-radius: 6px;
+  border-radius: var(--radius-xs);
   background: transparent;
   color: var(--meta);
-  font-size: 11px;
   cursor: pointer;
   transition: background var(--motion-fast), color var(--motion-fast);
 }
@@ -67,16 +86,34 @@
   color: var(--success);
 }
 
-/* Plain fallback and shiki output share padding / wrap rules. */
+/* Plain fallback and shiki output share padding / wrap rules. Lines do NOT
+   wrap (PX-C04): long lines scroll horizontally under a thin overlay-style
+   track instead of reflowing mid-token. */
 .code-block-plain,
 .code-block-highlighted pre {
   margin: 0;
   padding: var(--space-3) var(--space-4);
   font-family: var(--font-mono);
-  font-size: 12px;
+  font-size: var(--text-xs);
   line-height: 1.6;
-  white-space: pre-wrap;
-  word-break: break-word;
+  white-space: pre;
+  overflow-x: auto;
+  scrollbar-width: thin;
+}
+
+/* Thin overlay-style horizontal track — 6px, transparent track, no jump. */
+.code-block-plain::-webkit-scrollbar,
+.code-block-highlighted pre::-webkit-scrollbar {
+  height: 6px;
+}
+.code-block-plain::-webkit-scrollbar-thumb,
+.code-block-highlighted pre::-webkit-scrollbar-thumb {
+  border-radius: var(--radius-xs);
+  background: color-mix(in oklab, var(--fg) 16%, transparent);
+}
+.code-block-plain::-webkit-scrollbar-track,
+.code-block-highlighted pre::-webkit-scrollbar-track {
+  background: transparent;
 }
 
 .code-block-plain code {
@@ -84,6 +121,39 @@
   background: transparent;
   padding: 0;
   color: var(--prose-code-fg);
+  display: block;
+}
+
+/* ─── Line gutter (PX-C04) ────────────────────────────────────────
+   Both paths render one block-level `.line` element per source line; a
+   CSS counter paints a right-aligned number in a fixed 2ch gutter at the
+   code's own line-height. The gutter is sticky-left so horizontal
+   scrolling never slides numbers under the code. */
+.code-block-plain code,
+.code-block-highlighted code {
+  counter-reset: codeln;
+}
+
+.code-block-plain .line,
+.code-block-highlighted .line {
+  display: block;
+  min-height: 1.6em; /* keep empty lines one line tall + same line-height */
+}
+
+.code-block-plain .line::before,
+.code-block-highlighted .line::before {
+  counter-increment: codeln;
+  content: counter(codeln);
+  display: inline-block;
+  min-width: 2ch;
+  margin-right: var(--space-3);
+  text-align: right;
+  color: var(--meta);
+  opacity: 0.7;
+  user-select: none;
+  position: sticky;
+  left: 0; /* pinned to the scrollport's left edge when scrolling right */
+  background: var(--prose-code-bg);
 }
 
 /* shiki emits its own <pre class="shiki"> with a background style — force

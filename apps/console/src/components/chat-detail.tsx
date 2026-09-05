@@ -987,7 +987,7 @@ export function ChatDetail({ chatId }: ChatDetailProps): React.ReactElement {
                         {m.role === 'assistant' ? (
                           <div className="chat-msg-assistant-wrapper">
                             <div className="chat-msg-avatar" aria-hidden="true">
-                              <Icon name="agents" style={{ width: 16, height: 16 }} />
+                              <Icon name="agents" style={{ width: 12, height: 12 }} />
                             </div>
                             {/* Column keeps the footer (time + copy) aligned
                                 with the content, not under the avatar. */}
@@ -1084,7 +1084,7 @@ export function ChatDetail({ chatId }: ChatDetailProps): React.ReactElement {
                     <span className="assistant-pending-spacer" aria-hidden="true" />
                   ) : (
                     <div className="chat-msg-avatar" aria-hidden="true">
-                      <Icon name="agents" style={{ width: 16, height: 16 }} />
+                      <Icon name="agents" style={{ width: 12, height: 12 }} />
                     </div>
                   )}
                   <div className="assistant-pending">

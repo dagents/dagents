@@ -116,22 +116,35 @@
   padding: var(--space-4);
   display: flex;
   flex-direction: column;
-  gap: var(--space-3);
+  gap: 0; /* turn rhythm lives on .chat-msg margins (PX-C01) */
   max-width: 768px;
   width: 100%;
   margin: 0 auto;
+}
+
+/* Turn rhythm (PX-C01): 12px between messages inside a turn, 24px before a
+   user message (each user message opens a new turn). Applied as margins so
+   the skeleton / empty states / scroll slot are unaffected. */
+.chat-msg + .chat-msg {
+  margin-top: var(--space-3); /* 12px — within a turn */
+}
+.chat-msg + .chat-msg-user {
+  margin-top: var(--space-6); /* 24px — between turns */
 }
 
 .chat-detail-empty {
   margin: auto;
   color: var(--muted);
   font-size: var(--text-sm);
-  text-align: center;
+  text-align: left;
+  /* PX-C07: 聊天上下文内的空态不居中 —— 标题/描述/建议组全部靠消息列
+     左缘（与正式消息同一锚点），建议组自身限宽 640px。 */
   display: flex;
   flex-direction: column;
-  align-items: center;
+  align-items: flex-start;
   gap: var(--space-3);
   padding: var(--space-8) var(--space-4);
+  width: 100%;
 }
 
 .chat-detail-empty-title {
@@ -145,48 +158,7 @@
   color: var(--muted);
 }
 
-/* Suggestion chips — lightweight clickable prompts shown in the empty state.
-   Clicking one sends the text immediately via handleSend. */
-.chat-detail-suggestions {
-  display: flex;
-  flex-wrap: wrap;
-  gap: var(--space-2);
-  justify-content: center;
-  max-width: 480px;
-  margin-top: var(--space-2);
-}
-
-.chat-detail-suggestion-chip {
-  display: inline-flex;
-  align-items: center;
-  height: 32px;
-  padding: 0 var(--space-3);
-  background: var(--bg);
-  border: 1px solid var(--border-soft);
-  border-radius: var(--radius-pill);
-  font-size: var(--text-xs);
-  color: var(--muted);
-  font-weight: 500;
-  cursor: pointer;
-  transition: background var(--motion-fast), border-color var(--motion-fast), color var(--motion-fast);
-  white-space: nowrap;
-}
-
-.chat-detail-suggestion-chip:hover:not(:disabled) {
-  background: var(--surface-warm);
-  border-color: var(--border);
-  color: var(--fg);
-}
-
-.chat-detail-suggestion-chip:focus-visible {
-  outline: none;
-  box-shadow: var(--focus-ring);
-}
-
-.chat-detail-suggestion-chip:disabled {
-  opacity: 0.5;
-  cursor: not-allowed;
-}
+/* (旧版建议 chip 行已由 SuggestionCards 组件取代——死样式已删，PX-C07) */
 
 /* Message rows — role-specific chrome lives on the role classes; the base
    only carries the enter animation and wrapping. */
@@ -224,7 +196,7 @@
   color: var(--fg);
   border-radius: var(--radius-xl);
   padding: 10px 16px;
-  font-size: 15px;
+  font-size: var(--text-md);
   line-height: 1.65;
   white-space: pre-wrap;
   overflow-wrap: anywhere;
@@ -270,12 +242,17 @@
   flex-direction: column;
   gap: var(--space-1);
 }
+/* Assistant anchor (PX-C01): a 20px circular icon slot at the content's
+   first baseline — the visual anchor that separates assistant rows from
+   the user's right-aligned bubbles. Sunk surface + hairline keeps it quiet
+   (ink-violet contract: violet stays on state, not identity chrome). */
 .chat-msg-avatar {
   flex-shrink: 0;
-  width: 28px;
-  height: 28px;
+  width: 20px;
+  height: 20px;
   border-radius: 50%;
-  background: var(--bg-3);
+  background: var(--surface-sunk);
+  border: 1px solid var(--border-soft);
   display: flex;
   align-items: center;
   justify-content: center;
@@ -435,17 +412,17 @@
 }
 
 /* Streaming 阶段状态行不再画第二个头像（气泡行已有一个），等宽占位
-   （28px 头像宽 + wrapper 8px gap 由 flex 提供）保持文字与内容列对齐。 */
+   （20px 头像宽 + wrapper 8px gap 由 flex 提供）保持文字与内容列对齐。 */
 .assistant-pending-spacer {
   flex-shrink: 0;
-  width: 28px;
+  width: 20px;
 }
 
 .assistant-pending {
   display: flex;
   align-items: center;
   gap: var(--space-2);
-  min-height: 28px;
+  min-height: 20px;
 }
 
 /* Elapsed clock (deepseek TurnStatus) — appears after 15s so long silent

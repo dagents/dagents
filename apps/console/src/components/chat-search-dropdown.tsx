@@ -188,6 +188,11 @@ export const ChatSearchDropdown = forwardRef<ChatSearchDropdownHandle, ChatSearc
 
         {results.length > 0 && (
           <div className="chat-search-list" ref={listRef}>
+            {/* Group title (PX-C10): sections the list from the pending /
+                status rows and mirrors the command palette's grouping style. */}
+            <div className="chat-search-group-title" aria-hidden="true">
+              {t('搜索结果')}
+            </div>
             {results.map((r, i) => {
               const isActive = i === activeIndex
               return (

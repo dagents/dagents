@@ -42,6 +42,8 @@ export interface ToolCallCardProps {
   content?: string
   /** True while the tool call is still streaming (no closing tag yet). */
   inProgress?: boolean
+  /** True when the tool call errored — danger left stripe + tinted body. */
+  failed?: boolean
   /** Default expanded state. Default: collapsed. */
   defaultOpen?: boolean
 }
@@ -60,6 +62,7 @@ export function ToolCallCard({
   summary,
   content,
   inProgress,
+  failed,
   defaultOpen,
 }: ToolCallCardProps): React.ReactElement {
   const [open, setOpen] = useState(!!defaultOpen)
@@ -85,7 +88,10 @@ export function ToolCallCard({
   }
 
   return (
-    <div className={`tool-call-card tool-call-${category}`} data-open={open || undefined}>
+    <div
+      className={`tool-call-card tool-call-${category}${failed ? ' tool-call-failed' : ''}`}
+      data-open={open || undefined}
+    >
       <button
         type="button"
         className="tool-call-header"
@@ -94,22 +100,27 @@ export function ToolCallCard({
       >
         <span className="tool-call-glyph" aria-hidden="true">{glyph}</span>
         <span className="tool-call-name">{toolName}</span>
+        {inProgress ? (
+          // PX-C05: 3-dot bounce right after the tool name while running.
+          <span className="tool-call-running-dots" aria-hidden="true">
+            <span /><span /><span />
+          </span>
+        ) : null}
         <span className="tool-call-type-badge">{CATEGORY_LABEL[category]}</span>
         <span className="tool-call-summary">
           {inProgress && !summary ? '执行中…' : summary}
         </span>
-        {inProgress ? (
-          <Icon name="loader" className="tool-call-spinner" style={{ width: 12, height: 12 }} />
-        ) : (
-          <Icon
-            name={open ? 'chevronDown' : 'chevronRight'}
-            style={{ width: 12, height: 12, flexShrink: 0 }}
-          />
-        )}
+        <Icon
+          name="chevronRight"
+          className="tool-call-chevron"
+          style={{ width: 12, height: 12 }}
+        />
       </button>
 
-      {open ? (
-        <div className="tool-call-body">
+      {/* Always-mounted body behind a 0fr→1fr grid transition (PX-C05) —
+          expand/collapse animates height without layout jumps. */}
+      <div className="tool-call-body">
+        <div className="tool-call-body-inner">
           {/* File diff view for write/edit tools with old/new strings. */}
           {hasDiff ? (
             <FileDiffView input={toolInput!} />
@@ -137,7 +148,7 @@ export function ToolCallCard({
             <pre className="tool-call-json">{content}</pre>
           ) : null}
         </div>
-      ) : null}
+      </div>
     </div>
   )
 }

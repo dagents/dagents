@@ -1,7 +1,8 @@
 /* Chat sidebar — deepseek-harness session-browser anatomy (rows/slots/
    hover swaps/overflow), themed with our tokens.
-     34px group header: [folder|chevron 16px slot] name count [hover ➕]
-   32px chat row:      [status 16px slot] title flex … time ⇄ hover actions */
+     30px group header: [folder|chevron 16px slot] name count [hover ➕]
+   30px chat row:      [status 16px slot] title flex … time ⇄ hover actions
+   PX-C09: 目录头与会话行统一 30px 行高；会话行相对目录名缩进 12px 等差。 */
 
 .chat-nav-sidebar {
   display: flex;
@@ -23,7 +24,7 @@
 .chat-nav-history::-webkit-scrollbar { width: 8px; }
 .chat-nav-history::-webkit-scrollbar-track { background: transparent; }
 .chat-nav-history::-webkit-scrollbar-thumb {
-  border-radius: 4px;
+  border-radius: var(--radius-xs);
   border: 2px solid transparent;
   background: transparent;
   background-clip: padding-box;
@@ -50,7 +51,7 @@
   display: grid;
   place-items: center;
   border: none;
-  border-radius: 8px;
+  border-radius: var(--radius-sm);
   background: transparent;
   color: var(--meta);
   cursor: pointer;
@@ -110,8 +111,8 @@
   height: 38px;
   padding: 8px 16px;
   margin: 0 2px;
-  border-radius: 12px;
-  font-size: 13px;
+  border-radius: var(--radius-md);
+  font-size: var(--text-sm);
   font-weight: 500;
   border: 1px solid var(--border);
   background: var(--bg);
@@ -148,13 +149,13 @@
   gap: var(--space-1);
   height: 36px;
   padding: 0 var(--space-2);
-  border-radius: 12px;
+  border-radius: var(--radius-md);
 }
 
 .chat-nav-browser-label {
   flex: 1;
   min-width: 0;
-  font-size: 13px;
+  font-size: var(--text-sm);
   font-weight: 500;
   color: var(--muted);
   white-space: nowrap;
@@ -178,7 +179,7 @@
   display: grid;
   place-items: center;
   border: none;
-  border-radius: 6px;
+  border-radius: var(--radius-xs);
   background: transparent;
   color: var(--meta);
   cursor: pointer;
@@ -211,7 +212,7 @@
   min-width: 0;
   background: transparent;
   border: 1px solid transparent;
-  border-radius: 10px;
+  border-radius: var(--radius-md);
   transition: background var(--motion-fast), border-color var(--motion-fast);
 }
 
@@ -240,7 +241,7 @@
   display: grid;
   place-items: center;
   border: none;
-  border-radius: 999px;
+  border-radius: var(--radius-pill);
   background: transparent;
   color: var(--muted);
   cursor: pointer;
@@ -258,7 +259,7 @@
   background: transparent;
   border: 0;
   outline: none;
-  font-size: 13px;
+  font-size: var(--text-sm);
   line-height: 18px;
   color: var(--fg);
 }
@@ -271,7 +272,7 @@
   display: grid;
   place-items: center;
   border: none;
-  border-radius: 4px;
+  border-radius: var(--radius-xs);
   background: transparent;
   color: var(--meta);
   cursor: pointer;
@@ -294,8 +295,8 @@
   gap: var(--space-2);
   height: 32px;
   padding: 0 8px;
-  border-radius: 8px;
-  font-size: 13px;
+  border-radius: var(--radius-sm);
+  font-size: var(--text-sm);
   color: var(--muted);
   cursor: pointer;
   transition: background var(--motion-fast) var(--ease-standard),
@@ -331,7 +332,7 @@
 .chat-nav-history-status {
   padding: var(--space-3) var(--space-2);
   color: var(--meta);
-  font-size: 13px;
+  font-size: var(--text-sm);
   line-height: 1.5;
 }
 
@@ -356,10 +357,10 @@
   align-items: center;
   flex: 1;
   min-width: 0;
-  height: 34px;
+  height: 30px;
   padding: 0 8px 0 4px;
-  border-radius: 8px;
-  font-size: 13px;
+  border-radius: var(--radius-sm);
+  font-size: var(--text-sm);
   font-weight: 500;
   color: var(--fg);
   cursor: pointer;
@@ -391,7 +392,7 @@
 .chat-nav-dir-header-row:hover .chat-nav-dir-slot.folder { display: none; }
 
 .chat-nav-dir-arrow {
-  transition: transform 150ms var(--ease-in-out-quad);
+  transition: transform var(--motion-fast) var(--ease-in-out-quad);
 }
 
 .chat-nav-dir-arrow.open {
@@ -409,7 +410,7 @@
 
 .chat-nav-dir-count {
   flex: none;
-  font-size: 12px;
+  font-size: var(--text-xs);
   line-height: 20px;
   color: var(--meta);
   font-variant-numeric: tabular-nums;
@@ -427,7 +428,7 @@
   border: none;
   background: transparent;
   color: var(--meta);
-  border-radius: 4px;
+  border-radius: var(--radius-xs);
   cursor: pointer;
   opacity: 0;
   transition: opacity var(--motion-fast), background var(--motion-fast), color var(--motion-fast);
@@ -445,10 +446,41 @@
   opacity: 0.6;
 }
 
-/* Chat rows (deepseek .sessionRow, 32px) */
+/* Chat rows (deepseek .sessionRow, 30px — unified with the dir header, PX-C09).
+   Indent contract: dir name starts at 4+16+4=24px; chat title at 16+16+4=36px
+   → a clean 12px step per tree level. */
 .chat-nav-dir-items {
+  display: grid;
+  grid-template-rows: 0fr;
+  opacity: 0;
+  visibility: hidden;
+  /* PX-C09: 展开 140ms 高度 + 透明度过渡（0fr→1fr grid 技巧）。 */
+  transition: grid-template-rows var(--motion-fast) var(--ease-standard),
+              opacity var(--motion-fast) var(--ease-standard),
+              visibility 0s linear var(--motion-fast);
+}
+
+.chat-nav-dir-items.open {
+  grid-template-rows: 1fr;
+  opacity: 1;
+  visibility: visible;
+  transition: grid-template-rows var(--motion-fast) var(--ease-standard),
+              opacity var(--motion-fast) var(--ease-standard),
+              visibility 0s;
+}
+
+.chat-nav-dir-items-inner {
+  min-height: 0;
+  overflow: hidden;
   display: flex;
   flex-direction: column;
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .chat-nav-dir-items,
+  .chat-nav-dir-items.open {
+    transition: none;
+  }
 }
 
 .chat-nav-chat-item-wrapper {
@@ -459,10 +491,10 @@
   display: flex;
   align-items: center;
   gap: 0;
-  height: 32px;
-  padding: 0 8px;
-  border-radius: 8px;
-  font-size: 13px;
+  height: 30px;
+  padding: 0 8px 0 16px;
+  border-radius: var(--radius-sm);
+  font-size: var(--text-sm);
   line-height: 20px;
   color: var(--fg);
   cursor: pointer;
@@ -473,7 +505,7 @@
   width: 100%;
   text-align: left;
   user-select: none;
-  animation: chat-nav-row-in 150ms var(--ease-in-out-quad) both;
+  animation: chat-nav-row-in var(--motion-fast) var(--ease-in-out-quad) both;
 }
 
 @keyframes chat-nav-row-in {
@@ -506,7 +538,7 @@
    actions — no absolute overlays eating into the title. */
 .chat-nav-chat-item-time {
   flex: none;
-  font-size: 12px;
+  font-size: var(--text-xs);
   line-height: 20px;
   color: var(--meta);
   font-variant-numeric: tabular-nums;
@@ -564,7 +596,7 @@
   width: 18px;
   height: 18px;
   border: none;
-  border-radius: 4px;
+  border-radius: var(--radius-xs);
   background: transparent;
   color: var(--meta);
   cursor: pointer;
@@ -578,19 +610,29 @@
   color: var(--danger);
 }
 
-/* Overflow control (deepseek "Show N more") */
+/* Overflow control (deepseek "Show N more") — 30px like every row, with a
+   ⋯ prefix in meta colour so it reads as a control, not another session
+   (PX-C09). Prefix seat aligns the label with chat titles (16+12+8=36px). */
 .chat-nav-dir-overflow {
-  height: 28px;
+  height: 30px;
   margin-top: 2px;
-  padding: 0 12px 0 28px;
+  padding: 0 12px 0 16px;
   border: none;
-  border-radius: 8px;
+  border-radius: var(--radius-sm);
   background: transparent;
   color: var(--meta);
-  font-size: 12px;
+  font-size: var(--text-xs);
   text-align: left;
   cursor: pointer;
   transition: background var(--motion-fast), color var(--motion-fast);
+}
+.chat-nav-dir-overflow::before {
+  content: '⋯';
+  display: inline-block;
+  width: 12px;
+  margin-right: var(--space-2);
+  text-align: center;
+  color: var(--meta);
 }
 .chat-nav-dir-overflow:hover {
   background: var(--surface);
@@ -634,7 +676,7 @@
   width: 30px;
   height: 30px;
   flex-shrink: 0;
-  border-radius: 8px;
+  border-radius: var(--radius-sm);
   color: var(--muted);
   cursor: pointer;
   transition: background var(--motion-fast), color var(--motion-fast);
@@ -670,7 +712,7 @@
   display: grid;
   place-items: center;
   border: none;
-  border-radius: 10px;
+  border-radius: var(--radius-md);
   background: transparent;
   color: var(--muted);
   cursor: pointer;
@@ -708,7 +750,7 @@
   height: 36px;
   margin: 0 auto;
   padding: 0;
-  border-radius: 10px;
+  border-radius: var(--radius-md);
   justify-content: center;
 }
 
@@ -726,7 +768,7 @@
   height: 36px;
   padding: 0;
   justify-content: center;
-  border-radius: 10px;
+  border-radius: var(--radius-md);
 }
 
 /* Wide-only content: not rendered on the rail (deepseek unmounts it). */
@@ -760,7 +802,7 @@
 .chat-layout-sidebar.collapsed .chat-nav-action-btn,
 .chat-layout-sidebar.collapsed .chat-nav-link,
 .chat-layout-sidebar.collapsed .chat-nav-footer > * {
-  animation: chat-nav-rail-in 150ms var(--ease-out-quint) both;
+  animation: chat-nav-rail-in var(--motion-fast) var(--ease-out-quint) both;
 }
 
 @keyframes chat-nav-rail-in {
@@ -777,17 +819,19 @@
   }
 }
 
-/* Rename input */
+/* Rename input — 30px like the row it replaces (PX-C09), text aligned with
+   the chat titles (16px left pad). */
 .chat-nav-chat-rename-input {
   width: 100%;
-  height: 28px;
-  padding: 0 8px;
+  height: 30px;
+  padding: 0 8px 0 16px;
   border: 1px solid var(--accent);
-  border-radius: 8px;
+  border-radius: var(--radius-sm);
   background: var(--bg);
   color: var(--fg);
-  font-size: 13px;
+  font-size: var(--text-sm);
   outline: none;
+  box-sizing: border-box;
 }
 
 /* Delete confirmation */
@@ -795,12 +839,12 @@
   display: flex;
   align-items: center;
   gap: 6px;
-  height: 32px;
-  padding: 0 8px;
-  font-size: 12px;
+  height: 30px;
+  padding: 0 8px 0 16px;
+  font-size: var(--text-xs);
   color: var(--fg-2);
   background: var(--danger-soft);
-  border-radius: 8px;
+  border-radius: var(--radius-sm);
 }
 
 /* ─── Workspace menu (deepseek Menu): rename / delete ─────────────── */
@@ -814,7 +858,7 @@
   border: none;
   background: transparent;
   color: var(--meta);
-  border-radius: 4px;
+  border-radius: var(--radius-xs);
   cursor: pointer;
   opacity: 0;
   transition: opacity var(--motion-fast), background var(--motion-fast), color var(--motion-fast);
@@ -835,7 +879,7 @@
   padding: 4px;
   background: var(--bg);
   border: 1px solid var(--border);
-  border-radius: 10px;
+  border-radius: var(--radius-md);
   box-shadow: var(--elev-dropdown);
 }
 
@@ -847,10 +891,10 @@
   height: 30px;
   padding: 0 var(--space-2);
   border: none;
-  border-radius: 6px;
+  border-radius: var(--radius-xs);
   background: transparent;
   color: var(--fg);
-  font-size: 12px;
+  font-size: var(--text-xs);
   text-align: left;
   cursor: pointer;
   transition: background var(--motion-fast), color var(--motion-fast);
@@ -871,16 +915,17 @@
 .chat-nav-dir-rename-input {
   flex: 1;
   min-width: 0;
-  height: 28px;
+  height: 30px;
   padding: 0 8px;
   margin-left: 4px;
   border: 1px solid var(--accent);
-  border-radius: 8px;
+  border-radius: var(--radius-sm);
   background: var(--bg);
   color: var(--fg);
-  font-size: 13px;
+  font-size: var(--text-sm);
   font-weight: 500;
   outline: none;
+  box-sizing: border-box;
 }
 
 /* ─── Directory delete confirm modal (deepseek workspace-delete) ──── */
@@ -892,7 +937,7 @@
   display: flex;
   align-items: center;
   justify-content: center;
-  animation: chat-nav-overlay-in 140ms var(--ease-out-quint) both;
+  animation: chat-nav-overlay-in var(--motion-fast) var(--ease-out-quint) both;
 }
 
 @keyframes chat-nav-overlay-in {
@@ -905,19 +950,19 @@
   padding: var(--space-4);
   background: var(--bg);
   border: 1px solid var(--border);
-  border-radius: 14px;
+  border-radius: var(--radius-lg);
   box-shadow: var(--elev-overlay);
 }
 
 .chat-nav-confirm-title {
-  font-size: 14px;
+  font-size: var(--text-md);
   font-weight: 600;
   color: var(--fg);
 }
 
 .chat-nav-confirm-desc {
   margin-top: var(--space-2);
-  font-size: 13px;
+  font-size: var(--text-sm);
   line-height: 1.5;
   color: var(--muted);
 }

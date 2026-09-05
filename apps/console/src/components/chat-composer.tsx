@@ -76,11 +76,22 @@ export function ChatComposer({
   }, [autoFocus])
 
   // Auto-resize: grow with content up to max-height, collapse when emptied.
+  // Also flips the card's height-aware radius (PX-C02): ≤3 rows it stays a
+  // capsule (--radius-xl), beyond 3 rows it drops to card radius (--radius-lg)
+  // so a tall composer doesn't read as a stretched pill.
   const resize = useCallback(() => {
     const el = textareaRef.current
     if (!el) return
     el.style.height = 'auto'
-    el.style.height = `${Math.min(el.scrollHeight, 200)}px`
+    const h = Math.min(el.scrollHeight, 200)
+    el.style.height = `${h}px`
+    const card = el.closest('.chat-composer-card')
+    if (card) {
+      // COMPOSER_TALL_THRESHOLD = 4px top pad + 3 lines × 24px — the card
+      // drops to --radius-lg only BEYOND 3 lines of content.
+      if (h > 4 + 24 * 3) card.setAttribute('data-tall', '')
+      else card.removeAttribute('data-tall')
+    }
   }, [])
 
   useEffect(() => {

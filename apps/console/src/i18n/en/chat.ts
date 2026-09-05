@@ -57,6 +57,7 @@ export const chat: Record<string, string> = {
   '没有匹配的命令': 'No matching commands',
   '导航': 'Navigate',
   '选择': 'Select',
+  '开合面板': 'Toggle palette',
   '跳转': 'Go to',
   '页面': 'Pages',
   '首页': 'Home',

@@ -1,3 +1,6 @@
+/* PX-C07: 建议卡去「AI 三列彩点阵」姿势 —— 图标槽改 hairline 描边（无彩底），
+   hover 上浮 2px + 悬浮阴影；整组限宽 640px 靠消息列左缘（不居中，
+   聊天上下文里建议是「你可以这样说」，不是落地页 feature grid）。 */
 .suggestion-grid {
   display: grid;
   grid-template-columns: 1fr 1fr;
@@ -17,26 +20,51 @@
   cursor: pointer;
   transition: background var(--motion-fast) var(--ease-standard),
               border-color var(--motion-fast) var(--ease-standard),
-              box-shadow var(--motion-fast) var(--ease-standard);
+              box-shadow var(--motion-fast) var(--ease-standard),
+              transform var(--motion-fast) var(--ease-standard);
   text-align: left;
 }
 
-.suggestion-card:hover {
+.suggestion-card:hover:not(:disabled) {
   background: var(--surface-warm);
   border-color: var(--border);
+  box-shadow: var(--elev-hover);
+  transform: translateY(-2px);
+}
+
+.suggestion-card:active:not(:disabled) {
+  transform: translateY(0);
   box-shadow: var(--elev-raised);
 }
 
+.suggestion-card:focus-visible {
+  outline: none;
+  box-shadow: var(--focus-ring);
+}
+
+.suggestion-card:disabled {
+  opacity: 0.5;
+  cursor: not-allowed;
+}
+
+/* 图标槽：hairline 描边 + muted 图标 —— 保留 28px 视觉占位但不抢戏。 */
 .suggestion-card-icon {
   width: 28px;
   height: 28px;
   border-radius: var(--radius-sm);
-  background: var(--accent-soft);
-  color: var(--accent);
+  border: 1px solid var(--border-soft);
+  background: transparent;
+  color: var(--muted);
   display: flex;
   align-items: center;
   justify-content: center;
   flex-shrink: 0;
+  transition: color var(--motion-fast), border-color var(--motion-fast);
+}
+
+.suggestion-card:hover:not(:disabled) .suggestion-card-icon {
+  color: var(--fg);
+  border-color: var(--border);
 }
 
 .suggestion-card-text {

@@ -21,7 +21,7 @@
 .chat-search-results::-webkit-scrollbar { width: 8px; }
 .chat-search-results::-webkit-scrollbar-track { background: transparent; }
 .chat-search-results::-webkit-scrollbar-thumb {
-  border-radius: 4px;
+  border-radius: var(--radius-xs);
   border: 2px solid transparent;
   background: transparent;
   background-clip: padding-box;
@@ -39,7 +39,7 @@
   gap: var(--space-2);
   padding: 16px 12px;
   color: var(--meta);
-  font-size: 13px;
+  font-size: var(--text-sm);
   line-height: 1.5;
 }
 
@@ -76,12 +76,12 @@
   margin-top: 2px;
   padding: 4px 8px;
   border: none;
-  border-radius: 8px;
+  border-radius: var(--radius-sm);
   background: transparent;
   color: var(--fg);
   text-align: left;
   cursor: pointer;
-  animation: chat-search-row-in 150ms var(--ease-in-out-quad) both;
+  animation: chat-search-row-in var(--motion-fast) var(--ease-in-out-quad) both;
 }
 
 @keyframes chat-search-row-in {
@@ -114,7 +114,7 @@
   overflow: hidden;
   text-overflow: ellipsis;
   white-space: nowrap;
-  font-size: 13px;
+  font-size: var(--text-sm);
   line-height: 20px;
   font-weight: 500;
 }
@@ -135,7 +135,7 @@
   overflow: hidden;
   text-overflow: ellipsis;
   white-space: nowrap;
-  font-size: 12px;
+  font-size: var(--text-xs);
   line-height: 17px;
   color: var(--meta);
 }
@@ -147,15 +147,30 @@
   overflow: hidden;
   text-overflow: ellipsis;
   white-space: nowrap;
-  font-size: 12px;
+  font-size: var(--text-xs);
   line-height: 17px;
   color: var(--muted);
 }
 
-/* Gateway <mark> highlight inside snippets — accent-tinted, quiet. */
+/* Gateway <mark> highlight inside snippets (PX-C10): accent TEXT colour +
+   600 weight, no background chip — a column of hits stays quiet and
+   readable instead of turning into a ladder of purple blocks. */
 .chat-search-item-snippet mark {
-  background: var(--accent-soft);
+  background: transparent;
   color: var(--accent);
-  border-radius: 2px;
-  padding: 0 1px;
+  font-weight: 600;
+  padding: 0;
+  border-radius: 0;
+}
+
+/* Group title above the result list (PX-C10): 11px / 500 / meta with 8px
+   breathing room top and bottom — separates the section label from rows. */
+.chat-search-group-title {
+  padding: var(--space-2) var(--space-2) var(--space-2);
+  margin-bottom: 0;
+  font-size: var(--text-2xs);
+  font-weight: 500;
+  color: var(--meta);
+  letter-spacing: 0.02em;
+  user-select: none;
 }

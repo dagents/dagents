@@ -385,11 +385,38 @@ const TextBlock = memo(function TextBlock({ content, streaming }: { content: str
 })
 
 /**
+ * Table host (PX-C03): wraps a markdown table in a horizontal-scroll shell
+ * and lights a 24px right-edge fade ONLY when the table actually overflows
+ * (scrollWidth > clientWidth). ResizeObserver covers both column re-layout
+ * (font swap, streaming) and container resize (window / sidebar).
+ */
+function MarkdownTable({ children }: { children: React.ReactNode }): React.ReactElement {
+  const wrapRef = useRef<HTMLDivElement>(null)
+  const [overflowing, setOverflowing] = useState(false)
+  useEffect(() => {
+    const el = wrapRef.current
+    if (!el) return
+    const check = () => setOverflowing(el.scrollWidth - el.clientWidth > 1)
+    check()
+    const ro = new ResizeObserver(check)
+    ro.observe(el)
+    if (el.firstElementChild) ro.observe(el.firstElementChild)
+    return () => ro.disconnect()
+  }, [])
+  return (
+    <div className={`prose-table-shell${overflowing ? ' overflowing' : ''}`}>
+      <div className="prose-table-wrap" ref={wrapRef}>{children}</div>
+    </div>
+  )
+}
+
+/**
  * Lightweight inline markdown renderer — converts common patterns to
  * React elements without pulling in a full markdown library.
  * Supports: code blocks (```), inline code (`), bold (**), italic (*),
- * links [text](url), bullet/numbered lists, headings (#..####),
- * blockquotes (>), and horizontal rules (---).
+ * links [text](url), bullet/numbered lists (indentation-nested), tables
+ * (GFM pipe syntax), headings (#..####), blockquotes (>), and horizontal
+ * rules (---).
  */
 function renderMarkdown(text: string): React.ReactNode {
   const blocks: React.ReactNode[] = []
@@ -445,34 +472,47 @@ function renderMarkdown(text: string): React.ReactNode {
       continue
     }
 
-    // Bullet list
-    if (/^[-*+]\s+/.test(line)) {
-      const items: string[] = []
-      while (i < lines.length && /^[-*+]\s+/.test(lines[i])) {
-        items.push(lines[i].replace(/^[-*+]\s+/, ''))
-        i++
+    // GFM pipe table: a header row, a |---|---| delimiter, then body rows.
+    if (isTableDelimiter(lines[i + 1]) && line.includes('|')) {
+      const headerCells = splitTableRow(line)
+      if (headerCells.length > 0) {
+        i += 2 // header + delimiter
+        const bodyRows: string[][] = []
+        while (i < lines.length && lines[i].includes('|') && lines[i].trim() !== '') {
+          bodyRows.push(splitTableRow(lines[i]))
+          i++
+        }
+        blocks.push(
+          <MarkdownTable key={key++}>
+            <table>
+              <thead>
+                <tr>{headerCells.map((c, j) => <th key={j}>{renderInline(c)}</th>)}</tr>
+              </thead>
+              <tbody>
+                {bodyRows.map((row, r) => (
+                  <tr key={r}>
+                    {row.map((c, j) => <td key={j}>{renderInline(c)}</td>)}
+                  </tr>
+                ))}
+              </tbody>
+            </table>
+          </MarkdownTable>,
+        )
+        continue
       }
-      blocks.push(
-        <ul key={key++}>
-          {items.map((item, j) => <li key={j}>{renderInline(item)}</li>)}
-        </ul>,
-      )
-      continue
     }
 
-    // Numbered list
-    if (/^\d+\.\s+/.test(line)) {
-      const items: string[] = []
-      while (i < lines.length && /^\d+\.\s+/.test(lines[i])) {
-        items.push(lines[i].replace(/^\d+\.\s+/, ''))
-        i++
+    // Lists (bullet / numbered) — nesting by indentation (PX-C03: 每层
+    // --space-6 缩进由 CSS 承担，渲染器只负责产出真实嵌套结构)。
+    {
+      const width = (line.match(/^ */) ?? [''])[0].length
+      const parsed = parseListItems(lines, i, width)
+      if (parsed.items.length > 0) {
+        const ListTag = parsed.ordered ? 'ol' : 'ul'
+        blocks.push(<ListTag key={key++}>{parsed.items.map(renderListItem)}</ListTag>)
+        i = parsed.next
+        continue
       }
-      blocks.push(
-        <ol key={key++}>
-          {items.map((item, j) => <li key={j}>{renderInline(item)}</li>)}
-        </ol>,
-      )
-      continue
     }
 
     // Empty line — skip
@@ -498,6 +538,87 @@ function renderMarkdown(text: string): React.ReactNode {
   }
 
   return blocks
+}
+
+/** `| --- | :---: |` style delimiter row under a table header. */
+function isTableDelimiter(line: string | undefined): boolean {
+  return !!line && /^\s*\|?\s*:?-{3,}:?\s*(\|\s*:?-{3,}:?\s*)+\|?\s*$/.test(line)
+}
+
+/** Split `| a | b |` into trimmed cells (leading/trailing pipes optional). */
+function splitTableRow(line: string): string[] {
+  return line.trim().replace(/^\|/, '').replace(/\|$/, '').split('|').map((c) => c.trim())
+}
+
+interface ParsedListItem {
+  content: string
+  children: React.ReactNode[]
+}
+
+interface ParsedList {
+  ordered: boolean
+  items: ParsedListItem[]
+  next: number
+}
+
+/**
+ * Parse a run of list lines (starting at `start`, all items at leading
+ * width `width`) into structured items; deeper-indented items become the
+ * `children` (nested <ul>/<ol> nodes) of the last item at this level.
+ */
+function parseListItems(lines: string[], start: number, width: number): ParsedList {
+  const items: ParsedListItem[] = []
+  let i = start
+  while (i < lines.length) {
+    const line = lines[i]
+    if (line.trim() === '') {
+      // Blank inside a list — stay only if another item follows.
+      if (i + 1 < lines.length && /^\s*([-*+]|\d+\.)\s+/.test(lines[i + 1]!)) {
+        i++
+        continue
+      }
+      break
+    }
+    const w = (line.match(/^ */) ?? [''])[0].length
+    const itemMatch = line.slice(w).match(/^([-*+]|\d+\.)\s+(.*)$/)
+    if (!itemMatch) {
+      // Non-item line: lazy continuation of the last item (unless it starts
+      // another block construct or belongs to a deeper level).
+      const isBlocky = /^\s*(#{1,4}\s|```|>|-{3,}\s*$)/.test(line)
+      if (isBlocky || w > width + 1 || items.length === 0) break
+      items[items.length - 1]!.content += ' ' + line.trim()
+      i++
+      continue
+    }
+    if (w >= width && w <= width + 1) {
+      // New item at this level.
+      items.push({ content: itemMatch[2] ?? '', children: [] })
+      i++
+      continue
+    }
+    if (w > width + 1) {
+      // Deeper — nested list of the last item (or its continuation text).
+      if (items.length === 0) break
+      const nested = parseListItems(lines, i, w)
+      if (nested.items.length > 0) {
+        const Tag = nested.ordered ? 'ol' : 'ul'
+        items[items.length - 1]!.children.push(
+          <Tag key={`nested-${i}`}>{nested.items.map(renderListItem)}</Tag>,
+        )
+        i = nested.next
+        continue
+      }
+      items[items.length - 1]!.content += ' ' + line.trim()
+      i++
+      continue
+    }
+    break // Shallower — the parent level consumes it.
+  }
+  return { ordered: /^\s*\d+\./.test(lines[start] ?? ''), items, next: i }
+}
+
+function renderListItem(item: ParsedListItem, idx: number): React.ReactNode {
+  return <li key={idx}>{renderInline(item.content)}{item.children.length > 0 ? item.children : null}</li>
 }
 
 /** Render inline markdown: `code`, **bold**, *italic*, [links](url). */
