@@ -62,8 +62,8 @@
   background: transparent;
   color: var(--meta);
   cursor: pointer;
-  border-radius: 6px;
-  font-size: 18px;
+  border-radius: var(--radius-xs);
+  font-size: var(--text-lg);
   line-height: 1;
   transition: background var(--motion-fast), color var(--motion-fast);
 }
@@ -78,7 +78,7 @@
 }
 
 .shortcuts-group-title {
-  font-size: 11px;
+  font-size: var(--text-2xs);
   font-weight: 600;
   color: var(--meta);
   letter-spacing: var(--tracking-label);
@@ -96,15 +96,31 @@
   font-size: var(--text-sm);
   color: var(--fg-2);
 }
-.shortcuts-key {
+
+/* ─── PX-GL06：全站统一 kbd 键帽（.kbd 单一定义处）──────────────────
+ * 规格：mono 11px(--text-2xs) / surface-sunk 底（= --prose-code-bg）/
+ * --radius-xs / 1px border-soft。shortcuts 帮助层、command palette、画布
+ * 运行面板等处的 <kbd class='kbd'> 共用；不引入新文件，跨组件 import
+ * 本 css 即可用（Next CSS 按去重合并）。 */
+.kbd {
+  display: inline-block;
   font-family: var(--font-mono);
-  font-size: 11px;
+  font-size: var(--text-2xs);
   font-weight: 500;
-  padding: 3px 8px;
-  border-radius: 4px;
-  background: var(--surface);
-  border: 1px solid var(--border);
+  line-height: 1;
   color: var(--muted);
+  background: var(--surface-sunk);
+  border: 1px solid var(--border-soft);
+  border-radius: var(--radius-xs);
+  padding: 3px 6px;
+  min-width: 18px;
+  text-align: center;
+  white-space: nowrap;
+}
+
+.shortcuts-footer .kbd {
+  font-size: var(--text-2xs);
+  padding: 1px 6px;
 }
 
 .shortcuts-footer {
@@ -113,8 +129,4 @@
   font-size: var(--text-xs);
   color: var(--meta);
   text-align: center;
-}
-.shortcuts-footer .shortcuts-key {
-  font-size: 10px;
-  padding: 1px 6px;
 }

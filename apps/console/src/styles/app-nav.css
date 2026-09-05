@@ -2,7 +2,13 @@
  * AppNavSidebar —— Workflow-First 主导航样式（PRD F2）。
  *
  * 复用 chat-layout.css 的 chat-nav-sidebar 骨架与 token；这里只定义
- * 导航项 / 最近对话折叠区的增量。双主题经 CSS 变量自动生效。
+ * 导航项 / 会话历史树区域的增量。双主题经 CSS 变量自动生效。
+ *
+ * PX-GL01（2026-09-04）：hover 与选中态语义二分 ——
+ *   hover  = surface 底（轻扫过）；
+ *   选中   = bg 底 + 左缘 2px 紫 accent 条 + fg 文字（与 shell.css
+ *           .nav-link[aria-current] 同款语言，紫只做指向不做填充）。
+ * 旧规则引用了不存在的 --text-2/--bg-2/--text 令牌（静默回退），已清理。
  */
 
 .app-nav-section {
@@ -13,26 +19,55 @@
 }
 
 .app-nav-item {
+  position: relative;
   display: flex;
   align-items: center;
   gap: 10px;
   padding: 7px 10px;
-  border-radius: 8px;
-  color: var(--text-2, var(--text));
+  border-radius: var(--radius-sm);
+  color: var(--muted);
   text-decoration: none;
-  font-size: 13px;
+  font-size: var(--text-sm);
   font-weight: 500;
-  transition: background 0.15s ease, color 0.15s ease;
+  transition: background var(--motion-fast) var(--ease-standard),
+              color var(--motion-fast) var(--ease-standard);
+}
+
+.app-nav-item .nav-icon {
+  color: var(--meta);
+  transition: color var(--motion-fast) var(--ease-standard);
 }
 
 .app-nav-item:hover {
-  background: var(--bg-2, var(--surface-hover, rgba(0, 0, 0, 0.05)));
-  color: var(--text);
+  background: var(--surface);
+  color: var(--fg);
 }
 
+.app-nav-item:hover .nav-icon {
+  color: var(--fg);
+}
+
+/* 选中态：bg 底 + 左缘 2px 紫条（紫 = 指向/选中契约）+ ring 描边 */
 .app-nav-item.active {
-  background: var(--accent-soft, rgba(99, 102, 241, 0.12));
-  color: var(--accent, #6366f1);
+  background: var(--bg);
+  color: var(--fg);
+  box-shadow: var(--elev-ring);
+}
+
+.app-nav-item.active .nav-icon {
+  color: var(--accent);
+}
+
+.app-nav-item.active::before {
+  content: '';
+  position: absolute;
+  left: -1px;
+  top: 50%;
+  transform: translateY(-50%);
+  width: 2px;
+  height: 16px;
+  background: var(--accent);
+  border-radius: 0 2px 2px 0;
 }
 
 .app-nav-item-label {
@@ -41,7 +76,7 @@
   text-overflow: ellipsis;
 }
 
-/* 折叠态：只显示图标，居中 */
+/* 折叠态：只显示图标，居中（hover 全名提示走 title 属性，TSX 已带） */
 .chat-layout-sidebar.collapsed .app-nav-section {
   padding: 6px 6px;
 }
@@ -53,12 +88,34 @@
 
 /* ── 会话历史树 ──
  * 2026-08-29 用户裁决：恢复「项目目录为第一维度」的会话树（ChatHistoryTree，
- * 与 Chat-First 回滚壳共用），取代此前的扁平「最近对话」列表。树本体复用
+ * 与 Chat-First 壳共用），取代此前的扁平「最近对话」列表。树本体复用
  * chat-nav-sidebar.css 的 .chat-nav-browser 与 .chat-nav-dir- / .chat-nav-chat-
  * 系列类（自带 flex:1 + min-height:0，填满主导航与页脚之间，折叠态由
  * .chat-layout-sidebar.collapsed 统一隐藏）。 */
 
-/* 暗色主题微调（黄警条教训：新组件默认双主题校验） */
-[data-theme='dark'] .app-nav-item:hover {
-  background: rgba(255, 255, 255, 0.06);
+/* ── PX-GL07：语言切换 100ms 全页透明微过渡 ──
+ * locale-toggle 点击时给 <html> 挂 .locale-switching（~160ms 后摘除），
+ * body 透明度轻降掩住中英文案的瞬时跳变；两向都走 100ms。 */
+html.locale-switching body {
+  opacity: 0.7;
+}
+body {
+  transition: opacity 100ms var(--ease-standard);
+}
+
+/* PX-GL07：locale 按钮加 16px 线性 globe 图标后，shell.css 的固定 36px
+ * 槽装不下 —— 改 auto 宽 + 紧凑内距（壳类规则只读，此处覆盖）。 */
+.chat-nav-locale-btn {
+  width: auto;
+  min-width: 36px;
+  padding: 0 8px;
+  gap: 4px;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+}
+.chat-nav-locale-btn svg {
+  width: 16px;
+  height: 16px;
+  flex-shrink: 0;
 }

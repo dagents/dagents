@@ -1,5 +1,9 @@
-.directory-selector { position: relative; display: inline-block; }
+/* directory-selector 领域专属样式。dropdown/option 共享壳在
+   styles/selector.css（PX-GL08 单源）；此处保留描边胶囊 trigger（形态
+   与 agent/flow 的 composer 芯片有意不同：目录选择器也出现在设置页
+   等独立场景）、OS 目录浏览按钮、path 列与空态。 */
 
+/* ── 触发器：描边胶囊（独立场景可独立成型的选择器）── */
 .directory-selector-trigger {
   display: inline-flex;
   align-items: center;
@@ -16,39 +20,16 @@
 }
 .directory-selector-trigger:hover { background: var(--surface-warm); border-color: var(--accent); }
 
+/* ── 下拉定位：向下展开（触发器常在页首/工具栏），左缘对齐触发器 ——
+   居中会让触发器贴近左缘时浮层溢出视口。z-index 降到 50：此选择器
+   常出现在 dialog 内，避免盖过 dialog 头部。 ── */
 .directory-selector-dropdown {
-  /* Left-aligned (not centered) so the dropdown's left edge tracks the
-   * trigger's left edge — consistent whether the selector sits in the chat
-   * topbar, the floating-chat header, or the sidebar. Centering caused the
-   * dropdown to overflow the viewport when the trigger was near the left edge. */
   position: absolute;
   top: calc(100% + 4px);
   left: 0;
-  min-width: 320px;
-  background: var(--bg);
-  border: 1px solid var(--border);
-  border-radius: var(--radius-sm);
-  box-shadow: var(--elev-ring);
   z-index: 50;
-  padding: 4px;
 }
 
-.directory-selector-option {
-  display: flex;
-  align-items: center;
-  gap: 8px;
-  width: 100%;
-  padding: 8px 10px;
-  background: transparent;
-  border: 0;
-  border-radius: var(--radius-sm);
-  color: var(--fg);
-  font-size: var(--text-sm);
-  text-align: left;
-  cursor: pointer;
-}
-.directory-selector-option:hover { background: var(--surface-warm); }
-.directory-selector-option.selected { background: var(--accent-soft); color: var(--accent-hover); }
 .directory-selector-option-path {
   margin-left: auto;
   font-family: var(--font-mono);
@@ -60,15 +41,19 @@
   white-space: nowrap;
 }
 
+/* PX-GL08：空态文案与其余选择器的引导行同语言（hairline 分隔 + 引导色） */
 .directory-selector-empty {
-  display: block;
-  padding: 12px;
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  height: 32px;
+  padding: 0 10px;
+  margin-top: 4px;
+  border-top: 1px solid var(--border-soft);
   color: var(--muted);
-  font-size: var(--text-sm);
-  text-align: center;
-  text-decoration: none;
+  font-size: var(--text-xs);
+  border-radius: 0 0 var(--radius-sm) var(--radius-sm);
 }
-.directory-selector-empty:hover { color: var(--accent); }
 
 /* ─── "browse local directory" action (top of dropdown) ─── */
 .directory-selector-browse {
@@ -76,7 +61,8 @@
   align-items: center;
   gap: 8px;
   width: 100%;
-  padding: 8px 10px;
+  height: 32px;
+  padding: 0 10px;
   background: transparent;
   border: 0;
   border-radius: var(--radius-sm);

@@ -1,17 +1,18 @@
 /* HoverCard — dark fixed-color tooltip card (deepseek-harness pattern:
-   distinct from surface chrome, reads as an inspection affordance). */
-
+   distinct from surface chrome, reads as an inspection affordance).
+   PX-GL05：阴影从 --elev-overlay（与对话框同级，过重）降为 --elev-dropdown；
+   出现 80ms 淡入（配合 150ms 延迟，快速划过不再闪卡）。 */
 .hover-card {
   position: fixed;
   z-index: 200;
   padding: 12px;
   background: #1f2328;
   color: #f0f0f0;
-  border-radius: 10px;
-  box-shadow: 0 4px 12px rgba(0, 0, 0, 0.2), 0 16px 40px rgba(0, 0, 0, 0.3);
-  font-size: 12px;
+  border-radius: var(--radius-md);
+  box-shadow: var(--elev-dropdown);
+  font-size: var(--text-xs);
   line-height: 1.5;
-  animation: hover-card-in 120ms var(--ease-out-quint) both;
+  animation: hover-card-in 80ms var(--ease-out-quint) both;
 }
 
 @keyframes hover-card-in {
@@ -25,7 +26,7 @@
 
 .hover-card-title {
   font-weight: 600;
-  font-size: 13px;
+  font-size: var(--text-sm);
   line-height: 1.4;
   word-break: break-word;
   display: -webkit-box;
@@ -44,7 +45,7 @@
   margin-top: 2px;
   color: #8b9097;
   font-family: var(--font-mono);
-  font-size: 11px;
+  font-size: var(--text-2xs);
   word-break: break-all;
   display: -webkit-box;
   -webkit-line-clamp: 2;
@@ -66,8 +67,8 @@
   vertical-align: middle;
   background: #6e7380;
 }
-.hover-card-status.running .dot { background: #2dd4a7; }
-.hover-card-status.failed .dot { background: #f87171; }
+.hover-card-status.running .dot { background: var(--success); }
+.hover-card-status.failed .dot { background: var(--danger); }
 .hover-card-status.done .dot { background: #6e7380; }
 
 .hover-card-copy {
@@ -77,10 +78,10 @@
   gap: 4px;
   padding: 3px 8px;
   border: 1px solid rgba(255, 255, 255, 0.16);
-  border-radius: 6px;
+  border-radius: var(--radius-xs);
   background: transparent;
   color: #d5d9de;
-  font-size: 11px;
+  font-size: var(--text-2xs);
   cursor: pointer;
   transition: background 120ms, color 120ms;
 }
@@ -91,6 +92,6 @@
 }
 
 .hover-card-copy.copied {
-  color: #2dd4a7;
+  color: var(--success);
   border-color: rgba(45, 212, 167, 0.4);
 }

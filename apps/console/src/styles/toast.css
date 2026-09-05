@@ -28,19 +28,18 @@
   overflow: hidden;
 }
 
-/* Left accent bar */
+/* Left accent line — PX-GL04：仅错误态保留 2px danger 左边线（大面积色
+ * 底只留给错误），其余状态色由图标圆承担，不再画边线。 */
 .toast-item::before {
   content: "";
   position: absolute;
   left: 0;
   top: 0;
   bottom: 0;
-  width: 3px;
+  width: 2px;
+  display: none;
 }
-.toast-success::before { background: var(--success); }
-.toast-error::before { background: var(--danger); }
-.toast-warning::before { background: var(--warn); }
-.toast-info::before { background: var(--info); }
+.toast-error::before { display: block; background: var(--danger); }
 
 .toast-icon {
   width: 24px;
@@ -61,6 +60,12 @@
   min-width: 0;
 }
 
+/* action 按钮：独立右槽 + 12px 间距（PX-GL04 —— 此前 4px 与关闭钮挤成堆） */
+.toast-action {
+  flex-shrink: 0;
+  margin-left: 12px;
+}
+
 .toast-dismiss {
   width: 20px;
   height: 20px;
@@ -70,8 +75,8 @@
   background: transparent;
   color: var(--meta);
   cursor: pointer;
-  border-radius: 4px;
-  font-size: 14px;
+  border-radius: var(--radius-xs);
+  font-size: var(--text-md);
   line-height: 1;
   flex-shrink: 0;
   transition: background var(--motion-fast), color var(--motion-fast);
@@ -87,6 +92,29 @@
   to { opacity: 1; transform: translateX(0); }
 }
 @media (prefers-reduced-motion: reduce) { .toast-enter { animation: none; } }
+
+/* ─── PX-GL04：自动消失 4s 细进度条 ──────────────────────────────
+ * 底缘 2px 细线随剩余时长线性收缩（transform 无重排）；时长由行内
+ * --toast-dur 注入（4s 默认 / action toast 8s / error 6s 同步各退场）。
+ * 未启用自动消失的 toast 不挂 .has-progress。 */
+.toast-item.has-progress::after {
+  content: "";
+  position: absolute;
+  left: 0;
+  bottom: 0;
+  height: 2px;
+  width: 100%;
+  background: var(--meta);
+  opacity: 0.4;
+  transform-origin: left;
+  animation: toast-progress var(--toast-dur, 4000ms) linear forwards;
+}
+@keyframes toast-progress {
+  from { transform: scaleX(1); }
+  to { transform: scaleX(0); }
+}
+/* reduced-motion：shell.css 全局把动画压到 0.01ms，进度条即刻归零 ——
+ * 视觉上等于隐藏，无需另行处理。 */
 
 /* Mobile: full-width toasts */
 @media (max-width: 480px) {

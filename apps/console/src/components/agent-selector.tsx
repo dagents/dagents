@@ -15,12 +15,14 @@
  *   ArrowDown/Up: move through options (wraps). Enter: select. Escape: close.
  */
 
-import { useEffect, useId, useRef, useState } from 'react'
+import { useEffect, useState } from 'react'
 import Link from 'next/link'
 import { Icon } from '@/components/icon'
 import { fetchAgents, AGENT_KINDS } from '@/lib/agents-catalog'
 import { useToast } from '@/components/toast'
+import { useSelectorDropdown } from '@/components/use-selector-dropdown'
 import { useI18n } from '@/i18n'
+import '@/styles/selector.css'
 import '@/styles/agent-selector.css'
 
 export interface AgentOption {
@@ -54,15 +56,10 @@ export function AgentSelector({ value, onChange, disabled }: AgentSelectorProps)
   const [agents, setAgents] = useState<AgentOption[]>([])
   const [loaded, setLoaded] = useState(false)
   const [agentsError, setAgentsError] = useState<string | null>(null)
-  const [open, setOpen] = useState(false)
   /** CLI runtimes detected by the gateway (always fetched, regardless of agents.length). */
   const [runtimes, setRuntimes] = useState<CliRuntime[]>([])
   const [creating, setCreating] = useState<string | null>(null)
   const [createError, setCreateError] = useState<string | null>(null)
-  const [highlighted, setHighlighted] = useState(-1)
-  const ref = useRef<HTMLDivElement>(null)
-  const triggerRef = useRef<HTMLButtonElement>(null)
-  const listboxId = useId()
 
   // Fetch DB agents
   useEffect(() => {
@@ -148,27 +145,6 @@ export function AgentSelector({ value, onChange, disabled }: AgentSelectorProps)
     }
   }
 
-  useEffect(() => {
-    if (!open) return
-    const handler = (e: MouseEvent) => {
-      if (ref.current && !ref.current.contains(e.target as Node)) {
-        setOpen(false)
-      }
-    }
-    document.addEventListener('mousedown', handler)
-    return () => document.removeEventListener('mousedown', handler)
-  }, [open])
-
-  useEffect(() => {
-    if (!open) {
-      setHighlighted(-1)
-      return
-    }
-    const selectedIndex = value === null ? 0 : agents.findIndex((a) => a.id === value) + 1
-    setHighlighted(selectedIndex >= 0 ? selectedIndex : 0)
-    triggerRef.current?.focus()
-  }, [open, value, agents])
-
   const selected = agents.find((a) => a.id === value)
   const label = value ? (selected?.name ?? value.slice(0, 8)) : 'auto'
 
@@ -184,6 +160,17 @@ export function AgentSelector({ value, onChange, disabled }: AgentSelectorProps)
 
   // Total keyboard-navigable options: 1 (auto) + agents.length + installedNotInDb.length
   const optionCount = 1 + agents.length + installedNotInDb.length
+
+  // 共享行为基座（PX-GL08）：开合/外点/键盘 listbox 导航/聚焦。
+  // selectIndex 为函数声明，提升可用。打开时高亮播种到当前选中项。
+  const {
+    open, setOpen, highlighted, setHighlighted,
+    ref, triggerRef, listboxId, onKeyDown,
+  } = useSelectorDropdown({
+    optionCount,
+    initialHighlight: value === null ? 0 : agents.findIndex((a) => a.id === value) + 1,
+    onSelectIndex: selectIndex,
+  })
 
   function selectIndex(idx: number): void {
     if (idx < 0 || idx >= optionCount) return
@@ -205,45 +192,6 @@ export function AgentSelector({ value, onChange, disabled }: AgentSelectorProps)
       const meta = AGENT_KINDS.find((k) => k.kind === cli.kind)
       const lbl = meta?.label ?? cli.kind
       void quickCreateAgent(cli.kind, lbl, cli.binary)
-    }
-  }
-
-  function onKeyDown(e: React.KeyboardEvent<HTMLButtonElement>): void {
-    if (!open) {
-      if (e.key === 'ArrowDown' || e.key === 'ArrowUp' || e.key === 'Enter' || e.key === ' ') {
-        e.preventDefault()
-        setOpen(true)
-      }
-      return
-    }
-    switch (e.key) {
-      case 'ArrowDown':
-        e.preventDefault()
-        setHighlighted((prev) => (prev + 1) % optionCount)
-        break
-      case 'ArrowUp':
-        e.preventDefault()
-        setHighlighted((prev) => (prev - 1 + optionCount) % optionCount)
-        break
-      case 'Home':
-        e.preventDefault()
-        setHighlighted(0)
-        break
-      case 'End':
-        e.preventDefault()
-        setHighlighted(optionCount - 1)
-        break
-      case 'Enter':
-        e.preventDefault()
-        selectIndex(highlighted)
-        break
-      case 'Escape':
-        e.preventDefault()
-        setOpen(false)
-        break
-      case 'Tab':
-        setOpen(false)
-        break
     }
   }
 

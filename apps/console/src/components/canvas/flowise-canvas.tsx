@@ -10,13 +10,15 @@ import { useToast } from '@/components/toast'
 import { useI18n } from '@/i18n'
 import { detectRefusal } from '@/lib/refusal-detect'
 import { pickDirectory, createDirectory } from '@/lib/directories'
-import { SaveFlowTemplateDialog } from '@/components/save-flow-template-dialog'
+import { SaveFlowTemplateDialog, scanTemplateParamNames } from '@/components/save-flow-template-dialog'
 // flowise.css 是 vendor 画布的基础样式（节点 max-content 尺寸规则 + React Flow
 // 定位/handle/edge 基类），canvas.css 只在其上做主题变量覆盖。此前 base 缺失，
 // 节点量不出尺寸 → React Flow 永久 visibility:hidden → 边被静默丢弃，
 // 画布表现为空白只剩工具栏。必须在 canvas.css 之前引入。
 import '@dagents/agentflow/flowise.css'
 import './canvas.css'
+// .kbd（统一 kbd 键帽，shortcuts.css 单一定义、GL03/GL06 全站共用）
+import '@/styles/shortcuts.css'
 
 export interface FlowiseCanvasProps {
   flowId: string
@@ -371,6 +373,13 @@ export function FlowiseCanvas({
   }, [initialFlow])
   if (originalEdgesRef.current === null) originalEdgesRef.current = initialFlowData.edges
 
+  /** 模板参数预扫描（PX-CV04）：另存为模板对话框的 {{变量}} chip 网格数据源。 */
+  const templateParamNames = useMemo(
+    () => scanTemplateParamNames(initialFlowData.nodes),
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+    [initialFlowData],
+  )
+
   /** 完成段的连线颜色（两端节点都 done 时整段点亮）。 */
   const EDGE_DONE_COLOR = '#16a34a'
 
@@ -706,7 +715,7 @@ export function FlowiseCanvas({
               : t('▶ 运行')
       return (
         <div className='agentflow-header' style={{ position: 'relative' }}>
-          <span className='agentflow-title'>
+          <span className='agentflow-title' title={flowName}>
             {flowName}
             {props.isDirty && ' *'}
           </span>
@@ -804,7 +813,10 @@ export function FlowiseCanvas({
                 <div className='canvas-run-dir-hint'>{t('示例')}：{startInputHint.example}</div>
               ) : null}
               <div className='canvas-run-panel-actions'>
-                <span className='canvas-run-panel-hint'>⌘⏎ {t('运行')}</span>
+                <span className='canvas-run-panel-hint'>
+                  <kbd className='kbd' aria-hidden='true'>⌘⏎</kbd>
+                  {t('运行')}
+                </span>
                 <button type='button' className='canvas-run-panel-cancel' onClick={() => setRunPanelOpen(false)}>
                   {t('取消')}
                 </button>
@@ -848,6 +860,7 @@ export function FlowiseCanvas({
             onClose={() => setSaveTplOpen(false)}
             flowId={flowId}
             flowName={flowName}
+            paramNames={templateParamNames}
           />
 
           {/* 运行结果面板：逐节点状态/耗时/产出（spans 实时刷新） */}
@@ -989,7 +1002,7 @@ export function FlowiseCanvas({
         </div>
       )
     },
-    [flowName, saveState, readOnly, runState, runSummary, handleRun, t, runPanelOpen, runInput, resultsOpen, latestSpans, saveTplOpen, handleAddDirectory, firstRunBar],
+    [flowName, saveState, readOnly, runState, runSummary, handleRun, t, runPanelOpen, runInput, resultsOpen, latestSpans, saveTplOpen, handleAddDirectory, firstRunBar, templateParamNames],
   )
 
   return (

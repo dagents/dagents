@@ -1,5 +1,8 @@
-.agent-selector { position: relative; display: inline-block; }
+/* agent-selector 领域专属样式。dropdown/option/hint 共享壳与另外两个
+   选择器一起定义在 styles/selector.css（PX-GL08 单源）；此处只保留
+   composer 芯片 trigger 与 agent 特有块（CLI 分组/字形/错误/空态）。 */
 
+/* ── 触发器：composer 内嵌芯片（与 flow-selector 同款）── */
 .agent-selector-trigger {
   /* Composer chip chrome (deepseek .select): 28px, borderless, 8px radius;
      hover answers in the interactive surface, not a stroke change. */
@@ -10,9 +13,9 @@
   padding: 0 10px;
   background: transparent;
   border: none;
-  border-radius: 8px;
+  border-radius: var(--radius-sm);
   color: var(--muted);
-  font-size: 13px;
+  font-size: var(--text-sm);
   font-weight: 500;
   white-space: nowrap;
   cursor: pointer;
@@ -21,39 +24,12 @@
 .agent-selector-trigger:hover { background: var(--surface); color: var(--fg); }
 .agent-selector-trigger:disabled { opacity: 0.5; cursor: not-allowed; }
 
+/* ── 下拉定位：composer 在底部，向上展开 ── */
 .agent-selector-dropdown {
   position: absolute;
   bottom: calc(100% + 4px);
   left: 0;
-  min-width: 240px;
-  max-height: 380px;
-  overflow-y: auto;
-  background: var(--bg);
-  border: 1px solid var(--border);
-  border-radius: var(--radius-sm);
-  box-shadow: var(--elev-ring);
-  z-index: 100;
-  padding: 4px;
 }
-
-.agent-selector-option {
-  display: flex;
-  align-items: center;
-  gap: 8px;
-  width: 100%;
-  padding: 8px 10px;
-  background: transparent;
-  border: 0;
-  border-radius: var(--radius-sm);
-  color: var(--fg);
-  font-size: var(--text-sm);
-  text-align: left;
-  cursor: pointer;
-}
-.agent-selector-option:hover,
-.agent-selector-option.highlighted { background: var(--surface-warm); }
-.agent-selector-option.selected { background: var(--accent-soft); color: var(--accent-hover); }
-.agent-selector-option-hint { margin-left: auto; font-size: var(--text-xs); color: var(--meta); }
 
 /* Unavailable (not installed) CLI — greyed out, not clickable */
 .agent-selector-option.unavailable {
@@ -62,13 +38,14 @@
 }
 .agent-selector-option.unavailable:hover { background: transparent; }
 
-/* Empty-state create link — shown when the catalogue comes back empty.
-   Not a selectable option (no role=option); a navigation link to /agents. */
+/* Empty-state create link — PX-GL08：空态引导行统一（hairline 上分隔 +
+ * accent 文字 + 紧凑行高，与 flow/directory 选择器同款） */
 .agent-selector-create-link {
   display: flex;
   align-items: center;
   gap: 6px;
-  padding: 8px 10px;
+  height: 32px;
+  padding: 0 10px;
   margin-top: 4px;
   border-top: 1px solid var(--border-soft);
   color: var(--accent);
@@ -85,7 +62,7 @@
   gap: 6px;
   padding: 8px 10px 4px;
   color: var(--meta);
-  font-size: 11px;
+  font-size: var(--text-2xs);
   font-weight: 500;
   text-transform: uppercase;
   letter-spacing: 0.04em;
@@ -99,7 +76,7 @@
   border-radius: var(--radius-sm);
   background: var(--accent-soft);
   color: var(--accent);
-  font-size: 10px;
+  font-size: var(--text-2xs);
   font-weight: 700;
   font-family: var(--font-mono);
   flex-shrink: 0;

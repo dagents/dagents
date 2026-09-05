@@ -14,10 +14,12 @@
  *   - Escape: closes the dropdown without changing selection.
  */
 
-import { useEffect, useId, useRef, useState } from 'react'
+import { useEffect, useState } from 'react'
 import Link from 'next/link'
 import { Icon } from '@/components/icon'
+import { useSelectorDropdown } from '@/components/use-selector-dropdown'
 import { useI18n } from '@/i18n'
+import '@/styles/selector.css'
 import '@/styles/flow-selector.css'
 
 export interface FlowOption {
@@ -39,11 +41,6 @@ export function FlowSelector({ value, onChange, disabled }: FlowSelectorProps): 
   const [flows, setFlows] = useState<FlowOption[]>([])
   const [loaded, setLoaded] = useState(false)
   const [loadError, setLoadError] = useState<string | null>(null)
-  const [open, setOpen] = useState(false)
-  const [highlighted, setHighlighted] = useState(-1)
-  const ref = useRef<HTMLDivElement>(null)
-  const triggerRef = useRef<HTMLButtonElement>(null)
-  const listboxId = useId()
 
   const load = async (): Promise<void> => {
     try {
@@ -75,43 +72,21 @@ export function FlowSelector({ value, onChange, disabled }: FlowSelectorProps): 
     void load()
   }, [])
 
-  useEffect(() => {
-    if (!open) return
-    const handler = (e: MouseEvent) => {
-      if (ref.current && !ref.current.contains(e.target as Node)) {
-        setOpen(false)
-      }
-    }
-    document.addEventListener('mousedown', handler)
-    return () => document.removeEventListener('mousedown', handler)
-  }, [open])
-
-  // Highlight tracks selection changes, but FOCUS only on open — a value
-  // change while open (e.g. quick rebind) must not yank focus back.
-  useEffect(() => {
-    if (!open) {
-      setHighlighted(-1)
-      return
-    }
-    const selectedIndex = value === null ? 0 : flows.findIndex((f) => f.id === value) + 1
-    setHighlighted(selectedIndex >= 0 ? selectedIndex : 0)
-    // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [open])
-
-  useEffect(() => {
-    if (open) triggerRef.current?.focus()
-  }, [open])
-
-  useEffect(() => {
-    if (!open) return
-    const selectedIndex = value === null ? 0 : flows.findIndex((f) => f.id === value) + 1
-    setHighlighted(selectedIndex >= 0 ? selectedIndex : 0)
-  }, [value, flows, open])
-
   const selected = flows.find((f) => f.id === value)
   const label = value ? (selected?.name ?? value.slice(0, 8)) : t('无 Flow')
 
   const optionCount = 1 + flows.length
+
+  // 共享行为基座（PX-GL08）：开合/外点/键盘 listbox 导航/聚焦；
+  // 打开时播种高亮到当前选中项。selectIndex 为函数声明，提升可用。
+  const {
+    open, setOpen, highlighted, setHighlighted,
+    ref, triggerRef, listboxId, onKeyDown,
+  } = useSelectorDropdown({
+    optionCount,
+    initialHighlight: value === null ? 0 : flows.findIndex((f) => f.id === value) + 1,
+    onSelectIndex: selectIndex,
+  })
 
   function selectIndex(idx: number): void {
     if (idx < 0 || idx >= optionCount) return
@@ -121,45 +96,6 @@ export function FlowSelector({ value, onChange, disabled }: FlowSelectorProps): 
       onChange(flows[idx - 1].id)
     }
     setOpen(false)
-  }
-
-  function onKeyDown(e: React.KeyboardEvent<HTMLButtonElement>): void {
-    if (!open) {
-      if (e.key === 'ArrowDown' || e.key === 'ArrowUp' || e.key === 'Enter' || e.key === ' ') {
-        e.preventDefault()
-        setOpen(true)
-      }
-      return
-    }
-    switch (e.key) {
-      case 'ArrowDown':
-        e.preventDefault()
-        setHighlighted((prev) => (prev + 1) % optionCount)
-        break
-      case 'ArrowUp':
-        e.preventDefault()
-        setHighlighted((prev) => (prev - 1 + optionCount) % optionCount)
-        break
-      case 'Home':
-        e.preventDefault()
-        setHighlighted(0)
-        break
-      case 'End':
-        e.preventDefault()
-        setHighlighted(optionCount - 1)
-        break
-      case 'Enter':
-        e.preventDefault()
-        selectIndex(highlighted)
-        break
-      case 'Escape':
-        e.preventDefault()
-        setOpen(false)
-        break
-      case 'Tab':
-        setOpen(false)
-        break
-    }
   }
 
   const showEmptyCreate = loaded && flows.length === 0
@@ -222,7 +158,7 @@ export function FlowSelector({ value, onChange, disabled }: FlowSelectorProps): 
             )
           })}
           {loadError ? (
-            <div className="agent-selector-error" role="alert">
+            <div className="flow-selector-error" role="alert">
               <Icon name="alertTriangle" style={{ width: 12, height: 12 }} />
               <span>{t('Flow 列表加载失败：{error}', { error: loadError })}</span>
               <button type="button" className="btn btn-ghost btn-sm" onClick={() => void load()}>

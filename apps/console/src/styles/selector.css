@@ -1,0 +1,87 @@
+/* ============================================================
+   selector.css — 选择器族共享视觉基座（PX-GL08 收口）
+   agent-selector / flow-selector / directory-selector 三者的
+   dropdown / option / hint 规则在此单一定义（分组选择器），
+   各自 CSS 只保留 trigger（agent/flow = composer 芯片、
+   directory = 描边胶囊，形态有意不同）与领域专属块。
+   import 方：三个 selector 组件（保序，勿删）。
+   ============================================================ */
+
+/* ── 根容器 ── */
+.agent-selector,
+.flow-selector,
+.directory-selector {
+  position: relative;
+  display: inline-block;
+}
+
+/* ── 下拉浮层：min-width 240 / elev-dropdown / radius-sm（PX-GL08 规格）。
+   agent/flow 在 composer 上方展开（bottom 定位）、directory 向下展开
+   （top 定位）——方向覆写在各自文件里。── */
+.agent-selector-dropdown,
+.flow-selector-dropdown,
+.directory-selector-dropdown {
+  min-width: 240px;
+  max-height: 320px;
+  overflow-y: auto;
+  background: var(--bg);
+  border: 1px solid var(--border);
+  border-radius: var(--radius-sm);
+  box-shadow: var(--elev-dropdown);
+  z-index: 100;
+  padding: 4px;
+}
+
+/* ── 选项行：32px / 左对齐 / hover 与键盘高亮同态 ── */
+.agent-selector-option,
+.flow-selector-option,
+.directory-selector-option {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  width: 100%;
+  height: 32px;
+  padding: 0 10px;
+  background: transparent;
+  border: 0;
+  border-radius: var(--radius-sm);
+  color: var(--fg);
+  font-size: var(--text-sm);
+  text-align: left;
+  cursor: pointer;
+}
+.agent-selector-option:hover,
+.agent-selector-option.highlighted,
+.flow-selector-option:hover,
+.flow-selector-option.highlighted,
+.directory-selector-option:hover,
+.directory-selector-option.highlighted {
+  background: var(--surface-warm);
+}
+.agent-selector-option.selected,
+.flow-selector-option.selected,
+.directory-selector-option.selected {
+  background: var(--surface-warm);
+  color: var(--accent-hover);
+  box-shadow: var(--accent-glow-soft);
+}
+
+/* ── 选项右侧 meta 槽（agent 的「让 chat 自动选择」/ flow  hints /
+   directory 的 path 前置布局；path 的 mono 样式在各自文件）── */
+.agent-selector-option-hint,
+.flow-selector-option-hint {
+  margin-left: auto;
+  font-size: var(--text-xs);
+  color: var(--meta);
+}
+
+/* ── 错误行（加载失败重试等）：三选择器同款 danger-soft 卡 ── */
+.agent-selector-error,
+.flow-selector-error {
+  padding: 6px 10px;
+  font-size: var(--text-xs);
+  color: var(--danger);
+  background: var(--danger-soft);
+  border-radius: var(--radius-sm);
+  margin: 4px 0;
+}

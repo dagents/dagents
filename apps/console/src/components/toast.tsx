@@ -108,7 +108,11 @@ export function ToastProvider({ children }: { children: ReactNode }): React.Reac
       {/* Toast container — fixed bottom-right, above all other content */}
       <div className="toast-container" role="region" aria-label={t('通知')} aria-live="polite">
         {toasts.map((item) => (
-          <div key={item.id} className={`toast-item toast-${item.kind} toast-enter`}>
+          <div
+            key={item.id}
+            className={`toast-item toast-${item.kind} toast-enter${item.duration > 0 ? ' has-progress' : ''}`}
+            style={item.duration > 0 ? ({ '--toast-dur': `${item.duration}ms` } as React.CSSProperties) : undefined}
+          >
             <div className="toast-icon">
               <Icon name={iconMap[item.kind]} style={{ width: 14, height: 14 }} />
             </div>

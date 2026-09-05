@@ -1,5 +1,8 @@
-.flow-selector { position: relative; display: inline-block; }
+/* flow-selector 领域专属样式。dropdown/option/hint 共享壳在
+   styles/selector.css（PX-GL08 单源）；此处只保留 composer 芯片
+   trigger（含名称截断）与空态创建入口。 */
 
+/* ── 触发器：composer 内嵌芯片（与 agent-selector 同款）+ 名称截断 ── */
 .flow-selector-trigger {
   /* Composer chip chrome (deepseek .select): 28px, borderless, 8px radius;
      hover answers in the interactive surface, not a stroke change. */
@@ -10,9 +13,9 @@
   padding: 0 10px;
   background: transparent;
   border: none;
-  border-radius: 8px;
+  border-radius: var(--radius-sm);
   color: var(--muted);
-  font-size: 13px;
+  font-size: var(--text-sm);
   font-weight: 500;
   cursor: pointer;
   transition: background var(--motion-fast), color var(--motion-fast);
@@ -26,45 +29,19 @@
   white-space: nowrap;
 }
 
+/* ── 下拉定位：composer 在底部，向上展开 ── */
 .flow-selector-dropdown {
   position: absolute;
   bottom: calc(100% + 4px);
   left: 0;
-  min-width: 240px;
-  max-height: 320px;
-  overflow-y: auto;
-  background: var(--bg);
-  border: 1px solid var(--border);
-  border-radius: var(--radius-sm);
-  box-shadow: var(--elev-ring);
-  z-index: 100;
-  padding: 4px;
 }
-
-.flow-selector-option {
-  display: flex;
-  align-items: center;
-  gap: 8px;
-  width: 100%;
-  padding: 8px 10px;
-  background: transparent;
-  border: 0;
-  border-radius: var(--radius-sm);
-  color: var(--fg);
-  font-size: var(--text-sm);
-  text-align: left;
-  cursor: pointer;
-}
-.flow-selector-option:hover,
-.flow-selector-option.highlighted { background: var(--surface-warm); }
-.flow-selector-option.selected { background: var(--accent-soft); color: var(--accent-hover); }
-.flow-selector-option-hint { margin-left: auto; font-size: var(--text-xs); color: var(--meta); }
 
 .flow-selector-create-link {
   display: flex;
   align-items: center;
   gap: 6px;
-  padding: 8px 10px;
+  height: 32px;
+  padding: 0 10px;
   margin-top: 4px;
   border-top: 1px solid var(--border-soft);
   color: var(--accent);

@@ -15,11 +15,13 @@
  * directory record, then auto-selected. No manual path entry needed.
  */
 
-import { useEffect, useRef, useState } from 'react'
+import { useEffect, useState } from 'react'
 import { Icon } from '@/components/icon'
 import { createDirectory, pickDirectory } from '@/lib/directories'
 import { useDirectories } from './use-directories'
+import { useSelectorDropdown } from '@/components/use-selector-dropdown'
 import { useI18n } from '@/i18n'
+import '@/styles/selector.css'
 import '@/styles/directory-selector.css'
 
 interface DirectorySelectorProps {
@@ -33,19 +35,26 @@ export function DirectorySelector({
 }: DirectorySelectorProps): React.ReactElement {
   const { t } = useI18n()
   const { directories, reload } = useDirectories()
-  const [open, setOpen] = useState(false)
   const [picking, setPicking] = useState(false)
   const [pickerError, setPickerError] = useState<string | null>(null)
-  const ref = useRef<HTMLDivElement>(null)
 
-  useEffect(() => {
-    if (!open) return
-    const handler = (e: MouseEvent) => {
-      if (ref.current && !ref.current.contains(e.target as Node)) setOpen(false)
-    }
-    document.addEventListener('mousedown', handler)
-    return () => document.removeEventListener('mousedown', handler)
-  }, [open])
+  // 共享行为基座（PX-GL08）：开合/外点/键盘 listbox 导航/聚焦 —— 此前
+  // 此选择器完全没有键盘可达性，现在与 agent/flow 同语义。目录列表是
+  // 纯平铺（无「auto」占位项），高亮直接对应目录索引。
+  const {
+    open, setOpen, highlighted, setHighlighted,
+    ref, triggerRef, listboxId, onKeyDown,
+  } = useSelectorDropdown({
+    optionCount: directories.length,
+    initialHighlight: value === null ? 0 : Math.max(0, directories.findIndex((d) => d.id === value)),
+    onSelectIndex: (idx) => {
+      const d = directories[idx]
+      if (d) {
+        onChange(d.id)
+        setOpen(false)
+      }
+    },
+  })
 
   const handleBrowse = async (): Promise<void> => {
     setPickerError(null)
@@ -83,16 +92,28 @@ export function DirectorySelector({
   return (
     <div className="directory-selector" ref={ref}>
       <button
+        ref={triggerRef}
         type="button"
         className="directory-selector-trigger"
         onClick={() => setOpen((v) => !v)}
+        onKeyDown={onKeyDown}
+        aria-haspopup="listbox"
+        aria-expanded={open}
+        aria-controls={open ? listboxId : undefined}
+        title={t('选择目录')}
       >
         <Icon name="folder" style={{ width: 14, height: 14 }} />
         <span>{selected?.name ?? t('选择目录')}</span>
         <Icon name="chevronDown" style={{ width: 12, height: 12 }} />
       </button>
       {open && (
-        <div className="directory-selector-dropdown">
+        <div
+          id={listboxId}
+          role="listbox"
+          aria-label={t('选择目录')}
+          className="directory-selector-dropdown"
+          aria-activedescendant={highlighted >= 0 ? `${listboxId}-opt-${highlighted}` : undefined}
+        >
           <button
             type="button"
             className="directory-selector-browse"
@@ -107,15 +128,19 @@ export function DirectorySelector({
           ) : null}
           {directories.length > 0 ? (
             <div className="directory-selector-list">
-              {directories.map((d) => (
+              {directories.map((d, i) => (
                 <button
                   key={d.id}
+                  id={`${listboxId}-opt-${i}`}
                   type="button"
-                  className={`directory-selector-option${value === d.id ? ' selected' : ''}`}
+                  role="option"
+                  aria-selected={value === d.id}
+                  className={`directory-selector-option${value === d.id ? ' selected' : ''}${highlighted === i ? ' highlighted' : ''}`}
                   onClick={() => {
                     onChange(d.id)
                     setOpen(false)
                   }}
+                  onMouseEnter={() => setHighlighted(i)}
                 >
                   <Icon name="folder" style={{ width: 14, height: 14 }} />
                   <span>{d.name}</span>

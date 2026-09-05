@@ -43,6 +43,28 @@
   --agentflow-radius-lg: var(--radius-lg);
 }
 
+/* ─── 1b. 亮色状态色加深（PX-CV02）────────────────────────────────
+ * vendor 徽章 / 摘要文字在浅底上的绿色（success #10a37f）与页面白底对比
+ * 不足（≈2.9:1），亮色下加深 12-22%；暗色保持令牌原值（本就高亮）。
+ * 供下方徽章覆盖与 run-summary / dot 使用。 */
+.agentflow-container {
+  --canvas-ok-badge: color-mix(in oklab, var(--success), black 12%);
+  --canvas-ok-text: color-mix(in oklab, var(--success), black 12%);
+  --canvas-warn-badge: color-mix(in oklab, var(--warn), black 22%);
+}
+@media (prefers-color-scheme: dark) {
+  :root:not([data-theme="light"]) .agentflow-container {
+    --canvas-ok-badge: var(--success);
+    --canvas-ok-text: var(--success);
+    --canvas-warn-badge: var(--warn);
+  }
+}
+:root[data-theme="dark"] .agentflow-container {
+  --canvas-ok-badge: var(--success);
+  --canvas-ok-text: var(--success);
+  --canvas-warn-badge: var(--warn);
+}
+
 /* ─── 2. Agentflow 容器 ─────────────────────────────────────────── */
 .agentflow-container {
   background: var(--bg);
@@ -62,7 +84,9 @@
   border-bottom: 1px solid var(--border-soft);
   box-shadow: 0 1px 3px rgba(0, 0, 0, 0.04);
   background: var(--surface-warm);
-  height: 48px;
+  /* PX-CV01：顶栏控件统一 32px 档（--ctl-md），48px 行高装不下 → 56px
+   * （与 --topbar-h 全站顶栏令牌一致）。 */
+  height: 56px;
   flex-shrink: 0;
   /* 无 z-index：任何 z 值都会把顶栏变成独立 stacking context，把内部
    * 弹层（运行/结果面板 z1200、模态对话框）整体压到该层之下 ——
@@ -77,9 +101,15 @@
   letter-spacing: -0.01em;
   flex: 1;
   min-width: 0;
+  /* PX-CV01：长 flow 名不再挤压按钮 —— 限宽 + ellipsis，全名走 title 提示 */
+  max-width: 320px;
   overflow: hidden;
   text-overflow: ellipsis;
   white-space: nowrap;
+}
+/* PX-CV01：控件间距 8px（--space-2），顶栏一行底边对齐（同高 32px 档）。 */
+.agentflow-header-actions {
+  gap: var(--space-2);
 }
 .agentflow-header-actions button {
   height: 28px;
@@ -109,31 +139,33 @@
   opacity: 0.6;
 }
 
-/* ─── 自定义 Save 按钮：主色填充 + 状态反馈 ─────────────────────── */
+/* ─── 自定义 Save 按钮：次级白描边款 + 状态反馈（墨紫契约：紫不上按钮底，
+ * 顶栏唯一主操作是「运行」墨底，保存 = 常规操作次级款）────────────── */
 .canvas-save-btn {
   height: 30px;
   padding: 0 var(--space-5);
   border-radius: var(--radius-sm);
-  border: 0;
-  background: var(--accent);
-  color: #fff;
+  border: 1px solid var(--border);
+  background: var(--bg);
+  color: var(--fg);
   font-size: var(--text-xs);
   font-weight: 600;
   line-height: 1;
   cursor: pointer;
   font-family: var(--font-body);
   letter-spacing: 0.01em;
-  box-shadow: var(--elev-ring);
+  box-shadow: none;
   display: inline-flex;
   align-items: center;
   justify-content: center;
   transition: background var(--motion-fast) var(--ease-standard),
+              border-color var(--motion-fast) var(--ease-standard),
               transform var(--motion-fast) var(--ease-spring),
               opacity var(--motion-fast) var(--ease-standard);
 }
 .canvas-save-btn:hover:not(:disabled) {
-  background: var(--accent-strong, var(--accent));
-  filter: brightness(1.08);
+  background: var(--surface);
+  border-color: var(--border-strong);
 }
 .canvas-save-btn:active:not(:disabled) {
   transform: scale(0.96);
@@ -144,15 +176,18 @@
 }
 .canvas-save-btn--saving {
   background: var(--muted);
+  border-color: transparent;
   box-shadow: none;
 }
 .canvas-save-btn--saved {
   background: var(--success);
-  box-shadow: var(--elev-ring);
+  border-color: transparent;
+  color: var(--bg);
 }
 .canvas-save-btn--error {
   background: var(--danger);
-  box-shadow: none;
+  border-color: transparent;
+  color: #fff;
 }
 .agentflow-main {
   position: relative;
@@ -206,31 +241,32 @@
 .agentflow-main [class*="MuiFab-root"]:active {
   transform: scale(0.94);
 }
-/* Add Node FAB — 强制主色背景 + 白色图标，避免 shell.css 全局 button 规则
-   导致白底白图标不可见（theme palette 未注入时兜底）。 */
+/* Add Node FAB — 墨底（墨紫契约：按钮 = 动作 = 墨色；紫只留给指向与状态），
+ * 原为 accent 紫底。仍强制覆盖避免 shell.css 全局 button 规则导致
+ * 白底白图标不可见（theme palette 未注入时兜底）。 */
 .agentflow-canvas .MuiFab-root[aria-label="add"],
 .agentflow-main .MuiFab-root[aria-label="add"] {
-  background: var(--accent) !important;
-  color: #fff !important;
+  background: var(--fg) !important;
+  color: var(--bg) !important;
 }
 .agentflow-canvas .MuiFab-root[aria-label="add"]:hover,
 .agentflow-main .MuiFab-root[aria-label="add"]:hover {
-  background: var(--accent) !important;
-  filter: brightness(1.08);
+  background: var(--fg-2) !important;
+  filter: none;
 }
 .agentflow-canvas .MuiFab-root[aria-label="add"] svg,
 .agentflow-main .MuiFab-root[aria-label="add"] svg {
-  color: #fff !important;
+  color: var(--bg) !important;
   stroke: currentColor !important;
 }
 
-/* MUI Button primary */
+/* MUI Button primary（节点编辑抽屉里的保存等）—— 墨底，与 .btn-primary 同契约 */
 .agentflow-canvas [class*="MuiButton-containedPrimary"],
 .agentflow-main [class*="MuiButton-containedPrimary"],
 .agentflow-canvas [class*="MuiButtonBase-root"][class*="contained"],
 .agentflow-main [class*="MuiButtonBase-root"][class*="contained"] {
-  background: var(--accent) !important;
-  color: #fff !important;
+  background: var(--fg) !important;
+  color: var(--bg) !important;
   border-radius: var(--radius-sm) !important;
   box-shadow: var(--elev-ring) !important;
   text-transform: none !important;
@@ -270,16 +306,16 @@
 /* Edge label */
 .react-flow__edge .react-flow__edge-textwrapper,
 .react-flow__edge .react-flow__edge-text {
-  font-size: 10px !important;
+  font-size: var(--text-2xs) !important;
   fill: var(--meta) !important;
   font-family: var(--font-mono) !important;
 }
 .react-flow__edge .react-flow__edge-textwrapper foreignObject > div {
   background: var(--surface-warm) !important;
   border: 1px solid var(--border) !important;
-  border-radius: 999px !important;
+  border-radius: var(--radius-pill) !important;
   padding: 1px 8px !important;
-  font-size: 10px !important;
+  font-size: var(--text-2xs) !important;
   color: var(--meta) !important;
   font-family: var(--font-mono) !important;
 }
@@ -288,7 +324,7 @@
 .agentflow-canvas .react-flow__controls,
 .agentflow-main .react-flow__controls {
   border: 1px solid var(--border-soft) !important;
-  border-radius: 8px !important;
+  border-radius: var(--radius-sm) !important;
   background: var(--surface-warm) !important;
   box-shadow: var(--elev-raised) !important;
   overflow: hidden;
@@ -324,7 +360,7 @@
 .agentflow-main .react-flow__minimap {
   background: var(--surface-warm) !important;
   border: 1px solid var(--border-soft) !important;
-  border-radius: 8px !important;
+  border-radius: var(--radius-sm) !important;
   box-shadow: var(--elev-raised) !important;
   overflow: hidden;
   right: 16px !important;
@@ -393,12 +429,12 @@
 .react-flow__selection {
   border: 1px solid var(--accent) !important;
   background: rgba(16, 185, 129, 0.08) !important;
-  border-radius: 4px !important;
+  border-radius: var(--radius-xs) !important;
 }
 .react-flow__nodesselection-rect {
   border: 1px dashed var(--accent) !important;
   background: rgba(16, 185, 129, 0.10) !important;
-  border-radius: 6px !important;
+  border-radius: var(--radius-xs) !important;
 }
 .agentflow-canvas [class*="MuiListItem-root"],
 .agentflow-main [class*="MuiListItem-root"] {
@@ -412,8 +448,8 @@
 .agentflow-canvas [class*="MuiChip-root"],
 .agentflow-main [class*="MuiChip-root"] {
   font-family: var(--font-body) !important;
-  font-size: 10px !important;
-  border-radius: 999px !important;
+  font-size: var(--text-2xs) !important;
+  border-radius: var(--radius-pill) !important;
   background: var(--surface-warm) !important;
   color: var(--meta) !important;
 }
@@ -422,7 +458,7 @@
   background: var(--fg) !important;
   color: var(--bg) !important;
   font-family: var(--font-body) !important;
-  font-size: 11px !important;
+  font-size: var(--text-2xs) !important;
   border-radius: var(--radius-sm) !important;
 }
 
@@ -445,13 +481,13 @@
   display: flex;
   gap: 12px;
   padding: 10px 16px;
-  border-bottom: 1px solid var(--border-soft, #2a2a2a);
+  border-bottom: 1px solid var(--border-soft);
   flex: none;
 }
 .canvas-loading-chip {
   height: 22px;
   border-radius: var(--radius-pill, 999px);
-  background: var(--surface-warm, #1a1a20);
+  background: var(--surface-warm);
   animation: canvas-loading-pulse 1.4s var(--ease-standard, ease) infinite;
 }
 .canvas-loading-body {
@@ -463,8 +499,8 @@
   width: 148px;
   height: 64px;
   border-radius: var(--radius-md, 10px);
-  background: var(--surface-warm, #1a1a20);
-  border: 1px solid var(--border-soft, #2a2a2a);
+  background: var(--surface-warm);
+  border: 1px solid var(--border-soft);
   animation: canvas-loading-pulse 1.4s var(--ease-standard, ease) infinite;
 }
 .canvas-loading-node:nth-child(2n) { animation-delay: 0.2s; }
@@ -478,34 +514,40 @@
 }
 
 /* ─── 画布内运行（节点实时进度） ─── */
-/* 运行 = 主操作（2026-08-30 设计收敛：accent 实心 —— 此前与保存/另存为
- * 模板同为描边按钮，层级不分）。运行中保持强调但降饱和。 */
+/* 运行 = 主操作 → 墨底（墨紫契约 PX-G04：全站运行按钮统一墨色，紫只留给
+ * 链接/focus/选中/进行中指示）。运行中降饱和由 disabled opacity 承担。 */
 .agentflow-header-actions .canvas-run-btn {
-  padding: var(--agentflow-spacing-sm, 4px) var(--agentflow-spacing-lg, 16px);
+  padding: 0 var(--space-4);
   border: 1px solid transparent;
-  border-radius: var(--radius-sm, 6px);
-  background: var(--accent, #6366f1);
-  color: #fff;
-  font-size: var(--text-xs, 12.5px);
+  border-radius: var(--radius-sm);
+  background: var(--fg);
+  color: var(--bg);
+  font-size: var(--text-xs);
   font-weight: 600;
   cursor: pointer;
   display: inline-flex;
   align-items: center;
   gap: 6px;
-  transition: all 0.2s;
+  box-shadow: 0 1px 2px rgba(13, 13, 13, 0.10), 0 2px 6px rgba(13, 13, 13, 0.06);
+  transition: background var(--motion-fast) var(--ease-standard),
+              filter var(--motion-fast) var(--ease-standard),
+              transform var(--motion-fast) var(--ease-spring),
+              opacity var(--motion-fast) var(--ease-standard);
 }
-/* hover 保持 accent（2026-08-30 修复「悬停消失」）：通用按钮 hover 规则
- * 把背景换成浅色 surface，而运行按钮字是白 —— 浅底白字 = 隐身。此处
- * 显式压回 accent + 白字，亮度微升作 hover 反馈。 */
+/* hover 保持墨底（通用按钮 hover 规则会把背景换成浅色 surface，浅底浅字
+ * = 隐身）：压回 fg/bg，亮度微升作 hover 反馈。 */
 .agentflow-header-actions .canvas-run-btn:hover:not(:disabled) {
-  background: var(--accent, #6366f1) !important;
-  color: #fff !important;
-  filter: brightness(1.08);
+  background: var(--fg) !important;
+  color: var(--bg) !important;
+  filter: brightness(1.12);
+}
+.agentflow-header-actions .canvas-run-btn:active:not(:disabled) {
+  transform: scale(0.97);
 }
 .agentflow-header-actions .canvas-run-btn:disabled { opacity: 0.55; cursor: default; }
 .agentflow-header-actions .canvas-run-btn .canvas-run-spin {
-  border-color: rgba(255, 255, 255, 0.4);
-  border-top-color: #fff;
+  border-color: color-mix(in oklab, var(--bg) 40%, transparent);
+  border-top-color: var(--bg);
 }
 .canvas-run-spin {
   width: 12px; height: 12px;
@@ -515,16 +557,16 @@
   animation: canvas-run-rotate 0.8s linear infinite;
 }
 @keyframes canvas-run-rotate { to { transform: rotate(360deg); } }
-/* 运行状态徽章（2026-08-30 对齐修正）：与按钮同盒模型（28px / 圆角 6 /
- * 12.5px / line-height 1 / flex 居中）—— 此前是裸 block 文本 + 19.8px
- * 行高，几何框虽齐但文本基线与按钮不同心。状态染色 pill。 */
+/* 运行状态徽章（2026-08-30 对齐修正；PX-CV01 升到 32px 档）：与按钮同
+ * 盒模型（32px / 圆角 xs / 12px / line-height 1 / flex 居中）。状态染色
+ * pill；亮色下 done 文字用加深绿（--canvas-ok-text）补对比。 */
 .canvas-run-summary {
   display: inline-flex;
   align-items: center;
-  height: 28px;
+  height: 32px;
   padding: 0 10px;
-  border-radius: 6px;
-  font-size: 12.5px;
+  border-radius: var(--radius-xs);
+  font-size: var(--text-xs);
   line-height: 1;
   font-family: var(--font-mono);
   white-space: nowrap;
@@ -533,21 +575,22 @@
   text-overflow: ellipsis;
 }
 .canvas-run-summary--done {
-  color: var(--success, #16a34a);
-  background: color-mix(in oklab, var(--success, #16a34a) 10%, transparent);
-  border: 1px solid color-mix(in oklab, var(--success, #16a34a) 35%, transparent);
+  color: var(--canvas-ok-text, var(--success));
+  background: color-mix(in oklab, var(--success) 10%, transparent);
+  border: 1px solid color-mix(in oklab, var(--success) 35%, transparent);
 }
 .canvas-run-summary--failed {
-  color: var(--danger, #dc2626);
-  background: color-mix(in oklab, var(--danger, #dc2626) 10%, transparent);
-  border: 1px solid color-mix(in oklab, var(--danger, #dc2626) 35%, transparent);
+  color: var(--danger, var(--danger));
+  background: color-mix(in oklab, var(--danger, var(--danger)) 10%, transparent);
+  border: 1px solid color-mix(in oklab, var(--danger, var(--danger)) 35%, transparent);
 }
 .canvas-run-summary--running {
   color: var(--muted);
   border: 1px solid var(--border-soft, var(--border));
 }
 
-/* ─── 运行输入面板 + 运行结果面板 ─── */
+/* ─── 运行输入面板 + 运行结果面板（PX-CV05：与列表页 .modal-dialog 语言
+ * 对齐 —— 同宽度档 480 / 同圆角 / 同头部底部节奏 / 运行按钮同墨色）─── */
 .canvas-run-panel, .canvas-results-panel {
   position: absolute;
   top: calc(100% + 6px);
@@ -556,62 +599,92 @@
   width: min(480px, 92vw);
   background: var(--agentflow-card-bg, var(--bg));
   border: 1px solid var(--agentflow-border, var(--border));
-  border-radius: 8px;
-  box-shadow: 0 8px 28px rgba(0, 0, 0, 0.18);
-  padding: var(--space-3, 12px);
+  border-radius: var(--radius-md);
+  box-shadow: var(--elev-overlay);
+  padding: var(--space-4);
 }
 .canvas-run-panel-title {
-  font-size: 12px; font-weight: 600; color: var(--agentflow-text-secondary, var(--muted));
-  margin-bottom: 8px; display: flex; align-items: center; justify-content: space-between;
+  font-size: var(--text-sm); font-weight: 600; color: var(--fg);
+  margin-bottom: var(--space-3); display: flex; align-items: center; justify-content: space-between;
 }
 .canvas-run-input {
   width: 100%; box-sizing: border-box; resize: vertical;
   border: 1px solid var(--agentflow-border, var(--border));
-  border-radius: 6px; background: var(--bg); color: var(--fg);
-  font-size: 13px; line-height: 1.5; padding: 8px 10px; font-family: inherit;
+  border-radius: var(--radius-sm); background: var(--bg); color: var(--fg);
+  font-size: var(--text-sm); line-height: 1.5; padding: 8px 10px; font-family: inherit;
+  transition: border-color var(--motion-fast) var(--ease-standard),
+              box-shadow var(--motion-fast) var(--ease-standard);
 }
-.canvas-run-input:focus { outline: 1px solid var(--accent); }
-.canvas-run-panel-actions { display: flex; align-items: center; justify-content: flex-end; gap: 8px; margin-top: 8px; }
-.canvas-run-panel-hint { margin-right: auto; font-size: 11px; color: var(--meta); }
+.canvas-run-input:focus {
+  outline: none;
+  border-color: var(--accent);
+  box-shadow: var(--focus-ring);
+}
+.canvas-run-panel-actions {
+  display: flex; align-items: center; justify-content: flex-end;
+  gap: var(--space-2); margin-top: var(--space-3);
+}
+.canvas-run-panel-hint {
+  margin-right: auto; font-size: var(--text-2xs); color: var(--meta);
+  display: inline-flex; align-items: center; gap: 5px;
+}
 .canvas-run-panel-cancel, .canvas-run-panel-go {
-  border-radius: 6px; border: 1px solid var(--border); padding: 5px 14px;
-  font-size: 13px; cursor: pointer; background: var(--surface); color: var(--fg);
+  height: var(--ctl-md);
+  border-radius: var(--radius-sm); border: 1px solid transparent; padding: 0 var(--space-4);
+  font-size: var(--text-sm); font-weight: 500; cursor: pointer;
+  display: inline-flex; align-items: center; gap: 6px;
+  transition: background var(--motion-fast) var(--ease-standard),
+              border-color var(--motion-fast) var(--ease-standard),
+              color var(--motion-fast) var(--ease-standard);
 }
-.canvas-run-panel-go { background: var(--accent); border-color: var(--accent); color: var(--accent-on, #fff); }
-.canvas-run-panel-go:hover { filter: brightness(1.05); }
+.canvas-run-panel-cancel {
+  background: transparent; color: var(--muted); border-color: var(--border);
+}
+.canvas-run-panel-cancel:hover { background: var(--surface); color: var(--fg); border-color: var(--border-strong); }
+/* 「开始运行」= 主操作 → 墨底（与 flow-run-dialog 的 .btn-primary 同款，
+ * 全站运行按钮统一墨色） */
+.canvas-run-panel-go {
+  background: var(--fg); color: var(--bg);
+  box-shadow: 0 1px 2px rgba(13, 13, 13, 0.10), 0 2px 6px rgba(13, 13, 13, 0.06);
+}
+.canvas-run-panel-go:hover { background: var(--fg-2); }
+.canvas-run-panel-go:active { transform: scale(0.97); }
 .canvas-results-btn {
-  border: 1px solid var(--border); border-radius: 4px; background: var(--surface);
-  color: var(--fg); font-size: 13px; padding: 4px 12px; cursor: pointer;
+  border: 1px solid var(--border); border-radius: var(--radius-sm); background: var(--bg);
+  color: var(--fg); font-size: var(--text-xs); padding: 0 12px; height: 28px; cursor: pointer;
+  transition: background var(--motion-fast) var(--ease-standard),
+              border-color var(--motion-fast) var(--ease-standard);
 }
-.canvas-results-btn:hover { border-color: var(--border-strong); }
-.canvas-results-close { border: 0; background: transparent; color: var(--muted); cursor: pointer; font-size: 15px; line-height: 1; }
+.canvas-results-btn:hover { background: var(--surface); border-color: var(--border-strong); }
+.canvas-results-close { border: 0; background: transparent; color: var(--muted); cursor: pointer; font-size: var(--text-md); line-height: 1; }
 .canvas-results-close:hover { color: var(--fg); }
 .canvas-results-list { max-height: 56vh; overflow-y: auto; display: flex; flex-direction: column; gap: 4px; }
-.canvas-result-row { border: 1px solid var(--border-soft); border-radius: 6px; background: var(--bg); }
+.canvas-result-row { border: 1px solid var(--border-soft); border-radius: var(--radius-xs); background: var(--bg); }
 .canvas-result-row summary {
   display: flex; align-items: center; gap: 8px; padding: 7px 10px;
-  cursor: pointer; font-size: 12.5px; list-style: none; user-select: none;
+  cursor: pointer; font-size: var(--text-xs); list-style: none; user-select: none;
 }
 .canvas-result-row summary::-webkit-details-marker { display: none; }
 .canvas-result-dot { width: 8px; height: 8px; border-radius: 50%; flex-shrink: 0; }
-.dot-running { background: #f59e0b; animation: canvas-run-rotate 1s linear infinite; }
-.dot-done, .dot-completed { background: #16a34a; }
-.dot-failed { background: #dc2626; }
+.dot-running { background: var(--warn); animation: canvas-run-rotate 1s linear infinite; }
+/* PX-CV02：亮色下 8px 绿点对白底 ≈2.9:1，用加深绿（暗色回退令牌原值） */
+.dot-done, .dot-completed { background: var(--canvas-ok-badge, var(--success)); }
+.dot-failed { background: var(--danger); }
 .dot-unknown { background: var(--meta); }
 .canvas-result-label { font-weight: 500; color: var(--fg); font-family: var(--font-mono); }
-.canvas-result-meta { margin-left: auto; font-size: 11px; color: var(--meta); }
+.canvas-result-meta { margin-left: auto; font-size: var(--text-2xs); color: var(--meta); }
 .canvas-result-body { padding: 0 10px 10px; }
-.canvas-result-error { color: var(--danger); font-size: 12px; margin-bottom: 6px; white-space: pre-wrap; }
-.canvas-result-io-label { font-size: 11px; color: var(--meta); margin-bottom: 3px; }
+.canvas-result-error { color: var(--danger); font-size: var(--text-xs); margin-bottom: 6px; white-space: pre-wrap; }
+.canvas-result-io-label { font-size: var(--text-2xs); color: var(--meta); margin-bottom: 3px; }
 .canvas-result-io pre {
-  margin: 0; padding: 8px; border-radius: 6px; background: var(--surface);
-  font-size: 11.5px; line-height: 1.5; white-space: pre-wrap; word-break: break-word;
+  margin: 0; padding: 8px; border-radius: var(--radius-xs); background: var(--surface);
+  font-size: var(--text-2xs); line-height: 1.5; white-space: pre-wrap; word-break: break-word;
   max-height: 220px; overflow-y: auto; color: var(--fg);
 }
 
 /* 结果面板：实时执行行 + 输入折叠 */
 .canvas-results-live {
-  font-size: 12px; color: var(--accent); margin: -2px 0 8px;
+  font-size: var(--text-xs); color: var(--accent); margin: -2px 0 8px;
   display: flex; align-items: center; gap: 6px;
 }
 .canvas-results-live::before {
@@ -620,37 +693,57 @@
   display: inline-block; flex-shrink: 0;
 }
 details.canvas-result-io { margin-bottom: 6px; }
-details.canvas-result-io > summary { cursor: pointer; list-style: none; font-size: 11px; color: var(--meta); }
+details.canvas-result-io > summary {
+  cursor: pointer; list-style: none; font-size: var(--text-2xs); color: var(--meta);
+  transition: color var(--motion-fast) var(--ease-standard);
+}
+details.canvas-result-io > summary:hover { color: var(--fg); }
 details.canvas-result-io > summary::before { content: '▸ '; }
 details.canvas-result-io[open] > summary::before { content: '▾ '; }
+/* PX-CV03：折叠展开 140ms 淡入上移（--motion-fast），无跳变 */
+details.canvas-result-io[open] > pre,
+details.canvas-result-io[open] > .canvas-result-io-label {
+  animation: canvas-io-reveal var(--motion-fast) var(--ease-standard);
+}
+@keyframes canvas-io-reveal {
+  from { opacity: 0; transform: translateY(-2px); }
+  to { opacity: 1; transform: translateY(0); }
+}
 
 /* 运行面板：项目目录选择 */
 .canvas-run-dir-label {
   display: flex; align-items: center; gap: 8px;
-  font-size: 12px; color: var(--muted); margin-bottom: 6px;
+  font-size: var(--text-xs); color: var(--muted); margin-bottom: 6px;
 }
 .canvas-run-dir-select {
-  flex: 1; border: 1px solid var(--border); border-radius: 6px;
-  background: var(--bg); color: var(--fg); font-size: 12.5px; padding: 5px 8px;
+  flex: 1; border: 1px solid var(--border); border-radius: var(--radius-xs);
+  background: var(--bg); color: var(--fg); font-size: var(--text-xs); padding: 5px 8px;
 }
-.canvas-run-dir-hint { font-size: 11px; color: var(--meta); margin-bottom: 8px; }
+.canvas-run-dir-hint { font-size: var(--text-2xs); color: var(--meta); margin-bottom: 8px; }
 
 /* 结果行 v2：折叠预览 + tokens 徽章 + 文本直出 */
 .canvas-result-preview {
   flex: 1; min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap;
-  font-size: 11.5px; color: var(--muted); font-family: inherit;
+  font-size: var(--text-2xs); color: var(--muted); font-family: inherit;
 }
 .canvas-result-tokens {
-  flex-shrink: 0; font-size: 10.5px; font-family: var(--font-mono);
+  flex-shrink: 0; font-size: var(--text-2xs); font-family: var(--font-mono);
+  font-variant-numeric: tabular-nums; /* PX-CV03：数字对列，↑/↓ 用量可扫读 */
   color: var(--meta); background: var(--surface);
-  border-radius: 4px; padding: 1px 5px;
+  border-radius: var(--radius-xs); padding: 1px 5px;
 }
 .canvas-result-text {
-  font-size: 12.5px; line-height: 1.65; color: var(--fg);
+  font-size: var(--text-xs); line-height: 1.65; color: var(--fg);
   white-space: pre-wrap; word-break: break-word;
   padding: 8px 10px; border-left: 2px solid var(--accent);
-  background: var(--surface); border-radius: 0 6px 6px 0;
+  background: var(--surface); border-radius: 0 var(--radius-xs) var(--radius-xs) 0;
   max-height: 260px; overflow-y: auto;
+}
+/* PX-CV03：live 正文行与活动流同层（过程层）—— 左缘 2px meta 线 + 8px
+ * 缩进；终态全文保持 accent 左线（成品层），两层一眼可分。 */
+.canvas-result-text.streaming {
+  border-left-color: var(--meta);
+  margin-left: 8px;
 }
 /* live tail（2026-08-30 流式展示）：running 节点的 partial 正文 ——
    光标呼吸 + 底部渐隐提示「还在写」。滚动条贴底由渲染方保证
@@ -671,29 +764,30 @@ details.canvas-result-io[open] > summary::before { content: '▾ '; }
   font-family: var(--font-mono);
 }
 
-.dot-warn { background: #eab308; }
+.dot-warn { background: var(--warn); }
 
 /* 活动流（2026-08-30 运行中实时进度）：💭 thinking / 🔧 工具调用时间线，
- * 显示在 live 正文上方；终态由全文覆盖、不再渲染。 */
+ * 显示在 live 正文上方；终态由全文覆盖、不再渲染。PX-CV03：左缘 2px
+ * meta 线 + 8px 缩进 —— 过程层与正文层分层。 */
 .canvas-result-activity {
   display: flex;
   flex-direction: column;
   gap: 3px;
   padding: 6px 10px;
-  margin-bottom: 6px;
-  border-left: 2px solid var(--border, rgba(0, 0, 0, 0.15));
-  border-radius: 0 6px 6px 0;
+  margin: 0 0 6px 8px;
+  border-left: 2px solid var(--meta);
+  border-radius: 0 var(--radius-xs) var(--radius-xs) 0;
   background: var(--surface);
   font-family: var(--font-mono);
 }
 .canvas-act {
   display: flex;
   gap: 6px;
-  font-size: 11px;
+  font-size: var(--text-2xs);
   color: var(--muted);
   align-items: baseline;
 }
-.canvas-act-icon { flex-shrink: 0; font-size: 11px; }
+.canvas-act-icon { flex-shrink: 0; font-size: var(--text-2xs); }
 .canvas-act-label {
   white-space: nowrap;
   overflow: hidden;
@@ -702,25 +796,31 @@ details.canvas-result-io[open] > summary::before { content: '▾ '; }
 .canvas-act.act-tool .canvas-act-label { color: var(--fg); }
 .canvas-act.act-thinking .canvas-act-label { opacity: 0.8; font-style: italic; }
 
-/* ── 顶栏按钮统一体系（2026-08-30 设计定稿）──────────────────────────
+/* ── 顶栏按钮统一体系（2026-08-30 设计定稿；PX-CV01 升 32px 档）──────
  * vendor flowise.css 与本文件历史规则叠加，三钮圆角(10/4/4)、字号
- * (12/14/14)、质感各不相同。此处一条归一规则定四令牌（高 28 / 圆角 6 /
- * 字号 12.5 / 内距 0 14），角色差异只留配色；!important 仅为压过 vendor
- * 同名基础规则（其加载顺序不可控），改令牌时四处同步。 */
+ * (12/14/14)、质感各不相同。此处一条归一规则定四令牌（高 32 (--ctl-md) /
+ * 圆角 sm / 字号 xs / 内距 0 14），角色差异只留配色；!important 仅为压过
+ * vendor 同名基础规则（其加载顺序不可控），改令牌时四处同步。 */
 .agentflow-header-actions button,
 .agentflow-header-actions .canvas-run-btn,
 .agentflow-header-actions .canvas-save-btn,
 .agentflow-header-actions .canvas-save-tpl-btn {
-  height: 28px !important;
+  height: var(--ctl-md) !important;
   padding: 0 14px !important;
-  border-radius: 6px !important;
-  font-size: 12.5px !important;
+  border-radius: var(--radius-sm) !important;
+  font-size: var(--text-xs) !important;
   font-weight: 500 !important;
   line-height: 1 !important;
   display: inline-flex !important;
   align-items: center !important;
   gap: 6px !important;
 }
+
+/* 保存按钮状态反馈（0,2,0 压过 `.agentflow-header-actions button` 的
+ * 0,1,1 白底 —— 此前 saved/saving 绿灰态从未显示过，恒白）。 */
+.agentflow-header-actions .canvas-save-btn--saving { background: var(--muted) !important; border-color: transparent !important; color: #fff !important; }
+.agentflow-header-actions .canvas-save-btn--saved { background: var(--success) !important; border-color: transparent !important; color: var(--bg) !important; }
+.agentflow-header-actions .canvas-save-btn--error { background: var(--danger) !important; border-color: transparent !important; color: #fff !important; }
 
 /* 角色：另存为模板 = 三级 ghost —— 保留容器与热区（与兄弟同盒模型），
  * 弱化边框字色，hover 浮现。 */
@@ -746,10 +846,10 @@ details.canvas-result-io[open] > summary::before { content: '▾ '; }
   height: 28px;
   flex-shrink: 0;
   border: 1px solid var(--border);
-  border-radius: 6px;
+  border-radius: var(--radius-xs);
   background: var(--bg);
   color: var(--muted);
-  font-size: 14px;
+  font-size: var(--text-md);
   line-height: 1;
   cursor: pointer;
 }
@@ -769,21 +869,75 @@ details.canvas-result-io[open] > summary::before { content: '▾ '; }
   align-items: center;
   gap: 10px;
   padding: 8px 14px;
-  border: 1px solid color-mix(in oklab, var(--accent, #6366f1) 35%, transparent);
-  border-radius: 8px;
-  background: color-mix(in oklab, var(--accent, #6366f1) 8%, var(--bg));
+  border: 1px solid color-mix(in oklab, var(--accent, var(--accent)) 35%, transparent);
+  border-radius: var(--radius-sm);
+  background: color-mix(in oklab, var(--accent, var(--accent)) 8%, var(--bg));
   box-shadow: var(--elev-overlay, 0 4px 16px rgba(0, 0, 0, 0.12));
-  font-size: 12.5px;
+  font-size: var(--text-xs);
 }
-.canvas-first-run-dot { font-size: 14px; }
+.canvas-first-run-dot { font-size: var(--text-md); }
 .canvas-first-run-text { color: var(--fg); }
 .canvas-first-run-close {
   border: 0;
   background: transparent;
   color: var(--muted);
-  font-size: 16px;
+  font-size: var(--text-base);
   cursor: pointer;
   padding: 0 2px;
   line-height: 1;
 }
 .canvas-first-run-close:hover { color: var(--fg); }
+
+/* ─── PX-CV02：节点名 2 行 clamp + 节点框宽度契约 ──────────────────
+ * vendor 节点名是单行 nowrap，长中文标签把卡片撑成细长条或溢出边框；
+ * 限定 max-width + 2 行 clamp，节点框保持 min 190 / max 280 的稳定比例。 */
+.agentflow-canvas .react-flow__node-agentflowNode .MuiCard-root,
+.agentflow-main .react-flow__node-agentflowNode .MuiCard-root {
+  min-width: 190px !important;
+  max-width: 280px !important;
+}
+.agentflow-canvas .react-flow__node-agentflowNode .MuiCard-root .MuiTypography-root,
+.agentflow-main .react-flow__node-agentflowNode .MuiCard-root .MuiTypography-root {
+  max-width: 190px;
+  word-break: break-word;
+  display: -webkit-box;
+  -webkit-line-clamp: 2;
+  -webkit-box-orient: vertical;
+  overflow: hidden;
+}
+
+/* ─── PX-CV02：vendor 执行徽章令牌化（亮暗两模式都可辨）────────────
+ * NodeStatusIndicator 用 MUI palette（FINISHED=#00c853 亮绿底+白图标，
+ * 亮色下圈体与白底对比 ≈2.2:1、白勾对圈 ≈2:1，双色都糊）。按图标族
+ * `:has(.tabler-icon-*)` 定位（tabler v3 稳定类名），压回 tokens 语义色：
+ * 亮色加深（--canvas-ok-badge / --canvas-warn-badge），暗色用原令牌；
+ * 前景恒 var(--bg)（亮=白字、暗=墨字），两种模式都 ≥3:1。 */
+.agentflow-canvas .MuiAvatar-root:has(.tabler-icon-check),
+.agentflow-main .MuiAvatar-root:has(.tabler-icon-check) {
+  background: var(--canvas-ok-badge, var(--success)) !important;
+  color: var(--bg) !important;
+}
+.agentflow-canvas .MuiAvatar-root:has(.tabler-icon-exclamation-mark),
+.agentflow-main .MuiAvatar-root:has(.tabler-icon-exclamation-mark) {
+  background: var(--danger) !important;
+  color: #fff !important;
+}
+.agentflow-canvas .MuiAvatar-root:has(.tabler-icon-loader),
+.agentflow-main .MuiAvatar-root:has(.tabler-icon-loader) {
+  background: var(--canvas-warn-badge, var(--warn)) !important;
+  color: #fff !important;
+}
+
+/* ─── PX-CV06：dag-node（流程缩略 DAG）与画布节点同视觉契约 ─────────
+ * shell.css 的 .dag-node 只读；此处做对齐覆盖：圆角比例与画布卡片一致
+ * （radius-md，左侧色条的角跟随令牌而非硬编码 10px）、标签 2 行 clamp
+ * 与 CV02 同规。状态色本就走 tokens（running=accent 等），无需改。 */
+.dag-node { border-radius: var(--radius-md); }
+.dag-node::before { border-radius: var(--radius-md) 0 0 var(--radius-md); }
+.dag-node .dag-node-label {
+  display: -webkit-box;
+  -webkit-line-clamp: 2;
+  -webkit-box-orient: vertical;
+  overflow: hidden;
+  word-break: break-word;
+}

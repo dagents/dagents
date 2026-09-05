@@ -1,6 +1,7 @@
 'use client'
 
 import { useEffect, useState, useCallback } from 'react'
+import { Icon } from '@/components/icon'
 import { useI18n } from '@/i18n'
 
 type Theme = 'light' | 'dark' | 'auto'
@@ -66,7 +67,6 @@ export function ThemeToggle(): React.ReactElement {
 
   const systemDark = typeof window !== 'undefined' && window.matchMedia('(prefers-color-scheme: dark)').matches
   const resolved: 'light' | 'dark' = theme === 'auto' ? (systemDark ? 'dark' : 'light') : theme
-  const icon = resolved === 'light' ? '☀️' : '🌙'
   const label = theme === 'auto' ? t('跟随系统') : resolved === 'light' ? t('浅色') : t('深色')
 
   return (
@@ -78,7 +78,13 @@ export function ThemeToggle(): React.ReactElement {
       aria-label={t('切换主题，当前：{label}', { label })}
       suppressHydrationWarning
     >
-      <span className="theme-toggle-icon">{mounted ? icon : '🖥️'}</span>
+      {/* PX-GL07：emoji 换 icon.tsx 线性款（16px / var(--fg-2)，暗色下对比 ≥3:1） */}
+      <span className="theme-toggle-icon">
+        <Icon
+          name={mounted ? (resolved === 'light' ? 'sun' : 'moon') : 'sun'}
+          style={{ width: 16, height: 16, color: 'var(--fg-2)' }}
+        />
+      </span>
     </button>
   )
 }

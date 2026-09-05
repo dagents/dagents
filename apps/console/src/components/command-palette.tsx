@@ -20,6 +20,8 @@ import { Icon } from '@/components/icon'
 import { NAV } from '@/components/nav'
 import { useI18n } from '@/i18n'
 import '@/styles/command-palette.css'
+// .kbd（统一 kbd 键帽，shortcuts.css 单一定义、GL03/GL06 全站共用）
+import '@/styles/shortcuts.css'
 
 interface ChatItem {
   id: string
@@ -266,7 +268,7 @@ export function CommandPalette({ open, onClose }: CommandPaletteProps) {
             autoComplete="off"
             spellCheck={false}
           />
-          <kbd className="cmdk-esc">ESC</kbd>
+          <kbd className="kbd cmdk-esc">ESC</kbd>
         </div>
         {commands.length === 0 ? (
           <div className="cmdk-empty">{t('没有匹配的命令')}</div>
@@ -297,13 +299,17 @@ export function CommandPalette({ open, onClose }: CommandPaletteProps) {
         )}
         <div className="cmdk-footer">
           <span className="cmdk-footer-hint">
-            <kbd>↑</kbd>
-            <kbd>↓</kbd>
+            <kbd className="kbd">↑</kbd>
+            <kbd className="kbd">↓</kbd>
             {t('导航')}
           </span>
           <span className="cmdk-footer-hint">
-            <kbd>↵</kbd>
+            <kbd className="kbd">↵</kbd>
             {t('选择')}
+          </span>
+          <span className="cmdk-footer-hint">
+            <kbd className="kbd">⌘K</kbd>
+            {t('开合面板')}
           </span>
           <span className="cmdk-footer-brand">DAgent</span>
         </div>

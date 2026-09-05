@@ -69,7 +69,14 @@ export async function fetchFlowTemplates(): Promise<FlowTemplateSummary[]> {
 
 export async function extractFlowTemplate(
   flowId: string,
-  req: { name?: string; description?: string; icon?: string; category?: string } = {},
+  req: {
+    name?: string
+    description?: string
+    icon?: string
+    category?: string
+    /** 参数默认值覆盖（PX-CV04）：gateway 按名合并进自身扫描结果。 */
+    params?: Array<{ name: string; defaultValue?: string }>
+  } = {},
 ): Promise<{ id: string; agentRefCount: number }> {
   const res = await fetch(`/api/flow-templates/from-flow/${encodeURIComponent(flowId)}`, {
     method: 'POST',

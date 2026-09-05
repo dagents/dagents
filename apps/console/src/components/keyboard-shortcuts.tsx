@@ -85,14 +85,14 @@ export function KeyboardShortcuts(): React.ReactElement | null {
               {SHORTCUTS.filter((s) => s.group === group).map((s) => (
                 <div key={s.keys} className="shortcuts-row">
                   <span className="shortcuts-action">{t(s.action)}</span>
-                  <kbd className="shortcuts-key">{s.keys}</kbd>
+                  <kbd className="kbd">{s.keys}</kbd>
                 </div>
               ))}
             </div>
           ))}
         </div>
         <div className="shortcuts-footer">
-          {t('按')} <kbd className="shortcuts-key">?</kbd> {t('随时打开此面板')}
+          {t('按')} <kbd className="kbd">?</kbd> {t('随时打开此面板')}
         </div>
       </div>
     </div>

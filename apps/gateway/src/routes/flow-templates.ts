@@ -186,6 +186,17 @@ const fromFlowSchema = z.object({
   description: z.string().max(2000).optional(),
   icon: z.string().max(8).optional(),
   category: z.enum(['dev', 'research', 'content', 'ops', 'custom']).optional(),
+  /** 参数默认值（PX-CV04 画布另存为模板的 chip 网格输入）：按名合并进
+   *  服务端扫描结果 —— 名单仍以扫描为准，客户端只补 defaultValue。 */
+  params: z
+    .array(
+      z.object({
+        name: z.string().min(1).max(64),
+        defaultValue: z.string().max(500).optional(),
+      }),
+    )
+    .max(40)
+    .optional(),
 })
 
 /** 路径参数里的 flowId 必须是 uuid —— 否则 SQL `::uuid` 转换会 502 而非 4xx。 */
@@ -247,6 +258,14 @@ flowTemplateRoutes.post('/from-flow/:flowId', async (c) => {
   if (!extracted) {
     return fail(c, 422, '该 flow 无法抽取为模板：需要至少一个节点且以 Start 节点开头')
   }
+  // PX-CV04：客户端在保存对话框为扫描出的参数填了默认值 → 按名合并
+  //（名单/顺序以服务端扫描为准，未知名忽略，不信任客户端自报参数）。
+  const params = parsed.params
+    ? extracted.params.map((p) => {
+        const clientDefault = parsed.params?.find((cp) => cp.name === p.name)?.defaultValue
+        return clientDefault ? { ...p, defaultValue: clientDefault } : p
+      })
+    : extracted.params
 
   const { records: inserted } = await runQuery<{ id: string }>(
     `INSERT INTO flow_templates (name, description, icon, category, flow_data, agent_refs, params, source_flow_id)
@@ -259,7 +278,7 @@ flowTemplateRoutes.post('/from-flow/:flowId', async (c) => {
       parsed.category ?? 'custom',
       JSON.stringify(extracted.flowData),
       JSON.stringify(extracted.agentRefs),
-      JSON.stringify(extracted.params),
+      JSON.stringify(params),
       flowId,
     ],
   )

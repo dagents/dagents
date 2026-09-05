@@ -19,7 +19,8 @@ interface HoverCardProps {
   /** Anchor element — must accept a ref and mouse handlers (a plain
    *  wrapper div is the expected shape). */
   children: ReactNode
-  /** Hover delay before the card appears (ms). */
+  /** Hover delay before the card appears (ms). PX-GL05 default 150ms —
+   *  足以滤掉快速划过（不再闪卡），又不至于感觉迟钝。 */
   delayMs?: number
   /** Suppress the card (row is being renamed, menu open, …). */
   disabled?: boolean
@@ -27,7 +28,7 @@ interface HoverCardProps {
 
 const CARD_WIDTH = 280
 
-export function HoverCard({ content, children, delayMs = 500, disabled }: HoverCardProps): ReactNode {
+export function HoverCard({ content, children, delayMs = 150, disabled }: HoverCardProps): ReactNode {
   const [open, setOpen] = useState(false)
   const [pos, setPos] = useState({ left: 0, top: 0 })
   const anchorRef = useRef<HTMLElement | null>(null)
