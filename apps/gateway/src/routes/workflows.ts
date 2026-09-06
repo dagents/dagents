@@ -11,8 +11,6 @@ import {
   createDefaultLlmClient,
   createAgentFetcher,
   createBuiltInToolRegistry,
-  createHistoryRetriever,
-  createFlowExecutor,
   resetProviderCache,
 } from './workflow-clients.js'
 import { createStaticHumanInputResolver } from './human-input.js'
@@ -437,7 +435,6 @@ workflowsRoutes.post('/:id/run', async (c) => {
   const llmClient = createDefaultLlmClient('claude', { cwd: runCwd })
   const agentFetcher = createAgentFetcher()
   const toolRegistry = createBuiltInToolRegistry()
-  const historyRetriever = createHistoryRetriever(chatId)
   // Non-interactive run: HumanInput answers must be pre-supplied via the
   // request's state.humanInputs map (keyed by prompt); a missing answer
   // fails the node with guidance to use the chat path instead.
@@ -447,19 +444,6 @@ workflowsRoutes.post('/:id/run', async (c) => {
       ? (humanInputsRaw as Record<string, string>)
       : {}
   const humanInputResolver = createStaticHumanInputResolver(humanInputs)
-  // ExecuteFlow nodes run subflows on this run's clients; their executed
-  // nodes are collected and persisted as spans alongside the parent's.
-  const subflowNodes: IExecutedNode[] = []
-  const flowExecutor = createFlowExecutor({
-    chatId,
-    runId,
-    llmClient,
-    agentFetcher,
-    toolRegistry,
-    historyRetriever,
-    humanInputResolver,
-    onExecutedNodes: (nodes) => subflowNodes.push(...nodes),
-  })
 
   // 闭包（runAndPersist）内赋值、闭包外（同步响应）读取：
   // `!` 明确赋值断言 + runStatus 用 string（TS 无法跨闭包收窄）
@@ -501,13 +485,10 @@ workflowsRoutes.post('/:id/run', async (c) => {
       signal: abort.signal,
       llmClient,
       agentFetcher,
-      // Built-in tools (http_request / datetime_now) form the base registry;
-      // Tool nodes in the graph register themselves into the per-run overlay
-      // as they execute, so downstream Agent nodes can call them.
+      // Built-in tools (http_request / datetime_now) form the base registry
+      // for Agent tool-calling loops.
       toolRegistry,
-      historyRetriever,
       humanInputResolver,
-      flowExecutor,
       onNodeStart: spanWriter.onNodeStart,
       onNodeEnd: spanWriter.onNodeEnd,
       // 流式展示（2026-08-30）：节点生成过程中的文本增量节流落库
@@ -521,8 +502,6 @@ workflowsRoutes.post('/:id/run', async (c) => {
     resolveDone()
     executionRegistry.unregister(execHandle)
   }
-  // Subflow executions surface in the same trace/span set as the parent run.
-  result.executedNodes = [...result.executedNodes, ...subflowNodes]
   finishedAt = new Date()
   durationMs = Math.round(finishedAt.getTime() - startedAt.getTime())
   runStatus =

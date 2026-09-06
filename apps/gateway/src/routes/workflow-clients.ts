@@ -1,12 +1,10 @@
 /**
- * LLM client + agent fetcher + tool registry + history retriever for workflow
- * execution.
+ * LLM client + agent fetcher + tool registry for workflow execution.
  *
  * The DagExecutor needs an `llmClient` (for LLM/Agent/PlatformAgent nodes), an
- * `agentFetcher` (for PlatformAgentNode), a `toolRegistry` (built-in tools +
- * anything Tool nodes register at runtime) and a `historyRetriever` (for the
- * Retriever node). All are provided by the gateway because they need DB or
- * network access — the workflow package stays storage-free.
+ * `agentFetcher` (for PlatformAgentNode) and a `toolRegistry` (built-in tools
+ * for Agent tool-calling loops). All are provided by the gateway because they
+ * need DB or network access — the workflow package stays storage-free.
  */
 
 import { runQuery } from '@dagents/db'
@@ -16,9 +14,6 @@ import type { AgentEvent, AgentType } from '@dagents/contracts'
 import { decryptSecret } from '../crypto.js'
 import { composeSystemPrompt } from '../skill-injection.js'
 import {
-  DagExecutor,
-  NodeRegistry,
-  allNodes,
   type IExecutionContext,
   type PlatformAgentConfig,
   type ITokenUsage,
@@ -27,7 +22,6 @@ import {
   type IAgentTool,
   type IChatMessage,
   type IChatStreamChunk,
-  type IExecutedNode,
 } from '@dagents/workflow'
 
 const log = createLogger({ svc: 'gateway:workflow-clients' })
@@ -685,128 +679,4 @@ export function createBuiltInToolRegistry(): Record<string, IAgentTool> {
 
 function isRecord(value: unknown): value is Record<string, string> {
   return typeof value === 'object' && value !== null && !Array.isArray(value)
-}
-
-/**
- * Create a historyRetriever for the Retriever node — keyword search over the
- * chat's persisted messages (newest first). Chat id comes from the execution
- * context at call time, so the retriever is created per run alongside the
- * other clients.
- */
-export function createHistoryRetriever(
-  chatId: string,
-): NonNullable<IExecutionContext['historyRetriever']> {
-  return async (query, topK) => {
-    try {
-      // Split the query into words and AND them with ILIKE — a cheap,
-      // dependency-free keyword match. Words shorter than 2 chars are noise.
-      const words = query
-        .split(/\s+/)
-        .map((w) => w.replace(/[%_]/g, ''))
-        .filter((w) => w.length >= 2)
-        .slice(0, 8)
-      if (words.length === 0) return []
-
-      const conditions = words.map((_, i) => `content ILIKE $${i + 2}`).join(' AND ')
-      const { records } = await runQuery<{ role: string; content: string; created_at: Date }>(
-        `SELECT role, content, created_at
-           FROM chat_messages
-          WHERE chat_id = $1::uuid
-            AND ${conditions}
-          ORDER BY created_at DESC
-          LIMIT ${Math.max(1, Math.min(topK, 50))}`,
-        [chatId, ...words.map((w) => `%${w}%`)],
-      )
-      return records.map((r) => ({
-        role: r.role,
-        content: r.content,
-        createdAt: r.created_at instanceof Date ? r.created_at.toISOString() : String(r.created_at),
-      }))
-    } catch (err) {
-      log.error('historyRetriever query failed', { chatId, error: String(err) })
-      return []
-    }
-  }
-}
-
-/** Max subflow nesting (flow → subflow → subsubflow); beyond this the node fails. */
-const MAX_SUBFLOW_DEPTH = 3
-
-const FLOW_UUID_RE = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i
-
-/** Shared run context a subflow inherits from its parent execution. */
-export interface SubflowDeps {
-  chatId: string
-  runId: string
-  llmClient: NonNullable<IExecutionContext['llmClient']>
-  agentFetcher: NonNullable<IExecutionContext['agentFetcher']>
-  toolRegistry: Record<string, IAgentTool>
-  historyRetriever?: IExecutionContext['historyRetriever']
-  humanInputResolver?: IExecutionContext['humanInputResolver']
-  /** Receives the subflow's executed nodes so the parent run's span persistence can include them. */
-  onExecutedNodes?: (nodes: IExecutedNode[]) => void
-}
-
-/**
- * Create the `flowExecutor` for ExecuteFlow nodes: loads the referenced
- * flow, runs it on a fresh DagExecutor with the parent run's clients, and
- * returns its final output. Subflows execute with `isLastNode: false` —
- * they never stream into the parent's token stream (avoids interleaved
- * partial replies); nested ExecuteFlow nodes keep working down to
- * MAX_SUBFLOW_DEPTH.
- */
-export function createFlowExecutor(
-  deps: SubflowDeps,
-  depth = 0,
-): NonNullable<IExecutionContext['flowExecutor']> {
-  return async (flowId, input) => {
-    if (depth >= MAX_SUBFLOW_DEPTH) {
-      throw new Error(`ExecuteFlow: subflow nesting exceeds max depth (${MAX_SUBFLOW_DEPTH})`)
-    }
-    if (!FLOW_UUID_RE.test(flowId)) {
-      throw new Error(`ExecuteFlow: invalid flow id "${flowId}"`)
-    }
-
-    let row: { name: string; flow_data: unknown } | undefined
-    try {
-      const { records } = await runQuery<{ name: string; flow_data: unknown }>(
-        `SELECT name, flow_data FROM flows WHERE id = $1::uuid`,
-        [flowId],
-      )
-      row = records[0]
-    } catch (err) {
-      log.error('subflow lookup failed', { flowId, error: String(err) })
-      throw new Error(`ExecuteFlow: flow lookup failed — ${String(err)}`)
-    }
-    if (!row) {
-      throw new Error(`ExecuteFlow: flow "${flowId}" not found`)
-    }
-
-    const flowData = row.flow_data as import('@dagents/workflow').FlowData
-    if (!flowData || !Array.isArray(flowData.nodes) || !Array.isArray(flowData.edges)) {
-      throw new Error(`ExecuteFlow: flow "${row.name}" (${flowId}) has invalid flow data`)
-    }
-
-    const registry = new NodeRegistry()
-    registry.registerMany(allNodes())
-    const result = await new DagExecutor(registry).execute(flowData, input, {
-      chatId: deps.chatId,
-      runId: deps.runId,
-      state: {},
-      isLastNode: false,
-      llmClient: deps.llmClient,
-      agentFetcher: deps.agentFetcher,
-      toolRegistry: deps.toolRegistry,
-      historyRetriever: deps.historyRetriever,
-      humanInputResolver: deps.humanInputResolver,
-      flowExecutor: createFlowExecutor(deps, depth + 1),
-    })
-
-    deps.onExecutedNodes?.(result.executedNodes)
-
-    if (result.status !== 'success') {
-      throw new Error(`ExecuteFlow: subflow "${row.name}" failed — ${result.error ?? 'unknown error'}`)
-    }
-    return result.finalOutput ?? {}
-  }
 }

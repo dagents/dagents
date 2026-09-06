@@ -232,6 +232,55 @@ describe('DagExecutor (conditional branching)', () => {
     registry = new NodeRegistry()
   })
 
+  it('{{$start.input}} resolves regardless of the start node id（别名修复回归）', async () => {
+    // 画布保存的 start 节点 id 是 node_1/xxx_0 等任意值；{{$start.input}}
+    // 别名（resolveAlias → state.start.content）此前永远落空，condition
+    // 里写该语法的流程恒走 False。executor 现在把 start 输出额外登记
+    // state.start。
+    const { StartNode } = await import('../nodes/start/start.node.js')
+    const { ConditionNode } = await import('../nodes/condition/condition.node.js')
+    registry.register(new StartNode())
+    registry.register(new ConditionNode())
+
+    const flow: FlowData = {
+      nodes: [
+        { id: 'node_1', data: { name: 'startAgentflow' } },
+        {
+          id: 'node_2',
+          data: {
+            name: 'conditionAgentflow',
+            conditions: [
+              {
+                valueToCompare: '{{$start.input}}',
+                comparisonOperator: 'contains',
+                valueToCompareAgainst: 'go',
+              },
+            ],
+          },
+        },
+      ],
+      edges: [{ id: 'e1', source: 'node_1', target: 'node_2' }],
+    }
+
+    const executor = new DagExecutor(registry)
+    const go = await executor.execute(flow, 'go', {
+      chatId: 'c1',
+      runId: 'r1',
+      state: {},
+      isLastNode: true,
+    })
+    expect(go.status).toBe('success')
+    expect(go.executedNodes.find((n) => n.nodeId === 'node_2')?.output).toMatchObject({ matched: 'true' })
+
+    const stop = await executor.execute(flow, 'stop', {
+      chatId: 'c1',
+      runId: 'r2',
+      state: {},
+      isLastNode: true,
+    })
+    expect(stop.executedNodes.find((n) => n.nodeId === 'node_2')?.output).toMatchObject({ matched: 'false' })
+  })
+
   it('executes only true branch when condition matches', async () => {
     registry.register(makeEchoNode('startNode', 'start'))
     registry.register(makeConditionNode('condTrue', 'true'))
@@ -620,32 +669,22 @@ describe('DagExecutor (parallel waves + loops)', () => {
     expect(releaseOrder).toEqual(['fastB', 'slowA'])
   })
 
-  it('executes a Loop node body once per loopCount and aggregates iterations', async () => {
+  it('treats plain outgoing edges as the iteration body on legacy single-anchor graphs', async () => {
     registry.register(makeEchoNode('startNode', 'start'))
-    registry.register({
-      label: 'Loop',
-      name: 'loopAgentflow',
-      version: 1,
-      type: 'Loop',
-      category: 'flow',
-      color: '#000',
-      inputs: [],
-      async run(nodeData: INodeData): Promise<INodeOutput> {
-        return { id: nodeData.id, name: 'loopAgentflow', input: {}, output: { loopCount: 3 } }
-      },
-    })
     registry.register(makeEchoNode('bodyNode', 'BODY'))
+    // Register the real IterationNode for array parsing.
+    registry.register(new (await import('../nodes/iteration/iteration.node.js')).IterationNode())
 
     const flow: FlowData = {
       nodes: [
         { id: 'n1', data: { name: 'startNode' } },
-        { id: 'n2', data: { name: 'loopAgentflow' } },
+        { id: 'it', data: { name: 'iterationAgentflow', items: '["x", "y"]' } },
         { id: 'n3', data: { name: 'bodyNode' } },
       ],
       edges: [
-        { id: 'e1', source: 'n1', target: 'n2' },
-        // Legacy single-anchor graph: plain edge = loop body.
-        { id: 'e2', source: 'n2', target: 'n3' },
+        { id: 'e1', source: 'n1', target: 'it' },
+        // Legacy single-anchor graph: plain edge = iteration body.
+        { id: 'e2', source: 'it', target: 'n3' },
       ],
     }
 
@@ -658,17 +697,15 @@ describe('DagExecutor (parallel waves + loops)', () => {
     })
 
     expect(result.status).toBe('success')
-    // Loop controller + body executed 3 times.
     const bodyRuns = result.executedNodes.filter((n) => n.nodeId === 'n3')
-    expect(bodyRuns).toHaveLength(3)
-    // Each iteration feeds the previous iteration's output downstream.
-    expect(bodyRuns[0].output.content).toBe('seed start BODY')
-    expect(bodyRuns[1].output.content).toBe('seed start BODY BODY')
-    expect(bodyRuns[2].output.content).toBe('seed start BODY BODY BODY')
+    expect(bodyRuns).toHaveLength(2)
+    // Each item seeds one body pass.
+    expect(bodyRuns[0].output.content).toBe('x BODY')
+    expect(bodyRuns[1].output.content).toBe('y BODY')
     // Aggregate output carries the collected iterations.
-    const loopRun = result.executedNodes.find((n) => n.nodeId === 'n2')
-    expect(loopRun?.output.completedIterations).toBe(3)
-    expect((loopRun?.output.iterations as unknown[]).length).toBe(3)
+    const itRun = result.executedNodes.find((n) => n.nodeId === 'it')
+    expect(itRun?.output.completedIterations).toBe(2)
+    expect((itRun?.output.iterations as unknown[]).length).toBe(2)
   })
 
   it('executes an Iteration body once per item with loop-anchor routing', async () => {
@@ -715,46 +752,9 @@ describe('DagExecutor (parallel waves + loops)', () => {
     expect(itRun?.output.completedIterations).toBe(2)
     expect((itRun?.output.iterations as unknown[])).toHaveLength(2)
   })
-
-  it('loop break condition stops iterating early', async () => {
-    registry.register(makeEchoNode('bodyNode', 'BODY'))
-    registry.register({
-      label: 'Loop',
-      name: 'loopAgentflow',
-      version: 1,
-      type: 'Loop',
-      category: 'flow',
-      color: '#000',
-      inputs: [],
-      async run(nodeData: INodeData): Promise<INodeOutput> {
-        return { id: nodeData.id, name: 'loopAgentflow', input: {}, output: { loopCount: 5 } }
-      },
-    })
-
-    const flow: FlowData = {
-      nodes: [
-        { id: 'lp', data: { name: 'loopAgentflow', condition: '$flow.state.stop === true' } },
-        { id: 'n2', data: { name: 'bodyNode' } },
-      ],
-      edges: [{ id: 'e1', source: 'lp', target: 'n2' }],
-    }
-
-    const executor = new DagExecutor(registry)
-    const result = await executor.execute(flow, 'x', {
-      chatId: 'c1',
-      runId: 'r1',
-      // Break condition reads runtime state — set stop so iteration 2 breaks.
-      state: { stop: true },
-      isLastNode: true,
-    })
-
-    expect(result.status).toBe('success')
-    const bodyRuns = result.executedNodes.filter((n) => n.nodeId === 'n2')
-    expect(bodyRuns).toHaveLength(1)
-  })
 })
 
-describe('DagExecutor (human input + subflow wiring)', () => {
+describe('DagExecutor (human input wiring)', () => {
   let registry: NodeRegistry
 
   beforeEach(() => {
@@ -788,32 +788,6 @@ describe('DagExecutor (human input + subflow wiring)', () => {
     // (content-string convention) and streams it.
     const dr = result.executedNodes.find((n) => n.nodeId === 'dr')
     expect(dr?.output.content).toBe('回答是：来自人类的回答')
-  })
-
-  it('passes flowExecutor through to ExecuteFlow nodes', async () => {
-    registry.registerMany(allNodes())
-    const flowExecutor = vi.fn().mockResolvedValue({ content: '子流程结果' })
-
-    const flow: FlowData = {
-      nodes: [
-        { id: 'ef', data: { name: 'executeFlowAgentflow', flowId: 'sub-1' } },
-      ],
-      edges: [],
-    }
-
-    const executor = new DagExecutor(registry)
-    const result = await executor.execute(flow, 'upstream 输入', {
-      chatId: 'c1',
-      runId: 'r1',
-      state: {},
-      isLastNode: true,
-      flowExecutor,
-    })
-
-    expect(flowExecutor).toHaveBeenCalledWith('sub-1', 'upstream 输入')
-    expect(result.status).toBe('success')
-    expect(result.finalOutput?.content).toBe('子流程结果')
-    expect(result.finalOutput?.output).toEqual({ content: '子流程结果' })
   })
 })
 

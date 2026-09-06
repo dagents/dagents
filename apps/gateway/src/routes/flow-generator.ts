@@ -163,25 +163,26 @@ export function extractJson(text: string): unknown {
   return JSON.parse(stripped.slice(start, end + 1))
 }
 
-/** Common LLM aliases the model tends to emit → canonical canvas types. */
+/**
+ * Common LLM aliases the model tends to emit → canonical canvas types.
+ * D8 精简（2026-09-05）：节点体系收敛到 9 类；被删类型的常见别名映射到
+ * 最接近的保留类型（agent→llm 零依赖可跑、loop→iteration 同族循环原语）。
+ */
 const TYPE_ALIASES: Record<string, string> = {
   start: 'startAgentflow',
-  agent: 'agentAgentflow',
+  agent: 'llmAgentflow',
   platformagent: 'platformAgentAgentflow',
   llm: 'llmAgentflow',
   chatmodel: 'llmAgentflow',
-  tool: 'toolAgentflow',
   http: 'httpAgentflow',
   httpRequest: 'httpAgentflow',
   condition: 'conditionAgentflow',
-  conditionagent: 'conditionAgentAgentflow',
+  conditionagent: 'conditionAgentflow',
   iteration: 'iterationAgentflow',
-  loop: 'loopAgentflow',
+  loop: 'iterationAgentflow',
   humaninput: 'humanInputAgentflow',
   directreply: 'directReplyAgentflow',
   customfunction: 'customFunctionAgentflow',
-  executeflow: 'executeFlowAgentflow',
-  retriever: 'retrieverAgentflow',
 }
 
 const CANVAS_NODE_TYPES = new Set(CANVAS_NODES.map((n) => n.name))

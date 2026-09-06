@@ -51,8 +51,8 @@ test.describe('浏览器 UI 旅程（Tier C：UI）', () => {
 
     // 创建成功 → 自动跳画布编辑器
     await page.waitForURL(/\/workflows\/[0-9a-f-]+\/canvas/, { timeout: 15_000 })
-    // 画布编辑器外壳渲染（back + canvas wrap）
-    await expect(page.locator('.agentflow-canvas, [class*="canvas"]').first()).toBeVisible({ timeout: 15_000 })
+    // 画布编辑器外壳渲染（自研 Canvas Kit 根节点）
+    await expect(page.locator('.fc-root')).toBeVisible({ timeout: 15_000 })
 
     // 回 flows 列表 → 卡片出现 → 运行（先开输入对话框，2026-08-29 起
     // 输入/目录在这里收集）→ 开始运行 → 异步立即跳画布旁观（2026-08-30

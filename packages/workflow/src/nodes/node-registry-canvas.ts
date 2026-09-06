@@ -39,10 +39,6 @@ export const NODE_CATEGORIES = {
     label: 'Tools',
     color: '#3b82f6',
   },
-  data: {
-    label: 'Data',
-    color: '#06b6d4',
-  },
   flow: {
     label: 'Flow Control',
     color: '#ec4899',
@@ -50,7 +46,12 @@ export const NODE_CATEGORIES = {
 } as const
 
 /**
- * V2 Agent Flow canvas node metadata — 14 nodes for the canvas editor.
+ * Canvas node metadata — 9 nodes, CLI-agent-centric (D8 精简，2026-09-05).
+ *
+ * platformAgent is the hero node (a real CLI agent from the agents table);
+ * everything else is minimal orchestration scaffolding. Removed types:
+ * agent / tool / conditionAgent / loop / executeFlow / retriever — see
+ * docs/canvas-replacement-architecture.md §D8.
  */
 export const CANVAS_NODES: CanvasNodeMeta[] = [
   {
@@ -75,50 +76,8 @@ export const CANVAS_NODES: CanvasNodeMeta[] = [
     },
   },
   {
-    name: 'agentAgentflow',
-    label: 'Agent',
-    category: 'agent',
-    color: '#8b5cf6',
-    icon: 'Bot',
-    description: 'Autonomous agent with tools and reasoning',
-    inputs: [
-      {
-        label: 'Model',
-        name: 'model',
-        type: 'options',
-        required: true,
-        options: [],
-      },
-      {
-        label: 'System Prompt',
-        name: 'systemPrompt',
-        type: 'code',
-        rows: 4,
-        acceptVariable: true,
-      },
-      {
-        label: 'Tools',
-        name: 'tools',
-        type: 'options',
-        options: [],
-      },
-      {
-        label: 'Max Iterations',
-        name: 'maxIterations',
-        type: 'number',
-        default: 10,
-      },
-    ],
-    defaultData: {
-      model: '',
-      systemPrompt: '',
-      tools: [],
-      maxIterations: 10,
-    },
-  },
-  {
     name: 'platformAgentAgentflow',
-    label: 'Platform Agent',
+    label: 'Agent (CLI)',
     category: 'agent',
     color: '#8b5cf6',
     icon: 'Bot',
@@ -194,45 +153,6 @@ export const CANVAS_NODES: CanvasNodeMeta[] = [
       systemPrompt: '',
       prompt: '',
       temperature: 0.7,
-    },
-  },
-  {
-    name: 'toolAgentflow',
-    label: 'Tool',
-    category: 'tools',
-    color: '#3b82f6',
-    icon: 'Wrench',
-    description: 'Custom tool definition with handler code',
-    inputs: [
-      {
-        label: 'Tool Name',
-        name: 'toolName',
-        type: 'string',
-        required: true,
-      },
-      {
-        label: 'Tool Description',
-        name: 'toolDescription',
-        type: 'string',
-      },
-      {
-        label: 'Parameters',
-        name: 'parameters',
-        type: 'json',
-        rows: 4,
-      },
-      {
-        label: 'Handler',
-        name: 'handler',
-        type: 'code',
-        rows: 8,
-      },
-    ],
-    defaultData: {
-      toolName: '',
-      toolDescription: '',
-      parameters: {},
-      handler: '',
     },
   },
   {
@@ -320,40 +240,6 @@ export const CANVAS_NODES: CanvasNodeMeta[] = [
     },
   },
   {
-    name: 'conditionAgentAgentflow',
-    label: 'Condition Agent',
-    category: 'logic',
-    color: '#f59e0b',
-    icon: 'Split',
-    description: 'LLM-based scenario routing',
-    inputs: [
-      {
-        label: 'Model',
-        name: 'model',
-        type: 'options',
-        options: [],
-      },
-      {
-        label: 'System Prompt',
-        name: 'systemPrompt',
-        type: 'code',
-        rows: 4,
-        acceptVariable: true,
-      },
-      {
-        label: 'Scenarios',
-        name: 'scenarios',
-        type: 'json',
-        rows: 6,
-      },
-    ],
-    defaultData: {
-      model: '',
-      systemPrompt: '',
-      scenarios: [],
-    },
-  },
-  {
     name: 'iterationAgentflow',
     label: 'Iteration',
     category: 'flow',
@@ -375,37 +261,6 @@ export const CANVAS_NODES: CanvasNodeMeta[] = [
     ],
     defaultData: {
       items: '',
-    },
-  },
-  {
-    name: 'loopAgentflow',
-    label: 'Loop',
-    category: 'flow',
-    color: '#ec4899',
-    icon: 'RefreshCw',
-    description: 'Repeat the loop body N times (or until the break condition holds)',
-    inputs: [
-      {
-        label: 'Max Iterations',
-        name: 'maxIterations',
-        type: 'number',
-        default: 10,
-      },
-      {
-        label: 'Break Condition',
-        name: 'condition',
-        type: 'string',
-        acceptVariable: true,
-        description: 'JS expression over $flow.state — truthy breaks before the next iteration',
-      },
-    ],
-    outputs: [
-      { name: 'loop', label: 'Loop Body' },
-      { name: 'result', label: 'Result' },
-    ],
-    defaultData: {
-      maxIterations: 10,
-      condition: '',
     },
   },
   {
@@ -499,69 +354,6 @@ export const CANVAS_NODES: CanvasNodeMeta[] = [
     defaultData: {
       code: '',
       parameters: {},
-    },
-  },
-  {
-    name: 'executeFlowAgentflow',
-    label: 'Execute Flow',
-    category: 'flow',
-    color: '#ec4899',
-    icon: 'PlayCircle',
-    description: 'Execute a sub-flow',
-    inputs: [
-      {
-        label: 'Flow ID',
-        name: 'flowId',
-        type: 'string',
-      },
-      {
-        label: 'Input',
-        name: 'input',
-        type: 'json',
-        rows: 4,
-      },
-    ],
-    outputs: [
-      { name: 'output', label: 'Output' },
-    ],
-    defaultData: {
-      flowId: '',
-      input: {},
-    },
-  },
-  {
-    name: 'retrieverAgentflow',
-    label: 'Retriever',
-    category: 'data',
-    color: '#06b6d4',
-    icon: 'Search',
-    description: 'Retrieve documents from vector store',
-    inputs: [
-      {
-        label: 'Vector Store',
-        name: 'vectorStore',
-        type: 'string',
-      },
-      {
-        label: 'Query',
-        name: 'query',
-        type: 'string',
-        acceptVariable: true,
-      },
-      {
-        label: 'Top K',
-        name: 'topK',
-        type: 'number',
-        default: 4,
-      },
-    ],
-    outputs: [
-      { name: 'docs', label: 'Docs' },
-    ],
-    defaultData: {
-      vectorStore: '',
-      query: '',
-      topK: 4,
     },
   },
 ]

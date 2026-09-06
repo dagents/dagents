@@ -4,8 +4,6 @@ import type { AddressInfo } from 'node:net'
 import {
   createLlmClient,
   createBuiltInToolRegistry,
-  createHistoryRetriever,
-  createFlowExecutor,
 } from '../routes/workflow-clients.js'
 
 const mockRunQuery = vi.fn()
@@ -124,110 +122,5 @@ describe('createBuiltInToolRegistry', () => {
     const registry = createBuiltInToolRegistry()
     const result = await registry.datetime_now.handler({})
     expect(result).toMatch(/^\d{4}-\d{2}-\d{2}T/)
-  })
-})
-
-describe('createHistoryRetriever', () => {
-  it('builds an ANDed ILIKE query over chat_messages and maps rows', async () => {
-    mockRunQuery.mockResolvedValue({
-      records: [{ role: 'user', content: 'weather is nice', created_at: new Date('2026-08-15T00:00:00Z') }],
-      affected: 1,
-    })
-    const retriever = createHistoryRetriever('11111111-1111-1111-1111-111111111111')
-    const docs = await retriever('weather today', 4)
-
-    expect(docs).toEqual([
-      { role: 'user', content: 'weather is nice', createdAt: '2026-08-15T00:00:00.000Z' },
-    ])
-    const [sql, params] = mockRunQuery.mock.calls[0]
-    expect(sql).toContain('chat_messages')
-    expect(sql).toContain('ILIKE')
-    expect(params[0]).toBe('11111111-1111-1111-1111-111111111111')
-    expect(params[1]).toBe('%weather%')
-    expect(params[2]).toBe('%today%')
-  })
-
-  it('drops short words and returns [] for an empty query', async () => {
-    const retriever = createHistoryRetriever('11111111-1111-1111-1111-111111111111')
-    expect(await retriever('a b', 4)).toEqual([])
-    expect(mockRunQuery).not.toHaveBeenCalled()
-  })
-
-  it('returns [] when the query fails', async () => {
-    mockRunQuery.mockRejectedValue(new Error('db down'))
-    const retriever = createHistoryRetriever('11111111-1111-1111-1111-111111111111')
-    expect(await retriever('weather', 4)).toEqual([])
-  })
-})
-
-describe('createFlowExecutor (subflow execution)', () => {
-  const SUBFLOW_ID = '22222222-2222-2222-2222-222222222222'
-
-  function makeSubflowDeps() {
-    return {
-      chatId: 'c1',
-      runId: 'r1',
-      llmClient: { chat: vi.fn().mockResolvedValue({ text: 'ok' }) },
-      agentFetcher: vi.fn(),
-      toolRegistry: {},
-      historyRetriever: vi.fn(),
-    }
-  }
-
-  function stubSubflow(flowData: unknown) {
-    mockRunQuery.mockResolvedValue({
-      records: [{ name: 'subflow', flow_data: flowData }],
-      affected: 1,
-    })
-  }
-
-  it('executes the referenced flow and returns its final output', async () => {
-    stubSubflow({
-      nodes: [
-        { id: 'cf', data: { name: 'customFunctionAgentflow', functionCode: "return { content: 'sub(' + $input + ')' }" } },
-      ],
-      edges: [],
-    })
-    const collected: unknown[] = []
-    const executor = createFlowExecutor({ ...makeSubflowDeps(), onExecutedNodes: (ns) => collected.push(...ns) })
-
-    const output = await executor(SUBFLOW_ID, 'hello')
-    expect(output.content).toBe('sub(hello)')
-    // Subflow executed nodes are surfaced to the parent's span persistence.
-    expect(collected).toHaveLength(1)
-    expect((collected[0] as { nodeId: string }).nodeId).toBe('cf')
-  })
-
-  it('rejects on a non-uuid flow id', async () => {
-    const executor = createFlowExecutor(makeSubflowDeps())
-    await expect(executor('not-a-uuid', {})).rejects.toThrow(/invalid flow id/)
-  })
-
-  it('rejects when the flow does not exist', async () => {
-    mockRunQuery.mockResolvedValue({ records: [], affected: 0 })
-    const executor = createFlowExecutor(makeSubflowDeps())
-    await expect(executor(SUBFLOW_ID, {})).rejects.toThrow(/not found/)
-  })
-
-  it('propagates subflow failure as a clear error', async () => {
-    stubSubflow({
-      nodes: [{ id: 'boom', data: { name: 'customFunctionAgentflow', functionCode: 'throw new Error("炸了")' } }],
-      edges: [],
-    })
-    const executor = createFlowExecutor(makeSubflowDeps())
-    await expect(executor(SUBFLOW_ID, {})).rejects.toThrow(/subflow "subflow" failed.*炸了/)
-  })
-
-  it('guards against runaway recursion (self-referencing flow)', async () => {
-    // The flow executes itself via an ExecuteFlow node — must stop at the
-    // depth cap instead of recursing forever.
-    stubSubflow({
-      nodes: [
-        { id: 'ef', data: { name: 'executeFlowAgentflow', flowId: SUBFLOW_ID } },
-      ],
-      edges: [],
-    })
-    const executor = createFlowExecutor(makeSubflowDeps())
-    await expect(executor(SUBFLOW_ID, {})).rejects.toThrow(/max depth|failed/)
   })
 })

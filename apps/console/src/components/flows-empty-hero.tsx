@@ -81,13 +81,14 @@ export function FlowsEmptyHero({
       </div>
 
       {/* 纵向入口清单（PX-F03）：行卡 --radius-md、组限宽 560px 居中、
-          stagger 38ms × 3（.enter-rise 消费 --enter-i）。 */}
-      <div className="flows-hero-entries" role="list">
+          stagger 38ms × 3（.enter-rise 消费 --enter-i）。布局清单不挂
+          role="list"：条目是 button，挂 listitem 会覆盖按钮语义（读屏与
+          e2e 都找不到按钮 —— PX-F03 引入的 a11y 回归，2026-09-06 修复）。 */}
+      <div className="flows-hero-entries">
         {entries.map((e, i) => (
           <button
             key={e.key}
             type="button"
-            role="listitem"
             className={`flows-hero-entry enter-rise${e.primary ? ' primary' : ''}`}
             style={{ '--enter-i': i } as React.CSSProperties}
             onClick={e.onClick}
@@ -112,7 +113,7 @@ export function FlowsEmptyHero({
       {templates.length > 0 ? (
         <div className="flows-hero-templates">
           <div className="flows-hero-templates-label">{t('内置模板')}</div>
-          <div className="flows-hero-templates-strip" role="list">
+          <div className="flows-hero-templates-strip">
             {templates.map((tpl) => (
               <button
                 key={tpl.id}
@@ -120,7 +121,6 @@ export function FlowsEmptyHero({
                 className="flows-hero-tpl-card"
                 onClick={onTemplate}
                 title={tpl.description || tpl.name}
-                role="listitem"
               >
                 <span className="flows-hero-tpl-name">{tpl.name}</span>
                 {tpl.description ? (

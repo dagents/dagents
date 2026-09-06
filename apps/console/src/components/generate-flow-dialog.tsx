@@ -3,31 +3,26 @@
 /**
  * GenerateFlowDialog — 「一句话生成」对话框（PRD F7）。
  *
- * 与画布 vendor 对话框、聊天 @workflow 共用同一后端管线（gateway
- * flow-generator.ts：CLI 优先/HTTP 兜底 → 拓扑校验 → 一轮修复 → 显式失败），
- * 这里是 console 原生入口：首页 / Flows 工具栏 / 任何需要「描述→画布」的
- * 地方。BFF 返回 vendor 形状（type=节点名），落库前转回 canonical
- * customNode —— 与 BFF 的 toVendorFlow 互逆。
+ * 与聊天 @workflow 共用同一后端管线（gateway flow-generator.ts：CLI 优先/
+ * HTTP 兜底 → 拓扑校验 → 一轮修复 → 显式失败），这里是 console 原生入口：
+ * 首页 / Flows 工具栏 / 任何需要「描述→画布」的地方。BFF
+ * （/api/flow-generator）透传 gateway 的 canonical flowData（customNode +
+ * data.name），无形状转换（2026-09-05 画布自研化后的契约）。
  */
 import { useEffect, useRef, useState } from 'react'
 import { useRouter } from 'next/navigation'
 import { Icon } from '@/components/icon'
 import { useI18n } from '@/i18n'
+import type { FlowData } from '@dagents/workflow'
 import '@/styles/dialog.css'
 // flows.css 提供 PX-F06 增强态（.genflow-prompt/.genflow-engine/.genflow-progress/
 // .btn-spinner）；选择器均为 flow 对话框专属类名，无页面级副作用。
 import '@/styles/flows.css'
 
-interface VendorNode {
-  id: string
-  type: string
-  position?: { x: number; y: number }
-  data: Record<string, unknown>
-}
-
-interface VendorFlow {
-  nodes: VendorNode[]
-  edges: Array<{ id: string; source: string; target: string }>
+interface GenerateBindings {
+  agentNodeCount: number
+  unboundAgentNodeCount: number
+  note: string
 }
 
 export interface GenerateFlowDialogProps {
@@ -100,45 +95,31 @@ export function GenerateFlowDialog({
     setError(null)
     try {
       // ① 生成（BFF → gateway 统一管线；失败显式抛出，无静默兜底）
-      const res = await fetch('/api/flowise/api/v1/agentflowv2-generator/generate', {
+      const res = await fetch('/api/flow-generator', {
         method: 'POST',
         headers: { 'content-type': 'application/json' },
         body: JSON.stringify({ question: question.trim() }),
       })
       const json = (await res.json()) as
         | { success?: false; error?: string; message?: string }
-        | VendorFlow
-      if (!res.ok) {
+        | { success: true; data: { flowData: FlowData; bindings: GenerateBindings | null } }
+      if (!res.ok || json.success !== true) {
         throw new Error(
           (json as { error?: string; message?: string }).error
             ?? (json as { message?: string }).message
             ?? t('生成失败（HTTP {status}）', { status: res.status }),
         )
       }
-      const vendor = json as VendorFlow & {
-        bindings?: { agentNodeCount: number; unboundAgentNodeCount: number; note: string } | null
-      }
-      if (!Array.isArray(vendor.nodes) || vendor.nodes.length === 0) {
+      const flowData = json.data.flowData
+      if (!Array.isArray(flowData.nodes) || flowData.nodes.length === 0) {
         throw new Error(t('未生成有效的流程节点，请换一种描述重试'))
       }
 
-      // ② vendor → canonical（type=节点名 → customNode + data.name）
-      const flowData = {
-        nodes: vendor.nodes.map((n) => ({
-          id: n.id,
-          type: 'customNode',
-          position: n.position ?? { x: 0, y: 0 },
-          data: { ...n.data, name: n.type },
-        })),
-        edges: vendor.edges.map((e) => ({ id: e.id, source: e.source, target: e.target })),
-        viewport: { x: 0, y: 0, zoom: 1 },
-      }
-
-      // ③ 落库 + 直达画布
+      // ② 落库 + 直达画布
       // FR-13：bindings 写进 flow 描述 —— 列表/画布长期可见「生成的流将以
       // 什么档位跑」，不止 toast 一闪而过。
-      const bindingsNote = vendor.bindings
-        ? `${vendor.bindings.note}（Agent 节点 ${vendor.bindings.agentNodeCount}，未绑定 ${vendor.bindings.unboundAgentNodeCount}）`
+      const bindingsNote = json.data.bindings
+        ? `${json.data.bindings.note}（Agent 节点 ${json.data.bindings.agentNodeCount}，未绑定 ${json.data.bindings.unboundAgentNodeCount}）`
         : ''
       const createRes = await fetch('/api/workflows', {
         method: 'POST',

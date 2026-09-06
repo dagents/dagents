@@ -36,21 +36,15 @@ export interface ExecuteOptions {
   llmClient?: IExecutionContext['llmClient']
   /** Platform agent fetcher — passed through to PlatformAgentNode. */
   agentFetcher?: IExecutionContext['agentFetcher']
-  /** Tool registry — base tools for the run; Tool nodes add more as they execute. */
+  /** Tool registry — base tools for the run, used by Agent tool-calling loops. */
   toolRegistry?: IExecutionContext['toolRegistry']
-  /** History retriever — passed through to the Retriever node. */
-  historyRetriever?: IExecutionContext['historyRetriever']
   /** Human input resolver — passed through to HumanInput nodes. */
   humanInputResolver?: IExecutionContext['humanInputResolver']
-  /** Flow executor — passed through to ExecuteFlow nodes (subflow execution). */
-  flowExecutor?: IExecutionContext['flowExecutor']
   /**
    * Node lifecycle hooks — fire as each node starts / finishes so callers
    * (e.g. the gateway's canvas run) can persist live progress. Hooks are
    * synchronous from the executor's perspective: async work should be
    * fire-and-forget inside the callback so it never stalls a wave.
-   * Subflow (ExecuteFlow) nodes do not fire these — their spans surface
-   * via the caller's onExecutedNodes aggregation.
    */
   onNodeStart?: (node: { nodeId: string; nodeName: string }) => void
   onNodeEnd?: (node: IExecutedNode) => void
@@ -65,36 +59,33 @@ export interface ExecuteOptions {
   ) => void
 }
 
-/** Node type names whose loop body the executor repeats. */
-const LOOP_CONTROLLER_NAMES = new Set(['loopAgentflow', 'iterationAgentflow'])
+/** Node type names whose iteration body the executor repeats. */
+const ITERATION_CONTROLLERS = new Set(['iterationAgentflow'])
 
-/** A loop controller's parsed execution plan (see `planLoopBody`). */
-interface LoopPlan {
-  kind: 'loop' | 'iteration'
+/** An iteration controller's parsed execution plan (see `planIterationBody`). */
+interface IterationPlan {
   /** Body node ids — transitive closure from the body anchor, excluding the controller. */
   body: Set<string>
   /** Edges from the controller into the body entries. */
   entryEdges: FlowEdge[]
-  /** Loop-only: optional early-exit condition expression. */
-  condition?: string
-  /** Iteration-only: the items to iterate over. */
+  /** The items to iterate over. */
   items: unknown[]
 }
 
 /**
- * DAG executor — dependency-based wave scheduling with branching and loops.
+ * DAG executor — dependency-based wave scheduling with branching and iteration.
  *
  * Supports:
  * - Linear DAGs (backward compatible)
  * - Parallel branches: nodes whose incoming edges are all resolved form a
  *   "wave" and execute concurrently (`Promise.all`); waves advance in
  *   topological order, so `executedNodes` stays deterministic
- * - Conditional branching via Condition / ConditionAgent nodes with sourceHandle
- * - Loop / Iteration nodes: the executor detects them, extracts their loop
- *   body (the sub-DAG reachable from the `loop` / `iteration` output anchor —
+ * - Conditional branching via Condition nodes with sourceHandle
+ * - Iteration nodes: the executor detects them, extracts their body
+ *   (the sub-DAG reachable from the `iteration` output anchor —
  *   legacy single-anchor graphs treat every outgoing edge as body), and
- *   re-executes it once per iteration with loop metadata exposed in runtime
- *   state (`loopIndex` / `loopCount` / `iterationIndex` / `iterationItem`)
+ *   re-executes it once per item with iteration metadata exposed in runtime
+ *   state (`iterationIndex` / `iterationCount` / `iterationItem`)
  *
  * Branch routing:
  * - Edges with sourceHandle='true' only activate when the source node's output
@@ -148,9 +139,9 @@ export class DagExecutor {
       const incomingEdges = this.buildIncomingEdges(flow.edges)
       const outgoingEdges = this.buildOutgoingEdges(flow.edges)
 
-      // Per-run tool registry overlay. Tool nodes register themselves into it
-      // as they execute, so downstream Agent / Platform Agent nodes can call
-      // them — without leaking registrations into the caller's base registry.
+      // Per-run tool registry overlay. It starts from the caller's base
+      // registry (built-in tools), and future registrations land here without
+      // leaking into the caller's object.
       const toolRegistry: Record<string, IAgentTool> = { ...(opts.toolRegistry ?? {}) }
 
       // Final output = the deepest (max topological index) executed node.
@@ -183,9 +174,7 @@ export class DagExecutor {
         llmClient: opts.llmClient,
         agentFetcher: opts.agentFetcher,
         toolRegistry,
-        historyRetriever: opts.historyRetriever,
         humanInputResolver: opts.humanInputResolver,
-        flowExecutor: opts.flowExecutor,
       })
 
       /** Execute one node instance (no scheduling). Throws on node failure. */
@@ -233,12 +222,12 @@ export class DagExecutor {
 
       /**
        * Wave scheduler over a restricted node scope (the whole graph, or a
-       * loop body). Mutates `outputs` and appends to `executedNodes`; merges
+       * iteration body). Mutates `outputs` and appends to `executedNodes`; merges
        * node state into `runtime`. Returns the processed ids (executed +
        * skipped) and the first error, if any.
        *
        * `entryEdges` are scope-entry edges whose source lives outside the
-       * scope (the loop controller's body edges). They count as satisfied for
+       * scope (an iteration controller's body edges). They count as satisfied for
        * readiness and resolve against `seed` — a per-iteration pseudo-output
        * map — instead of `outputs`.
        */
@@ -249,7 +238,7 @@ export class DagExecutor {
         seed: Map<string, Record<string, unknown>>,
       ): Promise<{ processed: Set<string>; error?: string }> => {
         // Local pending counts: only edges internal to the scope gate
-        // readiness — entry edges are pre-satisfied (their source, the loop
+        // readiness — entry edges are pre-satisfied (their source, the iteration
         // controller, already ran) and resolve via `seed`.
         const entrySet = new Set(entryEdges)
         const localPending = new Map<string, number>()
@@ -320,6 +309,13 @@ export class DagExecutor {
                 // `output` for `{{id.output.field}}`.
                 const nodeOut = output.output
                 runtime.merge({ [nodeId]: { ...nodeOut, output: nodeOut } })
+                // `{{$start.input}}` 别名（variables.ts resolveAlias 映射到
+                // state.start.content）此前永远落空 —— Start 输出只挂在节点
+                // id 键下，而画布运行面板的文案恰恰宣传这个语法。Start 节点
+                // 输出额外登记 state.start（文档语义：$start = 流程入口）。
+                if (flowNode.data.name === 'startAgentflow') {
+                  runtime.merge({ start: { ...nodeOut, output: nodeOut } })
+                }
                 outputs.set(nodeId, output.output)
                 recordExecution(nodeId, output.output)
                 return { kind: 'executed', nodeId, output: output.output, input: nodeInput }
@@ -353,7 +349,7 @@ export class DagExecutor {
             return { processed, error: failure.error }
           }
 
-          // Everything processed this round — loop controllers additionally
+          // Everything processed this round — iteration controllers additionally
           // run their whole body inline, which processes the body nodes too.
           const released = new Set<string>()
           for (const o of outcomes) {
@@ -361,18 +357,18 @@ export class DagExecutor {
             released.add(o.nodeId)
 
             const flowNode = nodeById.get(o.nodeId)!
-            if (o.kind !== 'executed' || !LOOP_CONTROLLER_NAMES.has(flowNode.data.name as string)) {
+            if (o.kind !== 'executed' || !ITERATION_CONTROLLERS.has(flowNode.data.name as string)) {
               continue
             }
 
-            const plan = this.planLoopBody(flowNode, outgoingEdges, o.output, scope)
+            const plan = this.planIterationBody(flowNode, outgoingEdges, o.output, scope)
             if (plan.body.size === 0) {
               continue
             }
-            const loopResult = await runLoopBody(flowNode, plan, outputs, o.input)
-            if (loopResult.error) {
+            const iterationResult = await runIterationBody(flowNode, plan, outputs, o.input)
+            if (iterationResult.error) {
               for (const bodyId of plan.body) processed.add(bodyId)
-              return { processed, error: loopResult.error }
+              return { processed, error: iterationResult.error }
             }
             for (const bodyId of plan.body) {
               processed.add(bodyId)
@@ -380,11 +376,11 @@ export class DagExecutor {
             }
             // Downstream (result-path) nodes consume the aggregate output,
             // and the controller's trace record reflects it too.
-            outputs.set(o.nodeId, loopResult.output)
-            recordExecution(o.nodeId, loopResult.output)
+            outputs.set(o.nodeId, iterationResult.output)
+            recordExecution(o.nodeId, iterationResult.output)
             for (let i = executedNodes.length - 1; i >= 0; i--) {
               if (executedNodes[i].nodeId === o.nodeId) {
-                executedNodes[i].output = loopResult.output
+                executedNodes[i].output = iterationResult.output
                 // 体内执行发生在控制器节点的 onNodeEnd 之后 —— 若不重发
                 // 钩子，增量 span 落库的是 start 快照（只有 iterationInput），
                 // completedIterations/iterations 等终态字段永久丢失
@@ -418,77 +414,45 @@ export class DagExecutor {
       }
 
       /**
-       * Execute a loop controller's body N times sequentially. Each iteration
-       * runs the body sub-DAG against a fresh clone of the global outputs
-       * (minus the controller's raw output, so entry edges resolve via the
-       * per-iteration seed: the item for Iteration, the previous iteration's
-       * result for Loop). Loop metadata is merged into runtime state so
-       * prompts can reference it via template variables.
+       * Execute an iteration controller's body once per item, sequentially.
+       * Each iteration runs the body sub-DAG against a fresh clone of the
+       * global outputs (minus the controller's raw output, so entry edges
+       * resolve via the per-iteration seed: the current item wrapped in the
+       * content-string convention). Iteration metadata is merged into runtime
+       * state so prompts can reference it via template variables.
        */
-      const runLoopBody = async (
+      const runIterationBody = async (
         controller: FlowNode,
-        plan: LoopPlan,
+        plan: IterationPlan,
         globalOutputs: Map<string, Record<string, unknown>>,
-        controllerInput: unknown,
+        _controllerInput: unknown,
       ): Promise<{ output: Record<string, unknown>; error?: string }> => {
         const controllerOutput = globalOutputs.get(controller.id) ?? {}
         const iterations: Array<Record<string, unknown>> = []
-        const rawCount =
-          plan.kind === 'loop' ? Number(controllerOutput.loopCount ?? 0) : plan.items.length
         // Iteration 项数没有上游节点把关（数组可能来自 HTTP 响应或状态变量），
         // 必须在这里设上限，否则一个 10k 项的数组会把循环体（可能每项一次
-        // LLM 调用）跑 10k 次。Loop 的次数已在 LoopNode 里按 MAX_LOOP_COUNT 截断。
+        // LLM 调用）跑 10k 次。
         const MAX_ITERATION_ITEMS = 100
-        const count =
-          plan.kind === 'iteration'
-            ? Math.min(rawCount, MAX_ITERATION_ITEMS)
-            : Number.isFinite(rawCount) && rawCount >= 1
-              ? Math.floor(rawCount)
-              : 0
+        const count = Math.min(plan.items.length, MAX_ITERATION_ITEMS)
         let lastBodyOutput: Record<string, unknown> = {}
         let completed = 0
 
-        // Optional early-exit condition (Loop node only): a JS expression
-        // evaluated against `$flow.state` before each subsequent iteration.
-        let breakCondition: ((state: Record<string, unknown>) => boolean) | null = null
-        if (plan.kind === 'loop' && typeof plan.condition === 'string' && plan.condition.trim() !== '') {
-          try {
-            const fn = new Function('$flow', `return (${plan.condition});`)
-            breakCondition = (state) => Boolean(fn({ state }))
-          } catch {
-            breakCondition = null
-          }
-        }
-
         for (let i = 0; i < count; i++) {
           if (opts.signal?.aborted) break
-          if (breakCondition && i > 0 && breakCondition(runtime.state)) {
-            break
-          }
 
-          const item = plan.kind === 'iteration' ? plan.items[i] : undefined
-          // Loop seed: the controller's upstream input for the first
-          // iteration, then the previous iteration's final output. String
-          // inputs keep the Flowise content-string convention so text nodes
-          // downstream receive them directly.
-          const seedValue: Record<string, unknown> =
-            item !== undefined
-              ? {
-                  content: typeof item === 'string' ? item : JSON.stringify(item),
-                  item,
-                  iterationIndex: i,
-                }
-              : i === 0
-                ? typeof controllerInput === 'string'
-                  ? { content: controllerInput }
-                  : this.toRecord(controllerInput)
-                : lastBodyOutput
+          const item = plan.items[i]
+          const seedValue: Record<string, unknown> = {
+            content: typeof item === 'string' ? item : JSON.stringify(item),
+            item,
+            iterationIndex: i,
+          }
           const seed = new Map<string, Record<string, unknown>>([[controller.id, seedValue]])
-          runtime.merge(
-            plan.kind === 'iteration'
-              ? { iterationIndex: i, iterationCount: count, iterationItem: item ?? null, iteration: item ?? null }
-              : { loopIndex: i, loopCount: count },
-          )
+          runtime.merge({
+            iterationIndex: i,
+            iterationCount: count,
+            iterationItem: item ?? null,
+            iteration: item ?? null,
+          })
 
           const iterationOutputs = new Map(globalOutputs)
           iterationOutputs.delete(controller.id)
@@ -514,23 +478,17 @@ export class DagExecutor {
           completed = i + 1
         }
 
+        // FR-06（PRD 决议）：Iteration 的聚合 content = 逐项正文有序拼接
+        // （与 N 进 1 合并契约同语义）——此前只保留最后一项，下游
+        // `{{iter.content}}` 静默丢 N-1 份产出。完整数组在 `.iterations`。
+        const aggregateContent = iterations
+          .map((it) => (typeof it.content === 'string' ? it.content : JSON.stringify(it)))
+          .filter((s) => s.length > 0)
+          .join('\n\n')
         const content =
           typeof lastBodyOutput.content === 'string'
             ? lastBodyOutput.content
             : JSON.stringify(lastBodyOutput)
-        // FR-06（PRD 决议）：Iteration 的聚合 content = 逐项正文有序拼接
-        // （与 N 进 1 合并契约同语义）——此前只保留最后一项，下游
-        // `{{iter.content}}` 静默丢 N-1 份产出。Loop 保持「末轮结果」语义
-        // 不变（累积型循环的惯例），完整数组两边都在 `.iterations`。
-        const aggregateContent =
-          plan.kind === 'iteration'
-            ? iterations
-                .map((it) =>
-                  typeof it.content === 'string' ? it.content : JSON.stringify(it),
-                )
-                .filter((s) => s.length > 0)
-                .join('\n\n')
-            : content
         return {
           output: {
             ...controllerOutput,
@@ -581,32 +539,30 @@ export class DagExecutor {
   }
 
   /**
-   * Extract a loop controller's body plan from the graph.
+   * Extract an iteration controller's body plan from the graph.
    *
-   * Body = transitive closure from the controller's body-anchor edges
-   * (`loop` for Loop, `iteration` for Iteration). Legacy graphs built before
-   * the dual-anchor canvas metadata (single unnamed output) have no
-   * body-anchor edges — every outgoing edge is treated as body, matching the
-   * old single-path semantics.
+   * Body = transitive closure from the controller's `iteration`-anchor edges.
+   * Legacy graphs built before the dual-anchor canvas metadata (single
+   * unnamed output) have no body-anchor edges — every outgoing edge is
+   * treated as body, matching the old single-path semantics.
    */
-  private planLoopBody(
+  private planIterationBody(
     controller: FlowNode,
     outgoingEdges: Map<string, FlowEdge[]>,
     controllerOutput: Record<string, unknown>,
     scope: Set<string>,
-  ): LoopPlan {
-    const kind: LoopPlan['kind'] = controller.data.name === 'iterationAgentflow' ? 'iteration' : 'loop'
-    const bodyHandle = kind === 'iteration' ? 'iteration' : 'loop'
+  ): IterationPlan {
     const edges = outgoingEdges.get(controller.id) ?? []
 
-    let entryEdges = edges.filter((e) => e.sourceHandle === bodyHandle)
+    let entryEdges = edges.filter((e) => e.sourceHandle === 'iteration')
     const hasResultEdges = edges.some((e) => e.sourceHandle === 'result')
     if (entryEdges.length === 0 && !hasResultEdges) {
       entryEdges = edges
     }
 
     // Transitive closure from the entry targets, bounded by the scheduler's
-    // scope (loop bodies nested inside loop bodies belong to the inner run).
+    // scope (iteration bodies nested inside iteration bodies belong to the
+    // inner run).
     const body = new Set<string>()
     const queue = entryEdges.map((e) => e.target).filter((t) => scope.has(t) && t !== controller.id)
     while (queue.length > 0) {
@@ -623,13 +579,7 @@ export class DagExecutor {
     const itemsRaw = controllerOutput.iterationInput
     const items = Array.isArray(itemsRaw) ? itemsRaw : []
 
-    return {
-      kind,
-      body,
-      entryEdges,
-      condition: kind === 'loop' ? (controller.data.condition as string | undefined) : undefined,
-      items,
-    }
+    return { body, entryEdges, items }
   }
 
   /**
@@ -641,7 +591,7 @@ export class DagExecutor {
    * - sourceHandle='false' → active when output.matched/result === 'false' or output.matched === false
    * - Other sourceHandle → active when output.selected or output.result matches.
    *   If the output carries neither `selected` nor `result`（普通数据节点：
-   *   LLM/Agent/HTTP/Loop 聚合输出等，画布给它们的边填的是锚点 id 如
+   *   LLM/Agent/HTTP/Iteration 聚合输出等，画布给它们的边填的是锚点 id 如
    *   'output'/'data'/'result'/`${nodeId}-output-N`)，默认激活 —— 只有
    *   声明了分支语义且不匹配时才剪枝，否则整条下游会被静默跳过、运行
    *   却仍报 success。

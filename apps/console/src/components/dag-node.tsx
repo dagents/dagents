@@ -13,7 +13,7 @@
  */
 
 import { memo } from 'react'
-import { Handle, Position } from 'reactflow'
+import { Handle, Position } from '@xyflow/react'
 import type { NodeRunStatus } from '@/lib/flows'
 
 export interface DagNodeData {

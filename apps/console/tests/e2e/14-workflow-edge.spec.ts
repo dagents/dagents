@@ -18,7 +18,6 @@ import {
   platformAgentNode,
   customFunctionNode,
   iterationNode,
-  loopNode,
   httpNode,
   linearFlow,
 } from './helpers/flow-builder'
@@ -115,34 +114,6 @@ test.describe('失败与边界（Tier D：ED）', () => {
     expect(iterOut).toContain('"completedIterations":100')
     // 第 101~150 项被截断，不执行
     expect(JSON.parse(`{${iterOut.slice(1, -1)}}`).iterations).toHaveLength(100)
-  })
-
-  test('ED-04: Loop 超硬上限 —— MAX_LOOP_COUNT 截断，无死循环', async ({ request }) => {
-    // 请求 50 轮（上限 10），body 不满足 break 条件 → 必然触顶
-    const flowId = await seedFlow(ctx, request, {
-      name: 'e2e-ed04-loopcap',
-      flowData: flow(
-        [
-          startNode('start'),
-          loopNode('loop', { maxIterations: 50, condition: '$flow.state.done === true' }),
-          customFunctionNode('work', { code: `return { content: 'R' }` }),
-        ],
-        [edge('start', 'loop'), edge('loop', 'work', 'loop')],
-      ),
-    })
-
-    const { status, runId, body } = await runFlow(request, flowId)
-    ctx.runIds.push(runId)
-    expect(status).toBe(200)
-
-    const spansRes = await request.get(`/api/workflows/runs/${runId}/node-spans`)
-    const spans = ((await spansRes.json()).data?.spans ?? []) as Array<{ nodeId: string; output: unknown }>
-    const loopSpan = spans.find((s) => s.nodeId === 'loop')
-    const loopOut = JSON.parse(`{${JSON.stringify(spans.find((s) => s.nodeId === 'loop')?.output).slice(1, -1)}}`)
-    // 引擎在 LoopNode 内钳到 MAX_LOOP_COUNT(10)：completedIterations=10
-    expect(loopOut.loopCount).toBe(10)
-    expect(loopOut.completedIterations).toBe(10)
-    expect(loopOut.iterations).toHaveLength(10)
   })
 
   test('ED-05: 并发 run 同一 flow —— 两个 run 各自完整、run_id 隔离', async ({ request }) => {

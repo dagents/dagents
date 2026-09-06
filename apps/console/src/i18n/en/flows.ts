@@ -226,4 +226,24 @@ export const flows: Record<string, string> = {
 '仍在生成，CLI 实跑可能需要 1-3 分钟…': 'Still generating — a real CLI run may take 1–3 min…',
 // flow-runs-panel：排队中状态词（PX-F08，其余状态词已在 common.ts）
 '排队中': 'Queued',
+
+  // ── 自研画布 Canvas Kit（2026-09-05，vendor/agentflow 退役） ──
+  '添加节点': 'Add node',
+  '关闭节点面板': 'Close node panel',
+  '添加节点（拖拽或点击加到画布）': 'Add node (drag or click to place)',
+  '搜索节点…': 'Search nodes…',
+  '便签': 'Sticky note',
+  '便签…': 'Sticky note…',
+  '节点名称': 'Node name',
+  '未知节点': 'Unknown node',
+  '未知节点类型：{name}': 'Unknown node type: {name}',
+  '插入变量': 'Insert variable',
+  '无可用变量': 'No variables available',
+  '复制节点': 'Duplicate node',
+  '删除节点': 'Delete node',
+  'True': 'True',
+  'False': 'False',
+  '编辑': 'Edit',
+  '拖动便签': 'Drag note',
+  '画布注释，不参与执行': 'Canvas annotation — not executed',
 }

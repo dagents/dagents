@@ -1,17 +1,12 @@
 /**
- * Chat-model dropdown mapping for the agentflow canvas's GenerateFlowDialog.
- *
- * The vendor dialog calls two Flowise-shaped endpoints through the
- * `/api/flowise/api/v1/*` BFF prefix:
- *   GET  /assistants/chatmodels            → model list for the dropdown (here)
- *   POST /agentflowv2-generator/generate   → thin proxy to the gateway's
- *                                            unified generation pipeline
+ * Chat-model dropdown mapping — pure shape helper over `/api/llm-providers` +
+ * `/api/agents` rows. Consumers: the canvas inspector's model/agent option
+ * providers (flow-canvas/registry) and the generator dialog's engine notes.
  *
  * Since A1 (docs/product-plan.md) the generation itself — prompt, engine
  * selection, normalization, validation, repair loop — lives entirely in the
  * gateway (`apps/gateway/src/routes/flow-generator.ts`); what remains here is
- * pure dropdown-shape mapping (BFF boundary rule: proxy + shape adaptation
- * only, no business decisions).
+ * pure dropdown-shape mapping (no business decisions).
  *
  * Model identity scheme: `"<providerId>::<modelId>"`; `agent::<id>` marks
  * "generate via this platform agent"; the fallback entry `gateway-default`

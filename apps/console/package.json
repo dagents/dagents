@@ -12,20 +12,15 @@
     "lint": "eslint src --ext .ts,.tsx"
   },
   "dependencies": {
-    "@dagents/agentflow": "workspace:*",
     "@dagents/contracts": "workspace:*",
     "@dagents/shared": "workspace:*",
     "@dagents/workflow": "workspace:*",
-    "@emotion/react": "^11.10.0",
-    "@emotion/styled": "^11.10.0",
-    "@mui/icons-material": "^5.0.0",
-    "@mui/material": "^5.15.0",
     "@shikijs/langs": "^4.4.3",
     "@tabler/icons-react": "^3.7.0",
+    "@xyflow/react": "^12.11.6",
     "next": "^15.5.20",
     "react": "^19.2.0",
     "react-dom": "^19.2.0",
-    "reactflow": "^11.11.4",
     "shiki": "^4.4.3",
     "zod": "^4.4.3"
   },

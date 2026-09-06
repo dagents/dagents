@@ -70,11 +70,17 @@ test.describe('Agent Library (spec-16)', () => {
     await expect(dialog.getByRole('tab', { name: 'E2E Library' })).toBeVisible()
 
     await dialog.getByLabel('搜索人格库').fill(PERSONA_NAME)
-    await dialog.getByRole('button', { name: `查看人格 ${PERSONA_NAME}` }).click()
 
-    // 确认步：三档单选 + slim 默认选中，直接启用。
+    // PX-A03 起人格卡是整卡可点的 div（不再是「查看人格 X」按钮），卡上
+    // 「启用」按钮与整卡点击同走 openDetail 确认步。
+    const card = dialog.locator('.atg-card', { hasText: PERSONA_NAME })
+    await expect(card).toBeVisible()
+    await card.locator('button', { hasText: '启用' }).click()
+
+    // 确认步：三档单选 + slim 默认选中，直接启用（scope 到 .alib-confirm，
+    // 卡片列表里也有同名「启用」按钮）。
     await expect(dialog.getByText('导入档位（systemPrompt 体积）')).toBeVisible()
-    await dialog.getByRole('button', { name: '启用', exact: true }).click()
+    await dialog.locator('.modal-foot').getByRole('button', { name: '启用', exact: true }).click()
 
     await page.waitForURL(/\/agents\/[0-9a-f-]{36}$/, { timeout: 15_000 })
     instantiatedAgentId = page.url().split('/').pop() ?? ''
@@ -124,9 +130,10 @@ test.describe('Agent Library (spec-16)', () => {
 
     await card.click()
     await expect(dialog.getByText('成员按顺序执行，上游产出作为下游输入。')).toBeVisible()
-    // 确认步列出全部 5 个成员行（名字 + 职责标签 + 状态角标）。
+    // 确认步列出全部成员行（名字 + 职责标签 + 状态角标）。创业 MVP 模板
+    // 2026-08-31 扩为 7 人格（冲刺规划∥用户验证并行发现头）。
     const members = dialog.locator('.alib-team-member')
-    await expect(members).toHaveCount(5)
+    await expect(members).toHaveCount(7)
     await expect(dialog.locator('.alib-team-member').filter({ hasText: 'Backend Architect' })).toBeVisible()
   })
 
@@ -138,7 +145,7 @@ test.describe('Agent Library (spec-16)', () => {
     await page.getByRole('button', { name: '从人格库启用' }).click()
     const dialog = page.getByRole('dialog', { name: '从人格库启用 Agent' })
     await dialog.getByLabel('搜索人格库').fill('E2E Persona One')
-    const card = dialog.getByRole('button', { name: '查看人格 E2E Persona One' })
+    const card = dialog.locator('.atg-card', { hasText: 'E2E Persona One' })
     await expect(card.locator('.alib-badge-up-to-date')).toHaveText('已启用')
   })
 

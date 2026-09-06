@@ -83,11 +83,12 @@ describe('normalizeToCanonicalFlow', () => {
     const { flowData } = normalizeToCanonicalFlow({
       nodes: [
         { id: 'n1', type: 'start', position: { x: 0, y: 0 } },
-        { id: 'n2', type: 'agentAgentflow', position: { x: 300, y: 0 } },
+        { id: 'n2', type: 'agent', position: { x: 300, y: 0 } },
       ],
       edges: [{ id: 'e1', source: 'n1', target: 'n2' }],
     })
-    expect(flowData.nodes.map((n) => n.data.name)).toEqual(['startAgentflow', 'agentAgentflow'])
+    // D8：agent 别名映射 llm（零依赖可跑），loop 映射 iteration（保留的循环原语）
+    expect(flowData.nodes.map((n) => n.data.name)).toEqual(['startAgentflow', 'llmAgentflow'])
     expect(flowData.nodes.every((n) => n.type === 'customNode')).toBe(true)
     expect(flowData.edges).toEqual([{ id: 'e1', source: 'n1', target: 'n2' }])
   })

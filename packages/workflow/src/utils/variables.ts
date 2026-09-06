@@ -53,7 +53,7 @@ export function resolveVariables(value: unknown, state: Record<string, unknown>)
     // 文档语法兼容别名（PRD FR-02 / 决议 D2）：显式字段未命中时兜底
     // `{{$start.input}}` / `{{<id>.output}}` —— 运行面板与教程宣传的写法。
     // 优先级恒为「显式字段 > 别名 > 字面量保留」：输出恰好含真实
-    // `.output` 字段时（如 ExecuteFlow）显式路径已在上面命中，不会进这里。
+    // `.output` 字段时显式路径已在上面命中，不会进这里。
     const aliased = resolveAlias(lookupPath, state)
     if (aliased !== undefined) return stringifyVal(aliased)
     return `{{${trimmed}}}`

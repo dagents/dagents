@@ -16,15 +16,13 @@
  *   customFunction: functionCode ?? code；入参 $input/$flow（custom-function.node.ts:50-62）
  *   condition:      conditions:[{comparisonOperator,valueToCompare,valueToCompareAgainst}]，OR 语义，
  *                   输出 matched:'true'|'false'（字符串）；分支边 sourceHandle 'true'/'false'
- *   conditionAgent: scenarios:[{name,description}]；输出 selected=场景名；分支边 sourceHandle=场景名
- *   tool:           toolName/toolDescription/parameters/handler(JS代码串)/toolInput
  *   humanInput:     prompt/inputType/options
- *   executeFlow:    flowId/input
  *   iteration:      items(JSON数组或其字符串)；body 边 sourceHandle 'iteration'，出口 'result'
- *   loop:           loopCount ?? maxIterations（硬上限10）；condition 为 JS 表达式；body 'loop'，出口 'result'
  *   start:          variables/input
  *   http:           method/url/headers/body/bodyType（url 必须绝对 http(s)）
- *   retriever:      query/topK
+ *
+ * D8 节点精简（2026-09-05）：agent/tool/conditionAgent/executeFlow/loop/retriever
+ * 六类已从引擎删除，本文件不再提供对应构造器。
  */
 
 export interface FlowNode {
@@ -81,25 +79,19 @@ export function edge(
 export const NODE = {
   start: 'startAgentflow',
   llm: 'llmAgentflow',
-  agent: 'agentAgentflow',
   platformAgent: 'platformAgentAgentflow',
   directReply: 'directReplyAgentflow',
   customFunction: 'customFunctionAgentflow',
   condition: 'conditionAgentflow',
-  conditionAgent: 'conditionAgentAgentflow',
-  tool: 'toolAgentflow',
   humanInput: 'humanInputAgentflow',
-  executeFlow: 'executeFlowAgentflow',
   iteration: 'iterationAgentflow',
-  loop: 'loopAgentflow',
   http: 'httpAgentflow',
-  retriever: 'retrieverAgentflow',
 } as const
 
 /** 条件分支的 sourceHandle 取值（condition.node 输出 matched 为字符串）。 */
 export const BRANCH = { true: 'true', false: 'false' } as const
-/** 循环控制器锚点：body 边 / 出口边。 */
-export const LOOP = { body: 'loop', iteration: 'iteration', result: 'result' } as const
+/** 迭代控制器锚点：body 边 / 出口边。 */
+export const ITER = { body: 'iteration', result: 'result' } as const
 
 // ── 常用节点快捷构造 ─────────────────────────────────────────────────────
 
@@ -135,47 +127,18 @@ export const conditionNode = (
   },
 ) => node(id, NODE.condition, data as Record<string, unknown>)
 
-export const conditionAgentNode = (
-  id: string,
-  data: { scenarios: Array<{ name: string; description: string }>; model?: string; systemPrompt?: string },
-) => node(id, NODE.conditionAgent, data as Record<string, unknown>)
-
-export const toolNode = (
-  id: string,
-  data: {
-    toolName: string
-    toolDescription?: string
-    parameters?: Record<string, unknown>
-    handler: string
-    toolInput?: unknown
-  },
-) => node(id, NODE.tool, data as Record<string, unknown>)
-
 export const humanInputNode = (
   id: string,
   data: { prompt: string; inputType?: 'text' | 'select' | 'confirm'; options?: unknown[] },
 ) => node(id, NODE.humanInput, data as Record<string, unknown>)
 
-export const executeFlowNode = (
-  id: string,
-  data: { flowId: string; input?: unknown },
-) => node(id, NODE.executeFlow, data as Record<string, unknown>)
-
 export const iterationNode = (id: string, data: { items: unknown[] }) =>
   node(id, NODE.iteration, { items: JSON.stringify(data.items) })
-
-export const loopNode = (
-  id: string,
-  data: { maxIterations?: number; loopCount?: number; condition?: string },
-) => node(id, NODE.loop, data as Record<string, unknown>)
 
 export const httpNode = (
   id: string,
   data: { url: string; method?: string; headers?: Record<string, string> | string; body?: string },
 ) => node(id, NODE.http, data as Record<string, unknown>)
-
-export const retrieverNode = (id: string, data: { query?: string; topK?: number } = {}) =>
-  node(id, NODE.retriever, data as Record<string, unknown>)
 
 // ── 组合子 ───────────────────────────────────────────────────────────────
 

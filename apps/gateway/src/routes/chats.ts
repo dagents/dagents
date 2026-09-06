@@ -14,8 +14,6 @@ import {
   createDefaultLlmClient,
   createAgentFetcher,
   createBuiltInToolRegistry,
-  createHistoryRetriever,
-  createFlowExecutor,
   resetProviderCache,
 } from './workflow-clients.js'
 import { createChatHumanInputResolver, resolvePendingHumanInput } from './human-input.js'
@@ -899,10 +897,8 @@ chatRoutes.get('/:id/stream', async (c) => {
       const llmClient = createDefaultLlmClient('claude', { cwd: chatCwd })
       const agentFetcher = createAgentFetcher()
       const toolRegistry = createBuiltInToolRegistry()
-      const historyRetriever = createHistoryRetriever(id)
       // HumanInput nodes park on the user's next message in this chat
-      // (see human-input.ts); ExecuteFlow nodes run subflows with the same
-      // clients — subflows never stream into this stream.
+      // (see human-input.ts).
       const humanInputResolver = createChatHumanInputResolver({ chatId: id, runId, streamer })
       // 节点生命周期 → 增量写 run_node_spans：chat 触发的工作流与画布直跑
       // 共用同一进度数据源，画布可通过 /workflows/:flowId/canvas?run=<id>
@@ -935,17 +931,7 @@ chatRoutes.get('/:id/stream', async (c) => {
         llmClient,
         agentFetcher,
         toolRegistry,
-        historyRetriever,
         humanInputResolver,
-        flowExecutor: createFlowExecutor({
-          chatId: id,
-          runId,
-          llmClient,
-          agentFetcher,
-          toolRegistry,
-          historyRetriever,
-          humanInputResolver,
-        }),
       })
       finalText = extractReplyText(result.finalOutput)
       if (result.status === 'cancelled') {

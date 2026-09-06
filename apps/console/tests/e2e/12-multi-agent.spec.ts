@@ -19,12 +19,8 @@ import {
   directReplyNode,
   customFunctionNode,
   conditionNode,
-  conditionAgentNode,
-  toolNode,
   humanInputNode,
-  executeFlowNode,
   iterationNode,
-  loopNode,
   linearFlow,
   parallelFlow,
 } from './helpers/flow-builder'
@@ -234,12 +230,10 @@ test.describe('多 Agent 协作专项（MA-01 ~ MA-18）', () => {
     expect(spans2.find((s) => s.nodeId === 'agentA')).toBeUndefined()
   })
 
-  test('MA-04: ConditionAgent 场景路由 —— LLM 决策 selected 剪枝', async ({ request }) => {
+  test('MA-04: 场景路由 —— 场景句柄按 selected 剪枝（D8 后用 CustomFunction 决策）', async ({ request }) => {
     const agentId = await seedPlatformAgent(ctx, { name: 'ma04-worker', instructions: 'AGENT-BASE-MA04' })
     await setMockLlmScript({
       rules: [
-        { match: { userContains: 'routing-signal-bug' }, respond: { text: 'bug' } },
-        { match: { userContains: 'routing-signal-feature' }, respond: { text: 'feature' } },
         { match: { systemContains: 'ROLE:FIX-BUG' }, respond: { text: 'BUG-FIXED' } },
         { match: { systemContains: 'ROLE:BUILD-FEATURE' }, respond: { text: 'FEATURE-BUILT' } },
         { match: { systemContains: 'ROLE:WRITE-DOCS' }, respond: { text: 'DOCS-WRITTEN' } },
@@ -251,12 +245,13 @@ test.describe('多 Agent 协作专项（MA-01 ~ MA-18）', () => {
       flowData: flow(
         [
           startNode('start'),
-          conditionAgentNode('router', {
-            scenarios: [
-              { name: 'bug', description: '缺陷修复' },
-              { name: 'feature', description: '新功能' },
-              { name: 'docs', description: '文档' },
-            ],
+          // 原版用 ConditionAgent 节点（D8 已删）；场景句柄路由机制仍在，
+          // 决策器换成 CustomFunction：按输入关键词产出 selected。
+          customFunctionNode('router', {
+            code: `const t = $inputText || ''
+              if (t.includes('bug')) return { selected: 'bug' }
+              if (t.includes('feature')) return { selected: 'feature' }
+              return { selected: 'docs' }`,
           }),
           platformAgentNode('agentBug', { agentId, systemPrompt: 'ROLE:FIX-BUG' }),
           platformAgentNode('agentFeature', { agentId, systemPrompt: 'ROLE:BUILD-FEATURE' }),
@@ -295,15 +290,16 @@ test.describe('多 Agent 协作专项（MA-01 ~ MA-18）', () => {
       rules: [
         {
           label: 'round1-ask-tool',
-          match: { systemContains: 'ROLE:WEATHER', hasToolResult: false },
+          match: { systemContains: 'ROLE:CLOCK', hasToolResult: false },
           respond: {
-            toolCalls: [{ id: 'call_w1', function: { name: 'weather_lookup', arguments: '{"city":"beijing"}' } }],
+            toolCalls: [{ id: 'call_t1', function: { name: 'datetime_now', arguments: '{}' } }],
           },
         },
         {
           label: 'round2-final',
-          match: { systemContains: 'ROLE:WEATHER', toolResultContains: '24' },
-          respond: { text: 'WEATHER-FINAL: 晴 24度' },
+          // datetime_now 的 handler 返回 ISO 时间串（含 'T' 与 'Z'）
+          match: { systemContains: 'ROLE:CLOCK', toolResultContains: 'Z' },
+          respond: { text: 'CLOCK-FINAL: 已知时间' },
         },
       ],
       fallback: { text: 'mock: unexpected' },
@@ -311,35 +307,28 @@ test.describe('多 Agent 协作专项（MA-01 ~ MA-18）', () => {
     const flowId = await seedFlow(ctx, request, {
       name: 'e2e-ma05-toolloop',
       flowData: linearFlow([
-        toolNode('tool', {
-          toolName: 'weather_lookup',
-          toolDescription: '查询城市天气',
-          parameters: { type: 'object', properties: { city: { type: 'string' } }, required: ['city'] },
-          toolInput: { city: 'beijing' },
-          handler: `return { temp: 24, cond: '晴' }`,
-        }),
-        platformAgentNode('agent', { agentId, systemPrompt: 'ROLE:WEATHER 查询天气并汇报' }),
+        // 原版用 Tool 节点注册 weather_lookup（D8 已删）；工具循环机制
+        // 仍在 —— 改用网关内置工具 datetime_now 钉同一链路。
+        platformAgentNode('agent', { agentId, systemPrompt: 'ROLE:CLOCK 查询当前时间并汇报' }),
       ]),
     })
 
-    const { status, body, runId } = await runFlow(request, flowId, { input: '北京今天天气' })
+    const { status, body, runId } = await runFlow(request, flowId, { input: '现在几点' })
     ctx.runIds.push(runId)
     expect(status).toBe(200)
 
-    // Tool 节点先执行注册 + 在流内跑一次 handler
-    const spans = await getSpans(request, runId)
-    expect(spans.find((s) => s.nodeId === 'tool')?.status).toBe('done')
-
     // 协作闭环证据：该节点恰好 2 次 LLM 调用；第 2 次 messages 含 role:'tool'
-    // 的真实回灌（handler 返回值），且最终文本引用工具数据
+    // 的真实回灌（内置 handler 的 ISO 返回值），且最终文本引用工具数据
     const calls = (await mockLlmCalls()) as unknown as MockCall[]
-    const rounds = callsOfRole(calls, 'ROLE:WEATHER')
+    const rounds = callsOfRole(calls, 'ROLE:CLOCK')
     expect(rounds).toHaveLength(2)
-    expect(rounds[0].tools?.some((t) => t.function.name === 'weather_lookup')).toBe(true)
+    expect(rounds[0].tools?.some((t) => t.function.name === 'datetime_now')).toBe(true)
     expect(
-      rounds[1].messages.some((m) => m.role === 'tool' && String(m.content).includes('24')),
+      rounds[1].messages.some(
+        (m) => m.role === 'tool' && /\d{4}-\d{2}-\d{2}T/.test(String(m.content)),
+      ),
     ).toBe(true)
-    expect(body.data?.output).toMatchObject({ content: 'WEATHER-FINAL: 晴 24度' })
+    expect(body.data?.output).toMatchObject({ content: 'CLOCK-FINAL: 已知时间' })
   })
 
   test('MA-06: Iteration 逐项批量协作 —— 3 轮逐项处理 + 聚合', async ({ request }) => {
@@ -389,151 +378,6 @@ test.describe('多 Agent 协作专项（MA-01 ~ MA-18）', () => {
     expect(iterOut).toContain('ITER-OUT-alpha')
     expect(iterOut).toContain('ITER-OUT-beta')
     expect(iterOut).toContain('ITER-OUT-gamma')
-  })
-
-  test('MA-07: Loop 循环协作 + break —— state 跨轮传递提前跳出', async ({ request }) => {
-    const agentId = await seedPlatformAgent(ctx, { name: 'ma07-improver', instructions: 'AGENT-BASE-MA07' })
-    await setMockLlmScript({
-      rules: [{ match: { systemContains: 'ROLE:IMPROVE' }, respond: { text: 'IMPROVE-R1' } }],
-      fallback: { text: 'mock: unexpected' },
-    })
-    const flowId = await seedFlow(ctx, request, {
-      name: 'e2e-ma07-loop',
-      flowData: flow(
-        [
-          startNode('start'),
-          loopNode('loop', { maxIterations: 5, condition: '$flow.state.checker.value === true' }),
-          platformAgentNode('improve', { agentId, systemPrompt: 'ROLE:IMPROVE 改进当前稿' }),
-          customFunctionNode('checker', { code: `return { value: true }` }),
-          directReplyNode('reply', { text: 'LOOP-DONE' }),
-        ],
-        [
-          edge('start', 'loop'),
-          edge('loop', 'improve', 'loop'),
-          edge('improve', 'checker'),
-          edge('loop', 'reply', 'result'),
-        ],
-      ),
-    })
-
-    const { status, body, runId } = await runFlow(request, flowId, { input: '改进这份稿子' })
-    ctx.runIds.push(runId)
-    expect(status).toBe(200)
-
-    // checker 第 1 轮置 done → 第 2 轮前 break：agent 只跑 1 轮（<5）
-    const calls = (await mockLlmCalls()) as unknown as MockCall[]
-    expect(callsOfRole(calls, 'ROLE:IMPROVE')).toHaveLength(1)
-
-    const spans = await getSpans(request, runId)
-    const loopOut = JSON.stringify(spans.find((s) => s.nodeId === 'loop')?.output)
-    expect(loopOut).toContain('"completedIterations":1')
-    // 循环体聚合取「body 内拓扑最深」节点（improve→checker 里的 checker），
-    // improve 的产出在其自身 span 输出里
-    expect(JSON.stringify(spans.find((s) => s.nodeId === 'improve')?.output)).toContain('IMPROVE-R1')
-    expect(spans.find((s) => s.nodeId === 'checker')?.status).toBe('done')
-    // result 路径继续执行
-    expect(spans.find((s) => s.nodeId === 'reply')?.status).toBe('done')
-    // 引擎语义（executor.ts 循环聚合覆盖 controller 记录）：finalOutput 是
-    // 循环聚合输出（body 最深节点 checker 的 {value:true}），而非 result
-    // 路径上更深的 reply —— 用 e2e 钉住这个真实行为。
-    expect(body.data?.output).toMatchObject({ value: true })
-  })
-
-  test('MA-08: 子流程编排 —— span 合并/输出汇聚/深度上限/失败传播', async ({ request }) => {
-    const agentId = await seedPlatformAgent(ctx, { name: 'ma08-crew', instructions: 'AGENT-BASE-MA08' })
-    await setMockLlmScript({
-      rules: [
-        { match: { systemContains: 'ROLE:COPYWRITER' }, respond: { text: 'SUB1-OUT' } },
-        { match: { systemContains: 'ROLE:ARTIST' }, respond: { text: 'SUB2-OUT' } },
-        { match: { systemContains: 'ROLE:SUBFAIL' }, respond: { mode: 'error' } },
-      ],
-      fallback: { text: 'mock: unexpected' },
-    })
-
-    const sub1 = await seedFlow(ctx, request, {
-      name: 'e2e-ma08-sub1',
-      flowData: flow(
-        [startNode('s1start'), platformAgentNode('s1agent', { agentId, systemPrompt: 'ROLE:COPYWRITER' })],
-        [edge('s1start', 's1agent')],
-      ),
-    })
-    const sub2 = await seedFlow(ctx, request, {
-      name: 'e2e-ma08-sub2',
-      flowData: flow(
-        [startNode('s2start'), platformAgentNode('s2agent', { agentId, systemPrompt: 'ROLE:ARTIST' })],
-        [edge('s2start', 's2agent')],
-      ),
-    })
-    const parent = await seedFlow(ctx, request, {
-      name: 'e2e-ma08-parent',
-      flowData: parallelFlow(
-        [[executeFlowNode('e1', { flowId: sub1 })], [executeFlowNode('e2', { flowId: sub2 })]],
-        // 与 MA-01 同理：用 CustomFunction 回显合并输入，观测两个子流程输出的汇聚
-        customFunctionNode('merge', { code: `return { merged: $input }` }),
-      ),
-    })
-
-    // 1) 并行两个子流程：子流程节点合并进父 run 的 spans；输出汇聚进父流
-    const { status, body, runId } = await runFlow(request, parent, { input: '制作内容包' })
-    ctx.runIds.push(runId)
-    expect(status).toBe(200)
-    const spans = await getSpans(request, runId)
-    expect(spans.find((s) => s.nodeId === 's1agent')?.status).toBe('done')
-    expect(spans.find((s) => s.nodeId === 's2agent')?.status).toBe('done')
-    const merged = JSON.stringify(body.data?.output)
-    expect(merged).toContain('SUB1-OUT')
-    expect(merged).toContain('SUB2-OUT')
-
-    // 2) 深度上限：L4 → L3 → L2 → L1 → L0 链，第 4 层 ExecuteFlow 明确报错
-    const l0 = await seedFlow(ctx, request, {
-      name: 'e2e-ma08-l0',
-      flowData: flow([startNode('l0start')], []),
-    })
-    let prev = l0
-    const chainIds: string[] = []
-    for (let level = 1; level <= 4; level++) {
-      const id = await seedFlow(ctx, request, {
-        name: `e2e-ma08-l${level}`,
-        flowData: flow(
-          [startNode(`l${level}start`), executeFlowNode(`l${level}ef`, { flowId: prev })],
-          [edge(`l${level}start`, `l${level}ef`)],
-        ),
-      })
-      chainIds.push(id)
-      prev = id
-    }
-    const deep = await runFlow(request, prev, { input: '深挖' })
-    ctx.runIds.push(deep.runId)
-    expect(deep.status).toBe(500)
-    expect(String(deep.body.error)).toContain('exceeds max depth')
-
-    // 3) 子流程失败 → 父 run failed，失败来源进 spans
-    const subFail = await seedFlow(ctx, request, {
-      name: 'e2e-ma08-subfail',
-      flowData: flow(
-        [startNode('sfStart'), platformAgentNode('sfAgent', { agentId, systemPrompt: 'ROLE:SUBFAIL' })],
-        [edge('sfStart', 'sfAgent')],
-      ),
-    })
-    const parentFail = await seedFlow(ctx, request, {
-      name: 'e2e-ma08-parent-fail',
-      flowData: flow(
-        [startNode('pfStart'), executeFlowNode('pfEf', { flowId: subFail })],
-        [edge('pfStart', 'pfEf')],
-      ),
-    })
-    const failed = await runFlow(request, parentFail, { input: '会失败的编排' })
-    ctx.runIds.push(failed.runId)
-    expect(failed.status).toBe(500)
-    expect(String(failed.body.error)).toContain('failed')
-    const failSpans = await getSpans(request, failed.runId)
-    expect(failSpans.find((s) => s.nodeId === 'sfAgent')?.status).toBe('failed')
-    expect(failSpans.find((s) => s.nodeId === 'pfEf')?.status).toBe('failed')
-    const { records: failRuns } = await ctx.db.runQuery<{ status: string }>(
-      `SELECT status FROM runs WHERE id = $1`,
-      [failed.runId],
-    )
-    expect(failRuns[0]?.status).toBe('failed')
   })
 
   test('MA-09: HumanInput API 路径 —— 预置答案成功 / 缺失明确报错', async ({ request }) => {
@@ -652,52 +496,6 @@ test.describe('多 Agent 协作专项（MA-01 ~ MA-18）', () => {
     expect(sysOf(cCall!)).toContain('AGENT-BASE-MA11')
     expect(sysOf(cCall!)).toContain('ROLE:CODER')
     expect(sysOf(cCall!)).not.toContain('ROLE:PLANNER')
-  })
-
-  test('MA-12: Tool 注册按 run 隔离 —— 上个 flow 的工具不泄漏', async ({ request }) => {
-    const agentId = await seedPlatformAgent(ctx, { name: 'ma12-watcher', instructions: 'AGENT-BASE-MA12' })
-    await setMockLlmScript({
-      rules: [
-        { match: { systemContains: 'ROLE:TOOLUSER' }, respond: { text: 'TOOLUSER-OK' } },
-        { match: { systemContains: 'ROLE:ISOLATED' }, respond: { text: 'ISO-OK' } },
-      ],
-      fallback: { text: 'mock: unexpected' },
-    })
-
-    // flow1：注册 weather_lookup 并使用
-    const flow1 = await seedFlow(ctx, request, {
-      name: 'e2e-ma12-f1',
-      flowData: linearFlow([
-        toolNode('tool', {
-          toolName: 'weather_lookup',
-          parameters: { type: 'object', properties: { city: { type: 'string' } } },
-          handler: `return { temp: 24, cond: '晴' }`,
-        }),
-        platformAgentNode('agent', { agentId, systemPrompt: 'ROLE:TOOLUSER' }),
-      ]),
-    })
-    const run1 = await runFlow(request, flow1, { input: '带工具跑' })
-    ctx.runIds.push(run1.runId)
-    expect(run1.status).toBe(200)
-
-    // flow2（独立 run，无 Tool 节点）：agent 看不到 weather_lookup
-    const flow2 = await seedFlow(ctx, request, {
-      name: 'e2e-ma12-f2',
-      flowData: flow(
-        [startNode('start'), platformAgentNode('agent', { agentId, systemPrompt: 'ROLE:ISOLATED' })],
-        [edge('start', 'agent')],
-      ),
-    })
-    const run2 = await runFlow(request, flow2, { input: '裸跑' })
-    ctx.runIds.push(run2.runId)
-    expect(run2.status).toBe(200)
-
-    const calls = (await mockLlmCalls()) as unknown as MockCall[]
-    const isoCall = callsOfRole(calls, 'ROLE:ISOLATED').at(-1)!
-    const toolNames = (isoCall.tools ?? []).map((t) => t.function.name)
-    expect(toolNames).not.toContain('weather_lookup')
-    // 内建工具仍在（registry 是 run 级覆盖层，不是全局清空）
-    expect(toolNames).toContain('http_request')
   })
 
   test('MA-13: 多 Agent 输出合并进最终回复 —— 模板变量拼接', async ({ request }) => {
@@ -874,7 +672,8 @@ test.describe('多 Agent 协作专项（MA-01 ~ MA-18）', () => {
           match: { systemContains: 'ROLE:LOOPER' },
           respond: {
             mode: 'toolLoop',
-            toolCalls: [{ id: 'call_spin', function: { name: 'spinner', arguments: '{}' } }],
+            // D8 后无 Tool 节点可注册 spinner；改用网关内置工具反复请求
+            toolCalls: [{ id: 'call_spin', function: { name: 'datetime_now', arguments: '{}' } }],
           },
         },
       ],
@@ -883,11 +682,6 @@ test.describe('多 Agent 协作专项（MA-01 ~ MA-18）', () => {
     const flowId = await seedFlow(ctx, request, {
       name: 'e2e-ma18-cap',
       flowData: linearFlow([
-        toolNode('tool', {
-          toolName: 'spinner',
-          parameters: { type: 'object', properties: {} },
-          handler: `return { tick: 1 }`,
-        }),
         platformAgentNode('agent', { agentId, systemPrompt: 'ROLE:LOOPER', maxIterations: 3 }),
       ]),
     })

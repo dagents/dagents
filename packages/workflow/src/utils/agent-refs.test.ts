@@ -40,7 +40,7 @@ describe('findAgentReferences', () => {
   it('ignores non-platform-agent nodes', () => {
     const flow = {
       nodes: [
-        { id: 'node-3', type: 'agentAgentflow', data: { inputs: { agentId } } },
+        { id: 'node-3', type: 'llmAgentflow', data: { inputs: { model: 'x' } } },
       ],
     }
     expect(findAgentReferences(flow, agentId)).toEqual([])

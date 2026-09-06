@@ -1,5 +1,5 @@
 import { PageShell } from '@/components/page-shell'
-import { FlowiseCanvasLoader } from '@/components/canvas/flowise-canvas-loader'
+import { CanvasKitLoader } from '@/components/canvas/canvas-kit-loader'
 import { gatewayUrl } from '@/lib/config'
 // FR-01（PRD 决议 D1）：本页复用 ftpl-canvas-column / ftpl-canvas-body 布局类，
 // 而这两条规则此前只被 flow-template-gallery.tsx 导入 —— 直接打开 / 刷新 /
@@ -81,10 +81,10 @@ export default async function CanvasWorkflowPage({
       ) : (
         <div className="ftpl-canvas-column">
           {/* 单一顶栏（2026-08-30 设计收敛）：流程名/运行/保存/另存为模板
-              全部在 vendor 画布自带的 agentflow-header 里 —— 此前的页面级
-              CanvasTopBar 与之叠成双标题，已删。 */}
+              全部在画布自带 header 里。引擎 = 自研 Canvas Kit（2026-09-05 起，
+              vendor/agentflow 已退役，详见 docs/canvas-replacement-architecture.md）。 */}
           <div className="ftpl-canvas-body">
-            <FlowiseCanvasLoader flowId={id} flowName={flowName} initialFlow={flowData} watchRunId={watchRunId} firstRunHint={firstRunHint} />
+            <CanvasKitLoader flowId={id} flowName={flowName} initialFlow={flowData} watchRunId={watchRunId} firstRunHint={firstRunHint} />
           </div>
         </div>
       )}

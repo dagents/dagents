@@ -3,7 +3,7 @@
  *
  * `IExecutionContext` replaces Flowise's `ICommonObject` bag — it's a typed
  * container for everything a node needs at runtime (state, chatId, SSE streamer,
- * the current node graph for self-referencing nodes like ExecuteFlow).
+ * plus host-injected resolvers.
  */
 
 import type { IServerSideEventStreamer } from './stream.js'
@@ -122,8 +122,6 @@ export interface IExecutionContext {
   sessionId?: string
   /** Abort signal — nodes should check this for long-running operations. */
   signal?: AbortSignal
-  /** The component nodes map (for ExecuteFlow self-reference — Plan B). */
-  componentNodes?: Record<string, unknown>
   /** The runtime state container (deprecated alias — use `state` directly). */
   agentflowRuntime?: { state: Record<string, unknown> }
   /**
@@ -170,21 +168,10 @@ export interface IExecutionContext {
   }
   /** Tool registry for Agent / Platform Agent nodes' tool-calling loop. */
   toolRegistry?: Record<string, IAgentTool>
-  /**
-   * History retriever for the Retriever node — keyword search over persisted
-   * conversation history (or any document source the host wires in). Keeps
-   * the workflow package storage-free.
-   */
-  historyRetriever?: (
-    query: string,
-    topK: number,
-  ) => Promise<Array<{ role: string; content: string; createdAt?: string }>>
   /** Platform agent fetcher — resolves an agentId to its config (instructions, model, etc.). */
   agentFetcher?: (agentId: string) => Promise<PlatformAgentConfig | null>
   /** Human input resolver for HumanInputNode. */
   humanInputResolver?: (prompt: string, inputType: string, options?: unknown[]) => Promise<string>
-  /** Flow executor for ExecuteFlowNode. */
-  flowExecutor?: (flowId: string, input: unknown) => Promise<Record<string, unknown>>
 }
 
 /** Platform agent configuration — fetched by PlatformAgentNode via `agentFetcher`. */

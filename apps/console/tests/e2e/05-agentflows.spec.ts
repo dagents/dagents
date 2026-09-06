@@ -104,12 +104,12 @@ test.describe('AgentFlows module (UC-FLW-01 ~ 07)', () => {
 
     await page.goto('/flows')
 
-    // Scope tabs (我的 / 全部 / 已归档) — flows-view.tsx:436-463,
+    // Scope tabs (全部 / 已归档) — 「我的」已按产品裁决删除（单机无账户
+    // 体系，flows-view 内注释），断言与 UI 对齐。
     // role=tablist aria-label="flow 范围". The tab accessible name includes
     // the count span, so use a RegExp for partial matching.
     const scopeTabs = page.getByRole('tablist', { name: 'flow 范围' })
     await expect(scopeTabs).toBeVisible()
-    await expect(scopeTabs.getByRole('tab', { name: /我的/ })).toBeVisible()
     await expect(scopeTabs.getByRole('tab', { name: /全部/ })).toBeVisible()
     await expect(scopeTabs.getByRole('tab', { name: /已归档/ })).toBeVisible()
 
@@ -142,8 +142,9 @@ test.describe('AgentFlows module (UC-FLW-01 ~ 07)', () => {
     const dialog = page.locator('.modal-dialog.open')
     await expect(dialog).toBeVisible()
     await dialog.getByRole('button', { name: '开始运行' }).click()
-    // dev 模式画布路由首次访问有冷编译 —— 放宽
-    await page.waitForURL(/\/canvas\?run=/, { timeout: 15_000 })
+    // dev 模式画布路由首次访问有冷编译 —— 放宽（15s 在有存量卡片的
+    // dev 库上偶发超时，实测全程可达 16s+，放到 30s）
+    await page.waitForURL(/\/canvas\?run=/, { timeout: 30_000 })
   })
 
   test('UC-FLW-03 (partial): /workflows/:id/canvas renders an honest error state for an unknown id', async ({ page }) => {

@@ -11,7 +11,6 @@ import {
   createDefaultLlmClient,
   createAgentFetcher,
   createBuiltInToolRegistry,
-  createHistoryRetriever,
   resetProviderCache,
 } from './workflow-clients.js'
 import { generateFlow, attachFlowIdToAttempt } from './flow-generator.js'
@@ -486,7 +485,6 @@ async function routeFlowCommand(
       const llmClient = createDefaultLlmClient()
       const agentFetcher = createAgentFetcher()
       const toolRegistry = createBuiltInToolRegistry()
-      const historyRetriever = createHistoryRetriever(chatId)
 
       const registry = new NodeRegistry()
       registry.registerMany(allNodes())
@@ -502,7 +500,6 @@ async function routeFlowCommand(
         llmClient,
         agentFetcher,
         toolRegistry,
-        historyRetriever,
       })
 
       const durationMs = Date.now() - startedAt

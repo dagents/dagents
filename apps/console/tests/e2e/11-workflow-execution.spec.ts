@@ -3,9 +3,6 @@ import {
   createSeedContext,
   seedMockLlmProvider,
   seedFlow,
-  seedDirectory,
-  seedChat,
-  seedMessage,
   seedPlatformAgent,
   resetMockLlm,
   setMockLlmScript,
@@ -20,10 +17,7 @@ import {
   llmNode,
   directReplyNode,
   customFunctionNode,
-  toolNode,
   httpNode,
-  retrieverNode,
-  executeFlowNode,
   platformAgentNode,
   parallelFlow,
   NODE,
@@ -241,57 +235,6 @@ test.describe('工作流执行契约（Tier A：WF / OB）', () => {
     expect(String((await badRun.json()).error)).toContain('http')
   })
 
-  test('WF-05: Retriever 节点 —— 聊天历史关键词检索', async ({ request }) => {
-    const directoryId = await seedDirectory(ctx)
-    const chatId = await seedChat(ctx, { directoryId })
-    await seedMessage(ctx, { chatId, role: 'user', content: '今天讨论 needle-word-e2e 部署方案' })
-    await seedMessage(ctx, { chatId, role: 'assistant', content: '无关消息，不含关键词' })
-
-    const flowId = await seedFlow(ctx, request, {
-      name: 'e2e-wf05-retriever',
-      flowData: linearFlow([retrieverNode('retr', { query: 'needle-word-e2e 部署', topK: 3 })]),
-    })
-
-    // chatId 经 run body 传入 —— historyRetriever 按 chat 检索
-    const res = await request.post(`/api/workflows/${flowId}/run`, {
-      data: { input: '检索', chatId },
-    })
-    ctx.runIds.push(res.headers()['x-run-id'] as string)
-    expect(res.status()).toBe(200)
-    const body = await res.json()
-    const docs = body.data?.output?.docs as Array<{ content: string }>
-    expect(Array.isArray(docs)).toBe(true)
-    expect(docs.some((d) => d.content.includes('needle-word-e2e'))).toBe(true)
-    expect(docs.every((d) => !d.content.includes('无关消息'))).toBe(true)
-  })
-
-  test('WF-06: Tool 节点 handler 直接执行 —— 无 Agent 参与时结果进输出', async ({ request }) => {
-    const flowId = await seedFlow(ctx, request, {
-      name: 'e2e-wf06-tool',
-      flowData: linearFlow([
-        toolNode('tool', {
-          toolName: 'adder',
-          toolDescription: '加法',
-          parameters: {
-            type: 'object',
-            properties: { a: { type: 'number' }, b: { type: 'number' } },
-          },
-          toolInput: { a: 2, b: 3 },
-          handler: `return $input.a + $input.b`,
-        }),
-      ]),
-    })
-
-    const callsBefore = (await mockLlmCalls()).length
-    const res = await request.post(`/api/workflows/${flowId}/run`, { data: { input: 'wf06' } })
-    ctx.runIds.push(res.headers()['x-run-id'] as string)
-    expect(res.status()).toBe(200)
-    const body = await res.json()
-    expect(body.data?.output).toMatchObject({ toolName: 'adder', result: { value: 5 }, registered: true })
-    // 无 Agent：零 LLM 调用
-    expect((await mockLlmCalls()).length).toBe(callsBefore)
-  })
-
   test('WF-07: 变量解析 —— start variables 与 input 都展开进 prompt', async ({ request }) => {
     await setMockLlmScript({ fallback: { text: 'WF07-OK' } })
     const flowId = await seedFlow(ctx, request, {
@@ -395,40 +338,6 @@ test.describe('工作流执行契约（Tier A：WF / OB）', () => {
     expect(bad?.error ?? '').toContain('LLM API error')
     // 下游被剪枝：无 span
     expect(spans.find((s) => s.nodeId === 'reply')).toBeUndefined()
-  })
-
-  test('OB-04: 子流程 span 合并 —— 父 run 的 node-spans 含子流程节点', async ({ request }) => {
-    // 子流程纯计算（零 LLM），节点 id 独立命名避免 span 冲突
-    const subId = await seedFlow(ctx, request, {
-      name: 'e2e-ob04-sub',
-      flowData: flow(
-        [
-          startNode('ob4SubStart'),
-          customFunctionNode('ob4SubCalc', { code: `return { content: 'OB04-SUB-OUT' }` }),
-        ],
-        [edge('ob4SubStart', 'ob4SubCalc')],
-      ),
-    })
-    const parentId = await seedFlow(ctx, request, {
-      name: 'e2e-ob04-parent',
-      flowData: flow(
-        [startNode('start'), executeFlowNode('ef', { flowId: subId })],
-        [edge('start', 'ef')],
-      ),
-    })
-
-    const res = await request.post(`/api/workflows/${parentId}/run`, { data: { input: 'ob04' } })
-    const runId = res.headers()['x-run-id'] as string
-    ctx.runIds.push(runId)
-    expect(res.status()).toBe(200)
-
-    const spansRes = await request.get(`/api/workflows/runs/${runId}/node-spans`)
-    const spans = ((await spansRes.json()).data?.spans ?? []) as Array<{ nodeId: string; status: string }>
-    // 子流程的 start/calc 都以父 run 的 span 集合出现
-    expect(spans.find((s) => s.nodeId === 'ob4SubStart')?.status).toBe('done')
-    expect(spans.find((s) => s.nodeId === 'ob4SubCalc')?.status).toBe('done')
-    // 子流程输出经 ExecuteFlow 进入父流（ef 是父流拓扑最深 → finalOutput）
-    expect((await res.json()).data?.output?.content).toBe('OB04-SUB-OUT')
   })
 
   test('OB-05: 多 Agent run 的 token 累计 —— 各节点 usage 落 span', async ({ request }) => {
