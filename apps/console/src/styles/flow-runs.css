@@ -5,10 +5,18 @@
  * 呼吸不闪跳。状态点样式自包含（此前依赖 agents.css 的 .status-dot，在
  * /flows 页不加载导致点不可见）。 */
 
+/* 折叠/展开单源：默认 none，卡片 .expanded 时 flex。此前显隐规则在
+ * flows.css（.flow-runs{display:none}）与本文件的 display:flex 同优先级，
+ * 胜负取决于 Next 的 CSS 合并顺序 —— 2026-09-06 新增 flow-canvas.css 后
+ * 顺序翻转，flex 压过 none，运行历史面板从此收不起。规则并入本文件
+ * （同文件内顺序确定），flows.css 的重复两条已删。 */
 .flow-runs {
-  display: flex;
+  display: none;
   flex-direction: column;
   padding: var(--space-2) var(--space-4) var(--space-3);
+}
+.flow-card.expanded .flow-runs {
+  display: flex;
 }
 
 .flow-runs-empty {

@@ -53,9 +53,9 @@
   .flow-list-page .flow-card:focus-within .card-actions .btn-ghost { opacity: 1; }
 }
 
-/* 展开区（运行历史 FlowRunsPanel 的样式在 flow-runs.css） */
-.flow-runs { display: none; border-top: 1px solid var(--border-soft); }
-.flow-card.expanded .flow-runs { display: block; }
+/* 展开区显隐规则在 flow-runs.css 单源维护（2026-09-06 修复跨文件
+ * 同优先级 display 依赖加载顺序的脆契约） */
+.flow-card.expanded > .flow-runs-slot { border-top: 1px solid var(--border-soft); }
 
 /* ── 空态（筛选无结果 / 加载失败；首页大空态在 flows-empty-hero.css）── */
 .empty-state { display: flex; flex-direction: column; align-items: center; justify-content: center; padding: var(--space-16); text-align: center; gap: var(--space-2); }

@@ -39,6 +39,9 @@ test.describe('浏览器 UI 旅程（Tier C：UI）', () => {
   })
 
   test('UI-01: flows 页 新建 → 画布 → 运行', async ({ page, request }) => {
+    // 最长 UI 旅程（新建→画布→返回→运行→旁观跳转），dev 负载下全程可超
+    // 默认 30s 整测预算（UC-FLW-02 同款放宽先例）
+    test.setTimeout(90_000)
     await page.goto('/flows')
     await expect(page.locator('.flow-cards')).toBeVisible({ timeout: 15_000 })
 
@@ -64,7 +67,7 @@ test.describe('浏览器 UI 旅程（Tier C：UI）', () => {
     const runDialog = page.locator('.modal-dialog.open')
     await expect(runDialog).toBeVisible()
     await runDialog.getByRole('button', { name: '开始运行' }).click()
-    await page.waitForURL(/\/canvas\?run=/, { timeout: 15_000 })
+    await page.waitForURL(/\/canvas\?run=/, { timeout: 30_000 })
     // 记下 id 供 dispose 清理（卡片链接或运行记录都带 id；从 URL 之外拿不到，用 API 反查）
     const list = await request.get('/api/workflows')
     const flows = ((await list.json()).data?.flows ?? []) as Array<{ id: string; name: string }>
@@ -89,6 +92,15 @@ test.describe('浏览器 UI 旅程（Tier C：UI）', () => {
     // 画布外壳 + 结果面板自动打开（旁观即看流）
     await expect(page.locator('.canvas-results-panel')).toBeVisible({ timeout: 15_000 })
     await expect(page.locator('.canvas-results-panel').getByText('llm1')).toBeVisible()
+
+    // 边必须真实可绘制（2026-09-06 回归钉）：per-edge svg 曾因绝对定位
+    // shrink-to-fit 塌缩为 0 宽 —— DOM 里边全在、屏幕上一条线都没有。
+    // 断言边层 svg 的渲染宽度非零（上漆前提）。
+    const edgeSvgBox = await page
+      .locator('.react-flow__edges svg')
+      .first()
+      .evaluate((el) => el.getBoundingClientRect().width)
+    expect(edgeSvgBox).toBeGreaterThan(100)
   })
 
   test('UI-04: chat 页 FlowSelector 绑定 flow → 发送走流', async ({ page, request }) => {

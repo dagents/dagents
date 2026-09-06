@@ -692,10 +692,11 @@ export function FlowsView({ home = false }: { home?: boolean }): React.ReactElem
                       </button>
                     </div>
                   ) : null}
-                  <div className="flow-runs">
-                    {/* 单 Flow 运行历史（2026-08-30 打通：原为静态提示行）。
-                     * 发起运行后 runsTick bump → 面板重拉新 run；running 行
-                     * 由面板自身 3s 轮询收尾。 */}
+                  {/* 单 Flow 运行历史（2026-08-30 打通：原为静态提示行）。
+                   * 发起运行后 runsTick bump → 面板重拉新 run；running 行
+                   * 由面板自身 3s 轮询收尾。slot 只是挂 border-top 的壳，
+                   * 显隐与列表样式都在 FlowRunsPanel 根（.flow-runs）单源。 */}
+                  <div className="flow-runs-slot">
                     <FlowRunsPanel flowId={f.id} refreshTick={runsTick} />
                   </div>
                 </div>

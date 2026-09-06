@@ -65,6 +65,15 @@ test.describe('Workflow-First IA smoke (IA-01 ~ IA-04)', () => {
     const row = card.locator('.flow-runs-row').filter({ hasText: 'smoke' })
     await expect(row).toBeVisible({ timeout: 20_000 })
     await expect(row).toContainText('已完成')
+
+    // 收起方向（2026-09-06 补钉）：.flow-runs 的显隐曾在 flows.css 与
+    // flow-runs.css 两处同优先级互搏、靠 CSS 加载顺序定胜负 —— 顺序翻转
+    // 后面板收不起。断言收起后面板真实隐藏（display:none），不只看 class。
+    await card.locator('[data-toggle]').first().click()
+    await expect(card).not.toHaveClass(/expanded/)
+    await expect(card.locator('.flow-runs')).toBeHidden()
+    await card.locator('[data-toggle]').first().click()
+    await expect(card.locator('.flow-runs-row').filter({ hasText: 'smoke' })).toBeVisible()
     // 画布旁观入口（?run= 直达）
     await expect(row.getByRole('link', { name: '画布旁观' })).toHaveAttribute(
       'href',

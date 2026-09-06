@@ -363,10 +363,25 @@
 }
 
 /* ── 边 ─────────────────────────────────────────────────── */
-/* 注意：BaseEdge 的 className 落在 path 上（不是 .react-flow__edge wrapper） */
+/* 边层必须显式全尺寸：div.react-flow__edges 与其中的 per-edge svg 都是
+ * 绝对定位 + shrink-to-fit，内容互相出流导致宽度塌缩为 0 —— 零宽 SVG
+ * 不上漆，表现就是「节点在、连线全消失」（2026-09-06 用户实测暴露；
+ * vendor 时代由其完整样式表兜底，重写时漏了这层）。坐标是流程坐标系，
+ * 视口 transform 负责平移缩放，铺满 pane 即为正确几何。 */
+.fc-body .react-flow__edges,
+.fc-body .react-flow__edges svg {
+  width: 100%;
+  height: 100%;
+}
+
+/* 注意：BaseEdge 的 className 落在 path 上（不是 .react-flow__edge wrapper）。
+ * 默认描边用 --meta（中灰）：默认态是画布的结构线，必须肉眼可辨 ——
+ * 曾用 --border-strong（淡暖灰，对 surface-warm 对比仅 ≈1.4:1）导致
+ * 「全部工作流都看不到线条」（2026-09-06 用户实测暴露）。状态色只在不
+ * 同状态出现：done 绿 / active 绿 dash / hover+selected accent。 */
 .react-flow__edge-path.fc-edge {
-  stroke: var(--border-strong);
-  stroke-width: 1.6;
+  stroke: var(--meta);
+  stroke-width: 1.7;
 }
 
 .react-flow__edge.selected .react-flow__edge-path.fc-edge,
