@@ -33,6 +33,18 @@ import '@/styles/shortcuts.css'
 import '@/styles/flow-canvas.css'
 import './canvas.css'
 
+/** 未保存守卫的 confirm 文案（confirm 是原生弹窗，走不了 React i18n ——
+ *  读当前 locale 给双语；默认中文）。 */
+function unsavedMessage(): string {
+  try {
+    return window.localStorage.getItem('dagents.locale') === 'en'
+      ? 'Canvas has unsaved changes. Leave anyway?'
+      : '画布有未保存的修改，确定离开吗？'
+  } catch {
+    return '画布有未保存的修改，确定离开吗？'
+  }
+}
+
 export interface CanvasKitPageProps {
   flowId: string
   flowName?: string
@@ -676,8 +688,52 @@ export function CanvasKitPage({
   }, [onSave, flowId, toast, t])
 
   // 自定义 header：flowName + 运行（带节点实时进度徽章）+ 保存
+  // ── 未保存守卫（交互安全）：dirty 状态下离开页面 = 静默丢稿 ──
+  // 两条路径都拦：①浏览器级（关标签/刷新/外链）beforeunload；
+  // ②应用内软导航（Next Link 渲染的 <a>）—— App Router 无官方拦截 API，
+  // 用捕获阶段点击拦截：dirty 且目标是站内其他路径 → confirm。
+  const dirtyRef = useRef(false)
+  const markDirty = useCallback((v: boolean): void => {
+    dirtyRef.current = v
+  }, [])
+
+  useEffect(() => {
+    const onBeforeUnload = (e: BeforeUnloadEvent): void => {
+      if (!dirtyRef.current) return
+      e.preventDefault()
+      e.returnValue = ''
+    }
+    const onClickCapture = (e: MouseEvent): void => {
+      if (!dirtyRef.current) return
+      if (e.defaultPrevented) return
+      const anchor = (e.target as HTMLElement | null)?.closest?.('a')
+      if (!anchor) return
+      const href = anchor.getAttribute('href')
+      if (!href || href.startsWith('http') || href.startsWith('mailto:') || href.startsWith('#')) return
+      // 只拦离开当前画布的站内跳转
+      try {
+        const target = new URL(href, window.location.origin)
+        if (target.pathname === window.location.pathname) return
+      } catch {
+        return
+      }
+      if (!window.confirm(unsavedMessage())) {
+        e.preventDefault()
+        e.stopPropagation()
+      }
+    }
+    window.addEventListener('beforeunload', onBeforeUnload)
+    document.addEventListener('click', onClickCapture, true)
+    return () => {
+      window.removeEventListener('beforeunload', onBeforeUnload)
+      document.removeEventListener('click', onClickCapture, true)
+    }
+  }, [])
+
   const renderHeader = useCallback(
     (props: HeaderSlotProps) => {
+      // header 每次重渲都带最新 isDirty —— 同步进守卫 ref（含保存成功后的 false）
+      dirtyRef.current = props.isDirty
       const saveLabel =
         saveState === 'saving'
           ? t('保存中…')

@@ -7,6 +7,8 @@ export const common = {
   // ── 侧栏 ──
   '新建对话': 'New chat',
   '搜索对话…': 'Search chats…',
+  '搜索…': 'Search…',
+  '搜索或跳转': 'Search or jump to',
   '搜索对话': 'Search chats',
   '清空搜索': 'Clear search',
   '显示更多': 'Show more',

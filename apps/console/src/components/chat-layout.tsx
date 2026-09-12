@@ -52,6 +52,14 @@ export function ChatLayout({ children }: { children: React.ReactNode }): React.R
     return () => window.removeEventListener('keydown', onKey)
   }, [])
 
+  // 可见入口（侧栏「搜索… ⌘K」按钮）通过该事件请求打开 —— palette 状态
+  // 属于布局，按钮在侧栏深处，用 DOM 事件桥避免层层透传 props。
+  useEffect(() => {
+    const onOpen = (): void => setPaletteOpen(true)
+    window.addEventListener('dagents:palette-open', onOpen)
+    return () => window.removeEventListener('dagents:palette-open', onOpen)
+  }, [])
+
   const toggleCollapsed = useCallback(() => {
     setCollapsed((prev) => {
       const next = !prev

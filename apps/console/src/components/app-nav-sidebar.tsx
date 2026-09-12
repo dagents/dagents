@@ -128,6 +128,20 @@ export function AppNavSidebar({
 
       {/* 会话历史树（项目目录为第一维度，与 Chat-First 壳共用实现）。
        * chat-nav-browser 自带 flex:1 + min-height:0，填满主导航与页脚之间。 */}
+      {/* 全局命令面板入口（⌘K）—— 可发现性：快捷键已全局生效，但用户
+       * 看不见就等于不存在。放在主导航与会话树之间，Linear 式搜索胶囊。 */}
+      <button
+        type="button"
+        className="chat-nav-palette-btn"
+        onClick={() => window.dispatchEvent(new CustomEvent('dagents:palette-open'))}
+        aria-label={t('搜索或跳转')}
+        title={`${t('搜索或跳转')} · ⌘K`}
+      >
+        <Icon name="search" style={{ width: 13, height: 13 }} />
+        <span className="chat-nav-palette-label">{t('搜索…')}</span>
+        <kbd className="chat-nav-palette-kbd">⌘K</kbd>
+      </button>
+
       <ChatHistoryTree />
 
       <div className="chat-nav-footer">

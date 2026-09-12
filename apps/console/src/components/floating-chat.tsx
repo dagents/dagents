@@ -20,6 +20,7 @@ import { usePathname, useRouter } from 'next/navigation'
 import { Icon } from '@/components/icon'
 import { ChatComposer } from '@/components/chat-composer'
 import { DirectorySelector } from '@/components/directory-selector'
+import { FlowSelector } from '@/components/flow-selector'
 import { AssistantContent } from '@/components/assistant-content'
 import { fetchChats, type Chat } from '@/lib/chats'
 import { fetchDirectories, type Directory } from '@/lib/directories'
@@ -216,6 +217,8 @@ function FloatingChatWindow({ onClose }: FloatingChatWindowProps): React.ReactEl
   const [directories, setDirectories] = useState<Directory[]>([])
   const [selectedDirId, setSelectedDirId] = useState<string | null>(null)
   const [selectedAgentId, setSelectedAgentId] = useState<string | null>(null)
+  // 绑定工作流：选中后消息走 flow 执行（与聊天详情页同一交互）
+  const [selectedFlowId, setSelectedFlowId] = useState<string | null>(null)
   const [drawerOpen, setDrawerOpen] = useState(false)
   const [drawerChats, setDrawerChats] = useState<Chat[]>([])
   const [drawerQuery, setDrawerQuery] = useState('')
@@ -332,11 +335,14 @@ function FloatingChatWindow({ onClose }: FloatingChatWindowProps): React.ReactEl
   dirListRef.current = directories
   const agentRef = useRef<string | null>(null)
   agentRef.current = selectedAgentId
+  const flowRef = useRef<string | null>(null)
+  flowRef.current = selectedFlowId
 
   // ─── F0：执行核心 ───
   const exec = useChatExecution({
     resolveDirectoryId: () => selectedDirId ?? dirListRef.current[0]?.id,
     resolveAgentId: () => agentRef.current,
+    resolveFlowId: () => flowRef.current,
     stoppedLabel: t('_(已停止)_'),
     onDone: (content) => {
       // @workflow 生成落点（F7）：done 帧带画布链接 → toast 直达
@@ -563,6 +569,8 @@ function FloatingChatWindow({ onClose }: FloatingChatWindowProps): React.ReactEl
         stopping={exec.sending}
         agentId={selectedAgentId}
         onAgentChange={setSelectedAgentId}
+        flowId={selectedFlowId}
+        onFlowChange={setSelectedFlowId}
         placeholder={exec.sending ? t('Agent 执行中…') : t('发送消息给 Agent…')}
       />
 

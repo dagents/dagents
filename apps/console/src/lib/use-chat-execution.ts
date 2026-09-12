@@ -40,6 +40,8 @@ export interface UseChatExecutionOptions {
   resolveDirectoryId: () => string | undefined
   /** 可选的 Agent 覆盖（发消息时读取）。 */
   resolveAgentId?: () => string | null
+  /** 首发时选中的工作流（可空）—— 悬浮副驾的 FlowSelector 语境。 */
+  resolveFlowId?: () => string | null
   /** 取消按钮的落款文案。 */
   stoppedLabel: string
   /** 发送被拒/失败时的用户提示（目录缺失等）。 */
@@ -232,6 +234,7 @@ export function useChatExecution(opts: UseChatExecutionOptions): ChatExecutionAp
         return false
       }
       const agentId = optsRef.current.resolveAgentId?.() ?? null
+      const flowId = optsRef.current.resolveFlowId?.() ?? null
       setSending(true)
       setError(null)
 
@@ -254,6 +257,7 @@ export function useChatExecution(opts: UseChatExecutionOptions): ChatExecutionAp
             directoryId,
             title: text.slice(0, 50),
             ...(agentId ? { agentId } : {}),
+            ...(flowId ? { flowId } : {}),
           })
           chatId = chat.id
           justCreatedChatRef.current = true
@@ -263,6 +267,7 @@ export function useChatExecution(opts: UseChatExecutionOptions): ChatExecutionAp
           content: text,
           role: 'user',
           ...(agentId ? { agentIdOverride: agentId } : {}),
+          ...(flowId ? { flowIdOverride: flowId } : {}),
         })
         setMessages((prev) =>
           prev.map((m) =>
