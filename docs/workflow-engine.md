@@ -5,8 +5,8 @@
 ## 总览
 
 ```
-console (Next.js)                      画布编辑器（vendor/agentflow, Flowise 魔改）
-   │  BFF 伪装 Flowise API（schema 转换）
+console (Next.js)                      画布编辑器（自研 Canvas Kit，见 canvas-replacement-architecture.md）
+   │  BFF（/api/* 直转发网关；Flowise 伪装层已随 vendor 拆除）
    ▼
 gateway (Hono)                         装配执行上下文（DB / LLM / 工具 / 检索）
    │
@@ -18,7 +18,7 @@ llm_providers 表 → OpenAI 兼容 API     Agent (CLI)（platformAgent）节点
 ```
 
 - **引擎**：`packages/workflow`（自研，替代 Flowise agentflow 引擎）
-- **画布**：`vendor/agentflow`（FlowiseAI 官方 `@flowiseai/agentflow` 的 vendored 副本），console 侧经 `apps/console/src/components/canvas/flowise-canvas.tsx` 适配
+- **画布**：自研 Canvas Kit（`apps/console/src/components/flow-canvas/`，2026-09-05 替换 vendor/agentflow —— 决策与实施记录见 `canvas-replacement-architecture.md`）；页面装配在 `canvas/canvas-kit-page.tsx`
 - **持久化**：flow 定义存 Postgres `flows` 表（`flow_data` JSONB = ReactFlow 的 nodes/edges/viewport）；每次运行写 `runs` + 每节点一行 `run_node_spans`
 
 ## 设计优点

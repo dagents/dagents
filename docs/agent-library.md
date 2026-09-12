@@ -143,7 +143,7 @@ GET    /api/v1/agent-library/drift              # 三态清单
 POST   /api/v1/agent-library/:name/reimport     # 覆盖 instructions（本地已修改时需 body.confirm=true）
 ```
 
-instantiate 写路径完全镜像 `agent-templates.ts` 的 `instantiate`（它又镜像
+instantiate 写路径曾镜像 `agent-templates.ts`（该路由已于 2026-08-23 退役；现写入路径为 `agent-library-instantiate.ts`，仍镜像
 `POST /api/v1/agents`），workspace_id/owner_id 默认值取法一致。
 
 ## 4. 模块落点

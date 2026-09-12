@@ -400,7 +400,7 @@ CI 要点：`webServer.reuseExistingServer` 保持；mock 端口冲突检测（`
 | 引擎已知限制会暴露在 e2e | LLM 无超时/取消、`new Function` 非沙箱、普通 Agent 节点无工具循环 | 相关用例要么走 PlatformAgent（工具循环），要么标 P2/skip 并引用 `docs/workflow-engine.md` 现状清单 |
 | 共享 dev 库污染 | 套件写 flows/agents/runs | 全套 seed/cleanup + 推荐专用库；CI 用 fresh 库 |
 | CLI-first 回归风险 | 无 provider 时节点会 spawn claude —— 若 mock provider 行没插成功，测试会意外变慢/挂 | `seedMockLlmProvider` 强制插入 + 冒烟用例断言 mock 收到调用（没收到即环境问题，快速失败） |
-| 画布组件（vendor/agentflow）交互复杂 | 拖拽/连线选择器脆弱 | UI 用例优先「保存/运行结果」断言，拖拽只做冒烟；深层交互留给手动用例（docs/test-cases.md §21） |
+| 画布组件（现为自研 Canvas Kit，vendor/agentflow 已拆除）交互复杂 | 拖拽/连线选择器脆弱 | UI 用例优先「保存/运行结果」断言，拖拽只做冒烟；深层交互留给手动用例（docs/test-cases.md §21） |
 | 与 `docs/test-cases.md` 331 条手工用例的关系 | 手工=全量探索；本计划=可自动化回归子集 | 本计划聚焦「值得自动化 + 能确定性自动化」的用例，两者互补不重复 |
 
 ---

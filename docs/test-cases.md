@@ -723,7 +723,7 @@
 
 ## 21. Flow 画布编辑器
 
-> 画布编辑器位于 `/workflows/[id]/canvas`，使用 vendor/agentflow（React Flow 组件）。
+> 画布编辑器位于 `/workflows/[id]/canvas`，使用自研 Canvas Kit（React Flow 组件；vendor/agentflow 已于 2026-09-05 拆除）。
 
 | 用例 ID | 元素 | 操作 | 预期结果 | 优先级 |
 |---------|------|------|----------|--------|

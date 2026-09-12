@@ -8,7 +8,7 @@
 
 ## 0. 背景与产品定位
 
-dagents 已有两层模板资产：agent-templates（静态 Agent 一键创建）与团队场景
+dagents 已有两层模板资产：~~agent-templates（静态 Agent 一键创建，2026-08-23 退役，5 个预设翻译为人格库「快速开始」分区）~~ 与团队场景
 （agency-agents README 的生成式 DAG 模板）。缺第三层——**具体流程模板**：
 用户在画布跑通一条流程后「另存为模板」，一键复用；官方内置一组随仓库分发，
 新用户 clone 后 /flows 页开箱即用，社区可 PR 贡献。

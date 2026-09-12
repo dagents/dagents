@@ -1,5 +1,7 @@
 # Dagents — Agent Guide
 
+> 全景架构：`docs/ARCHITECTURE.md`（现状真相源）· 常见任务 cookbook：`docs/agent-dev-guide.md` · 文档地图：`docs/README.md`
+
 ## 一键重启
 
 **当 gateway 或 console 无响应时，先跑这个：**
