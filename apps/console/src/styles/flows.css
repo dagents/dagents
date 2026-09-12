@@ -197,3 +197,7 @@
   .flow-list-page .flow-card, .flow-list-page .flow-chev { transition: none; }
   .genflow-progress .genflow-dot { animation: none; opacity: 0.6; }
 }
+
+/* 2026-09-06 图标统一：空态 emoji → Icon 体系 */
+.empty-state .empty-state-icon { display: inline-flex; }
+.empty-state .empty-state-icon svg { width: 28px; height: 28px; }

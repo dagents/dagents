@@ -1,0 +1,270 @@
+/* run-terminal.css —— 运行终端视图（2026-09-06 终端视图 PRD）。
+ *
+ * 设计立场（PRD 设计师意见）：终端是「设计系统内的一等视图」，不是仿真
+ * CRT —— 全部走既有令牌（--font-mono / 表面色 / 语义色），跟随明暗主题。
+ * .terminal-surface 只装滚动跟随行为（无皮肤）；皮肤在 .run-terminal。 */
+
+/* ── 行为层：滚动跟随容器（chat ProcessFold 复用） ── */
+.terminal-surface {
+  overflow-y: auto;
+  overscroll-behavior: contain;
+  position: relative;
+}
+.rtl-jump-row {
+  position: sticky;
+  bottom: 6px;
+  display: flex;
+  justify-content: flex-end;
+  pointer-events: none;
+}
+.rtl-jump {
+  pointer-events: auto;
+  border: 1px solid var(--border);
+  border-radius: var(--radius-sm);
+  background: var(--surface);
+  color: var(--fg);
+  font-size: var(--text-2xs);
+  font-family: var(--font-mono);
+  padding: 3px 10px;
+  cursor: pointer;
+  box-shadow: 0 2px 8px rgba(0, 0, 0, 0.12);
+}
+.rtl-jump:hover { border-color: var(--border-strong); }
+
+/* ── 皮肤层：运行终端（画布结果面板终端视图） ──
+ * .run-terminal-wrap：终端流 + stdin 行的纵向组合（可操作终端 2026-09-08）*/
+.run-terminal-wrap {
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+  min-width: 0;
+}
+.run-terminal {
+  border: 1px solid var(--border-soft);
+  border-radius: var(--radius-sm);
+  background: var(--bg);
+  font-family: var(--font-mono);
+  font-size: var(--text-2xs);
+  line-height: 1.6;
+  color: var(--fg);
+  max-height: 56vh; /* 与摘要视图 .canvas-results-list 同高预算 */
+  padding: 10px 12px 12px;
+}
+
+.rtl-section { margin-bottom: 16px; }
+.rtl-section:last-child { margin-bottom: 0; }
+
+/* 段头分隔线：── ● 标题 · 状态 · 耗时 · tokens ──────── [复制] */
+.rtl-sep {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  margin-bottom: 4px;
+  color: var(--meta);
+}
+.rtl-sep-dash { flex-shrink: 0; color: var(--border-strong); }
+.rtl-sep-dot { width: 7px; height: 7px; border-radius: 50%; flex-shrink: 0; }
+.rtl-sep-dot.dot-running { background: var(--warn); animation: rtl-pulse 1.2s ease-in-out infinite; }
+.rtl-sep-dot.dot-done, .rtl-sep-dot.dot-completed { background: var(--success); }
+.rtl-sep-dot.dot-failed { background: var(--danger); }
+.rtl-sep-dot.dot-unknown { background: var(--meta); }
+.rtl-sep-title { color: var(--fg); font-weight: 500; }
+.rtl-sep-meta { color: var(--meta); font-variant-numeric: tabular-nums; }
+.rtl-sep-line { flex: 1; border-top: 1px solid var(--border-soft); min-width: 12px; }
+.rtl-copy {
+  flex-shrink: 0;
+  border: 0;
+  background: transparent;
+  color: var(--meta);
+  font-size: var(--text-2xs);
+  font-family: inherit;
+  cursor: pointer;
+  padding: 0 2px;
+  border-radius: var(--radius-xs);
+}
+.rtl-copy:hover { color: var(--fg); }
+
+/* `$` 提示行 */
+.rtl-cmd { color: var(--accent); margin-bottom: 2px; }
+
+/* 事件行 */
+.rtl-line summary {
+  display: flex;
+  align-items: baseline;
+  gap: 6px;
+  cursor: pointer;
+  list-style: none;
+  user-select: none;
+  min-width: 0;
+  padding: 1px 0;
+}
+.rtl-line summary::-webkit-details-marker { display: none; }
+.rtl-glyph { flex-shrink: 0; }
+.rtl-label, .rtl-argpreview {
+  min-width: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+.rtl-thinking summary { color: var(--muted); font-style: italic; }
+.rtl-toolname { color: var(--fg); font-weight: 500; flex-shrink: 0; }
+.rtl-argpreview { color: var(--meta); }
+.rtl-dim { color: var(--meta); display: flex; gap: 6px; align-items: baseline; padding: 1px 0; }
+.rtl-errorline { color: var(--danger); display: flex; gap: 6px; align-items: baseline; padding: 1px 0; }
+
+/* 展开的全文/参数/结果块 */
+.rtl-detail {
+  margin: 2px 0 4px 18px;
+  padding: 6px 8px;
+  border-left: 2px solid var(--border-soft);
+  background: var(--surface);
+  border-radius: 0 var(--radius-xs) var(--radius-xs) 0;
+  white-space: pre-wrap;
+  word-break: break-word;
+  max-height: 260px;
+  overflow-y: auto;
+  color: var(--fg);
+  font-family: var(--font-mono);
+  font-size: var(--text-2xs);
+  line-height: 1.55;
+}
+.rtl-thinking .rtl-detail { color: var(--muted); font-style: normal; }
+.rtl-raw { margin-left: 0; }
+
+/* 成品正文：与摘要视图 .canvas-result-text 同语义（accent 左线），
+ * 但不截断高度内滚动、running 带呼吸光标。 */
+.rtl-output {
+  margin-top: 6px;
+  padding: 8px 10px;
+  border-left: 2px solid var(--accent);
+  background: var(--surface);
+  border-radius: 0 var(--radius-xs) var(--radius-xs) 0;
+  white-space: pre-wrap;
+  word-break: break-word;
+  max-height: 320px;
+  overflow-y: auto;
+  color: var(--fg);
+}
+.rtl-output.streaming::after {
+  content: '▍';
+  margin-left: 2px;
+  color: var(--accent);
+  animation: rtl-blink 1s steps(2) infinite;
+}
+.rtl-error {
+  color: var(--danger);
+  white-space: pre-wrap;
+  word-break: break-word;
+  padding: 4px 0 0;
+}
+
+@keyframes rtl-blink {
+  0%, 100% { opacity: 1; }
+  50% { opacity: 0; }
+}
+@keyframes rtl-pulse {
+  0%, 100% { opacity: 1; }
+  50% { opacity: 0.35; }
+}
+
+/* 图标尺寸约束（产品约定：Icon 包装 span 不约束 svg，需逐面显式定尺寸） */
+.rtl-glyph { display: inline-flex; align-items: center; flex-shrink: 0; }
+.rtl-glyph svg { width: 12px; height: 12px; }
+.rtl-jump { display: inline-flex; align-items: center; gap: 4px; }
+.rtl-jump svg { width: 11px; height: 11px; }
+
+/* 旧运行降级提示（2026-09-06）：events 通道之前的运行只有摘要级过程数据 */
+.rtl-legacy-note {
+  font-size: var(--text-2xs);
+  color: var(--meta);
+  background: var(--surface);
+  border: 1px dashed var(--border-soft);
+  border-radius: var(--radius-xs);
+  padding: 6px 10px;
+  margin-bottom: 10px;
+}
+
+/* 插话回显行（2026-09-08 可操作终端）：❯ 提示符 + accent 高亮 —— 与
+ * `$` 命令行同属终端字形惯例，回放时一眼可辨「用户说过话」。 */
+.rtl-userline {
+  color: var(--accent);
+  display: flex;
+  gap: 6px;
+  align-items: baseline;
+  padding: 1px 0;
+}
+.rtl-userline .rtl-glyph { color: var(--accent); font-weight: 600; }
+
+/* ── stdin 行（2026-09-08 可操作终端）：终端底部钉住的输入行 ──
+ * 真终端惯例：`❯` 提示符、mono、常驻。三态：live（可输入）/
+ * disabled（不可插话，给原因）/ done（运行结束 → 重跑入口）。 */
+.rti-bar {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  border: 1px solid var(--border-soft);
+  border-radius: var(--radius-sm);
+  background: var(--surface);
+  padding: 6px 10px;
+  font-family: var(--font-mono);
+  font-size: var(--text-2xs);
+  flex-shrink: 0;
+}
+.rti-prompt {
+  color: var(--accent);
+  font-weight: 600;
+  flex-shrink: 0;
+}
+.rti-live { border-color: var(--border); }
+.rti-live:focus-within { border-color: var(--border-strong); }
+.rti-input {
+  flex: 1;
+  min-width: 0;
+  border: 0;
+  outline: none;
+  background: transparent;
+  color: var(--fg);
+  font-family: var(--font-mono);
+  font-size: var(--text-2xs);
+}
+.rti-input::placeholder { color: var(--meta); }
+.rti-input:disabled { opacity: 0.5; }
+/* 并行节点目标 chip（select 形态，mono 小字） */
+.rti-target {
+  flex-shrink: 0;
+  max-width: 160px;
+  border: 1px solid var(--border-soft);
+  border-radius: var(--radius-xs);
+  background: var(--bg);
+  color: var(--fg);
+  font-family: var(--font-mono);
+  font-size: var(--text-2xs);
+  padding: 1px 4px;
+}
+/* 送达回执：sent 绿、refused 黄警 —— 短驻留（组件层 2.5s）后消失 */
+.rti-ack { flex-shrink: 0; }
+.rti-ack.ack-sent { color: var(--success); }
+.rti-ack.ack-refused { color: var(--warn); }
+.rti-ack.ack-error { color: var(--danger); }
+/* 禁用态：如实给原因，不装可输入 */
+.rti-disabled { color: var(--meta); }
+.rti-disabled .rti-prompt { color: var(--meta); font-weight: 400; }
+.rti-disabled-text { color: var(--meta); overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+/* 结束态：原位变重跑入口（就近原则 —— ⬆ 就在原地） */
+.rti-done { color: var(--meta); }
+.rti-done .rti-prompt { color: var(--meta); font-weight: 400; }
+.rti-done-text { flex: 1; color: var(--meta); }
+.rti-rerun {
+  display: inline-flex;
+  align-items: center;
+  gap: 4px;
+  border: 1px solid var(--border);
+  border-radius: var(--radius-xs);
+  background: transparent;
+  color: var(--fg);
+  font-family: var(--font-mono);
+  font-size: var(--text-2xs);
+  padding: 2px 8px;
+  cursor: pointer;
+}
+.rti-rerun:hover { border-color: var(--border-strong); background: var(--bg); }

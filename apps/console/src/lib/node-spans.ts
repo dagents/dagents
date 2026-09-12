@@ -69,6 +69,9 @@ export interface NodeSpansEnvelope {
      *  同款契约）。 */
     runStatus?: string | null
     runDurationMs?: number | null
+    /** 运行中插话能力位（2026-09-08 可操作终端）：该 run 当前有活着的
+     *  CLI 会话汇点。终端视图 stdin 行据此渲染禁用态。 */
+    inputSupported?: boolean
   }
   error?: string
 }
@@ -126,6 +129,8 @@ export interface RunNodeSpansResult {
   spans: RunNodeSpan[]
   /** 终态判断依据（见 NodeSpansEnvelope.runStatus）。 */
   runStatus: string | null
+  /** 插话能力位（undefined = 旧网关，按支持处理，发送失败时由回执兜底）。 */
+  inputSupported?: boolean
 }
 
 /** Fetch a run's node spans through the console's own API route (server-side).
@@ -143,5 +148,9 @@ export async function fetchRunNodeSpans(runId: string): Promise<RunNodeSpansResu
   }
   const json = (await res.json()) as NodeSpansEnvelope
   const rows = json.data?.spans ?? []
-  return { spans: rows.map(toRunNodeSpan), runStatus: json.data?.runStatus ?? null }
+  return {
+    spans: rows.map(toRunNodeSpan),
+    runStatus: json.data?.runStatus ?? null,
+    inputSupported: json.data?.inputSupported,
+  }
 }

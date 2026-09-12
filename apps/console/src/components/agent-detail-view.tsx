@@ -243,7 +243,7 @@ export function AgentDetailView({ id, nowMs }: AgentDetailViewProps): React.Reac
   }, [detail, logs, nowMs])
 
   return (
-    <div className="page">
+    <div className="page agents-detail-page">
       <div className="mb-4">
         <Link className="detail-back" href="/agents">
           <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth={2} strokeLinecap="round" strokeLinejoin="round" aria-hidden="true">

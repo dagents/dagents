@@ -137,6 +137,23 @@
   gap: var(--space-1);
 }
 
+/* 触发行 + 复制钮（2026-09-06 终端视图收敛：与画布 RunTerminal 同一语汇） */
+.assistant-process-trigger-row {
+  display: inline-flex;
+  align-items: center;
+  gap: var(--space-2);
+}
+.assistant-process-copy {
+  border: 0;
+  background: transparent;
+  padding: 2px 0;
+  color: var(--meta);
+  font-size: var(--text-2xs);
+  font-family: var(--font-mono);
+  cursor: pointer;
+}
+.assistant-process-copy:hover { color: var(--fg); }
+
 .assistant-process-trigger {
   display: inline-flex;
   align-items: center;
@@ -157,7 +174,9 @@
 }
 
 /* Bordered card holding the per-item rows — mirrors multica's
-   `rounded-lg border bg-muted/20 p-2 space-y-0.5`. */
+   `rounded-lg border bg-muted/20 p-2 space-y-0.5`. 2026-09-06 起容器本体是
+   TerminalSurface（滚动跟随 + 回到底部）；max-height 让长过程在卡片内
+   滚动而不是无限撑高聊天流。 */
 .assistant-process-body {
   margin: 0;
   padding: var(--space-2);
@@ -167,6 +186,7 @@
   display: flex;
   flex-direction: column;
   gap: 2px;
+  max-height: 48vh;
 }
 
 /* Intermediate text inside the fold — down-shifted (xs / muted) so it

@@ -12,6 +12,7 @@ import {
   createAgentFetcher,
   createBuiltInToolRegistry,
   resetProviderCache,
+  sendToRunNode,
 } from './workflow-clients.js'
 import { generateFlow, attachFlowIdToAttempt } from './flow-generator.js'
 import { executionRegistry, type ExecutionHandle } from '../execution-registry.js'
@@ -438,6 +439,8 @@ async function routeFlowCommand(
     kind: 'chat-flow',
     startedAt: Date.now(),
     abort: (reason?: string) => abort.abort(new Error(reason ?? 'cancelled by caller')),
+    // 运行中插话（2026-09-08 可操作终端）：@flow 触发的运行与画布直跑同权
+    sendToNode: (nodeId: string, text: string) => sendToRunNode(runId, nodeId, text),
     done,
   }
   executionRegistry.register(handle)
@@ -482,7 +485,7 @@ async function routeFlowCommand(
       // nodes throw "LLM client is not available" and only pure-compute flows
       // (CustomFunction/DirectReply/…) can run via @flow. e2e TR-02 pins this.
       resetProviderCache()
-      const llmClient = createDefaultLlmClient()
+      const llmClient = createDefaultLlmClient('claude', { runId })
       const agentFetcher = createAgentFetcher()
       const toolRegistry = createBuiltInToolRegistry()
 
@@ -780,6 +783,17 @@ async function routeDaemonCommand(
       runId,
       prompt: cmd.message,
       execOptions: { cwd: chat.directory_path ?? undefined },
+    })
+
+    // 落真实 runs 行（2026-09-06）：此前 runId 是幻影（无 runs 行）——
+    // chat 取消无法级联到 dispatch 任务、boot 清扫也收敛不到它、
+    // 完成回执的 usage rollup 被迫跳过。现在三点全部打通。
+    await runQuery(
+      `INSERT INTO runs (id, identifier, pipeline_id, status, input, path, chat_id, started_at)
+       VALUES ($1::uuid, $2, $3, 'running', $4, 'direct', $5::uuid, NOW())`,
+      [runId, `daemon-${cmd.message.slice(0, 24)}`, chat.agent_id, JSON.stringify({ prompt: cmd.message }), chatId],
+    ).catch((err) => {
+      log.warn('routeDaemonCommand runs row insert failed', { chatId, runId, error: String(err) })
     })
 
     // Mark chat running — daemon will complete async (see jsdoc above).

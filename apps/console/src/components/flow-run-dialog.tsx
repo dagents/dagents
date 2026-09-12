@@ -23,6 +23,11 @@ import '@/styles/flows.css'
 export interface FlowRunDialogProps {
   /** 目标 flow 名（标题展示）。 */
   flowName: string
+  /** 目标 flow id（2026-09-08 可操作终端）：输入记忆键
+   *  dagents.canvas.runInput.<flowId> —— 打开预填上次提交，提交即记忆。 */
+  flowId?: string
+  /** 重跑预填（2026-09-08 ⬆ 语义）：历史行的输入优先于记忆。 */
+  initialInput?: string
   directories: Directory[]
   dirId: string
   onDirChange: (id: string) => void
@@ -37,6 +42,8 @@ export interface FlowRunDialogProps {
 
 export function FlowRunDialog({
   flowName,
+  flowId,
+  initialInput,
   directories,
   dirId,
   onDirChange,
@@ -46,7 +53,15 @@ export function FlowRunDialog({
   inputExample,
 }: FlowRunDialogProps): React.ReactElement {
   const { t } = useI18n()
-  const [input, setInput] = useState('')
+  const [input, setInput] = useState(() => {
+    if (initialInput != null) return initialInput
+    if (!flowId) return ''
+    try {
+      return window.localStorage.getItem(`dagents.canvas.runInput.${flowId}`) ?? ''
+    } catch {
+      return ''
+    }
+  })
 
   // Escape 关闭（与 CreateFlowDialog 同款）
   useEffect(() => {
@@ -126,7 +141,19 @@ export function FlowRunDialog({
             {t('取消')}
           </button>
           {/* PX-F07：墨色运行按钮 + 显式 ⌘⏎ kbd 徽标（与画布运行面板同款快捷键） */}
-          <button type="button" className="btn btn-primary" onClick={() => onSubmit(input)}>
+          <button
+            type="button"
+            className="btn btn-primary"
+            onClick={() => {
+              // 输入记忆（⬆ 语义）：提交即记（2026-09-08 可操作终端 §4.2）
+              if (flowId) {
+                try {
+                  window.localStorage.setItem(`dagents.canvas.runInput.${flowId}`, input)
+                } catch { /* 私隐模式等场景忽略 */ }
+              }
+              onSubmit(input)
+            }}
+          >
             {t('开始运行')}
             <span className="btn-kbd" aria-hidden="true">⌘⏎</span>
           </button>

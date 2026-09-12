@@ -20,8 +20,6 @@
 import Link from 'next/link'
 import { usePathname } from 'next/navigation'
 import { Icon } from '@/components/icon'
-import { LocaleToggle } from '@/components/locale-toggle'
-import { ThemeToggle } from '@/components/theme-toggle'
 import { ChatHistoryTree } from '@/components/chat-history-tree'
 import { useI18n } from '@/i18n'
 import '@/styles/app-nav.css'
@@ -142,8 +140,6 @@ export function AppNavSidebar({
         >
           <Icon name="settings" className="nav-icon" style={{ width: 15, height: 15 }} />
         </Link>
-        <LocaleToggle className="chat-nav-locale-btn" />
-        <ThemeToggle />
       </div>
     </div>
   )

@@ -301,7 +301,7 @@ export function AgentsView(): React.ReactElement {
           <SkeletonList rows={5} shape="agent-card" />
         ) : visibleSorted.length === 0 && !error ? (
           <div className="empty-state">
-            <div className="empty-state-icon" aria-hidden="true">🤖</div>
+            <div className="empty-state-icon" aria-hidden="true"><Icon name="bot" style={{ width: 28, height: 28 }} /></div>
             {/* Empty decision uses the SCOPED count — 3 active + 0 archived
              * must not show "adjust filters" under the 已归档 tab. */}
             {scoped.length === 0 ? (

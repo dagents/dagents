@@ -31,6 +31,21 @@ function extractInputPreview(input: unknown): string | null {
   return null
 }
 
+/**
+ * 运行输入全文（2026-09-08 可操作终端 §4.2）：重跑（⬆ 语义）的预填数据源
+ * —— inputPreview 只够列表展示（80 字）。保险丝 8k 字符：防病态大输入
+ * 撑爆列表载荷；正常用户输入远低于此。
+ */
+function extractInputFull(input: unknown): string | null {
+  const s =
+    typeof input === 'string'
+      ? input
+      : input && typeof input === 'object'
+        ? (input as { input?: unknown }).input
+        : null
+  return typeof s === 'string' && s.length > 0 ? s.slice(0, 8_000) : null
+}
+
 interface RunListRow {
   id: string
   flow_id: string | null
@@ -93,6 +108,7 @@ runsRoutes.get('/', async (c) => {
         finishedAt: r.finished_at,
         durationMs: r.duration_ms,
         inputPreview: extractInputPreview(r.input),
+        input: extractInputFull(r.input),
         error: r.first_error,
         createdAt: r.created_at,
       })),

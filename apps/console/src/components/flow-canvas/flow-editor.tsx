@@ -64,10 +64,19 @@ export interface HeaderSlotProps {
   requestSave(): void
 }
 
+/** 布局自动保存载荷（2026-09-06）：只含坐标与视口，服务端 merge。 */
+export interface FlowLayoutPayload {
+  positions: Record<string, { x: number; y: number }>
+  viewport: { x: number; y: number; zoom: number }
+}
+
 export interface FlowEditorProps {
   initialFlow: unknown
   readOnly?: boolean
   onSaveRequest?(): void
+  /** 布局自动保存（拖拽停/视口停后 debounce 触发）。静默 fire-and-forget ——
+   *  不翻脏标记、不动保存状态（配置编辑仍走显式保存管线）。 */
+  onLayoutPersist?(layout: FlowLayoutPayload): void
   header?(props: HeaderSlotProps): React.ReactNode
   /** 外部受控选中（如画布旁观跳转）暂不需要，选中纯内部态。 */
 }
@@ -76,18 +85,18 @@ const nodeTypes = { flowNode: FlowNodeView, stickyNote: StickyNoteView }
 const edgeTypes = { flowEdge: FlowEdgeView }
 
 export const FlowEditor = forwardRef<FlowEditorHandle, FlowEditorProps>(function FlowEditor(
-  { initialFlow, readOnly = false, onSaveRequest, header },
+  { initialFlow, readOnly = false, onSaveRequest, onLayoutPersist, header },
   ref,
 ) {
   return (
     <ReactFlowProvider>
-      <FlowEditorInner ref={ref} initialFlow={initialFlow} readOnly={readOnly} onSaveRequest={onSaveRequest} header={header} />
+      <FlowEditorInner ref={ref} initialFlow={initialFlow} readOnly={readOnly} onSaveRequest={onSaveRequest} onLayoutPersist={onLayoutPersist} header={header} />
     </ReactFlowProvider>
   )
 })
 
 const FlowEditorInner = forwardRef<FlowEditorHandle, FlowEditorProps>(function FlowEditorInner(
-  { initialFlow, readOnly = false, onSaveRequest, header },
+  { initialFlow, readOnly = false, onSaveRequest, onLayoutPersist, header },
   ref,
 ) {
   const initialDoc = useMemo<CanvasDocument>(() => normalizeDocument(initialFlow), [initialFlow])
@@ -102,6 +111,33 @@ const FlowEditorInner = forwardRef<FlowEditorHandle, FlowEditorProps>(function F
   const [inspectorId, setInspectorId] = useState<string | null>(null)
   const { screenToFlowPosition, fitView } = useReactFlow()
   const seeded = useRef(false)
+
+  // viewport 由 RF onMove 持续写 ref（不触发重渲染）
+  const viewportRef = useRef<{ x: number; y: number; zoom: number } | undefined>(initialDoc.viewport)
+
+  // ── 布局自动保存（2026-09-06）：拖拽/视口停后 debounce 静默提交 ──
+  // 只发 positions+viewport（服务端 merge），不翻脏标记 —— 用户未保存的
+  // 配置编辑仍是草稿；布局是纯视觉调整，刷新即回退的体验不可接受。
+  // 声明必须在 handleNodesChange 之前（其依赖数组引用本回调）。
+  const nodesRef = useRef(nodes)
+  useEffect(() => {
+    nodesRef.current = nodes
+  }, [nodes])
+  const layoutTimerRef = useRef<number | undefined>(undefined)
+  const scheduleLayoutPersist = useCallback(() => {
+    if (readOnly || !onLayoutPersist) return
+    window.clearTimeout(layoutTimerRef.current)
+    layoutTimerRef.current = window.setTimeout(() => {
+      const vp = viewportRef.current
+      if (!vp) return
+      const positions: Record<string, { x: number; y: number }> = {}
+      for (const n of nodesRef.current) {
+        positions[n.id] = { x: Math.round(n.position.x), y: Math.round(n.position.y) }
+      }
+      onLayoutPersist({ positions, viewport: vp })
+    }, 800)
+  }, [readOnly, onLayoutPersist])
+  useEffect(() => () => window.clearTimeout(layoutTimerRef.current), [])
 
   // 边状态派生（单向数据流）：源+目标都 done → 完成段；源 done + 目标
   // running → 活动段（dash 流动）。取代 vendor 时代借
@@ -168,9 +204,13 @@ const FlowEditorInner = forwardRef<FlowEditorHandle, FlowEditorProps>(function F
       if (changes.some((c) => c.type === 'position' || c.type === 'remove' || c.type === 'add')) {
         setDirty(true)
       }
+      // 坐标变更（拖动逐帧，debounce 合并到停手后一拍）触发布局自动保存
+      if (changes.some((c) => c.type === 'position')) {
+        scheduleLayoutPersist()
+      }
       // RF 会把内部 measured 尺寸写回 node；便签的手调尺寸要跟随
     },
-    [onNodesChange],
+    [onNodesChange, scheduleLayoutPersist],
   )
 
   const handleEdgesChange = useCallback(
@@ -342,11 +382,13 @@ const FlowEditorInner = forwardRef<FlowEditorHandle, FlowEditorProps>(function F
     [nodes, edges, dirty, fitView],
   )
 
-  // viewport 由 RF onMove 持续写 ref（不触发重渲染）
-  const viewportRef = useRef<{ x: number; y: number; zoom: number } | undefined>(initialDoc.viewport)
-  const onMoveEnd = useCallback((_e: unknown, vp: { x: number; y: number; zoom: number }) => {
-    viewportRef.current = vp
-  }, [])
+  const onMoveEnd = useCallback(
+    (_e: unknown, vp: { x: number; y: number; zoom: number }) => {
+      viewportRef.current = vp
+      scheduleLayoutPersist()
+    },
+    [scheduleLayoutPersist],
+  )
 
   // 选中变化（memoize：RF 文档要求 onChange 稳定引用，否则每渲染反复挂卸
   // handler）。检查器打开的节点被取消选中时同步收起。

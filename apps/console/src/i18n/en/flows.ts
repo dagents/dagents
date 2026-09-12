@@ -246,4 +246,7 @@ export const flows: Record<string, string> = {
   '编辑': 'Edit',
   '拖动便签': 'Drag note',
   '画布注释，不参与执行': 'Canvas annotation — not executed',
+
+  // ── 重跑闭环（2026-09-08 operable terminal）──
+  '以相同输入重跑（输入可再编辑）': 'Re-run with the same input (editable)',
 }

@@ -454,13 +454,8 @@ export async function generateFlow(
 
   // ── 引擎调用（含修复循环）──
   try {
-    let gen
-    try {
-      gen = await deps.callEngine(engineChoice, messages)
-    } catch (firstErr) {
-      // 修复轮也需要引擎可用；首轮就挂则直接显式失败
-      throw firstErr
-    }
+    // 首轮引擎调用失败 = 修复轮也无引擎可用 —— 让外层 catch 直接显式失败
+    const gen = await deps.callEngine(engineChoice, messages)
     engineUsed = gen.engineUsed
     rawText = gen.text
 

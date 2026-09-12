@@ -28,6 +28,9 @@ import { HoverCard } from '@/components/hover-card'
 import { fetchDirectories, pickDirectory, createDirectory, updateDirectory, deleteDirectory, type Directory } from '@/lib/directories'
 import { fetchChats, createChat, updateChat, deleteChat, CHAT_STATUS_LABEL, type Chat } from '@/lib/chats'
 import { formatRelativeCompact } from '@/lib/format'
+// 树的全部样式在 chat-nav-sidebar.css（此前由 ChatNavSidebar 携带 import；
+// 回滚壳退役后这里是唯一消费者 —— 2026-09-06 修复侧栏树裸样式回归）
+import '@/styles/chat-nav-sidebar.css'
 import { useToast } from '@/components/toast'
 import { useI18n } from '@/i18n'
 import { ChatSearchDropdown, type ChatSearchDropdownHandle } from '@/components/chat-search-dropdown'

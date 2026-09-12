@@ -15,6 +15,7 @@
 
 import { useCallback, useEffect, useMemo, useRef, useState } from 'react'
 import { useI18n } from '@/i18n'
+import { Icon } from '@/components/icon'
 import { detectRefusal } from '@/lib/refusal-detect'
 import { SPAN_STATUS_CN } from '@/lib/flows'
 import { formatDuration } from '@/lib/format'
@@ -155,9 +156,9 @@ export function WorkflowRunCard({ runId, flowName, flowId, live = false, onTermi
     <div className={`wf-run-card${runStatus === 'failed' ? ' failed' : ''}${hasRefusal ? ' warn' : ''}${runStatus === 'running' || (live && !runStatus) ? ' running' : ''}`}>
       <button type='button' className='wf-run-card-head' onClick={() => setOpen((v) => !v)} aria-expanded={open}>
         {hasRefusal ? (
-          <span className='wf-run-warn-flag' title={refusedNodes.join('、')}>⚠ {t('疑似权限受限')}</span>
+          <span className='wf-run-warn-flag' title={refusedNodes.join('、')}><Icon name='alertTriangle' style={{ width: 11, height: 11 }} /> {t('疑似权限受限')}</span>
         ) : null}
-        <span className='wf-run-badge' aria-hidden='true'>⚡</span>
+        <span className='wf-run-badge' aria-hidden='true'><Icon name='zap' style={{ width: 11, height: 11 }} /></span>
         <span className='wf-run-kind'>{t('工作流')}</span>
         <span className='wf-run-flow' title={title}>{title}</span>
         <span className='wf-run-chain' aria-hidden='true'>
@@ -192,7 +193,7 @@ export function WorkflowRunCard({ runId, flowName, flowId, live = false, onTermi
                   <span className='wf-tl-label'>{sp.nodeLabel || id}</span>
                   <span className='wf-tl-meta'>
                     {st === 'warn'
-                      ? `⚠ ${t('疑似权限受限')}`
+                      ? <><Icon name='alertTriangle' style={{ width: 11, height: 11 }} /> {t('疑似权限受限')}</>
                       : t(SPAN_STATUS_CN[st] ?? st) || st}
                     {sp.durationMs != null ? ` · ${formatDuration(sp.durationMs)}` : ''}
                   </span>
@@ -228,7 +229,7 @@ export function AgentSourceBadge({ agentName }: { agentName?: string | null }): 
   return (
     <div className='wf-run-card agent-badge-only'>
       <div className='wf-run-card-head static'>
-        <span className='wf-run-badge agent' aria-hidden='true'>🤖</span>
+        <span className='wf-run-badge agent' aria-hidden='true'><Icon name='bot' style={{ width: 11, height: 11 }} /></span>
         <span className='wf-run-kind'>{t('Agent')}</span>
         {agentName ? <span className='wf-run-flow'>{agentName}</span> : null}
       </div>

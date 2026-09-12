@@ -26,6 +26,8 @@ import { useToast } from '@/components/toast'
 import { NotificationSettings } from '@/components/notification-settings'
 import { AuditLog } from '@/components/audit-log'
 import { UsageTab } from '@/components/usage-tab'
+import { ThemeSettingControl } from '@/components/theme-toggle'
+import { LocaleSettingControl } from '@/components/locale-toggle'
 import { AGENT_KINDS } from '@/lib/agents-catalog'
 import {
   createLlmProvider,
@@ -44,9 +46,9 @@ import { useI18n } from '@/i18n'
 import '@/styles/settings.css'
 
 /** The settings tabs, grouped as the design's sub-nav renders them. */
-type TabId = 'keys' | 'runtimes' | 'models' | 'usage' | 'notify' | 'audit' | 'planned'
+type TabId = 'appearance' | 'keys' | 'runtimes' | 'models' | 'usage' | 'notify' | 'audit' | 'planned'
 
-type TabGroupKey = '密钥' | '模型' | '治理' | '账户'
+type TabGroupKey = '通用' | '密钥' | '模型' | '治理' | '账户'
 
 interface TabDef {
   id: TabId
@@ -77,6 +79,7 @@ interface TabDef {
  * can never drift apart — adding or renaming a tab only touches this list.
  */
 const TABS: readonly TabDef[] = [
+  { id: 'appearance', label: '外观与语言', a11y: '外观与语言', group: '通用' },
   { id: 'keys', label: 'LLM Provider 管理', a11y: 'LLM Provider', group: '密钥' },
   { id: 'runtimes', label: 'CLI 运行时', a11y: 'CLI 运行时', group: '密钥' },
   { id: 'models', label: '默认模型', group: '模型', stub: true },
@@ -92,7 +95,7 @@ interface TabGroup {
 }
 
 const TAB_GROUPS: TabGroup[] = (
-  ['密钥', '模型', '治理', '账户'] as const
+  ['通用', '密钥', '模型', '治理', '账户'] as const
 ).map((g) => ({
   label: g,
   tabs: TABS.filter((t) => t.group === g).map((t) => ({ id: t.id, label: t.label, stub: t.stub })),
@@ -161,6 +164,7 @@ export function SettingsView(): React.ReactElement {
         </nav>
 
         <div>
+          {tab === 'appearance' && <AppearanceTab />}
           {tab === 'keys' && <LlmProvidersTab />}
           {tab === 'runtimes' && <RuntimesTab />}
           {tab === 'models' && <DefaultModelsTab />}
@@ -171,6 +175,43 @@ export function SettingsView(): React.ReactElement {
         </div>
       </div>
     </PageShell>
+  )
+}
+
+// ─── 外观与语言 tab（2026-09-06：明暗/语言切换从侧栏底部移入设置）─────
+
+function AppearanceTab(): React.ReactElement {
+  const { t } = useI18n()
+  return (
+    <section className="settings-section active" aria-label={t(TAB_LABEL.appearance)}>
+      <div className="card-title mb-4" style={{ fontSize: 'var(--text-lg)' }}>{t(TAB_LABEL.appearance)}</div>
+
+      <div className="card">
+        <div className="card-head">
+          <div className="card-title">{t('主题')}</div>
+        </div>
+        <div className="toggle-row">
+          <div className="info">
+            <div className="t">{t('界面主题')}</div>
+            <div className="d">{t('浅色 / 深色 / 跟随系统；全站即时生效并跨刷新保留')}</div>
+          </div>
+          <ThemeSettingControl />
+        </div>
+      </div>
+
+      <div className="card mt-4">
+        <div className="card-head">
+          <div className="card-title">{t('语言')}</div>
+        </div>
+        <div className="toggle-row">
+          <div className="info">
+            <div className="t">{t('界面语言')}</div>
+            <div className="d">{t('切换全站文案语言，即时生效（未翻译词条回退中文）')}</div>
+          </div>
+          <LocaleSettingControl />
+        </div>
+      </div>
+    </section>
   )
 }
 

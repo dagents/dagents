@@ -19,7 +19,8 @@
     "typeorm": "typeorm-ts-node-esm",
     "migration:generate": "pnpm typeorm migration:generate -d src/data-source.ts",
     "migration:run": "pnpm typeorm migration:run -d src/data-source.ts",
-    "migration:revert": "pnpm typeorm migration:revert -d src/data-source.ts"
+    "migration:revert": "pnpm typeorm migration:revert -d src/data-source.ts",
+    "migrate": "node scripts/migrate.mjs"
   },
   "dependencies": {
     "typeorm": "^0.3.20",

@@ -75,7 +75,7 @@ export function listChatModels(providers: ProviderLike[], agents: AgentLike[] = 
     models.push({
       name: `${AGENT_MODEL_PREFIX}${a.id}`,
       label: `${a.name} · Agent`,
-      description: `平台 Agent（${a.kind}）— 用该 Agent 的 CLI 执行生成`,
+      description: `Agent (CLI)（${a.kind}）— 实例化为 Agent (CLI) 节点，用其 CLI 执行生成`,
       category: 'agent',
     })
   }

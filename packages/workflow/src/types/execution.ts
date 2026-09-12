@@ -91,13 +91,32 @@ export interface IChatStreamChunk {
   usage?: ITokenUsage
 }
 
+/** activity 的过程活动类型 —— 与 contracts 的 AgentEvent 变体一一对应。
+ *  `user_input`（2026-09-08 可操作终端）不是 CLI 事件 —— 它由宿主在插话
+ *  送达后经 onNodeDelta 回写（同一条节点绑定通道），审计「谁在何时对哪个
+ *  节点说了什么」。 */
+export type IStreamActivityKind =
+  | 'thinking'
+  | 'tool'
+  | 'tool_result'
+  | 'status'
+  | 'log'
+  | 'error'
+  | 'user_input'
+
 /**
  * 节点增量产出载荷（onNodeDelta / llmClient.chat.onDelta，2026-08-30）：
- * `text` = 正文增量；`activity` = 过程活动（thinking 摘要 / 工具调用）。
+ * `text` = 正文增量；`activity` = 过程活动。
+ *
+ * 保真契约（2026-09-06 终端视图用户裁决「采集层保全文，展示层做策展」）：
+ * label/detail 由发送端携带**完整内容**、一律不截断 —— 短摘要/单行预览由
+ * 展示层派生。字段语义：thinking 全文在 `label`；tool 的 `label`=工具名、
+ * `detail`=参数 JSON 全文；tool_result 的 `label`=工具名、`detail`=输出
+ * 全文；status/log/error 的 `label`=文本。
  */
 export type IStreamDelta =
   | { type: 'text'; text: string }
-  | { type: 'activity'; kind: 'thinking' | 'tool'; label: string }
+  | { type: 'activity'; kind: IStreamActivityKind; label: string; detail?: string }
 
 /**
  * Runtime context passed to every `INode.run`.
@@ -148,6 +167,12 @@ export interface IExecutionContext {
        */
       signal?: AbortSignal
       /**
+       * 调用方节点 id（2026-09-08 可操作终端）：CLI 宿主据此把本次会话
+       * 登记进「运行中节点 → 会话」汇点表，运行中插话路由到正确的 CLI
+       * 进程。并行波次各节点各报各的；HTTP 路径可忽略。
+       */
+      nodeId?: string
+      /**
        * 增量产出回调（2026-08-30 流式展示）：CLI 后端逐事件转发 text 增量
        * 与过程活动（thinking/工具调用）；HTTP 非流式 chat 可忽略。
        * PlatformAgent 工具循环把它接到节点的 onNodeDelta，旁观端即可看到
@@ -164,6 +189,10 @@ export interface IExecutionContext {
       messages: IChatMessage[]
       temperature?: number
       signal?: AbortSignal
+      /** 调用方节点 id（同 chat.nodeId，2026-09-08 可操作终端）。 */
+      nodeId?: string
+      /** 同 chat.onDelta（2026-09-08）：插话汇点回写 user_input 事件用。 */
+      onDelta?: (chunk: IStreamDelta) => void
     }): AsyncIterable<IChatStreamChunk>
   }
   /** Tool registry for Agent / Platform Agent nodes' tool-calling loop. */

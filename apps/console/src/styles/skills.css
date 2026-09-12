@@ -166,9 +166,13 @@
 }
 
 .skills-footer {
-  margin-top: var(--space-6);
-  padding-top: var(--space-4);
-  border-top: 1px solid var(--border-soft);
+  /* 2026-09-08 用户裁决：发现根清单从页面底部移到列表上方 —— 管理入口
+     不用滚到底；分隔线随之翻到下方（border-top → border-bottom）。 */
+  margin-top: 0;
+  margin-bottom: var(--space-5);
+  padding-top: 0;
+  padding-bottom: var(--space-4);
+  border-bottom: 1px solid var(--border-soft);
   display: flex;
   flex-direction: column;
   gap: 4px;

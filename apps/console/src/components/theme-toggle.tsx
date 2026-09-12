@@ -1,8 +1,16 @@
 'use client'
 
-import { useEffect, useState, useCallback } from 'react'
-import { Icon } from '@/components/icon'
+import { useEffect, useState } from 'react'
 import { useI18n } from '@/i18n'
+import '@/styles/settings.css'
+
+/**
+ * 主题设置（2026-09-06 裁决：明暗切换从侧栏底部移入设置页）。
+ * 三态分段控件：浅色 / 深色 / 跟随系统 —— 替代原侧栏按钮的「点击翻转 +
+ * Shift 跟随系统」隐式循环（设置页形态下三态显式可选，不再需要 Shift 暗道）。
+ * 持久化与 <html data-theme> 应用逻辑不变（dagents-theme，layout.tsx 启动
+ * 前置应用），设置页只改写存储并即时 applyTheme。
+ */
 
 type Theme = 'light' | 'dark' | 'auto'
 
@@ -24,67 +32,46 @@ function applyTheme(theme: Theme) {
   }
 }
 
-export function ThemeToggle(): React.ReactElement {
+export function ThemeSettingControl(): React.ReactElement {
   const { t } = useI18n()
   const [theme, setTheme] = useState<Theme>('auto')
   const [mounted, setMounted] = useState(false)
 
   useEffect(() => {
-    const stored = getStoredTheme()
-    setTheme(stored)
-    applyTheme(stored)
+    setTheme(getStoredTheme())
     setMounted(true)
-
-    // Listen for system changes when in auto mode
-    const mq = window.matchMedia('(prefers-color-scheme: dark)')
-    const handler = () => {
-      if (getStoredTheme() === 'auto') applyTheme('auto')
-    }
-    mq.addEventListener('change', handler)
-    return () => mq.removeEventListener('change', handler)
   }, [])
 
-  // Click flips the RENDERED appearance (resolved = stored theme, or the
-  // system preference in auto mode), so every click visibly changes the
-  // page. The old auto→light→dark→auto cycle had a blind step: an explicit
-  // dark with a dark system preference cycling to auto changed nothing
-  // visually — the "first click does nothing" report. Auto stays reachable
-  // via Shift+click.
-  const cycle = useCallback((restoreAuto: boolean) => {
-    if (restoreAuto) {
+  const pick = (next: Theme) => {
+    if (next === 'auto') {
       localStorage.removeItem(THEME_KEY)
-      applyTheme('auto')
-      setTheme('auto')
-      return
+    } else {
+      localStorage.setItem(THEME_KEY, next)
     }
-    const systemDark = window.matchMedia('(prefers-color-scheme: dark)').matches
-    const resolved: 'light' | 'dark' = theme === 'auto' ? (systemDark ? 'dark' : 'light') : theme
-    const next = resolved === 'dark' ? 'light' : 'dark'
-    localStorage.setItem(THEME_KEY, next)
     applyTheme(next)
     setTheme(next)
-  }, [theme])
+  }
 
-  const systemDark = typeof window !== 'undefined' && window.matchMedia('(prefers-color-scheme: dark)').matches
-  const resolved: 'light' | 'dark' = theme === 'auto' ? (systemDark ? 'dark' : 'light') : theme
-  const label = theme === 'auto' ? t('跟随系统') : resolved === 'light' ? t('浅色') : t('深色')
+  const options: Array<{ id: Theme; label: string }> = [
+    { id: 'light', label: t('浅色') },
+    { id: 'dark', label: t('深色') },
+    { id: 'auto', label: t('跟随系统') },
+  ]
 
   return (
-    <button
-      type="button"
-      className="theme-toggle"
-      onClick={(e) => cycle(e.shiftKey)}
-      title={t('主题：{label}（点击切换 · Shift+点击跟随系统）', { label })}
-      aria-label={t('切换主题，当前：{label}', { label })}
-      suppressHydrationWarning
-    >
-      {/* PX-GL07：emoji 换 icon.tsx 线性款（16px / var(--fg-2)，暗色下对比 ≥3:1） */}
-      <span className="theme-toggle-icon">
-        <Icon
-          name={mounted ? (resolved === 'light' ? 'sun' : 'moon') : 'sun'}
-          style={{ width: 16, height: 16, color: 'var(--fg-2)' }}
-        />
-      </span>
-    </button>
+    <div className="settings-seg" role="radiogroup" aria-label={t('主题')} suppressHydrationWarning>
+      {options.map((o) => (
+        <button
+          key={o.id}
+          type="button"
+          role="radio"
+          aria-checked={mounted && theme === o.id}
+          className={`settings-seg-btn${mounted && theme === o.id ? ' active' : ''}`}
+          onClick={() => pick(o.id)}
+        >
+          {o.label}
+        </button>
+      ))}
+    </div>
   )
 }

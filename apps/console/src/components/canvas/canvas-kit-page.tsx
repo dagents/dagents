@@ -20,10 +20,14 @@ import type { FlowData } from '@dagents/workflow'
 import { validateFlowTopology } from '@dagents/workflow'
 import { useToast } from '@/components/toast'
 import { useI18n } from '@/i18n'
+import { Icon, type IconName } from '@/components/icon'
 import { detectRefusal } from '@/lib/refusal-detect'
 import { pickDirectory, createDirectory } from '@/lib/directories'
 import { SaveFlowTemplateDialog, scanTemplateParamNames } from '@/components/save-flow-template-dialog'
 import { FlowEditor, type FlowEditorHandle, type HeaderSlotProps, type NodeRunStatus } from '@/components/flow-canvas'
+import { RunTerminal, type TerminalSendResult } from '@/components/run-terminal'
+import { spanToTerminalSection } from '@/lib/run-terminal-format'
+import { ResultViewer } from '@/components/result-viewer'
 // .kbd（统一 kbd 键帽，shortcuts.css 单一定义、GL03/GL06 全站共用）
 import '@/styles/shortcuts.css'
 import '@/styles/flow-canvas.css'
@@ -66,6 +70,11 @@ function formatSpanPayload(payload: Record<string, unknown> | string | null | un
   return text.length > max ? text.slice(0, max) + ` …(${text.length})` : text
 }
 
+/** 活动流条目类型 —— 与引擎 IStreamActivityKind 对齐（2026-09-06 保真扩展
+ *  后新增 tool_result/status/log/error；status/log 不进 activity 环，容错仍认）。 */
+type ActivityKind = 'thinking' | 'tool' | 'tool_result' | 'status' | 'log' | 'error' | 'user_input'
+const ACTIVITY_KINDS: readonly ActivityKind[] = ['thinking', 'tool', 'tool_result', 'status', 'log', 'error', 'user_input']
+
 /** 节点产出的展示形态：LLM/reply 的 text/content 直出为正文，
  *  其余保持 JSON —— 用户要看的是模型说了什么，不是 JSON 壳。 */
 interface SpanDisplay {
@@ -75,21 +84,25 @@ interface SpanDisplay {
   preview: string
   /** 过程活动流（running 期间的 thinking/工具调用，2026-08-30）——
    *  CLI Agent 干活的大头在思考和调工具而非写正文，没有它旁观端是
-   *  「（执行中…）」黑盒。终态 output 无此字段。 */
-  activity?: Array<{ kind: 'thinking' | 'tool'; label: string }>
+   *  「（执行中…）」黑盒。终态 output 无此字段。2026-09-06 起 tool 行
+   *  携带 summary（参数/输出单行摘要），全文在终端视图。 */
+  activity?: Array<{ kind: ActivityKind; label: string; summary?: string }>
 }
 
 /** 从 span.output 提取活动流（容错：形状不符返回空数组）。 */
-function spanActivity(payload: CanvasSpanRow['output']): Array<{ kind: 'thinking' | 'tool'; label: string }> {
+function spanActivity(
+  payload: CanvasSpanRow['output'],
+): Array<{ kind: ActivityKind; label: string; summary?: string }> {
   if (!payload || typeof payload !== 'object') return []
   const raw = (payload as Record<string, unknown>).activity
   if (!Array.isArray(raw)) return []
-  return raw.filter(
-    (a): a is { kind: 'thinking' | 'tool'; label: string } =>
-      !!a && typeof a === 'object' &&
-      ((a as Record<string, unknown>).kind === 'thinking' || (a as Record<string, unknown>).kind === 'tool') &&
-      typeof (a as Record<string, unknown>).label === 'string',
-  )
+  return raw.flatMap((a): Array<{ kind: ActivityKind; label: string; summary?: string }> => {
+    if (!a || typeof a !== 'object') return []
+    const e = a as Record<string, unknown>
+    const kind = e.kind as ActivityKind
+    if (!ACTIVITY_KINDS.includes(kind) || typeof e.label !== 'string') return []
+    return [{ kind, label: e.label, ...(typeof e.summary === 'string' ? { summary: e.summary } : {}) }]
+  })
 }
 
 function spanToDisplay(payload: CanvasSpanRow['output']): SpanDisplay | null {
@@ -116,7 +129,7 @@ function spanToDisplay(payload: CanvasSpanRow['output']): SpanDisplay | null {
   // 无正文但有活动流（running 早中期）—— 摘要显示最近的活动行
   if (activity.length > 0) {
     const last = activity[activity.length - 1]!
-    return { kind: 'text', text: '', preview: `${last.kind === 'tool' ? '🔧' : '💭'} ${oneLine(last.label, 70)}`, activity }
+    return { kind: 'text', text: '', preview: oneLine(activityLine(last), 72), activity }
   }
   const json = JSON.stringify(obj, null, 1)
   return { kind: 'json', text: json, preview: oneLine(json.replace(/[{}"\\]/g, '').trim(), 90) }
@@ -125,6 +138,30 @@ function spanToDisplay(payload: CanvasSpanRow['output']): SpanDisplay | null {
 function oneLine(s: string, max: number): string {
   const flat = s.replace(/\s+/g, ' ').trim()
   return flat.length > max ? flat.slice(0, max) + '…' : flat
+}
+
+/** 活动流条目 → 统一 Icon 体系（2026-09-06 设计师裁决：去 emoji 文本标记，
+ *  与终端视图 lineIcon 同一语义映射）。 */
+function activityIcon(kind: ActivityKind): IconName {
+  return kind === 'tool'
+    ? 'wrench'
+    : kind === 'tool_result'
+      ? 'cornerDownRight'
+      : kind === 'error'
+        ? 'alertTriangle'
+        : kind === 'thinking'
+          ? 'brain'
+          : kind === 'user_input'
+            ? 'user'
+            : 'point'
+}
+
+/** 活动流条目 → 单行文本：tool 行拼参数摘要（旧形状 label 已含参数则原样）。 */
+function activityLine(a: { kind: ActivityKind; label: string; summary?: string }): string {
+  if ((a.kind === 'tool' || a.kind === 'tool_result') && a.summary) {
+    return `${a.label} · ${a.summary}`
+  }
+  return a.label
 }
 
 /** tokens 载荷 → 紧凑徽章（↑输入 ↓输出），无用量返回 null。 */
@@ -197,11 +234,53 @@ export function CanvasKitPage({
       window.history.replaceState(null, '', window.location.pathname)
     } catch { /* 忽略 */ }
   }, [firstRunBar])
-  const [runInput, setRunInput] = useState('')
+  const [runInput, setRunInput] = useState(() => {
+    // 输入记忆（2026-09-08 可操作终端 PRD §4.2，⬆ 等价物）：按 flowId 记
+    // 上次提交的输入，打开面板即预填 —— 与 dagents.canvas.runDir 同模式。
+    try {
+      return window.localStorage.getItem(`dagents.canvas.runInput.${flowId}`) ?? ''
+    } catch {
+      return ''
+    }
+  })
+  const persistRunInput = useCallback(
+    (input: string): void => {
+      try {
+        window.localStorage.setItem(`dagents.canvas.runInput.${flowId}`, input)
+      } catch { /* 忽略 */ }
+    },
+    [flowId],
+  )
   const [resultsOpen, setResultsOpen] = useState(false)
+  // 当前运行（2026-09-08 可操作终端）：stdin 行插话路由的目标 run ——
+  // 画布直跑 = handleRun 生成的 runId；旁观 = URL ?run= 的 watchRunId。
+  const [activeRunId, setActiveRunId] = useState<string | null>(watchRunId ?? null)
+  // 插话能力位（node-spans inputSupported）：该 run 当前有活 CLI 会话汇点。
+  // undefined（旧网关）按支持处理，发送失败时由回执兜底。
+  const [inputSupported, setInputSupported] = useState(true)
   const [latestSpans, setLatestSpans] = useState<CanvasSpanRow[]>([])
   /** 结果面板里手动折叠过的节点（用户显式收起 → 不再自动展开）。 */
   const manualCollapseRef = useRef<Set<string>>(new Set())
+  // 摘要视图元数据底行的展开态（2026-09-06）：输入/原始数据一次只开一个
+  const [ioOpen, setIoOpen] = useState<{ id: string; kind: 'input' | 'raw' } | null>(null)
+  // 结果面板视图（2026-09-06 终端视图 PRD）：摘要（默认，策展卡片）/
+  // 终端（保真回放 —— span-writer events 全量过程日志的单流渲染）。
+  // 用户裁决：切换式而非替换默认；记忆在 localStorage。
+  const [resultView, setResultView] = useState<'summary' | 'terminal'>(() => {
+    try {
+      return window.localStorage.getItem('dagents.canvas.resultView') === 'terminal'
+        ? 'terminal'
+        : 'summary'
+    } catch {
+      return 'summary'
+    }
+  })
+  const switchResultView = useCallback((v: 'summary' | 'terminal'): void => {
+    setResultView(v)
+    try {
+      window.localStorage.setItem('dagents.canvas.resultView', v)
+    } catch { /* 忽略 */ }
+  }, [])
   // 项目目录：Agent/LLM 节点的 CLI 在这个目录里干活。选择记忆在
   // localStorage（dagents.canvas.runDir），跨刷新保留。
   const [directories, setDirectories] = useState<Array<{ id: string; path: string; name?: string }>>([])
@@ -313,12 +392,14 @@ export function CanvasKitPage({
         const body = (await res.json()) as {
           data?: {
             runStatus?: string | null
+            inputSupported?: boolean
             spans?: CanvasSpanRow[]
           }
         }
         const spans = body?.data?.spans ?? []
         applySpans(spans)
         setLatestSpans(spans)
+        if (body?.data?.inputSupported != null) setInputSupported(body.data.inputSupported)
         return {
           runStatus: body?.data?.runStatus ?? null,
           hasRunning: spans.some((sp) => (sp.status ?? '') === 'running'),
@@ -406,8 +487,11 @@ export function CanvasKitPage({
       editorRef.current?.clearRunState()
       setRunState('running')
       setRunSummary(null)
+      // 输入记忆（⬆ 语义）：提交即记，⌘⏎ 重跑时预填
+      persistRunInput(input)
 
       const runId = crypto.randomUUID()
+      setActiveRunId(runId)
       const startedAt = Date.now()
       try {
         // 异步模式：立即返回 runId，进度全靠轮询 —— 同步等待会让长流程
@@ -439,8 +523,48 @@ export function CanvasKitPage({
         toast.error(t('启动失败：{reason}', { reason: reason.slice(0, 120) }), 8000)
       }
     },
-    [runState, flowId, watchLoop, toast, t, runDirectoryId],
+    [runState, flowId, watchLoop, toast, t, runDirectoryId, persistRunInput],
   )
+
+  /** 运行中插话（2026-09-08 可操作终端）：POST message 路由，同步回执
+   *  三态。409（整个 run 已无活执行）→ not_running —— 终端 stdin 行
+   *  同帧就会翻到结束态，这里只负责如实回执。 */
+  const sendMessage = useCallback(
+    async (nodeId: string, text: string): Promise<TerminalSendResult> => {
+      if (!activeRunId) return 'not_running'
+      try {
+        const res = await fetch(
+          `/api/workflows/runs/${encodeURIComponent(activeRunId)}/message`,
+          {
+            method: 'POST',
+            headers: { 'content-type': 'application/json' },
+            body: JSON.stringify({ nodeId, text }),
+          },
+        )
+        const json = (await res.json().catch(() => null)) as {
+          success?: boolean
+          data?: { status?: string }
+        } | null
+        if (res.ok && json?.success) {
+          const status = json.data?.status
+          return status === 'sent' || status === 'unsupported' || status === 'not_running'
+            ? status
+            : 'error'
+        }
+        if (res.status === 409) return 'not_running'
+        return 'error'
+      } catch {
+        return 'error'
+      }
+    },
+    [activeRunId],
+  )
+
+  /** stdin 行结束态的「重跑」入口（就近原则）：打开运行输入面板 ——
+   *  输入已在面板初始化时从记忆预填（persistRunInput），⬆ 语义。 */
+  const handleRerun = useCallback((): void => {
+    setRunPanelOpen(true)
+  }, [])
 
   // ── 旁观模式（canvas?run=<runId>）：自动轮询并点亮节点/连线 ──
   // 典型来源：chat @flow 触发的运行（chat 面板「在画布中查看」链接）。
@@ -450,6 +574,7 @@ export function CanvasKitPage({
     if (!watchRunId) return
     let stablePolls = 0
     let cancelled = false
+    setActiveRunId(watchRunId)
     setRunState('running')
     setRunSummary(null)
     // 旁观即看流：结果面板默认打开 + 清掉手动收起记忆 —— 否则徽章在亮、
@@ -486,8 +611,21 @@ export function CanvasKitPage({
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [watchRunId])
 
-  const handleSave = useCallback(async (): Promise<void> => {
-    const flowData = editorRef.current?.getDocument()
+  // 布局自动保存（2026-09-06 画布优化）：拖拽停/视口停后 FlowEditor debounce
+  // 调用 —— 静默 merge 到 flow_data（只动坐标与视口）。失败不打扰：布局
+  // 无语义价值，下次拖动自然重试；配置编辑仍走显式「保存」管线。
+  const persistLayout = useCallback(
+    (layout: { positions: Record<string, { x: number; y: number }>; viewport: { x: number; y: number; zoom: number } }): void => {
+      void fetch(`/api/workflows/${encodeURIComponent(flowId)}/layout`, {
+        method: 'PUT',
+        headers: { 'content-type': 'application/json' },
+        body: JSON.stringify(layout),
+      }).catch(() => {})
+    },
+    [flowId],
+  )
+
+  const handleSave = useCallback(async (): Promise<void> => {    const flowData = editorRef.current?.getDocument()
     if (!flowData) return
     // 保存前拓扑干跑（docs/product-plan.md 方案 A4）：errors=不可执行 /
     // warnings=可疑，全部不阻断保存 —— 尊重草稿自由，把「执行时才爆炸」
@@ -673,7 +811,7 @@ export function CanvasKitPage({
 
           {firstRunBar ? (
             <div className='canvas-first-run-bar' role='status'>
-              <span className='canvas-first-run-dot' aria-hidden='true'>✨</span>
+              <span className='canvas-first-run-dot' aria-hidden='true'><Icon name='sparkles' style={{ width: 14, height: 14 }} /></span>
               <span className='canvas-first-run-text'>
                 {t('模板已就绪 —— 填入任务输入，跑起来看看效果')}
               </span>
@@ -707,11 +845,35 @@ export function CanvasKitPage({
             paramNames={templateParamNames}
           />
 
-          {/* 运行结果面板：逐节点状态/耗时/产出（spans 实时刷新） */}
+          {/* 运行结果面板：逐节点状态/耗时/产出（spans 实时刷新）。
+              摘要 = 策展卡片（默认）；终端 = 保真回放（单流分段，全文直出）。 */}
           {resultsOpen && latestSpans.length > 0 ? (
             <div className='canvas-results-panel' role='region' aria-label={t('运行结果')}>
               <div className='canvas-run-panel-title'>
-                {t('运行结果')}
+                <span className='canvas-results-title-row'>
+                  {t('运行结果')}
+                  <span className='canvas-results-view' role='tablist' aria-label={t('结果视图')}>
+                  <button
+                    type='button'
+                    role='tab'
+                    aria-selected={resultView === 'summary'}
+                    className={`canvas-results-view-btn${resultView === 'summary' ? ' active' : ''}`}
+                    onClick={() => switchResultView('summary')}
+                  >
+                    {t('摘要')}
+                  </button>
+                  <button
+                    type='button'
+                    role='tab'
+                    aria-selected={resultView === 'terminal'}
+                    className={`canvas-results-view-btn${resultView === 'terminal' ? ' active' : ''}`}
+                    onClick={() => switchResultView('terminal')}
+                    title={t('以终端形式查看完整过程（thinking/工具调用/输出全文）')}
+                  >
+                    {t('终端')}
+                  </button>
+                  </span>
+                </span>
                 <button
                   type='button'
                   className='canvas-results-close'
@@ -740,6 +902,33 @@ export function CanvasKitPage({
                   })()}
                 </div>
               ) : null}
+              {resultView === 'terminal' ? (
+                /* 终端视图：全量过程日志单流分段（拓扑序同摘要视图），保真回放。
+                    stdin 行（可操作终端 2026-09-08）：运行中可对 running 节点插话，
+                    结束后原位变重跑入口。 */
+                (() => {
+                  const topoOrder = new Map(initialFlow.nodes.map((n, i) => [n.id as string, i]))
+                  const sections = [...latestSpans]
+                    .sort(
+                      (a, b) =>
+                        (topoOrder.get(a.nodeId ?? '') ?? 1e9) - (topoOrder.get(b.nodeId ?? '') ?? 1e9),
+                    )
+                    .map(spanToTerminalSection)
+                  const activeNodes = latestSpans
+                    .filter((sp) => sp.status === 'running')
+                    .map((sp) => ({ id: sp.nodeId ?? sp.node_id ?? '', label: sp.nodeLabel || sp.nodeId || '?' }))
+                  return (
+                    <RunTerminal
+                      sections={sections}
+                      running={runState === 'running'}
+                      inputSupported={inputSupported}
+                      activeNodes={activeNodes}
+                      onSend={sendMessage}
+                      onRerun={handleRerun}
+                    />
+                  )
+                })()
+              ) : (
               <div className='canvas-results-list'>
                 {/* FR-15（PRD 决议 D9）：行序按流程拓扑（initialFlow 节点
                     顺序），不再按 span 返回序（完成时间倒序会把 start 排最后，
@@ -800,40 +989,90 @@ export function CanvasKitPage({
                               <div className='canvas-result-activity' aria-label={t('执行活动')}>
                                 {display.activity.slice(-6).map((a, idx) => (
                                   <div key={idx} className={`canvas-act act-${a.kind}`}>
-                                    <span className='canvas-act-icon' aria-hidden='true'>{a.kind === 'tool' ? '🔧' : '💭'}</span>
-                                    <span className='canvas-act-label'>{a.label}</span>
+                                    <span className='canvas-act-icon'><Icon name={activityIcon(a.kind)} style={{ width: 11, height: 11 }} /></span>
+                                    <span className='canvas-act-label' title={activityLine(a)}>{activityLine(a)}</span>
                                   </div>
                                 ))}
                               </div>
                             ) : null}
-                            {sp.input != null && Object.keys(sp.input as object).length > 0 ? (
-                              <details className='canvas-result-io'>
-                                <summary className='canvas-result-io-label'>{t('输入')}</summary>
-                                <pre>{formatSpanPayload(sp.input, 500)}</pre>
-                              </details>
-                            ) : null}
                             {display ? (
                               display.kind === 'text' ? (
-                                <div className={`canvas-result-text${st === 'running' ? ' streaming' : ''}`}>
-                                  {display.text}
-                                </div>
+                                <ResultViewer title={sp.nodeLabel || id} text={display.text}>
+                                  <div className={`canvas-result-text${st === 'running' ? ' streaming' : ''}`}>
+                                    {display.text}
+                                  </div>
+                                </ResultViewer>
                               ) : (
-                                <div className='canvas-result-io'>
-                                  <div className='canvas-result-io-label'>{t('产出')}</div>
-                                  <pre>{formatSpanPayload(sp.output, 900)}</pre>
-                                </div>
+                                <ResultViewer
+                                  title={`${sp.nodeLabel || id} · ${t('产出')}`}
+                                  text={sp.output ? JSON.stringify(sp.output, null, 2) : ''}
+                                  mono
+                                >
+                                  <div className='canvas-result-io'>
+                                    <div className='canvas-result-io-label'>{t('产出')}</div>
+                                    <pre>{formatSpanPayload(sp.output, 900)}</pre>
+                                  </div>
+                                </ResultViewer>
                               )
                             ) : (
                               <div className='canvas-result-io muted' style={{ fontSize: 11 }}>
                                 {st === 'running' ? t('（执行中…）') : t('（无产出）')}
                               </div>
                             )}
-                            {display?.kind === 'text' ? (
-                              <details className='canvas-result-io'>
-                                <summary className='canvas-result-io-label'>{t('原始数据')}</summary>
-                                <pre>{formatSpanPayload(sp.output, 900)}</pre>
-                              </details>
-                            ) : null}
+                            {/* 元数据底行（2026-09-06 PM/设计师裁决）：输入/原始数据
+                                统一收进卡片底部的安静小行 —— 成品正文优先，调试入口垫底
+                                （此前一个在正文上方一个在下方包夹内容，且原始数据是正文
+                                的 JSON 复读）；一次只开一个，保真回放走「终端」视图 */}
+                            {(() => {
+                              const hasInput = sp.input != null && Object.keys(sp.input as object).length > 0
+                              const hasRaw = display?.kind === 'text'
+                              if (!hasInput && !hasRaw) return null
+                              const cur = ioOpen?.id === id ? ioOpen.kind : null
+                              return (
+                                <div className='canvas-result-meta-row'>
+                                  <div className='canvas-result-meta-links'>
+                                    {hasInput ? (
+                                      <button
+                                        type='button'
+                                        className={`canvas-result-meta-link${cur === 'input' ? ' active' : ''}`}
+                                        aria-expanded={cur === 'input'}
+                                        onClick={() => setIoOpen(cur === 'input' ? null : { id, kind: 'input' })}
+                                      >
+                                        {t('输入')}
+                                      </button>
+                                    ) : null}
+                                    {hasRaw ? (
+                                      <button
+                                        type='button'
+                                        className={`canvas-result-meta-link${cur === 'raw' ? ' active' : ''}`}
+                                        aria-expanded={cur === 'raw'}
+                                        onClick={() => setIoOpen(cur === 'raw' ? null : { id, kind: 'raw' })}
+                                      >
+                                        {t('原始数据')}
+                                      </button>
+                                    ) : null}
+                                  </div>
+                                  {cur === 'input' ? (
+                                    <ResultViewer
+                                      title={`${sp.nodeLabel || id} · ${t('输入')}`}
+                                      text={sp.input ? JSON.stringify(sp.input, null, 2) : ''}
+                                      mono
+                                    >
+                                      <pre className='canvas-result-meta-pre'>{formatSpanPayload(sp.input, 500)}</pre>
+                                    </ResultViewer>
+                                  ) : null}
+                                  {cur === 'raw' ? (
+                                    <ResultViewer
+                                      title={`${sp.nodeLabel || id} · ${t('原始数据')}`}
+                                      text={sp.output ? JSON.stringify(sp.output, null, 2) : ''}
+                                      mono
+                                    >
+                                      <pre className='canvas-result-meta-pre'>{formatSpanPayload(sp.output, 900)}</pre>
+                                    </ResultViewer>
+                                  ) : null}
+                                </div>
+                              )
+                            })()}
                           </div>
                         </details>
                       )
@@ -841,12 +1080,13 @@ export function CanvasKitPage({
                 })()
                 }
               </div>
+              )}
             </div>
           ) : null}
         </div>
       )
     },
-    [flowName, saveState, readOnly, runState, runSummary, handleRun, t, runPanelOpen, runInput, resultsOpen, latestSpans, saveTplOpen, handleAddDirectory, firstRunBar, templateParamNames, initialFlow],
+    [flowName, saveState, readOnly, runState, runSummary, handleRun, t, runPanelOpen, runInput, resultsOpen, latestSpans, saveTplOpen, handleAddDirectory, firstRunBar, templateParamNames, initialFlow, resultView, switchResultView, ioOpen],
   )
 
   return (
@@ -856,6 +1096,7 @@ export function CanvasKitPage({
         initialFlow={initialFlow}
         readOnly={readOnly}
         onSaveRequest={() => void handleSave()}
+        onLayoutPersist={readOnly ? undefined : persistLayout}
         header={renderHeader}
       />
     </div>

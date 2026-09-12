@@ -1,23 +1,19 @@
 'use client'
 
 /**
- * 全局布局 —— IA 开关的双壳（docs/prd-workflow-first.md）。
+ * 全局布局 —— Workflow-First IA（docs/prd-workflow-first.md）。
  *
- * Workflow-First（默认，`dagents.ia.workflow-first=on`）：AppNavSidebar
- * （工作流 / 模板 / 运行历史 / Agents / 技能 / Daemons + 最近对话折叠）。
- * Chat-First（`off`，P3 观察期回滚通道）：旧 ChatNavSidebar（目录→会话树）。
- *
- * 两态共用：FAB 悬浮副驾、命令面板（⌘K）、快捷键帮助（?）、移动端抽屉。
+ * AppNavSidebar（工作流 / Agents / 技能 / Daemons + 项目维度会话树）。
+ * Chat-First 回滚双壳已于 2026-09-06 退役（观察期结束）。
+ * 共用层：FAB 悬浮副驾、命令面板（⌘K）、快捷键帮助（?）、移动端抽屉；
  * 主内容区与折叠持久化（od:chat-sidebar）不变。
  */
 import { useState, useCallback, useEffect } from 'react'
 import { usePathname } from 'next/navigation'
-import { ChatNavSidebar } from '@/components/chat-nav-sidebar'
 import { AppNavSidebar } from '@/components/app-nav-sidebar'
 import { CommandPalette } from '@/components/command-palette'
 import { KeyboardShortcuts } from '@/components/keyboard-shortcuts'
 import { FloatingChat } from '@/components/floating-chat'
-import { isWorkflowFirstIA } from '@/lib/ia-flag'
 import '@/styles/chat-layout.css'
 
 const COLLAPSE_KEY = 'od:chat-sidebar'
@@ -27,7 +23,6 @@ export function ChatLayout({ children }: { children: React.ReactNode }): React.R
   const [collapsed, setCollapsed] = useState(false)
   const [paletteOpen, setPaletteOpen] = useState(false)
   // null = 首帧未定（SSR 水合安全）：渲染旧壳占位，挂载后立即校正
-  const [wfIA, setWfIA] = useState<boolean | null>(null)
   // Mobile drawer (<768px). The CSS side (off-canvas + `sidebar-open` class)
   // existed already; this state is the missing JS trigger that makes the
   // sidebar REACHABLE on narrow viewports.
@@ -35,7 +30,6 @@ export function ChatLayout({ children }: { children: React.ReactNode }): React.R
 
   useEffect(() => {
     setCollapsed(localStorage.getItem(COLLAPSE_KEY) === 'collapsed')
-    setWfIA(isWorkflowFirstIA())
   }, [])
 
   // Navigating from the drawer closes it — the destination page owns the
@@ -89,11 +83,7 @@ export function ChatLayout({ children }: { children: React.ReactNode }): React.R
         />
       )}
       <aside className={`chat-layout-sidebar${collapsed ? ' collapsed' : ''}`}>
-        {wfIA === false ? (
-          <ChatNavSidebar collapsed={collapsed} onToggle={toggleCollapsed} />
-        ) : (
-          <AppNavSidebar collapsed={collapsed} onToggle={toggleCollapsed} />
-        )}
+        <AppNavSidebar collapsed={collapsed} onToggle={toggleCollapsed} />
       </aside>
       <div className="chat-layout-main">
         <div className="chat-layout-content">

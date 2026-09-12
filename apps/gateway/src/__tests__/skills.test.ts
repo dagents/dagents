@@ -316,7 +316,7 @@ describe('skills routes — custom root management', () => {
       body: JSON.stringify({ dir: '/definitely/not/here' }),
     })
     expect(bad.status).toBe(400)
-    const json = await bad.json()
+    const json = (await bad.json()) as { error?: string }
     expect(json.error).toContain('目录不存在')
 
     const noBody = await app.request('/api/v1/skills/roots', {

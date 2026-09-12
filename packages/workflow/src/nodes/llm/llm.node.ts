@@ -100,6 +100,10 @@ export class LLMNode implements INode {
         messages,
         temperature,
         signal: options.signal,
+        // 可操作终端（2026-09-08）：上报调用方节点 —— CLI 宿主据此把会话
+        // 登记进插话汇点表；onDelta 供插话送达后回写 user_input 事件。
+        nodeId: nodeData.id,
+        onDelta: options.onNodeDelta,
       })) {
         if (chunk.delta && chunk.delta.length > 0) {
           accumulated += chunk.delta
@@ -121,6 +125,8 @@ export class LLMNode implements INode {
         temperature,
         signal: options.signal,
         onDelta: options.onNodeDelta,
+        // 可操作终端（2026-09-08）：上报调用方节点 id（插话汇点登记）
+        nodeId: nodeData.id,
       })
       text = result.text
       usage = result.usage

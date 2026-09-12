@@ -1,26 +1,13 @@
-'use client'
-
-import { useEffect, useState } from 'react'
-import { ChatHome } from '@/components/chat-home'
 import { FlowsView } from '@/components/flows-view'
-import { isWorkflowFirstIA } from '@/lib/ia-flag'
 
 /**
- * Home route —— IA 开关（docs/prd-workflow-first.md）。
+ * Home route —— Workflow-First IA（docs/prd-workflow-first.md）。
  *
- * Workflow-First（默认）：`/` = Flows 工作台（空态三入口承接新用户）。
- * Chat-First（`dagents.ia.workflow-first=off`，P3 观察期的回滚通道）：
- * `/` = 聊天主页。挂载后读 localStorage（SSR 水合安全），首帧渲染旧 IA
- * 的占位以避免闪烁 —— 两态互斥，无中间形态。
+ * `/` = Flows 工作台（空态三入口承接新用户，`flows-empty-hero`）。
+ * Chat-First 回滚通道（`dagents.ia.workflow-first=off`）已于 2026-09-06
+ * 退役删除 —— 观察期结束，双壳维护税不再付；聊天入口 = 全局悬浮副驾
+ * FloatingChat + 侧栏会话树。
  */
 export default function Home(): React.ReactElement {
-  // null = 尚未读取（SSR/首帧）；渲染轻量占位避免水合不匹配
-  const [ia, setIa] = useState<'wf' | 'chat' | null>(null)
-  useEffect(() => {
-    setIa(isWorkflowFirstIA() ? 'wf' : 'chat')
-  }, [])
-
-  if (ia === 'chat') return <ChatHome />
-  if (ia === 'wf') return <FlowsView home />
-  return <div className="page" aria-busy="true" style={{ minHeight: '60vh' }} />
+  return <FlowsView home />
 }

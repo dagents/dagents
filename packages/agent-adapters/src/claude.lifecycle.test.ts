@@ -15,7 +15,7 @@
  * Unix-only (the Go reference also splits exec fixtures by platform); skipped
  * on win32 where `/bin/sh` is absent.
  */
-import { describe, it, expect, beforeAll } from 'vitest'
+import { describe, it, expect, beforeAll, vi } from 'vitest'
 import { claudeBackend } from './claude.js'
 import type { AgentEvent } from '@dagents/contracts'
 
@@ -121,6 +121,46 @@ if (mode === 'multi-model') {
 if (mode === 'dump-argv') {
   line({ type: 'system', subtype: 'init', session_id: 'sess-argv' })
   line({ type: 'result', subtype: 'success', session_id: 'sess-argv', result: JSON.stringify(process.argv.slice(2)), is_error: false })
+  process.exit(0)
+}
+if (mode === 'stream-input' || mode === 'stream-input-slow-turn1') {
+  // stream-json 输入 harness（可操作终端 2026-09-08）：每个 stdin user 帧
+  // 一个 turn（回 assistant 行 + result 帧），stdin EOF 才退出 —— 进程在
+  // result 后活着等下一帧是协议行为，终态由适配器的静默判定（end stdin）
+  // 驱动：适配器不收尾，本进程永不退出，测试超时即失败。
+  // slow-turn1 变体：turn1 先发 START:1 再干 400ms 活 —— 插话测试在
+  // START 行后发送，保证插话落在 turn1 的 result 之前（排队补话时序）。
+  const { createInterface } = await import('node:readline')
+  const rl = createInterface({ input: process.stdin, crlfDelay: Infinity })
+  line({ type: 'system', subtype: 'init', session_id: 'sess-stream' })
+  let turn = 0
+  const queue = []
+  let draining = false
+  const drain = async () => {
+    if (draining) return
+    draining = true
+    while (queue.length > 0) {
+      const frame = queue.shift()
+      turn += 1
+      const text = frame && frame.message && Array.isArray(frame.message.content) && frame.message.content[0]
+        ? frame.message.content[0].text
+        : String(frame)
+      if (mode === 'stream-input-slow-turn1' && turn === 1) {
+        line({ type: 'assistant', message: { content: [{ type: 'text', text: 'START:1' }] } })
+        await sleep(400)
+      } else {
+        await sleep(20)
+      }
+      line({ type: 'assistant', message: { content: [{ type: 'text', text: 'T' + turn + ':' + text }] } })
+      line({ type: 'result', subtype: 'success', session_id: 'sess-stream', result: 'R' + turn, is_error: false })
+    }
+    draining = false
+  }
+  rl.on('line', (l) => {
+    try { queue.push(JSON.parse(l)) } catch { queue.push(null) }
+    void drain()
+  })
+  await new Promise((resolve) => rl.on('close', resolve))
   process.exit(0)
 }
 `,
@@ -385,5 +425,87 @@ describe.skipIf(isWindows)('claudeBackend execute lifecycle', () => {
     const resumeIdx = argv.indexOf('--resume')
     expect(resumeIdx).toBeGreaterThan(-1)
     expect(argv[resumeIdx + 1]).toBe('sess-resume-xyz')
+  })
+})
+
+describe.skipIf(isWindows)('claudeBackend stream-input (可操作终端 2026-09-08)', () => {
+  it('argv carries --input-format stream-json（owned flag，调用方不可覆盖）', async () => {
+    const b = fakeArgvBackend('dump-argv')
+    const session = b.execute('hi', {})
+    const result = await session.result
+    const argv = JSON.parse(result.output) as string[]
+    const i = argv.indexOf('--input-format')
+    expect(i).toBeGreaterThan(-1)
+    expect(argv[i + 1]).toBe('stream-json')
+  }, 15_000)
+
+  it('静默判定: 无插话 → prompt turn 的 result 即终局（适配器 end stdin，进程退出）', async () => {
+    // harness 在 stdin EOF 前不退出 —— 本用例能 resolve 本身就证明了
+    // 「result 归零 → end stdin」的静默判定（否则 15s 超时挂死）。
+    const b = fakeBackend('stream-input')
+    const session = b.execute('第一句', { timeoutMs: 10_000 })
+    const [events, result] = await Promise.all([collect(session.events), session.result])
+    expect(result.status).toBe('completed')
+    expect(result.output).toBe('R1')
+    const texts = events
+      .filter((e) => e.type === 'text')
+      .map((e) => (e as { content: string }).content)
+    expect(texts).toContain('T1:第一句')
+    // 唯一 result 即终局：started + completed 各一次
+    expect(events.filter((e) => e.type === 'status' && (e as { status: string }).status === 'completed')).toHaveLength(1)
+  }, 15_000)
+
+  it('运行中插话: turn1 进行中 send() 开后续 turn；最终 output = 消化了插话的 turn', async () => {
+    const b = fakeBackend('stream-input-slow-turn1')
+    const session = b.execute('第一句', { timeoutMs: 10_000 })
+    expect(typeof session.send).toBe('function')
+    const texts: string[] = []
+    const events: AgentEvent[] = []
+    void (async () => {
+      for await (const evt of session.events) {
+        events.push(evt)
+        if (evt.type === 'text') texts.push(evt.content)
+      }
+    })()
+    // START:1 后 turn1 还有 400ms 干活窗口 —— send 必然落在 result1 之前
+    await vi.waitFor(
+      () => {
+        expect(texts.some((t) => t.startsWith('START:1'))).toBe(true)
+      },
+      { timeout: 5_000, interval: 20 },
+    )
+    expect(session.send!('第二句')).toBe(true)
+    const result = await session.result
+    expect(result.status).toBe('completed')
+    // 最终 output = 最后一个 turn（消化了插话的 turn2）的 result ——
+    // 「排队补话」语义：插话后的回答才是节点产出
+    expect(result.output).toBe('R2')
+    expect(texts).toContain('T1:第一句')
+    expect(texts).toContain('T2:第二句')
+    // turn 边界事件：插话前后的 turn 之间有显式 turn-boundary（正文分隔符
+    // 的数据源，否则「40我此刻」粘连）
+    expect(
+      events.some((e) => e.type === 'status' && (e as { status: string }).status === 'turn-boundary'),
+    ).toBe(true)
+    // completed 仍只有一个（终局），turn-boundary 不冒充终局
+    expect(events.filter((e) => e.type === 'status' && (e as { status: string }).status === 'completed')).toHaveLength(1)
+    // 终局后 send 诚实拒绝（finishing / openTurns=0）
+    expect(session.send!('迟到的话')).toBe(false)
+  }, 15_000)
+
+  it('text 回退模式: DAGENTS_CLAUDE_INPUT_FORMAT=text → 旧行为（无 send、一次性 stdin）', async () => {
+    const prev = process.env.DAGENTS_CLAUDE_INPUT_FORMAT
+    process.env.DAGENTS_CLAUDE_INPUT_FORMAT = 'text'
+    try {
+      const b = fakeBackend('emit-lines')
+      const session = b.execute('hi', {})
+      const result = await session.result
+      expect(result.status).toBe('completed')
+      expect(result.output).toBe('E1E2E3E4')
+      expect(session.send).toBeUndefined()
+    } finally {
+      if (prev === undefined) delete process.env.DAGENTS_CLAUDE_INPUT_FORMAT
+      else process.env.DAGENTS_CLAUDE_INPUT_FORMAT = prev
+    }
   })
 })

@@ -58,6 +58,42 @@ export function resolvePendingHumanInput(chatId: string, answer: string): boolea
 }
 
 /**
+ * Boot sweep：把「聊天最后一条消息是 human_input 提示」的会话补一条中断
+ * 说明（2026-09-06）。挂起 Promise 活在进程内存（单进程取舍），重启即死；
+ * 不补这条，会话里的提示语「直接回复即可，流程会继续」就是谎言 —— 用户
+ * 回复后消息被当新输入路由，老流程早已不存在。判定：该 chat 最新消息
+ * 就是 human_input 系统提示（若用户已回复过，最新消息不会再是它）。
+ */
+export async function markOrphanedHumanInputs(): Promise<void> {
+  try {
+    const { records } = await runQuery<{ chat_id: string }>(
+      `SELECT m.chat_id
+         FROM chat_messages m
+         JOIN (
+           SELECT chat_id, MAX(created_at) AS last_at
+             FROM chat_messages
+            GROUP BY chat_id
+         ) latest ON latest.chat_id = m.chat_id AND latest.last_at = m.created_at
+        WHERE m.role = 'system'
+          AND m.metadata->>'type' = 'human_input'`,
+      [],
+    )
+    for (const row of records) {
+      await runQuery(
+        `INSERT INTO chat_messages (chat_id, role, content, created_at)
+         VALUES ($1::uuid, 'system', $2, NOW())`,
+        [row.chat_id, '⏹ 上一个人工确认请求已因网关重启中断（流程不会继续）—— 如需继续请重新发起运行'],
+      ).catch(() => {})
+    }
+    if (records.length > 0) {
+      log.warn('boot sweep: orphaned human-input prompts marked interrupted', { count: records.length })
+    }
+  } catch (err) {
+    log.warn('orphan human-input sweep failed', { error: String(err) })
+  }
+}
+
+/**
  * Create the chat-backed `humanInputResolver` for a run. Each call parks a
  * promise; the user's next message in the chat resolves it.
  */

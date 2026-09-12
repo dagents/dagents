@@ -128,6 +128,23 @@ export class DispatchClient {
     await this.postVoid(`/api/v1/dispatch/tasks/${taskId}/fail`, r)
   }
 
+  /**
+   * Daemon → dispatch: read a task's status（取消协议，2026-09-06）——
+   * 执行环轮询 `cancelRequested`，发现即 abort 子进程收尾。
+   */
+  async getTask(taskId: string): Promise<{ status: string; cancelRequested: boolean }> {
+    const path = `/api/v1/dispatch/tasks/${taskId}`
+    const res = await this.request(path, null, 'GET')
+    if (!res.ok) {
+      throw new DispatchHttpError(res.status, path, await res.text())
+    }
+    const envelope = (await res.json()) as Envelope<{ status: string; cancelRequested: boolean }>
+    if (!envelope.success || envelope.data === undefined) {
+      throw new DispatchHttpError(res.status, path, JSON.stringify(envelope))
+    }
+    return envelope.data
+  }
+
   // ────────────────────────────────────────────────────────────────────────
   // request plumbing
   // ────────────────────────────────────────────────────────────────────────
@@ -160,12 +177,12 @@ export class DispatchClient {
     }
   }
 
-  private async request(path: string, body: unknown): Promise<Response> {
+  private async request(path: string, body: unknown, method: 'POST' | 'GET' = 'POST'): Promise<Response> {
     const url = `${this.baseUrl}${path}`
     const init: RequestInit = {
-      method: 'POST',
+      method,
       headers: this.headers(),
-      body: body === null ? undefined : JSON.stringify(body),
+      ...(method === 'GET' ? {} : { body: body === null ? undefined : JSON.stringify(body) }),
     }
 
     if (this.timeoutMs > 0 && typeof AbortController !== 'undefined') {

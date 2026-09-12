@@ -10,7 +10,8 @@
 import { runQuery } from '@dagents/db'
 import { createLogger } from '@dagents/shared'
 import { createBackend } from '@dagents/agent-adapters'
-import type { AgentEvent, AgentType } from '@dagents/contracts'
+import type { AgentEvent, AgentSession, AgentType } from '@dagents/contracts'
+import type { IStreamDelta } from '@dagents/workflow'
 import { decryptSecret } from '../crypto.js'
 import { composeSystemPrompt } from '../skill-injection.js'
 import {
@@ -25,6 +26,69 @@ import {
 } from '@dagents/workflow'
 
 const log = createLogger({ svc: 'gateway:workflow-clients' })
+
+// ────────────────────────────────────────────────────────────────────────────
+// 运行中节点会话汇点（2026-09-08 可操作终端 PRD，docs/prd-operable-terminal.md）
+//
+// `runId:nodeId → 活着的 CLI 会话` 的进程内登记表：LLM/PlatformAgent 节点
+// 每次 chat 调用创建会话时注册（节点经 chat 参数上报自己的 nodeId），插话
+// 路由 POST /workflows/runs/:runId/message 据此找到正确的 CLI stdin。
+// PlatformAgent 工具循环每轮新建会话 —— 新会话覆盖注册；旧会话结束时仅在
+// 表项仍指向自己时才清除，不误删后继会话。
+// ────────────────────────────────────────────────────────────────────────────
+
+/** 插话送达回执：sent=已写入 CLI stdin；unsupported=执行路径无双向通道
+ *  （HTTP provider / 不支持插话的适配器）；not_running=节点当前没有活会话。 */
+export type NodeSendAck = 'sent' | 'unsupported' | 'not_running'
+
+interface RunNodeSink {
+  /** 会话的插话入口（contracts AgentSession.send；undefined = 适配器不支持）。 */
+  send: ((text: string) => boolean) | undefined
+  /** 该节点 chat 调用的增量通道 —— 送达后回写 user_input 事件进 span。 */
+  onDelta: ((chunk: IStreamDelta) => void) | undefined
+}
+
+const runNodeSinks = new Map<string, RunNodeSink>()
+
+const sinkKey = (runId: string, nodeId: string): string => `${runId}:${nodeId}`
+
+function registerRunNodeSink(
+  runId: string,
+  nodeId: string,
+  session: AgentSession,
+  onDelta: ((chunk: IStreamDelta) => void) | undefined,
+): RunNodeSink {
+  const sink: RunNodeSink = { send: session.send, onDelta }
+  runNodeSinks.set(sinkKey(runId, nodeId), sink)
+  return sink
+}
+
+/** 会话收尾：仅当表项仍指向本 sink 才清除（工具循环已换新会话时不覆盖）。 */
+function unregisterRunNodeSink(runId: string, nodeId: string, sink: RunNodeSink): void {
+  const key = sinkKey(runId, nodeId)
+  if (runNodeSinks.get(key) === sink) runNodeSinks.delete(key)
+}
+
+/** 插话路由：送达后经同一节点的增量通道回写 user_input（span-writer 落库，
+ *  终端视图渲染为高亮行 —— 「谁在何时对哪个节点说了什么」完整可审计）。 */
+export function sendToRunNode(runId: string, nodeId: string, text: string): NodeSendAck {
+  const sink = runNodeSinks.get(sinkKey(runId, nodeId))
+  if (!sink) return 'not_running'
+  if (!sink.send) return 'unsupported'
+  if (!sink.send(text)) return 'not_running'
+  sink.onDelta?.({ type: 'activity', kind: 'user_input', label: text })
+  return 'sent'
+}
+
+/** 该 run 当前是否有任何活着的 CLI 会话汇点（node-spans 端点的
+ *  inputSupported 数据源 —— console 据此渲染 stdin 行的禁用态）。 */
+export function runHasLiveSinks(runId: string): boolean {
+  const prefix = `${runId}:`
+  for (const key of runNodeSinks.keys()) {
+    if (key.startsWith(prefix)) return true
+  }
+  return false
+}
 
 /** LLM provider row from the `llm_providers` table. */
 interface LlmProviderRow {
@@ -80,7 +144,9 @@ export interface CliChatParams {
   /** Cancellation signal (spec D3): aborts the HTTP fetch / kills the CLI child. */
   signal?: AbortSignal
   /** 增量产出回调（2026-08-30 流式展示）：text 增量 + thinking/工具活动。 */
-  onDelta?: (chunk: import('@dagents/workflow').IStreamDelta) => void
+  onDelta?: (chunk: IStreamDelta) => void
+  /** 调用方节点 id（2026-09-08 可操作终端）：登记进插话汇点表用。 */
+  nodeId?: string
 }
 
 /**
@@ -133,18 +199,49 @@ export const LLM_HTTP_TIMEOUT_MS = Number(process.env.LLM_HTTP_TIMEOUT_MS ?? 120
  * degenerates to a single call (the CLI brings its own tools anyway).
  */
 /**
- * 工具调用活动的单行标签（旁观端活动流用）：`工具名(参数摘要)`。
- * 参数 JSON 截 60 字 —— 是「它在干什么」的线索，不是完整审计。
+ * 过程事件 → 保真 activity 增量（2026-09-06 终端视图裁决「采集层保全文」）：
+ * 除 text（正文增量，调用方自行处理）外的全部 AgentEvent 变体都转发 ——
+ * 此前只转 thinking/tool-use 且 toolLabel 截 60 字、thinking 落库前再截
+ * 100 字，终端视图想显示的内容一半根本没被采集。载荷语义见
+ * IStreamDelta 保真契约：tool 的 label=工具名、detail=参数 JSON 全文；
+ * tool_result 的 detail=输出全文；短摘要一律由展示层派生。
  */
-function toolLabel(evt: Extract<AgentEvent, { type: 'tool-use' }>): string {
-  let args = ''
-  try {
-    args = JSON.stringify(evt.input ?? {})
-  } catch {
-    args = String(evt.input ?? {})
+function forwardActivityDelta(
+  evt: AgentEvent,
+  onDelta: ((chunk: import('@dagents/workflow').IStreamDelta) => void) | undefined,
+): void {
+  if (!onDelta) return
+  switch (evt.type) {
+    case 'thinking':
+      if (evt.content) onDelta({ type: 'activity', kind: 'thinking', label: evt.content })
+      break
+    case 'tool-use': {
+      let detail = ''
+      try {
+        detail = JSON.stringify(evt.input ?? {})
+      } catch {
+        detail = String(evt.input ?? '')
+      }
+      onDelta({ type: 'activity', kind: 'tool', label: evt.tool || 'tool', detail })
+      break
+    }
+    case 'tool-result':
+      if (evt.output) {
+        onDelta({ type: 'activity', kind: 'tool_result', label: evt.tool || 'tool', detail: evt.output })
+      }
+      break
+    case 'status':
+      if (evt.status) onDelta({ type: 'activity', kind: 'status', label: evt.status })
+      break
+    case 'log':
+      if (evt.content) onDelta({ type: 'activity', kind: 'log', label: evt.content })
+      break
+    case 'error':
+      if (evt.content) onDelta({ type: 'activity', kind: 'error', label: evt.content })
+      break
+    default:
+      break
   }
-  if (args.length > 60) args = args.slice(0, 60) + '…'
-  return `${evt.tool || 'tool'}(${args})`
 }
 
 /**
@@ -161,7 +258,7 @@ const CLI_TEXT_MODE_ARGS = [
   'Task,Bash,Glob,Grep,Read,Edit,Write,NotebookEdit,WebFetch,WebSearch,TodoWrite,TodoRead,BashOutput,KillShell',
 ]
 
-export function createCliLlmClient(kind: AgentType = 'claude', cliCwd?: string) {
+export function createCliLlmClient(kind: AgentType = 'claude', cliCwd?: string, runId?: string) {
   /** 共享：为本次执行创建 backend session（chat 与 chatStream 同款启动）。 */
   const startSession = (params: CliChatParams) => {
     const { systemPrompt, prompt } = buildCliMessages(params.messages)
@@ -184,66 +281,87 @@ export function createCliLlmClient(kind: AgentType = 'claude', cliCwd?: string) 
   return {
     async chat(params: CliChatParams): Promise<{ text: string; usage?: ITokenUsage }> {
       const session = startSession(params)
-      let text = ''
-      for await (const evt of session.events as AsyncIterable<AgentEvent>) {
-        // text 事件既是最终正文也是增量 —— 有 onDelta 就逐事件转发
-        //（AgentSession.events 与 result 解耦，天生支持边跑边吐）
-        if (evt.type === 'text') {
-          text += evt.content
-          params.onDelta?.({ type: 'text', text: evt.content })
-        } else if (evt.type === 'thinking') {
-          params.onDelta?.({ type: 'activity', kind: 'thinking', label: evt.content })
-        } else if (evt.type === 'tool-use') {
-          params.onDelta?.({ type: 'activity', kind: 'tool', label: toolLabel(evt) })
+      // 插话汇点登记（2026-09-08）：节点上报 nodeId + 客户端持有 runId 才
+      // 登记 —— chat 与 chatStream 同款。收尾注销（PlatformAgent 工具循环
+      // 换新会话时 unregister 的 same-sink 守卫不误删后继）。
+      const sink =
+        runId && params.nodeId
+          ? registerRunNodeSink(runId, params.nodeId, session, params.onDelta)
+          : null
+      try {
+        let text = ''
+        for await (const evt of session.events as AsyncIterable<AgentEvent>) {
+          // turn 边界（2026-09-08 可操作终端）：插话前后的 turn 是两段独立
+          // 产出，正文拼接必须补分隔符（否则「40我此刻」粘连）；过程流里
+          // 记一条可见边界，回放能读出「插话在这里被消化」。
+          if (evt.type === 'status' && evt.status === 'turn-boundary') {
+            text += '\n\n'
+            params.onDelta?.({
+              type: 'activity',
+              kind: 'status',
+              label: '── 插话已并入，开始新的 turn ──',
+            })
+            continue
+          }
+          // text 事件既是最终正文也是增量 —— 有 onDelta 就逐事件转发
+          //（AgentSession.events 与 result 解耦，天生支持边跑边吐）
+          if (evt.type === 'text') {
+            text += evt.content
+            params.onDelta?.({ type: 'text', text: evt.content })
+          } else {
+            forwardActivityDelta(evt, params.onDelta)
+          }
         }
-      }
-      const result = await session.result
-      if (result.status !== 'completed') {
-        // 任何非完成状态（timeout/aborted/cancelled/failed）都如实抛错：
-        // 此前只检查 failed，被看门狗清理的运行带着部分文本落回「成功」，
-        // 表现为 span done + 空/截断 content（真实复跑的假成功来源）。
-        // usage 附着到错误对象 —— 引擎失败路径据此把已产生 tokens 落 span。
-        const err = new Error(
-          `CLI agent 未完成（${result.status}）：${result.error ?? '未知错误'}`,
-        )
+        const result = await session.result
+        if (result.status !== 'completed') {
+          // 任何非完成状态（timeout/aborted/cancelled/failed）都如实抛错：
+          // 此前只检查 failed，被看门狗清理的运行带着部分文本落回「成功」，
+          // 表现为 span done + 空/截断 content（真实复跑的假成功来源）。
+          // usage 附着到错误对象 —— 引擎失败路径据此把已产生 tokens 落 span。
+          const err = new Error(
+            `CLI agent 未完成（${result.status}）：${result.error ?? '未知错误'}`,
+          )
+          const models = Object.keys(result.usage ?? {})
+          if (models.length > 0) {
+            let usageIn = 0
+            let usageOut = 0
+            for (const m of models) {
+              const u = result.usage![m] as { inputTokens?: number; outputTokens?: number } | undefined
+              usageIn += u?.inputTokens ?? 0
+              usageOut += u?.outputTokens ?? 0
+            }
+            const withUsage = err as Error & { usage?: ITokenUsage }
+            withUsage.usage = {
+              prompt_tokens: usageIn,
+              completion_tokens: usageOut,
+              total_tokens: usageIn + usageOut,
+              inputTokens: usageIn,
+              outputTokens: usageOut,
+            }
+          }
+          throw err
+        }
+        // 聚合各模型 usage（claude stream-json 事件携带）—— 结果面板的
+        // token 徽章 / runs 用量聚合都依赖它；此前只返回 text 导致恒空。
+        let usage: ITokenUsage | undefined
         const models = Object.keys(result.usage ?? {})
         if (models.length > 0) {
-          let usageIn = 0
-          let usageOut = 0
+          let input = 0
+          let output = 0
           for (const m of models) {
             const u = result.usage![m] as { inputTokens?: number; outputTokens?: number } | undefined
-            usageIn += u?.inputTokens ?? 0
-            usageOut += u?.outputTokens ?? 0
+            input += u?.inputTokens ?? 0
+            output += u?.outputTokens ?? 0
           }
-          const withUsage = err as Error & { usage?: ITokenUsage }
-          withUsage.usage = {
-            prompt_tokens: usageIn,
-            completion_tokens: usageOut,
-            total_tokens: usageIn + usageOut,
-            inputTokens: usageIn,
-            outputTokens: usageOut,
-          }
+          // 双命名（ITokenUsage 是 prompt_tokens 命名 + 开放索引；结果面板
+          // 的 tokensBadge 读 inputTokens/outputTokens）。此前 completion_tokens
+          // 误写成 input（笔误），输出侧用量被夸大。
+          usage = { prompt_tokens: input, completion_tokens: output, total_tokens: input + output, inputTokens: input, outputTokens: output }
         }
-        throw err
+        return { text: text || result.output || '', usage }
+      } finally {
+        if (sink && runId && params.nodeId) unregisterRunNodeSink(runId, params.nodeId, sink)
       }
-      // 聚合各模型 usage（claude stream-json 事件携带）—— 结果面板的
-      // token 徽章 / runs 用量聚合都依赖它；此前只返回 text 导致恒空。
-      let usage: ITokenUsage | undefined
-      const models = Object.keys(result.usage ?? {})
-      if (models.length > 0) {
-        let input = 0
-        let output = 0
-        for (const m of models) {
-          const u = result.usage![m] as { inputTokens?: number; outputTokens?: number } | undefined
-          input += u?.inputTokens ?? 0
-          output += u?.outputTokens ?? 0
-        }
-        // 双命名（ITokenUsage 是 prompt_tokens 命名 + 开放索引；结果面板
-        // 的 tokensBadge 读 inputTokens/outputTokens）。此前 completion_tokens
-        // 误写成 input（笔误），输出侧用量被夸大。
-        usage = { prompt_tokens: input, completion_tokens: output, total_tokens: input + output, inputTokens: input, outputTokens: output }
-      }
-      return { text: text || result.output || '', usage }
     },
     /**
      * CLI 真流式（2026-08-30）：逐消费 session.events，每个 text 事件即刻
@@ -252,33 +370,49 @@ export function createCliLlmClient(kind: AgentType = 'claude', cliCwd?: string) 
      */
     async *chatStream(params: CliChatParams): AsyncGenerator<IChatStreamChunk> {
       const session = startSession(params)
-      for await (const evt of session.events as AsyncIterable<AgentEvent>) {
-        if (evt.type === 'text') {
-          yield { delta: evt.content }
-          params.onDelta?.({ type: 'text', text: evt.content })
-        } else if (evt.type === 'thinking') {
-          params.onDelta?.({ type: 'activity', kind: 'thinking', label: evt.content })
-        } else if (evt.type === 'tool-use') {
-          params.onDelta?.({ type: 'activity', kind: 'tool', label: toolLabel(evt) })
+      const sink =
+        runId && params.nodeId
+          ? registerRunNodeSink(runId, params.nodeId, session, params.onDelta)
+          : null
+      try {
+        for await (const evt of session.events as AsyncIterable<AgentEvent>) {
+          // turn 边界：流式路径同样补分隔 delta（chat 与 chatStream 同语义）
+          if (evt.type === 'status' && evt.status === 'turn-boundary') {
+            yield { delta: '\n\n' }
+            params.onDelta?.({
+              type: 'activity',
+              kind: 'status',
+              label: '── 插话已并入，开始新的 turn ──',
+            })
+            continue
+          }
+          if (evt.type === 'text') {
+            yield { delta: evt.content }
+            params.onDelta?.({ type: 'text', text: evt.content })
+          } else {
+            forwardActivityDelta(evt, params.onDelta)
+          }
         }
-      }
-      const result = await session.result
-      if (result.status !== 'completed') {
-        throw new Error(`CLI agent 未完成（${result.status}）：${result.error ?? '未知错误'}`)
-      }
-      let usage: ITokenUsage | undefined
-      const models = Object.keys(result.usage ?? {})
-      if (models.length > 0) {
-        let input = 0
-        let output = 0
-        for (const m of models) {
-          const u = result.usage![m] as { inputTokens?: number; outputTokens?: number } | undefined
-          input += u?.inputTokens ?? 0
-          output += u?.outputTokens ?? 0
+        const result = await session.result
+        if (result.status !== 'completed') {
+          throw new Error(`CLI agent 未完成（${result.status}）：${result.error ?? '未知错误'}`)
         }
-        usage = { prompt_tokens: input, completion_tokens: output, total_tokens: input + output, inputTokens: input, outputTokens: output }
+        let usage: ITokenUsage | undefined
+        const models = Object.keys(result.usage ?? {})
+        if (models.length > 0) {
+          let input = 0
+          let output = 0
+          for (const m of models) {
+            const u = result.usage![m] as { inputTokens?: number; outputTokens?: number } | undefined
+            input += u?.inputTokens ?? 0
+            output += u?.outputTokens ?? 0
+          }
+          usage = { prompt_tokens: input, completion_tokens: output, total_tokens: input + output, inputTokens: input, outputTokens: output }
+        }
+        if (usage) yield { usage }
+      } finally {
+        if (sink && runId && params.nodeId) unregisterRunNodeSink(runId, params.nodeId, sink)
       }
-      if (usage) yield { usage }
     },
   }
 }
@@ -293,9 +427,12 @@ export function createCliLlmClient(kind: AgentType = 'claude', cliCwd?: string) 
  * frames; CLI path consumes AgentSession.events (2026-08-30 —— 此前 CLI
  * 退化为 result 后一次性吐全文，画布/详情旁观看不到生成过程).
  */
-export function createDefaultLlmClient(kind: AgentType = 'claude', opts: { cwd?: string } = {}) {
+export function createDefaultLlmClient(
+  kind: AgentType = 'claude',
+  opts: { cwd?: string; runId?: string } = {},
+) {
   const http = createLlmClient()
-  const cli = createCliLlmClient(kind, opts.cwd)
+  const cli = createCliLlmClient(kind, opts.cwd, opts.runId)
   return {
     async chat(params: CliChatParams): Promise<{ text: string; tool_calls?: IToolCall[]; usage?: ITokenUsage }> {
       const provider = await getActiveProvider()

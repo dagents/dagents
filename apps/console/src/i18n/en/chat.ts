@@ -162,6 +162,39 @@ export const chat: Record<string, string> = {
   '原始数据': 'Raw data',
   '（执行中…）': '(running…)',
   'token 用量（输入/输出）': 'Token usage (input/output)',
+  '执行活动': 'Activity',
+
+  '工具结果': 'Tool result',
+  '此运行早于全量过程采集（2026-09-06 之前）—— 终端视图显示摘要级内容': 'This run predates full process capture (before 2026-09-06) — the terminal view shows summary-level content only',
+  '查看全文': 'View full text',
+  '查看全文：{title}': 'View full text: {title}',
+
+  // ── 结果面板终端视图（2026-09-06 run-terminal）──
+  '结果视图': 'Result view',
+  '摘要': 'Summary',
+  '终端': 'Terminal',
+  '以终端形式查看完整过程（thinking/工具调用/输出全文）':
+    'View the full process as a terminal (thinking / tool calls / full outputs)',
+  '运行终端': 'Run terminal',
+  '回到最新': 'Jump to latest',
+  '复制': 'Copy',
+  '复制本段过程实录': 'Copy section transcript',
+  '过程实录': 'Process transcript',
+  '复制过程实录': 'Copy process transcript',
+
+  // ── 可操作终端：stdin 行（2026-09-08 run-message）──
+  '运行已结束': 'Run finished',
+  '重跑': 'Re-run',
+  '该运行不可插话 — 仅 CLI Agent 执行支持运行中输入':
+    'This run cannot receive input — only CLI Agent executions accept mid-run input',
+  '（当前没有运行中的 CLI 节点）': '(no CLI node currently running)',
+  '已送达 {node}': 'Delivered to {node}',
+  '节点已结束，消息未送达': 'Node already finished — message not delivered',
+  '当前执行路径不支持运行中插话': 'This execution path does not support mid-run input',
+  '发送失败': 'Send failed',
+  '对运行中的 Agent 补一句话（Enter 发送）…': 'Say something to the running agent (Enter to send)…',
+  '插话目标节点': 'Input target node',
+  '运行中插话': 'Mid-run input',
 
   // ── 聊天内工作流执行卡 ──
   '工作流': 'Workflow',

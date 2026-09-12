@@ -40,6 +40,10 @@ class FakeDispatch {
   heartbeats: unknown[] = []
   /** Inject a transient failure on the Nth claim call. */
   claimFailOn: number[] = []
+  /** 取消意图开关（getTask 返回；测试在任务开跑后置 true）。 */
+  cancelRequested = false
+  /** 按任务 id 精确置取消（优先于全局开关）。 */
+  cancelRequestedFor: string[] = []
   private claimCount = 0
   private startCount = 0
   private reportCount = 0
@@ -87,6 +91,12 @@ class FakeDispatch {
       },
       async failTask(taskId: string, payload: unknown) {
         self.fails.push({ taskId, payload })
+      },
+      async getTask(taskId: string) {
+        return {
+          status: 'running',
+          cancelRequested: self.cancelRequestedFor.includes(taskId) || self.cancelRequested,
+        }
       },
     } as unknown as DispatchClient
   }
@@ -454,5 +464,88 @@ describe('runDaemon — resilience', () => {
     // register failure rejects `done`（2026-08-16 修复：此前 resolve 会让
     // CLI 以 exit 0 退出，supervisor / docker restart:on-failure 不会重启）
     await expect(handle.done).rejects.toThrow('dispatch 503')
+  })
+})
+
+
+describe('runDaemon — 取消协议（2026-09-06，spec §7 补齐）', () => {
+  it('cancel_requested → abort 子进程 → failTask(failureReason=cancelled)', async () => {
+    const fake = new FakeDispatch()
+    fake.tasks.push({ id: 't-cancel', prompt: 'long run', execOptions: {} })
+
+    // startTask 后置取消意图（模拟 gateway 打标）
+    const origStart = fake.starts
+    void origStart
+
+    // backend：吐一条事件后挂起，signal abort 后收尾（模拟 CLI 长跑被杀）
+    const hangBackend = (): AgentBackend => ({
+      execute(_prompt: string, opts: ExecOptions): AgentSession {
+        const gen = (async function* (): AsyncGenerator<AgentEvent> {
+          yield { type: 'text', content: 'partial' }
+          await new Promise<null>((resolve) => {
+            if (opts.signal?.aborted) return resolve(null)
+            opts.signal?.addEventListener('abort', () => resolve(null), { once: true })
+          })
+        })()
+        return {
+          events: { [Symbol.asyncIterator]: () => gen },
+          result: Promise.resolve({
+            status: 'cancelled',
+            output: '',
+            durationMs: 7,
+            usage: {},
+          } satisfies AgentResult),
+        }
+      },
+    })
+
+    const handle = runDaemon({
+      serverUrl: 'http://fake',
+      label: 'test',
+      agentType: 'claude',
+      pollIntervalMs: 2,
+      heartbeatIntervalMs: 1000,
+      cancelPollIntervalMs: 5,
+      client: fake.client(),
+      backendFactory: () => hangBackend(),
+    })
+
+    // 等 startTask 落账后打取消标
+    await new Promise<void>((resolve) => {
+      const t = setInterval(() => {
+        if (fake.starts.includes('t-cancel')) {
+          clearInterval(t)
+          resolve()
+        }
+      }, 2)
+    })
+    fake.cancelRequestedFor = ['t-cancel']
+
+    await drainUntil(handle, () => fake.fails.length > 0, 3000)
+    const fail = fake.fails[0]!
+    expect(fail.taskId).toBe('t-cancel')
+    expect((fail.payload as { failureReason: string }).failureReason).toBe('cancelled')
+  })
+
+  it('取消轮询失败不阻断执行（getTask 抛错仍正常 complete）', async () => {
+    const fake = new FakeDispatch()
+    fake.tasks.push({ id: 't-ok', prompt: 'p', execOptions: {} })
+    const client = fake.client()
+    ;(client as unknown as { getTask: unknown }).getTask = async () => {
+      throw new Error('poll outage')
+    }
+    const events: AgentEvent[] = [{ type: 'text', content: 'hi' }]
+    const handle = runDaemon({
+      serverUrl: 'http://fake',
+      label: 'test',
+      agentType: 'claude',
+      pollIntervalMs: 2,
+      heartbeatIntervalMs: 1000,
+      cancelPollIntervalMs: 3,
+      client,
+      backendFactory: fakeBackend(events, { status: 'completed', output: 'hi', durationMs: 1, usage: {} }),
+    })
+    await drainUntil(handle, () => fake.completes.length > 0, 3000)
+    expect(fake.completes[0]!.taskId).toBe('t-ok')
   })
 })

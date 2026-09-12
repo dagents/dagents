@@ -139,6 +139,10 @@ export async function createSeedContext(): Promise<SeedContext> {
       if (this.insertedProviderIds.length) {
         await runQuery(`DELETE FROM llm_providers WHERE id = ANY($1::uuid[])`, [this.insertedProviderIds])
       }
+      // 兜底扫残留（2026-09-06）：spec 中途被强杀时 tracked id 清理不会执行，
+      // `e2e-mock-%` 行残留会把真实 LLM 调用指向死 mock —— 任何 spec 正常
+      // dispose 时顺手清一遍全库残留，把已知问题的手工 SQL 变成自动兜底。
+      await runQuery(`DELETE FROM llm_providers WHERE name LIKE 'e2e-mock-%'`)
       if (this.deactivatedProviderIds.length) {
         await runQuery(`UPDATE llm_providers SET status = 'active' WHERE id = ANY($1::uuid[])`, [
           this.deactivatedProviderIds,

@@ -14,7 +14,7 @@ gateway (Hono)                         装配执行上下文（DB / LLM / 工具
 @dagents/workflow — DagExecutor        DB-free 的 DAG 执行引擎
    │
    ▼
-llm_providers 表 → OpenAI 兼容 API     nodes 里嵌的平台 Agent → tool-calling 循环
+llm_providers 表 → OpenAI 兼容 API     Agent (CLI)（platformAgent）节点 → tool-calling 循环
 ```
 
 - **引擎**：`packages/workflow`（自研，替代 Flowise agentflow 引擎）
@@ -44,9 +44,9 @@ llm_providers 表 → OpenAI 兼容 API     nodes 里嵌的平台 Agent → tool
   - **Iteration**：对 `items` JSON 数组逐项执行（上限 100 项，超出截断），每轮种子是当前项；`iterationIndex` / `iterationItem` / `iterationCount` 写入运行时状态，模板变量可引用
   - 聚合输出 `{ iterations, completedIterations, content }` 经 `result` 锚点流向下流（聚合输出无 `selected`/`result` 键，result 锚点边默认激活）
 
-### 4. 节点里嵌平台 Agent 与内联工具
+### 4. Agent (CLI) 节点与内联工具
 
-- `PlatformAgent` 节点按 UUID 引用平台 Agent，运行时拉取 instructions/model/skills 驱动完整 tool-calling 循环（maxIterations 封顶 + token 用量累计）；引用关系保护 Agent 不被误删（`utils/agent-refs.ts`）
+- `Agent (CLI)`（注册名 platformAgentAgentflow）节点按 UUID 引用平台上注册的 Agent，运行时拉取 instructions/model/skills 驱动完整 tool-calling 循环（maxIterations 封顶 + token 用量累计）；引用关系保护 Agent 不被误删（`utils/agent-refs.ts`）
 - `Tool` 节点在图上定义工具（名称 / 描述 / JSON Schema / JS handler）：到达时执行一次 handler，同时注册进本次运行的 toolRegistry 覆盖层，供下游 Agent 节点调用
 - gateway 提供内置工具基座（`http_request`、`datetime_now`），每个 run 都可用
 - toolRegistry 是按 run 的浅拷贝覆盖层（executor 内创建），Tool 节点的注册不会泄漏到其他 run
@@ -94,11 +94,11 @@ llm_providers 表 → OpenAI 兼容 API     nodes 里嵌的平台 Agent → tool
 
 > 这一节记录的是**仍真实存在的设计取舍**及其升级路径——不是待办清单。已修复的问题会从这里移除。
 
-- **Tool / CustomFunction / Loop condition 的 JS 执行是 `new Function`**，不是硬沙箱——代码信任对象是 flow 设计者而非终端用户；要对外暴露需换 `isolated-vm` 类方案。CustomFunction 同步跑在主事件循环上（死循环会冻住 gateway）
+- **JS 执行（CustomFunction 已硬化，2026-09-06）**：CustomFunction 改在 worker_threads 执行（`user-code-exec.ts`）—— 超时强杀（默认 5s，`CUSTOM_FN_TIMEOUT_MS`）、AbortSignal 贯穿、危险全局（require/process/globalThis/fetch/Worker）形参遮蔽。**这是隔离不是沙箱**：刻意逃逸（constructor 链）拦不住；多用户化之前需换 isolated-vm/子进程级真沙箱。Tool 节点 handler 与 Loop break condition 仍是同步 `new Function`（待同样处理）
 - **Retriever 目前是关键词检索**（当前会话的 chat_messages ILIKE），不是向量 RAG；接向量库时替换 gateway 的 `historyRetriever` 实现即可，节点契约不变
-- **HumanInput 的挂起状态在 gateway 内存里**（单进程本机模式）：gateway 重启会丢挂起中的输入（流随超时失败）；boot 清扫会把悬空的 chats/runs 收敛为 failed 并留 system 提示，但挂起中的 run 本身不可恢复。前端暂未渲染 `custom:human_input` 专用输入框，但系统消息 + 聊天回复已构成完整可用闭环
+- **HumanInput 的挂起状态在 gateway 内存里**（单进程本机模式）：gateway 重启会丢挂起中的输入（流随超时失败）；boot 清扫把悬空 chats/runs 收敛为 failed + 留 system 提示，**且 2026-09-06 起 boot 会把「聊天最后一条是 human_input 提示」的会话补一条中断说明**（历史不说谎）；挂起中的 run 本身不可恢复（恢复 = 持久化整个 DAG 执行态，单机不立项）。前端暂未渲染 `custom:human_input` 专用输入框，但系统消息 + 聊天回复已构成完整可用闭环
 - **Langfuse 需手工申请 keys**；未配置时导出静默关闭，不影响 run
-- **LLM 请求与 CLI 执行的超时与显式取消**（2026-08-22 执行取消 spec；2026-08-27 修订超时策略）：HTTP 调用带 `LLM_HTTP_TIMEOUT_MS`（默认 120s，流式为空闲看门狗）；CLI 执行**不设墙钟上限**（Agent 自主长跑是常态——曾有 4 路并行 Agent 在 180s 墙被截断成「部分文本 + done」的假成功），全部 CLI 路径只保留静默看门狗：inline 聊天 `INLINE_INACTIVITY_TIMEOUT_MS`、工作流节点 `WORKFLOW_CLI_INACTIVITY_TIMEOUT_MS`（均默认 300s，逐行输出即重置）；看门狗触发或显式取消 → 非完成状态一律抛错（节点 failed、span 记录原因与已产生 tokens）。用户显式取消经 `POST /chats/:id/cancel` / `POST /workflows/runs/:runId/cancel` → 内存执行注册表 → AbortSignal → adapter SIGTERM/SIGKILL。仍存的取舍：SSE/WS 掉线**不**隐式取消（显式取消才停）；daemon/dispatch 远程任务暂无取消通道
+- **LLM 请求与 CLI 执行的超时与显式取消**（2026-08-22 执行取消 spec；2026-08-27 修订超时策略）：HTTP 调用带 `LLM_HTTP_TIMEOUT_MS`（默认 120s，流式为空闲看门狗）；CLI 执行**不设墙钟上限**（Agent 自主长跑是常态——曾有 4 路并行 Agent 在 180s 墙被截断成「部分文本 + done」的假成功），全部 CLI 路径只保留静默看门狗：inline 聊天 `INLINE_INACTIVITY_TIMEOUT_MS`、工作流节点 `WORKFLOW_CLI_INACTIVITY_TIMEOUT_MS`（均默认 300s，逐行输出即重置）；看门狗触发或显式取消 → 非完成状态一律抛错（节点 failed、span 记录原因与已产生 tokens）。用户显式取消经 `POST /chats/:id/cancel` / `POST /workflows/runs/:runId/cancel` → 内存执行注册表 → AbortSignal → adapter SIGTERM/SIGKILL；**dispatch/daemon 远程任务取消已补齐（2026-09-06，spec §7 还债）**——chat/run 取消级联名下非终态任务（queued/claimed 直接终态、running 打 `cancel_requested_at` 标记），daemon 事件流循环 2s 轮询发现即 abort 子进程并以 failTask('cancelled') 收尾；@daemon 命令现在落真实 runs 行（取消可级联、boot 可收敛、usage rollup 不再跳过）。仍存的取舍：SSE/WS 掉线**不**隐式取消（显式取消才停）
 - **普通 Agent 节点无工具循环**：`agentAgentflow` 是单次 LLM 调用（不读 tools/maxIterations）；需要工具循环用 `platformAgentAgentflow`
 
 ## 关键文件索引

@@ -29,6 +29,8 @@ import { Icon } from '@/components/icon'
 import { CodeBlock } from '@/components/code-block'
 import { ToolCallCard } from '@/components/tool-call-card'
 import { FlowPreviewCard, parseWorkflowSuccessMessage } from '@/components/flow-preview-card'
+import { TerminalSurface } from '@/components/run-terminal'
+import { ResultViewer } from '@/components/result-viewer'
 import {
   classifyTool,
   extractSummary,
@@ -680,6 +682,8 @@ function ProcessFold({
   // Open while the task streams (so the user watches progress), collapsed
   // once it settles. Mirrors multica's OuterProcessFold behaviour.
   const [open, setOpen] = useState(!!streaming)
+  const [copied, setCopied] = useState(false)
+  const bodyRef = useRef<HTMLDivElement>(null)
   const wasStreaming = useRef(!!streaming)
   useEffect(() => {
     if (wasStreaming.current && !streaming) setOpen(false)
@@ -688,22 +692,47 @@ function ProcessFold({
 
   const stepCount = items.length
 
+  // 复制过程实录（2026-09-06 终端视图收敛：与画布 RunTerminal 同一交互语汇）
+  const copyProcess = (): void => {
+    const text = bodyRef.current?.innerText ?? ''
+    if (!text) return
+    void navigator.clipboard?.writeText(text).then(() => {
+      setCopied(true)
+      setTimeout(() => setCopied(false), 1500)
+    })
+  }
+
   return (
     <div className="assistant-process">
-      <button
-        type="button"
-        className="assistant-process-trigger"
-        onClick={() => setOpen((v) => !v)}
-        aria-expanded={open}
-      >
-        <Icon
-          name={open ? 'chevronDown' : 'chevronRight'}
-          style={{ width: 12, height: 12 }}
-        />
-        <span>{t('{n} 步骤', { n: stepCount })}</span>
-      </button>
+      <span className="assistant-process-trigger-row">
+        <button
+          type="button"
+          className="assistant-process-trigger"
+          onClick={() => setOpen((v) => !v)}
+          aria-expanded={open}
+        >
+          <Icon
+            name={open ? 'chevronDown' : 'chevronRight'}
+            style={{ width: 12, height: 12 }}
+          />
+          <span>{t('{n} 步骤', { n: stepCount })}</span>
+        </button>
+        {open ? (
+          <button
+            type="button"
+            className="assistant-process-copy"
+            onClick={copyProcess}
+            title={t('复制过程实录')}
+          >
+            {copied ? t('已复制') : t('复制')}
+          </button>
+        ) : null}
+      </span>
       {open ? (
-        <div className="assistant-process-body">
+        // 终端视图收敛（2026-09-06）：滚动跟随 + 回到底部 + max-height 由
+        // TerminalSurface 统一承载（此前长过程无限撑高聊天流）；行级组件
+        // （ToolCallCard 含 diff 视图）保留为终端内的富卡片。
+        <TerminalSurface className="assistant-process-body" surfaceRef={bodyRef} ariaLabel={t('过程实录')}>
           {items.map((item, i) => (
             <Fragment key={i}>
               <ProcessRow
@@ -712,7 +741,7 @@ function ProcessFold({
               />
             </Fragment>
           ))}
-        </div>
+        </TerminalSurface>
       ) : null}
     </div>
   )
@@ -866,8 +895,11 @@ function ToolUseRow({
 }
 
 /** Collapsible tool-result row — muted mono preview, fold to expand.
- *  Uses the new `.tool-result-compact` styles from tool-call.css. */
+ *  Uses the new `.tool-result-compact` styles from tool-call.css.
+ *  超长结果全量可见（2026-09-06）：块内滚动 + maximize 全屏查看器
+ *  （此前展开也截 4000 字 —— 与「看到全部消息」要求冲突）。 */
 function ToolResultRow({ content }: { content: string }): React.ReactNode {
+  const { t } = useI18n()
   const [open, setOpen] = useState(false)
   if (!content) return null
   const preview = content.length > 120 ? content.slice(0, 120) + '…' : content
@@ -888,9 +920,9 @@ function ToolResultRow({ content }: { content: string }): React.ReactNode {
         <span className="tool-result-preview">{preview}</span>
       </button>
       {open ? (
-        <pre className="tool-result-body">
-          {content.length > 4000 ? content.slice(0, 4000) + '\n... (truncated)' : content}
-        </pre>
+        <ResultViewer title={t('工具结果')} text={content} mono>
+          <pre className="tool-result-body">{content}</pre>
+        </ResultViewer>
       ) : null}
     </div>
   )

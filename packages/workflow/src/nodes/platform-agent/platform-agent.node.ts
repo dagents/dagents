@@ -143,6 +143,9 @@ export class PlatformAgentNode implements INode {
         // CLI 后端逐事件转发 text delta —— 工具循环的每一轮生成过程都
         // 可被旁观端看到（live tail），不再等到节点收尾才见产出。
         onDelta: options.onNodeDelta,
+        // 可操作终端（2026-09-08）：上报调用方节点 id —— 工具循环每轮新建
+        // CLI 会话，汇点表按 nodeId 覆盖登记，插话永远路由到最新会话。
+        nodeId: nodeData.id,
       })
       totalUsage = accumulateUsage(totalUsage, result.usage)
 

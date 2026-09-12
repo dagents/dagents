@@ -21,12 +21,24 @@
 .detail-back:focus-visible { outline: none; box-shadow: var(--focus-ring); }
 .detail-back svg { width: 14px; height: 14px; }
 
+/* 页面整体撑满视口：back 行自然高，detail-layout 弹性吃掉剩余空间。
+   旧实现是写死公式 calc(100vh - topbar - … - 90px)，按「旧壳有 56px 顶栏」
+   的假设扣高度 —— 壳一改就漏（2026-09-08：新壳顶栏不在 main 里，内容
+   恒比可用空间矮 ~140px，页面下半截大片空白）。flex 填充不假设任何
+   chrome 高度；内容超出时 min-height 让页面自然滚动。 */
+.page.agents-detail-page {
+  display: flex;
+  flex-direction: column;
+  min-height: calc(100vh - var(--space-8) - var(--space-16));
+  box-sizing: border-box;
+}
 .detail-layout {
   display: grid;
   grid-template-columns: 320px minmax(0, 1fr);
   gap: var(--space-4);
   /* stable height so tab switching doesn't reflow the grid */
-  height: calc(100vh - var(--topbar-h) - var(--space-8) - var(--space-8) - 90px);
+  flex: 1;
+  min-height: 0;
 }
 
 /* ── inspector (left) ── */

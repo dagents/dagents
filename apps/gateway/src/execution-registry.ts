@@ -28,6 +28,13 @@ export interface ExecutionHandle {
   startedAt: number
   /** Abort the execution (kills the CLI child / aborts in-flight fetches). */
   abort(reason?: string): void
+  /**
+   * Mid-run message injection (operable-terminal PRD, 2026-09-08) — routes a
+   * user message to a running node's live CLI session. Absent on execution
+   * kinds without CLI sinks (inline chat). Sync ack — the HTTP reply IS the
+   * receipt: sent / unsupported (no bidirectional channel) / not_running.
+   */
+  sendToNode?(nodeId: string, text: string): 'sent' | 'unsupported' | 'not_running'
   /** Resolves when the execution has fully settled (persisted + broadcast). */
   done: Promise<void>
 }

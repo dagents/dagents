@@ -130,3 +130,30 @@
 @keyframes settings-icon-spin {
   to { transform: rotate(360deg); }
 }
+
+/* ── 外观与语言 tab（2026-09-06：明暗/语言切换移入设置）──
+ * 分段控件（radiogroup 形态）：与画布结果面板视图切换器同款视觉语汇。 */
+.settings-seg {
+  display: inline-flex;
+  border: 1px solid var(--border);
+  border-radius: var(--radius-sm);
+  overflow: hidden;
+  background: var(--bg);
+  flex-shrink: 0;
+}
+.settings-seg-btn {
+  border: 0;
+  background: transparent;
+  color: var(--muted);
+  font-size: var(--text-xs);
+  padding: 5px 14px;
+  cursor: pointer;
+  transition: background var(--motion-fast) var(--ease-standard),
+              color var(--motion-fast) var(--ease-standard);
+}
+.settings-seg-btn:hover { color: var(--fg); }
+.settings-seg-btn.active {
+  background: var(--surface);
+  color: var(--fg);
+  font-weight: 500;
+}

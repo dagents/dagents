@@ -17,3 +17,4 @@ test-results/
 gui-test-screenshots/
 .gstack/
 .DS_Store
+backups/

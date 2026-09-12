@@ -10,6 +10,7 @@ import { agentLibraryRoutes } from './routes/agent-library.js'
 import { flowTemplateRoutes } from './routes/flow-templates.js'
 import { flowGeneratorRoutes } from './routes/flow-generator.js'
 import { chatCancelRoutes, runCancelRoutes } from './routes/execution-cancel.js'
+import { runMessageRoutes } from './routes/execution-message.js'
 import { llmProviderRoutes } from './routes/llm-providers.js'
 import { workflowsRoutes } from './routes/workflows.js'
 import { runsRoutes } from './routes/runs.js'
@@ -91,7 +92,7 @@ app.use('*', async (c, next) => {
     path === '/api/v1/dispatch/daemons/register' ||
     path === '/api/v1/dispatch/daemons/heartbeat' ||
     /^\/api\/v1\/dispatch\/daemons\/[^/]+\/tasks\/claim$/.test(path) ||
-    /^\/api\/v1\/dispatch\/tasks\/[^/]+\/(start|progress|messages|complete|fail)$/.test(path)
+    /^\/api\/v1\/dispatch\/tasks\/[^/]+\/(start|progress|messages|complete|fail|cancel)$/.test(path)
   if (daemonProtocol) {
     await next()
     return
@@ -197,6 +198,7 @@ app.route('/api/v1/flow-generator', flowGeneratorRoutes)
  */
 app.route('/api/v1/chats', chatCancelRoutes)
 app.route('/api/v1/workflows', runCancelRoutes)
+app.route('/api/v1/workflows', runMessageRoutes)
 
 /**
  * LLM Provider CRUD API: llm provider list + detail + create + update + delete + test.

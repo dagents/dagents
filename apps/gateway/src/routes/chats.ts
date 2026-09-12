@@ -15,6 +15,7 @@ import {
   createAgentFetcher,
   createBuiltInToolRegistry,
   resetProviderCache,
+  sendToRunNode,
 } from './workflow-clients.js'
 import { createChatHumanInputResolver, resolvePendingHumanInput } from './human-input.js'
 
@@ -859,6 +860,8 @@ chatRoutes.get('/:id/stream', async (c) => {
     kind: 'chat-stream',
     startedAt: Date.now(),
     abort: (reason?: string) => abort.abort(new Error(reason ?? 'cancelled by caller')),
+    // 运行中插话（2026-09-08 可操作终端）：chat 触发的工作流运行与画布直跑同权
+    sendToNode: (nodeId: string, text: string) => sendToRunNode(runId, nodeId, text),
     done,
   }
   executionRegistry.register(handle)
@@ -894,7 +897,7 @@ chatRoutes.get('/:id/stream', async (c) => {
           chatCwd = dirRows[0]?.path ?? undefined
         } catch { /* 目录解析失败回落网关 cwd */ }
       }
-      const llmClient = createDefaultLlmClient('claude', { cwd: chatCwd })
+      const llmClient = createDefaultLlmClient('claude', { cwd: chatCwd, runId })
       const agentFetcher = createAgentFetcher()
       const toolRegistry = createBuiltInToolRegistry()
       // HumanInput nodes park on the user's next message in this chat

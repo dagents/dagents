@@ -190,4 +190,14 @@ export const common = {
 
 // ── 2026-09-04 像素级设计修复（PX-S01 技能库工具栏）──
 '添加目录': 'Add directory',
+
+// ── 2026-09-06 外观与语言设置（侧栏切换移入设置页）──
+'通用': 'General',
+'外观与语言': 'Appearance & language',
+'主题': 'Theme',
+'界面主题': 'Interface theme',
+'浅色 / 深色 / 跟随系统；全站即时生效并跨刷新保留': 'Light / dark / follow system — applies site-wide instantly and survives refresh',
+'语言': 'Language',
+'界面语言': 'Interface language',
+'切换全站文案语言，即时生效（未翻译词条回退中文）': 'Switch UI copy site-wide, instant (untranslated keys fall back to Chinese)',
 } as const

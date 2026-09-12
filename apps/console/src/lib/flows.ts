@@ -153,7 +153,7 @@ export interface FlowNodeView {
   config?: Record<string, unknown>
   /** 节点类型描述（来自 CanvasNodeMeta.description） */
   description?: string
-  /** 节点类型名（如 'agentAgentflow', 'llmAgentflow'）—来自 data.name */
+  /** 节点类型名（如 'platformAgentAgentflow', 'llmAgentflow'）—来自 data.name */
   nodeType?: string
 }
 

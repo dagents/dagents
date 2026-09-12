@@ -4,6 +4,8 @@ import { createLogger } from '@dagents/shared'
 import { startTracing } from '@dagents/shared/otel'
 import { app } from './app.js'
 import { wsHub } from './ws-hub.js'
+import { startRetentionTimer } from './retention.js'
+import { markOrphanedHumanInputs } from './routes/human-input.js'
 
 const tracing = startTracing('gateway')
 const log = createLogger({ svc: 'gateway:reaper' })
@@ -57,6 +59,13 @@ async function sweepDanglingExecutions(): Promise<void> {
   }
 }
 await sweepDanglingExecutions()
+// HumanInput 挂起态是进程内 Promise（单进程红线）—— 重启即死。挂起时写进
+// 会话历史的提示（"直接在本聊天中回复即可"）在重启后成为谎言：用户回复会
+// 被当成新消息正常路由，流程却早已不在。boot 时把「聊天最后一条消息是
+// human_input 提示」的会话补一条中断说明，让历史不说谎（2026-09-06）。
+await markOrphanedHumanInputs()
+// 执行轨迹保留清理（90 天默认，DAGENTS_RETENTION_DAYS 可调/关闭）
+startRetentionTimer()
 
 /**
  * Daemon offline reaper — marks daemons as `offline` when their

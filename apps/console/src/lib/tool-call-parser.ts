@@ -82,13 +82,11 @@ const CATEGORY_RULES: ReadonlyArray<{ test: RegExp; category: ToolCategory }> = 
   { test: /bash|execute|command|terminal|shell|run|spawn/i, category: 'terminal' },
 ]
 
-/** Emoji glyph shown in the card header, by category. */
-export const CATEGORY_GLYPH: Record<ToolCategory, string> = {
-  search: '🔍',
-  edit: '✏️',
-  terminal: '💻',
-  tool: '🔧',
-}
+/**
+ * 分类 → 图标/配色由消费方解析：2026-09-06 设计师裁决去 emoji 文本标记，
+ * 图标统一走 `@/components/icon`（tool-call-card 的 CATEGORY_ICON；
+ * 终端视图/摘要活动流用 lineIcon/activityIcon 同一语义映射）。
+ */
 
 /**
  * Classify a tool name into a category. Falls back to `tool` (gray) when

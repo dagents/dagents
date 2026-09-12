@@ -270,6 +270,40 @@ export function SkillsView(): React.ReactElement {
         </div>
       ) : null}
 
+      <div className="skills-footer">
+        {roots.map((r) => (
+          <div key={`${r.source}:${r.dir}`} className="skills-footer-root">
+            <span>
+              {t('发现根 · ')}{t(sourceLabel(r.source))} → <span className="dir">{r.dir}</span>
+            </span>
+            {r.removable ? (
+              <button
+                type="button"
+                className={`skills-root-remove${confirmRemoveDir === r.dir ? ' danger' : ''}`}
+                aria-label={t('移除目录 {dir}', { dir: r.dir })}
+                title={t('从列表移除（不删除磁盘文件）')}
+                onClick={() => {
+                  // Two-step confirm — removing edits a user-level config file.
+                  if (confirmRemoveDir !== r.dir) {
+                    setConfirmRemoveDir(r.dir)
+                    return
+                  }
+                  setConfirmRemoveDir(null)
+                  void removeRoot(r.dir)
+                }}
+                onBlur={() => {
+                  if (confirmRemoveDir === r.dir) setConfirmRemoveDir(null)
+                }}
+              >
+                <Icon name="close" />
+                {confirmRemoveDir === r.dir ? <span style={{ fontSize: 'var(--text-2xs)' }}>{t('确认？')}</span> : null}
+              </button>
+            ) : null}
+          </div>
+        ))}
+        {/* 「添加目录」入口已升为工具栏按钮（PX-S01），清单移到列表上方后这里只保留发现根行 */}
+      </div>
+
       {loading && skills.length === 0 ? (
         <SkeletonList rows={6} />
       ) : visible.length === 0 && !error ? (
@@ -335,40 +369,6 @@ export function SkillsView(): React.ReactElement {
           ))}
         </div>
       )}
-
-      <div className="skills-footer">
-        {roots.map((r) => (
-          <div key={`${r.source}:${r.dir}`} className="skills-footer-root">
-            <span>
-              {t('发现根 · ')}{t(sourceLabel(r.source))} → <span className="dir">{r.dir}</span>
-            </span>
-            {r.removable ? (
-              <button
-                type="button"
-                className={`skills-root-remove${confirmRemoveDir === r.dir ? ' danger' : ''}`}
-                aria-label={t('移除目录 {dir}', { dir: r.dir })}
-                title={t('从列表移除（不删除磁盘文件）')}
-                onClick={() => {
-                  // Two-step confirm — removing edits a user-level config file.
-                  if (confirmRemoveDir !== r.dir) {
-                    setConfirmRemoveDir(r.dir)
-                    return
-                  }
-                  setConfirmRemoveDir(null)
-                  void removeRoot(r.dir)
-                }}
-                onBlur={() => {
-                  if (confirmRemoveDir === r.dir) setConfirmRemoveDir(null)
-                }}
-              >
-                <Icon name="close" />
-                {confirmRemoveDir === r.dir ? <span style={{ fontSize: 'var(--text-2xs)' }}>{t('确认？')}</span> : null}
-              </button>
-            ) : null}
-          </div>
-        ))}
-        {/* 「添加目录」入口已升为工具栏按钮（PX-S01），页脚只保留发现根清单 */}
-      </div>
     </PageShell>
   )
 }

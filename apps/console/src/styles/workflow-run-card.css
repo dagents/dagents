@@ -75,3 +75,9 @@
 .wf-run-card.warn .wf-run-card-head { background: var(--warn-soft); }
 .wf-chain-node.dot-warn, .wf-tl-dot.dot-warn { background: var(--warn); }
 .wf-run-warn-flag { font-size: var(--text-2xs); color: color-mix(in oklab, var(--warn) 72%, var(--fg)); font-weight: 600; flex-shrink: 0; }
+
+/* 2026-09-06 图标统一：来源徽章/警示 emoji → Icon 体系 */
+.wf-run-badge { display: inline-flex; align-items: center; }
+.wf-run-badge svg { width: 11px; height: 11px; }
+.wf-run-warn-flag { display: inline-flex; align-items: center; gap: 3px; }
+.wf-run-warn-flag svg { width: 11px; height: 11px; }

@@ -82,6 +82,15 @@ export interface AgentSession {
   events: AsyncIterable<AgentEvent>
   /** Resolves exactly once with the final outcome. */
   result: Promise<AgentResult>
+  /**
+   * Mid-run user message injection (operable-terminal PRD, 2026-09-08) —
+   * writes a JSON-framed user message to the agent's stdin while the session
+   * is live. Only backends with a bidirectional input channel implement it
+   * (claude via `--input-format stream-json`); `undefined` = unsupported.
+   * Returns false when the session can no longer accept input (already
+   * finishing / process gone) — the caller surfaces that honestly.
+   */
+  send?(text: string): boolean
 }
 
 /**

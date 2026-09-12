@@ -12,13 +12,13 @@ import { linearFlow, llmNode, directReplyNode } from './helpers/flow-builder'
  *   IA-02  画布页 FAB 避让 minimap（D5）：fab 带 canvas 偏移类
  *   IA-03  画布顶栏「一句话生成」入口存在（F7 三入口之一，行为由
  *         WF 系列与 17 号覆盖，这里只钉入口可达）
- *   IA-04  IA 回滚通道：`dagents.ia.workflow-first=off` 时 `/` 回到
+ *   IA-04  （已删）IA 回滚通道 —— 双壳 2026-09-06 退役，`/` 不再回到
  *         聊天主页（P3 观察期的回滚保证）
  */
 
 let ctx!: SeedContext
 
-test.describe('Workflow-First IA smoke (IA-01 ~ IA-04)', () => {
+test.describe('Workflow-First IA smoke (IA-01 ~ IA-03（IA-04 回滚通道已随双壳退役删除，2026-09-06）)', () => {
   test.beforeAll(async () => {
     ctx = await createSeedContext()
   })
@@ -110,14 +110,4 @@ test.describe('Workflow-First IA smoke (IA-01 ~ IA-04)', () => {
     await expect(page.getByRole('dialog', { name: '一句话生成工作流' })).toBeVisible()
   })
 
-  test('IA-04: rollback channel — flag off restores the Chat-First home', async ({ page }) => {
-    await page.addInitScript(() => {
-      localStorage.setItem('dagents.ia.workflow-first', 'off')
-    })
-    await page.goto('/')
-    // 旧 IA：聊天主页的 composer + 侧栏会话树（ChatNavSidebar）
-    await expect(page.locator('.chat-composer-wrap')).toBeVisible({ timeout: 15_000 })
-    await expect(page.locator('.chat-nav-sidebar')).toBeVisible()
-    await expect(page.locator('.app-nav-root, [aria-label="主导航"]')).toHaveCount(0)
-  })
 })

@@ -28,7 +28,6 @@ import {
   useChatExecution,
   extractCanvasLink,
 } from '@/lib/use-chat-execution'
-import { isWorkflowFirstIA } from '@/lib/ia-flag'
 import { useToast } from '@/components/toast'
 import { useI18n } from '@/i18n'
 import '@/styles/floating-chat.css'
@@ -62,11 +61,6 @@ function readPos(): WindowPos {
 
 export function FloatingChat(): React.ReactElement {
   const pathname = usePathname() ?? '/'
-  const [wfIA, setWfIA] = useState<boolean | null>(null)
-  useEffect(() => {
-    setWfIA(isWorkflowFirstIA())
-  }, [])
-
   // 窗口开合记忆
   const [open, setOpen] = useState(false)
   useEffect(() => {
@@ -82,14 +76,8 @@ export function FloatingChat(): React.ReactElement {
 
   // 聊天本体页永远隐藏；旧 IA 沿用「管理页隐藏」行为
   const onChatDetail = pathname.startsWith('/chats/')
-  const onManagementPage =
-    pathname.startsWith('/agents') ||
-    pathname.startsWith('/flows') ||
-    pathname.startsWith('/workflows') ||
-    pathname.startsWith('/daemons') ||
-    pathname.startsWith('/settings')
-  const shouldHide = wfIA === null ? true : onChatDetail || (wfIA ? false : onManagementPage || pathname === '/')
-  // wfIA 为 null（首帧未定）时保守隐藏，避免水合闪烁
+  // 回滚双壳退役后唯一隐藏条件：聊天详情页（常驻副驾与详情页自带输入框冲突）
+  const shouldHide = onChatDetail
 
   return (
     <>

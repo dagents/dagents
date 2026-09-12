@@ -3,6 +3,7 @@ import { z } from 'zod'
 import { runQuery } from '@dagents/db'
 import { ok, fail } from './index.js'
 import { appendAgentDaemonCall } from './runs-usage.js'
+import { cancelDispatchTask } from './service.js'
 import { createLogger } from '@dagents/shared'
 
 /**
@@ -119,8 +120,10 @@ tasksRoutes.get('/tasks/:id', async (c) => {
     session_id: string | null
     created_at: Date
     finished_at: Date | null
+    cancel_requested: boolean
   }>(
-    `SELECT status, result, failure_reason, session_id, created_at, finished_at
+    `SELECT status, result, failure_reason, session_id, created_at, finished_at,
+            (cancel_requested_at IS NOT NULL) AS cancel_requested
        FROM dispatch_tasks
       WHERE id = $1`,
     [id],
@@ -136,7 +139,23 @@ tasksRoutes.get('/tasks/:id', async (c) => {
     sessionId: row.session_id ?? null,
     createdAt: row.created_at,
     finishedAt: row.finished_at ?? null,
+    /** daemon 事件流循环轮询此标志，发现即 abort 子进程收尾（2026-09-06）*/
+    cancelRequested: row.cancel_requested,
   })
+})
+
+/**
+ * POST /tasks/:id/cancel —— 用户/网关侧的取消意图（幂等）。
+ * queued/claimed 直接落终态；running 打 cancel_requested 标记由 daemon
+ * 轮询发现后 abort（执行取消 spec §7 Deferred 的补齐，2026-09-06）。
+ * 这是 daemon 协议面里唯一的「反向」端点（发起方不是 daemon），
+ * 与 lifecycle 端点同挂 /api/v1/dispatch 下。
+ */
+tasksRoutes.post('/tasks/:id/cancel', async (c) => {
+  const id = c.req.param('id')
+  const result = await cancelDispatchTask(id)
+  if (result.outcome === 'missing') return fail(c, 404, 'task not found', { taskId: id })
+  return ok(c, { taskId: id, outcome: result.outcome })
 })
 
 tasksRoutes.post('/tasks/:id/start', async (c) => {

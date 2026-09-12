@@ -21,11 +21,8 @@
  * and "执行中…" instead of a static summary.
  */
 import { useState } from 'react'
-import { Icon } from '@/components/icon'
-import {
-  CATEGORY_GLYPH,
-  type ToolCategory,
-} from '@/lib/tool-call-parser'
+import { Icon, type IconName } from '@/components/icon'
+import type { ToolCategory } from '@/lib/tool-call-parser'
 import { FileDiffView } from '@/components/file-diff-view'
 import '@/styles/tool-call.css'
 
@@ -55,6 +52,15 @@ const CATEGORY_LABEL: Record<ToolCategory, string> = {
   tool: '工具',
 }
 
+/** 分类 → 统一 Icon 体系（2026-09-06 设计师裁决：去 emoji 文本标记，
+ *  与终端视图/摘要活动流同一套 stroke 图标）。 */
+const CATEGORY_ICON: Record<ToolCategory, IconName> = {
+  search: 'search',
+  edit: 'pencil',
+  terminal: 'terminal',
+  tool: 'wrench',
+}
+
 export function ToolCallCard({
   toolName,
   toolInput,
@@ -68,7 +74,7 @@ export function ToolCallCard({
   const [open, setOpen] = useState(!!defaultOpen)
   const [copied, setCopied] = useState(false)
 
-  const glyph = CATEGORY_GLYPH[category]
+  const iconName = CATEGORY_ICON[category]
   const hasInput = !!toolInput && Object.keys(toolInput).length > 0
   const hasDiff = category === 'edit' && hasInput && (
     'old_string' in toolInput! || 'new_string' in toolInput!
@@ -98,7 +104,7 @@ export function ToolCallCard({
         onClick={() => setOpen((v) => !v)}
         aria-expanded={open}
       >
-        <span className="tool-call-glyph" aria-hidden="true">{glyph}</span>
+        <span className="tool-call-glyph" aria-hidden="true"><Icon name={iconName} style={{ width: 12, height: 12 }} /></span>
         <span className="tool-call-name">{toolName}</span>
         {inProgress ? (
           // PX-C05: 3-dot bounce right after the tool name while running.

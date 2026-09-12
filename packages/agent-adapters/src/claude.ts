@@ -24,11 +24,19 @@
  * Scope note (M2.1 = Gate-1 头号 spike): this is the minimal correct spawn +
  * parse + usage-aggregation core. The autonomous hardening multica layers on
  * top — `--input-format stream-json` + JSON-framed stdin, `control_request`
- * auto-approve, `--permission-mode bypassPermissions`, root/sudo preflight,
- * and inactivity watchdog — is deferred to the tasks that actually need it
- * (T3 watchdog, M2.4 Gate-1 e2e). MCP temp-file injection + `--mcp-config`
- * pass-through landed in M2.6 (P1.6.T4) via `writeMcpConfigToTemp`; raw text
- * stdin is still sufficient for this spike's e2e until the JSON-framing task.
+ * auto-approve, `--permission-mode bypassPermissions` (landed), root/sudo
+ * preflight, and inactivity watchdog (landed).
+ *
+ * 2026-09-08 可操作终端（docs/prd-operable-terminal.md）：stdin 升级为
+ * `--input-format stream-json` 双向 JSON 帧 —— prompt 首帧化、stdin 常开、
+ * `session.send(text)` 运行中插话。终态语义随之改为**静默判定**：每个
+ * stdin user 帧开一个 turn、每个 result 帧关一个（openTurns 计数），归零
+ * 才 end stdin（进程自然退出 → stdout EOF → resolve）。进程在 result 后
+ * 活着等下一帧是 stream-input 的协议行为，不主动收尾运行就永远不结束。
+ * 插话在当前 turn 之后的下一个 turn 被消化（排队补话语义，不承诺打断），
+ * 最终 output = 最后一个 turn 的 result。逃生门：
+ * `DAGENTS_CLAUDE_INPUT_FORMAT=text` 回退旧原始文本 stdin（一次性、无
+ * send、stdout EOF 即完成）。
  */
 import { spawn } from 'node:child_process'
 import * as readline from 'node:readline'
@@ -77,6 +85,13 @@ export function buildClaudeArgs(
   mcpConfigPath?: string,
 ): string[] {
   const args = ['--print', '--output-format', 'stream-json', '--verbose']
+  // 双向 stdin（2026-09-08 可操作终端）：JSON 帧 user message 走 stdin，
+  // prompt 首帧化 + 运行中插话（session.send）靠它。逃生门：
+  // DAGENTS_CLAUDE_INPUT_FORMAT=text 回退旧原始文本一次性 stdin。flag 在
+  // CLAUDE_BLOCKED_ARGS —— 调用方不可覆盖，本后端独占。
+  if ((process.env.DAGENTS_CLAUDE_INPUT_FORMAT ?? 'stream-json') !== 'text') {
+    args.push('--input-format', 'stream-json')
+  }
   // 非交互（--print）下 Claude Code 无法弹批准框 —— 不给权限模式时，
   // 写文件/执行命令类工具调用会被直接拒绝，模型反复绕路后回复"没有
   // 权限"。本机模式默认 bypassPermissions（工作目录由用户显式选择，
@@ -543,6 +558,21 @@ export function claudeBackend(cfg: BackendConfig): AgentBackend {
 
       const queue = new AsyncEventQueue()
 
+      // stdin 引用：spawn 发生在 `done` 异步体内（首个 await 之后），而
+      // session 对象在 execute() 同步返回 —— send() 经这个引用写帧，spawn
+      // 前调用自然落空（返回 false，gateway 回 not_running 诚实回执）。
+      let stdinRef: import('node:stream').Writable | null = null
+      // stream-input 终态协议（见文件头 2026-09-08 注）：每个 stdin user
+      // 帧开一个 turn、每个 result 帧关一个；openTurns = 已开未关的 turn
+      // 数，归零即「静默」—— end stdin 收尾。is_error 视为终局，立即收尾。
+      const streamInput = (process.env.DAGENTS_CLAUDE_INPUT_FORMAT ?? 'stream-json') !== 'text'
+      let openTurns = 0
+      let finishing = false
+      // send 的实现体在 spawn 后才赋值（异步体内）；session 返回的是稳定
+      // 包装 —— 实现未就绪（spawn 前窗口）时返回 false，语义同样是
+      // 「尚不可插话」。
+      let sendTurnImpl: ((text: string) => boolean) | null = null
+
       // Eagerly start the subprocess so the run always happens even when the
       // caller awaits only `result` (mirrors multica's unconditional goroutine;
       // the prior lazy-generator design skipped spawning if nobody iterated).
@@ -622,6 +652,7 @@ export function claudeBackend(cfg: BackendConfig): AgentBackend {
           log.warn('claude stderr', { chunk: s.slice(-512) })
           stderrTail = (stderrTail + s).slice(-STDERR_TAIL_BYTES)
         })
+        stdinRef = proc.stdin ?? null
 
         // Wall-clock timeout (multica `Timeout`). SIGTERM lets the CLI flush;
         // if it ignores SIGTERM, escalate to SIGKILL after a grace period and
@@ -707,11 +738,31 @@ export function claudeBackend(cfg: BackendConfig): AgentBackend {
           }, opts.inactivityTimeoutMs)
         }
 
-        // Write the prompt and signal EOF. `end(chunk)` handles backpressure
-        // internally; write errors are swallowed by the stdin 'error' handler
-        // above. Raw text input is fine for M2.1 (no --input-format
-        // stream-json); the hardening tasks add JSON framing.
-        proc.stdin!.end(prompt)
+        // Prompt 首帧。stream-input 模式：JSON 帧 + stdin 常开（openTurns
+        // 静默判定收尾，见 execute 顶部注释）；text 回退模式保持旧行为
+        // （原始文本 + 即刻 EOF）。write/backpressure 由 Node 内部处理，
+        // 写错误（进程已死时的 EPIPE）由上方 stdin error handler 吞掉。
+        const userFrame = (text: string): string =>
+          JSON.stringify({
+            type: 'user',
+            message: { role: 'user', content: [{ type: 'text', text }] },
+          }) + '\n'
+        // 运行中插话：只允许「静默判定尚未触发」（finishing / openTurns=0
+        // / stdin 已死都拒绝 —— gateway 据此回 not_running 诚实回执）。
+        sendTurnImpl = (text: string): boolean => {
+          if (!streamInput || finishing || !stdinRef || stdinRef.destroyed || openTurns <= 0) {
+            return false
+          }
+          openTurns += 1
+          stdinRef.write(userFrame(text))
+          return true
+        }
+        if (streamInput) {
+          stdinRef!.write(userFrame(prompt))
+          openTurns += 1 // prompt 首帧：openTurns 0 → 1
+        } else {
+          stdinRef!.end(prompt)
+        }
 
         const rl = readline.createInterface({ input: proc.stdout!, crlfDelay: Infinity })
         try {
@@ -756,9 +807,32 @@ export function claudeBackend(cfg: BackendConfig): AgentBackend {
               }
               const ru = resultUsage(msg, opts.model)
               if (ru) usage = ru
+              if (streamInput) {
+                // 静默判定：本帧关闭一个 turn；仍有待处理插话 turn 时这只是
+                // turn 边界（stdin 常开等下一个 result），归零才收尾 ——
+                // end stdin 让进程自然退出，readline EOF → resolve。
+                openTurns -= 1
+                if (msg.is_error || openTurns <= 0) {
+                  finishing = true
+                  proc.stdin!.end()
+                }
+              }
             }
 
             for (const ev of parseEvent(msg)) {
+              // 多 turn 下中间 result 帧的 completed status 是 turn 边界而
+              // 非终局 —— completed 抑制（避免下游把「turn 完成」当「节点
+              // 完成」），换成显式 turn-boundary：CLI client 据此在正文里
+              // 补 turn 分隔符（否则插话前后的正文粘连，如「40我此刻」）。
+              if (
+                ev.type === 'status' &&
+                ev.status === 'completed' &&
+                streamInput &&
+                openTurns > 0
+              ) {
+                queue.push({ type: 'status', status: 'turn-boundary' })
+                continue
+              }
               // Accumulate streamed assistant text so Result.output is
               // non-empty even if the result frame carries no `result` text.
               // The result frame (when present) overrides this above; it is
@@ -838,7 +912,11 @@ export function claudeBackend(cfg: BackendConfig): AgentBackend {
 
       const events: AsyncIterable<AgentEvent> = queue
 
-      return { events, result }
+      // 运行中插话（可操作终端 PRD）：仅 stream-input 模式暴露 —— text 回退
+      // 模式下 send 为 undefined，消费端按「不支持」处理。
+      return streamInput
+        ? { events, result, send: (text: string) => sendTurnImpl?.(text) ?? false }
+        : { events, result }
     },
   }
 }

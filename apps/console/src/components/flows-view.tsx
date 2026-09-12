@@ -150,6 +150,8 @@ export function FlowsView({ home = false }: { home?: boolean }): React.ReactElem
     inputHint?: string
     inputExample?: string
     hintLoaded?: boolean
+    /** 重跑预填（2026-09-08 ⬆ 语义）：历史行带来的上次输入，优先于记忆。 */
+    rerunInput?: string | null
   } | null>(null)
   const [runDirectories, setRunDirectories] = useState<Directory[]>([])
   const [runDirId, setRunDirId] = useState('')
@@ -510,7 +512,7 @@ export function FlowsView({ home = false }: { home?: boolean }): React.ReactElem
               />
             ) : (
             <div className="empty-state">
-              <div className="empty-state-icon" aria-hidden="true">⚡</div>
+              <div className="empty-state-icon" aria-hidden="true"><Icon name="zap" style={{ width: 28, height: 28 }} /></div>
               <div className="h">{flows.length === 0 ? t('还没有 Flow') : t('没有匹配的 Flow')}</div>
               <div className="d">
                 {flows.length === 0
@@ -697,7 +699,13 @@ export function FlowsView({ home = false }: { home?: boolean }): React.ReactElem
                    * 由面板自身 3s 轮询收尾。slot 只是挂 border-top 的壳，
                    * 显隐与列表样式都在 FlowRunsPanel 根（.flow-runs）单源。 */}
                   <div className="flow-runs-slot">
-                    <FlowRunsPanel flowId={f.id} refreshTick={runsTick} />
+                    <FlowRunsPanel
+                      flowId={f.id}
+                      refreshTick={runsTick}
+                      onRerun={(input) =>
+                        setRunDialogFlow({ id: f.id, name: f.name, rerunInput: input })
+                      }
+                    />
                   </div>
                 </div>
               )
@@ -732,6 +740,8 @@ export function FlowsView({ home = false }: { home?: boolean }): React.ReactElem
       {runDialogFlow ? (
         <FlowRunDialog
           flowName={runDialogFlow.name}
+          flowId={runDialogFlow.id}
+          initialInput={runDialogFlow.rerunInput ?? undefined}
           directories={runDirectories}
           dirId={runDirId}
           inputHint={runDialogFlow.inputHint}

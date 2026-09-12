@@ -25,6 +25,8 @@ interface RunRow {
   startedAt: string | null
   durationMs: number | null
   inputPreview: string | { input?: string } | null
+  /** 运行输入全文（2026-09-08 可操作终端：重跑预填数据源；旧行可能缺省）。 */
+  input?: string | null
   error: string | null
   createdAt: string
 }
@@ -48,9 +50,12 @@ export interface FlowRunsPanelProps {
   flowId: string
   /** 父组件 bump 触发重拉（发起运行后新 run 立即可见）。 */
   refreshTick?: number
+  /** 重跑（2026-09-08 可操作终端 §4.2，⬆ 等价物）：父组件打开预填的
+   *  运行对话框 —— 预填来源 = 该行输入全文（可能为 null：旧行无输入）。 */
+  onRerun?: (input: string | null) => void
 }
 
-export function FlowRunsPanel({ flowId, refreshTick = 0 }: FlowRunsPanelProps): React.ReactElement {
+export function FlowRunsPanel({ flowId, refreshTick = 0, onRerun }: FlowRunsPanelProps): React.ReactElement {
   const { t } = useI18n()
   const [runs, setRuns] = useState<RunRow[]>([])
   const [loading, setLoading] = useState(true)
@@ -142,6 +147,16 @@ export function FlowRunsPanel({ flowId, refreshTick = 0 }: FlowRunsPanelProps): 
                       ? t('进行中')
                       : '—'}
                 </span>
+                {onRerun ? (
+                  <button
+                    type="button"
+                    className="btn btn-ghost btn-sm flow-runs-watch"
+                    title={t('以相同输入重跑（输入可再编辑）')}
+                    onClick={() => onRerun(r.input ?? preview)}
+                  >
+                    {t('重跑')}
+                  </button>
+                ) : null}
                 <Link
                   href={`/workflows/${r.flowId}/canvas?run=${r.runId}`}
                   className="btn btn-ghost btn-sm flow-runs-watch"

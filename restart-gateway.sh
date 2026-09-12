@@ -46,6 +46,21 @@ done
 
 echo "🚀 后台启动 gateway..."
 [ -f .env ] && { set -a; source .env; set +a; echo "   已加载 .env"; }
+
+# nohup 环境缺用户 PATH 会让 gateway spawn CLI 失败（QA 实测：claude ENOENT，
+# 聊天/工作流全部失败）。补齐常见安装位 —— 找不到 claude 就大声提示。
+export PATH="$PATH:/opt/homebrew/bin:/usr/local/bin:$HOME/.local/bin:$HOME/.bun/bin:$HOME/.claude/local"
+if ! command -v claude >/dev/null 2>&1; then
+  echo "❌ PATH 上找不到 claude CLI —— gateway 起来后所有 CLI 执行都会失败"
+  echo "   请确认 claude 安装位置并加入本脚本的 PATH 补齐行"
+  exit 1
+fi
+
+# schema 同步（QA L4 实测：initDb 不跑迁移，新迁移只进测试库 → dev 网关
+# 撞旧 schema。重启前增量迁移一次，幂等；详见 packages/db/scripts/migrate.mjs）
+echo "🗄️  同步数据库迁移..."
+pnpm --filter @dagents/db migrate
+
 nohup pnpm --filter @dagents/gateway dev > /tmp/dagents-gateway.log 2>&1 &
 GW_PID=$!
 echo "   PID: $GW_PID, 日志: /tmp/dagents-gateway.log"

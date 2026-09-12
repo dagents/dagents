@@ -12,6 +12,8 @@ import {
   createAgentFetcher,
   createBuiltInToolRegistry,
   resetProviderCache,
+  sendToRunNode,
+  runHasLiveSinks,
 } from './workflow-clients.js'
 import { createStaticHumanInputResolver } from './human-input.js'
 import { recordAudit } from '../audit.js'
@@ -277,6 +279,94 @@ workflowsRoutes.put('/:id', async (c) => {
   return ok(c, { flow: normalizeFlowDetail(row) })
 })
 
+/**
+ * 布局自动保存（2026-09-06 画布优化）：拖拽停/视口停后 debounce 静默
+ * PATCH —— 只 merge `flow_data` 里已有节点的 position 与顶层 viewport，
+ * 不触碰节点配置（尊重草稿自由：配置编辑仍走显式保存管线）。
+ * 画布刷新不再回退到旧布局。
+ */
+const layoutBodySchema = z.object({
+  positions: z.record(z.string(), z.object({ x: z.number(), y: z.number() })).optional(),
+  viewport: z
+    .object({ x: z.number(), y: z.number(), zoom: z.number() })
+    .optional(),
+})
+
+workflowsRoutes.put('/:id/layout', async (c) => {
+  const id = c.req.param('id')
+  if (!UUID_RE.test(id)) {
+    return fail(c, 400, 'invalid flow id', { id })
+  }
+  let body: unknown
+  try {
+    body = await c.req.json()
+  } catch {
+    return fail(c, 400, 'invalid json body')
+  }
+  const parsed = layoutBodySchema.safeParse(body)
+  if (!parsed.success) {
+    return fail(c, 400, 'invalid body', { detail: parsed.error.message })
+  }
+  const { positions, viewport } = parsed.data
+  if (!positions && !viewport) {
+    return fail(c, 400, 'empty layout body')
+  }
+
+  let row: FlowRow | null
+  try {
+    const { records } = await runQuery<FlowRow>(
+      `SELECT id, name, description, flow_data, status, created_at, updated_at
+         FROM flows WHERE id = $1`,
+      [id],
+    )
+    row = records[0] ?? null
+  } catch (err) {
+    log.error('workflow layout read failed', { id, error: String(err) })
+    return fail(c, 502, 'workflow layout update failed')
+  }
+  if (!row) {
+    return fail(c, 404, 'flow not found', { id })
+  }
+
+  // 服务端 merge：只更新已存在节点的坐标（未知 id 静默忽略 —— 客户端
+  // 可能拿着删除前的快照），viewport 整体替换；其余字段一字不动。
+  let flowData: Record<string, unknown>
+  try {
+    flowData = (row.flow_data ?? {}) as Record<string, unknown>
+  } catch {
+    flowData = {}
+  }
+  let appliedPositions = 0
+  if (positions && Array.isArray(flowData.nodes)) {
+    flowData.nodes = (flowData.nodes as Array<Record<string, unknown>>).map((n) => {
+      const p = n.id != null ? positions[String(n.id)] : undefined
+      if (!p) return n
+      appliedPositions += 1
+      return { ...n, position: { x: Math.round(p.x), y: Math.round(p.y) } }
+    })
+  }
+  if (viewport) {
+    flowData.viewport = {
+      x: Math.round(viewport.x),
+      y: Math.round(viewport.y),
+      zoom: viewport.zoom,
+    }
+  }
+
+  try {
+    await runQuery(`UPDATE flows SET flow_data = $1::jsonb, updated_at = NOW() WHERE id = $2`, [
+      JSON.stringify(flowData),
+      id,
+    ])
+  } catch (err) {
+    log.error('workflow layout update failed', { id, error: String(err) })
+    return fail(c, 502, 'workflow layout update failed')
+  }
+
+  // 布局是无语义的视觉调整，不进审计日志（会淹没真正的 workflow.update）。
+  return ok(c, { appliedPositions, viewport: viewport ?? null })
+})
+
 workflowsRoutes.delete('/:id', async (c) => {
   const id = c.req.param('id')
   if (!UUID_RE.test(id)) {
@@ -432,7 +522,7 @@ workflowsRoutes.post('/:id/run', async (c) => {
   resetProviderCache()
   // CLI-first：配了 provider 走 HTTP（加速），否则 LLM/Agent 节点全部
   // 跑本地 CLI —— 工作流与聊天一样零配置可用。
-  const llmClient = createDefaultLlmClient('claude', { cwd: runCwd })
+  const llmClient = createDefaultLlmClient('claude', { cwd: runCwd, runId })
   const agentFetcher = createAgentFetcher()
   const toolRegistry = createBuiltInToolRegistry()
   // Non-interactive run: HumanInput answers must be pre-supplied via the
@@ -464,6 +554,9 @@ workflowsRoutes.post('/:id/run', async (c) => {
     kind: 'workflow-run',
     startedAt: startedAt.getTime(),
     abort: (reason?: string) => abort.abort(new Error(reason ?? 'cancelled by caller')),
+    // 运行中插话（2026-09-08 可操作终端）：abort 的姊妹控制动词 —— 经
+    // workflow-clients 的汇点表路由到目标节点的活 CLI 会话。
+    sendToNode: (nodeId: string, text: string) => sendToRunNode(runId, nodeId, text),
     done,
   }
   executionRegistry.register(execHandle)
@@ -779,7 +872,12 @@ workflowsRoutes.get('/runs/:runId/node-spans', async (c) => {
     }
   })
 
-  return ok(c, { runId, runStatus, runDurationMs, spans })
+  // 附带插话能力位（2026-09-08 可操作终端）：该 run 当前是否有活着的 CLI
+  // 会话汇点 —— console 据此渲染 stdin 行的禁用态（HTTP provider 运行 /
+  // 无活会话 → 不可插话，如实禁用不假装）。
+  const inputSupported = runHasLiveSinks(runId)
+
+  return ok(c, { runId, runStatus, runDurationMs, inputSupported, spans })
 })
 
 /**

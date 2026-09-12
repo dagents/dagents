@@ -69,6 +69,9 @@
   display: flex;
   align-items: center;
   gap: var(--space-2);
+  /* 右对齐（2026-09-06 设计师裁决）：标题 flex:1 被 max-width 封顶后
+   * 剩余空间会留在按钮组右侧 —— 显式推到右缘。 */
+  margin-left: auto;
 }
 
 .canvas-header-actions button {

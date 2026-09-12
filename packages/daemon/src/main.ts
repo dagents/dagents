@@ -48,6 +48,8 @@ export interface DaemonOpts {
   pollIntervalMs?: number
   /** Heartbeat interval (ms). Default 5000. */
   heartbeatIntervalMs?: number
+  /** 取消意图轮询间隔（ms）。Default 2000（测试注入更小值）。 */
+  cancelPollIntervalMs?: number
   /** Injectable dispatch client (tests inject a mock). */
   client?: DispatchClient
   /** Injectable backend factory (tests inject a fake; default builds claudeBackend). */
@@ -87,6 +89,7 @@ export function runDaemon(opts: DaemonOpts): DaemonHandle {
   const log: Logger = opts.logger ?? createLogger({ svc: 'daemon', label: opts.label })
   const pollIntervalMs = opts.pollIntervalMs ?? 2000
   const heartbeatIntervalMs = opts.heartbeatIntervalMs ?? 5000
+  const cancelPollIntervalMs = opts.cancelPollIntervalMs ?? 2000
   const executablePath = opts.executablePath ?? opts.agentType
 
   const client = opts.client ?? new DispatchClient({ baseUrl: opts.serverUrl, logger: log })
@@ -246,7 +249,7 @@ export function runDaemon(opts: DaemonOpts): DaemonHandle {
       })
       try {
         await context.with(trace.setSpan(context.active(), taskSpan), () =>
-          executeTask(client, backendFactory(opts.agentType), task.id, task.runId, task.prompt, task.execOptions, log),
+          executeTask(client, backendFactory(opts.agentType), task.id, task.runId, task.prompt, task.execOptions, log, cancelPollIntervalMs),
         )
       } catch (err) {
         // `executeTask` reports failures via `failTask` internally, but this
@@ -301,6 +304,7 @@ async function executeTask(
   prompt: string,
   execOptions: unknown,
   log: Logger,
+  cancelPollIntervalMs = 2000,
 ): Promise<void> {
   // exec_options is stored as JSONB; trust the shape at the boundary but
   // default to {} so a null/missing column can't crash the backend.
@@ -333,6 +337,29 @@ async function executeTask(
     return
   }
 
+  // 取消协议（2026-09-06，执行取消 spec §7 补齐）：AbortController 注入
+  // execOptions.signal（适配器约定：abort → 子进程 SIGTERM→SIGKILL）， watcher
+  // 每 2s 读一次任务状态，发现 cancel_requested 即 abort —— 事件流随即结束，
+  // result.status='cancelled' 走下方既有 failTask 分支收尾。
+  const abort = new AbortController()
+  opts.signal = abort.signal
+  const cancelWatcher = setInterval(() => {
+    // async IIFE：fake client 缺 getTask 或同步抛都吞进 catch —— 轮询
+    // 失败绝不阻断执行（终态上报才是权威）。
+    void (async () => {
+      try {
+        const t = await client.getTask(taskId)
+        if (t?.cancelRequested) {
+          log.warn('task cancel requested; aborting child', { taskId })
+          abort.abort(new Error('cancelled by user'))
+        }
+      } catch (err) {
+        log.warn('cancel poll failed', { taskId, error: String(err) })
+      }
+    })()
+  }, cancelPollIntervalMs)
+  cancelWatcher.unref?.()
+
   const session = backend.execute(prompt, opts)
 
   // M6.1: tag the active span with the task's run id so the daemon hop
@@ -357,6 +384,7 @@ async function executeTask(
     }
 
     const result: AgentResult = await session.result
+    clearInterval(cancelWatcher)
     if (result.status === 'completed') {
       await client.completeTask(taskId, {
         output: result.output,
@@ -379,6 +407,7 @@ async function executeTask(
       log.warn('task failed', { taskId, status: result.status, error: result.error })
     }
   } catch (err) {
+    clearInterval(cancelWatcher)
     // Backend threw before yielding a result (spawn error, parse crash, …).
     // Report failure and let the caller continue to the next task.
     const message = err instanceof Error ? err.message : String(err)

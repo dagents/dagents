@@ -16,7 +16,7 @@
   "tasks": {
     "build": { "dependsOn": ["^build"], "outputs": ["dist/**"] },
     "dev": { "cache": false, "persistent": true },
-    "test": { "dependsOn": ["build"], "outputs": ["coverage/**"] },
+    "test": { "dependsOn": ["^build"], "outputs": ["coverage/**"] },
     "lint": {},
     "typecheck": { "dependsOn": ["^build"] }
   }
