@@ -1,0 +1,16 @@
+
+/* 终态结果面板「重跑」直达（2026-09-18 PM）：失败现场就近挽回 */
+.canvas-results-rerun {
+  margin-left: 8px;
+  border: 1px solid var(--border);
+  border-radius: var(--radius-sm, 6px);
+  background: none;
+  color: var(--text);
+  font-size: var(--text-xs);
+  padding: 2px 8px;
+  cursor: pointer;
+}
+.canvas-results-rerun:hover { background: var(--surface); }
+.canvas-run-human-answers { margin-top: 10px; }
+.canvas-run-human-answers .form-section-label { font-size: var(--text-xs); color: var(--meta); margin-bottom: 4px; }
+.canvas-run-human-answers .field { margin-bottom: 8px; }

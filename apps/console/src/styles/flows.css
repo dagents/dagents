@@ -201,3 +201,35 @@
 /* 2026-09-06 图标统一：空态 emoji → Icon 体系 */
 .empty-state .empty-state-icon { display: inline-flex; }
 .empty-state .empty-state-icon svg { width: 28px; height: 28px; }
+
+/* ── 首次运行环境自检横幅（2026-09-18 PM）────────────────────────────
+ * CLI/Provider 皆无时的提前亮牌：黄底警示 + 直达设置。就绪时组件不渲染。 */
+.readiness-banner {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  margin-bottom: 12px;
+  padding: 8px 12px;
+  border: 1px solid var(--warn-border, #e8d89a);
+  border-radius: var(--radius-md, 8px);
+  background: var(--note-bg, #fef6d8);
+  color: var(--note-text, #4a3f1d);
+  font-size: var(--text-sm);
+}
+.readiness-banner-text { flex: 1; min-width: 0; }
+.readiness-banner svg { width: 14px; height: 14px; flex: none; }
+.readiness-banner-link {
+  color: var(--note-accent, #b08d2e);
+  text-decoration: underline;
+  text-underline-offset: 2px;
+  white-space: nowrap;
+}
+.readiness-banner-dismiss {
+  border: none;
+  background: none;
+  color: var(--meta);
+  font-size: var(--text-xs);
+  cursor: pointer;
+  white-space: nowrap;
+  padding: 2px 4px;
+}

@@ -164,16 +164,19 @@ test.describe('Settings module (UC-SET-01 ~ 06)', () => {
     await expect(section).toBeVisible()
 
     // 口径说明（不回填历史）+ 实测口径的统计卡（未计价 token 单列 = 不造假原则）。
+    // timeout 15s：/api/usage/summary 在全量负载下偶发超 5s 默认窗（历史上
+    // 间歇闪失即此因——隔离跑恒过），数据到达后断言即成立。
     await expect(
       section.getByText('按实测 token 用量与模型单价汇总的成本账单。数据自埋点上线起累计，历史执行不回填。'),
-    ).toBeVisible()
-    await expect(section.getByText('Token 用量', { exact: true })).toBeVisible()
-    await expect(section.getByText('未计价 Token', { exact: true })).toBeVisible()
+      undefined,
+    ).toBeVisible({ timeout: 15_000 })
+    await expect(section.getByText('Token 用量', { exact: true })).toBeVisible({ timeout: 15_000 })
+    await expect(section.getByText('未计价 Token', { exact: true })).toBeVisible({ timeout: 15_000 })
 
     // 三个维度区块：按天 / 按 Agent / 按 Flow。
-    await expect(section.getByText('按天成本', { exact: true })).toBeVisible()
-    await expect(section.getByText('按 Agent', { exact: true })).toBeVisible()
-    await expect(section.getByText('按 Flow', { exact: true })).toBeVisible()
+    await expect(section.getByText('按天成本', { exact: true })).toBeVisible({ timeout: 15_000 })
+    await expect(section.getByText('按 Agent', { exact: true })).toBeVisible({ timeout: 15_000 })
+    await expect(section.getByText('按 Flow', { exact: true })).toBeVisible({ timeout: 15_000 })
   })
 
   // ── UC-SET-04: 配置通知 (✅ implemented, read-only shell) ─────────────────

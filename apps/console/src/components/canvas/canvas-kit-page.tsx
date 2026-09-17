@@ -16,6 +16,8 @@
  */
 
 import { useCallback, useEffect, useMemo, useRef, useState } from 'react'
+import { HumanInputAnswerFields } from '@/components/human-input-answer-fields'
+import { extractHumanInputPrompts, buildHumanInputsState } from '@/lib/flow-human-inputs'
 import type { FlowData } from '@dagents/workflow'
 import { validateFlowTopology } from '@dagents/workflow'
 import { useToast } from '@/components/toast'
@@ -239,6 +241,13 @@ export function CanvasKitPage({
       return ''
     }
   })
+
+  // HumanInput 预供答案（2026-09-18）：画布自有 flow 文档，直接提取待答清单
+  const humanSpecs = useMemo(
+    () => extractHumanInputPrompts(initialFlow),
+    [initialFlow],
+  )
+  const [humanAnswers, setHumanAnswers] = useState<Record<string, string>>({})
   const persistRunInput = useCallback(
     (input: string): void => {
       try {
@@ -471,7 +480,7 @@ export function CanvasKitPage({
   usePolling(watch ? watchTick : null, { intervalMs: 700, visibilityPause: true, restartKey: watch?.runId })
 
   const handleRun = useCallback(
-    async (input: string): Promise<void> => {
+    async (input: string, humanInputs?: Record<string, string>): Promise<void> => {
       if (runState === 'running') return
       setRunPanelOpen(false)
       setResultsOpen(true)
@@ -497,6 +506,8 @@ export function CanvasKitPage({
             body: JSON.stringify({
           ...(input.trim() ? { input: input.trim() } : {}),
           ...(runDirectoryId ? { directoryId: runDirectoryId } : {}),
+          // HumanInput 预供答案（2026-09-18）：与列表运行面板同契约
+          ...(humanInputs ? { state: { humanInputs } } : {}),
         }),
           },
         )
@@ -822,6 +833,15 @@ export function CanvasKitPage({
                 </span>
               </label>
               <div className='canvas-run-dir-hint'>{t('Agent 将在所选项目目录中读写文件、执行命令')}</div>
+              {humanSpecs.length > 0 ? (
+                <div className='canvas-run-human-answers'>
+                  <HumanInputAnswerFields
+                    specs={humanSpecs}
+                    answers={humanAnswers}
+                    onAnswer={(nodeId, value) => setHumanAnswers((prev) => ({ ...prev, [nodeId]: value }))}
+                  />
+                </div>
+              ) : null}
               <textarea
                 className='canvas-run-input'
                 rows={4}
@@ -847,7 +867,7 @@ export function CanvasKitPage({
                 <button type='button' className='canvas-run-panel-cancel' onClick={() => setRunPanelOpen(false)}>
                   {t('取消')}
                 </button>
-                <button type='button' className='canvas-run-panel-go' onClick={() => void handleRun(runInput)}>
+                <button type='button' className='canvas-run-panel-go' onClick={() => void handleRun(runInput, buildHumanInputsState(humanSpecs, humanAnswers))}>
                   {t('开始运行')}
                 </button>
               </div>
@@ -897,6 +917,18 @@ export function CanvasKitPage({
               <div className='canvas-run-panel-title'>
                 <span className='canvas-results-title-row'>
                   {t('运行结果')}
+                  {/* 终态「重跑」直达（2026-09-18 PM）：失败现场就近挽回 ——
+                      与终端 stdin 行同款 handleRerun（打开输入面板，⬆ 预填）。 */}
+                  {runState === 'failed' || runState === 'done' || runState === 'idle' ? (
+                    <button
+                      type='button'
+                      className='canvas-results-rerun'
+                      onClick={handleRerun}
+                      title={t('用相同输入重跑（可修改后提交）')}
+                    >
+                      {t('重跑')}
+                    </button>
+                  ) : null}
                   <span className='canvas-results-view' role='tablist' aria-label={t('结果视图')}>
                   <button
                     type='button'
@@ -1129,7 +1161,7 @@ export function CanvasKitPage({
         </div>
       )
     },
-    [flowName, saveState, readOnly, runState, runSummary, handleRun, t, runPanelOpen, runInput, resultsOpen, latestSpans, saveTplOpen, handleAddDirectory, firstRunBar, templateParamNames, topoOrder, initialFlow, resultView, switchResultView, ioOpen],
+    [flowName, saveState, readOnly, runState, runSummary, handleRun, t, runPanelOpen, runInput, resultsOpen, latestSpans, saveTplOpen, handleRerun, handleAddDirectory, firstRunBar, templateParamNames, topoOrder, initialFlow, resultView, switchResultView, ioOpen],
   )
 
   return (

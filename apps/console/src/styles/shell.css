@@ -1266,3 +1266,7 @@ table.data .muted { color: var(--muted); }
 .ic-14 svg { width: 14px; height: 14px; }
 /* 比btn-sm 更紧凑的操作钮（表格行内/面板头）。 */
 .btn-compact { padding: 4px 12px; font-size: var(--text-xs); }
+
+/* 共享微件（2026-09-18）：运行面板提示行 —— 取代内联样式（棘轮纪律） */
+.hint-xs { font-size: var(--text-xs); color: var(--meta); }
+.hint-warn { color: var(--warn, #b08d2e); }

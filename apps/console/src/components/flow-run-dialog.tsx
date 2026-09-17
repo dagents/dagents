@@ -15,6 +15,8 @@
 import { useEffect, useState } from 'react'
 import { Icon } from '@/components/icon'
 import { type Directory } from '@/lib/directories'
+import { extractHumanInputPrompts, buildHumanInputsState, type HumanInputSpec } from '@/lib/flow-human-inputs'
+import { HumanInputAnswerFields } from '@/components/human-input-answer-fields'
 import { useI18n } from '@/i18n'
 import '@/styles/dialog.css'
 // flows.css 提供 PX-F07 增强态（.btn-kbd）；类名专属无页面级副作用。
@@ -24,7 +26,8 @@ export interface FlowRunDialogProps {
   /** 目标 flow 名（标题展示）。 */
   flowName: string
   /** 目标 flow id（2026-09-08 可操作终端）：输入记忆键
-   *  dagents.canvas.runInput.<flowId> —— 打开预填上次提交，提交即记忆。 */
+   *  dagents.canvas.runInput.<flowId> —— 打开预填上次提交，提交即记忆。
+   *  2026-09-18：也是 HumanInput 待答清单的提取来源（拉 flow 详情）。 */
   flowId?: string
   /** 重跑预填（2026-09-08 ⬆ 语义）：历史行的输入优先于记忆。 */
   initialInput?: string
@@ -32,8 +35,9 @@ export interface FlowRunDialogProps {
   dirId: string
   onDirChange: (id: string) => void
   onCancel: () => void
-  /** 提交（输入文本）—— 父组件负责发起异步运行并关闭本对话框。 */
-  onSubmit: (input: string) => void
+  /** 提交（输入文本 + HumanInput 预供答案表）—— 父组件负责发起异步运行
+   *  并关闭本对话框。answers 键为节点 id（buildHumanInputsState 转键控）。 */
+  onSubmit: (input: string, humanAnswers?: Record<string, string>) => void
   /** 模板带的运行输入引导（flow start 节点 data.inputHint）——有则替换引擎术语 placeholder。 */
   inputHint?: string
   /** 输入示例（start 节点 data.inputExample）——持久展示，输入后也不消失。 */
@@ -62,6 +66,29 @@ export function FlowRunDialog({
       return ''
     }
   })
+  // HumanInput 预供答案（2026-09-18）：打开时拉 flow 详情提取待答清单
+  const [humanSpecs, setHumanSpecs] = useState<HumanInputSpec[]>([])
+  const [humanAnswers, setHumanAnswers] = useState<Record<string, string>>({})
+
+  useEffect(() => {
+    if (!flowId) return
+    let cancelled = false
+    void (async () => {
+      try {
+        const res = await fetch(`/api/workflows/${encodeURIComponent(flowId)}`, { cache: 'no-store' })
+        const json = (await res.json()) as { success?: boolean; data?: { flow?: { flowData?: unknown } } }
+        if (cancelled) return
+        if (json.success && json.data?.flow?.flowData) {
+          setHumanSpecs(extractHumanInputPrompts(json.data.flow.flowData))
+        }
+      } catch {
+        // 提取失败不打扰 —— 没有 answers 时节点失败信息自带指引
+      }
+    })()
+    return () => {
+      cancelled = true
+    }
+  }, [flowId])
 
   // Escape 关闭（与 CreateFlowDialog 同款）
   useEffect(() => {
@@ -106,7 +133,7 @@ export function FlowRunDialog({
                 onKeyDown={(e) => {
                   if (e.key === 'Enter' && (e.metaKey || e.ctrlKey)) {
                     e.preventDefault()
-                    onSubmit(input)
+                    onSubmit(input, buildHumanInputsState(humanSpecs, humanAnswers))
                   }
                 }}
               />
@@ -135,6 +162,11 @@ export function FlowRunDialog({
               </div>
             </div>
           </div>
+          <HumanInputAnswerFields
+            specs={humanSpecs}
+            answers={humanAnswers}
+            onAnswer={(nodeId, value) => setHumanAnswers((prev) => ({ ...prev, [nodeId]: value }))}
+          />
         </div>
         <div className="modal-foot">
           <button type="button" className="btn btn-secondary" onClick={onCancel}>
@@ -151,7 +183,7 @@ export function FlowRunDialog({
                   window.localStorage.setItem(`dagents.canvas.runInput.${flowId}`, input)
                 } catch { /* 私隐模式等场景忽略 */ }
               }
-              onSubmit(input)
+              onSubmit(input, buildHumanInputsState(humanSpecs, humanAnswers))
             }}
           >
             {t('开始运行')}

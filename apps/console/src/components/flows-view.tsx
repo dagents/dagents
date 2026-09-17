@@ -49,6 +49,7 @@ import { FlowTemplateGallery } from '@/components/flow-template-gallery'
 import { GenerateFlowDialog } from '@/components/generate-flow-dialog'
 import { FlowsEmptyHero } from '@/components/flows-empty-hero'
 import { FlowRunDialog } from '@/components/flow-run-dialog'
+import { FirstRunReadiness } from '@/components/first-run-readiness'
 import { FlowRunsPanel } from '@/components/flow-runs-panel'
 import { SkeletonList } from '@/components/skeleton'
 import { useToast } from '@/components/toast'
@@ -205,7 +206,12 @@ export function FlowsView({ home = false }: { home?: boolean }): React.ReactElem
    *  发起落点与历史行、chat 入口一致，都是画布旁观（2026-08-30 三方
    *  协商 —— 详情页退役）。输入作为 `{{$start.input}}` 传入；directoryId
    *  决定 CLI Agent 的工作目录。Failures land in the top banner. */
-  const runFlow = useCallback(async (flowId: string, input: string, directoryId: string) => {
+  const runFlow = useCallback(async (
+    flowId: string,
+    input: string,
+    directoryId: string,
+    humanInputs?: Record<string, string>,
+  ) => {
     setRunningId(flowId)
     setListError(null)
     try {
@@ -215,6 +221,8 @@ export function FlowsView({ home = false }: { home?: boolean }): React.ReactElem
         body: JSON.stringify({
           ...(input.trim() ? { input: input.trim() } : {}),
           ...(directoryId ? { directoryId } : {}),
+          // HumanInput 预供答案（2026-09-18）：网关按 resolved prompt 取键
+          ...(humanInputs ? { state: { humanInputs } } : {}),
         }),
       })
       const json = (await res.json().catch(() => null)) as {
@@ -388,6 +396,9 @@ export function FlowsView({ home = false }: { home?: boolean }): React.ReactElem
       {/* LIST page（2026-08-30 三方协商后为唯一形态：详情页退役，一次运行
           一个家 = 画布旁观 —— 发起运行/历史行/chat 入口统一跳 ?run=）。 */}
       <div className="flow-list-page active">
+        {/* 首次运行环境自检（2026-09-18）：CLI/Provider 皆无时提前亮黄牌 ——
+            「零配置基线」的前提是本机至少有一样；就绪时不渲染。 */}
+        <FirstRunReadiness />
         <div className="scope-tabs mb-6" role="tablist" aria-label={t('flow 范围')}>
           <button
             type="button"
@@ -750,10 +761,10 @@ export function FlowsView({ home = false }: { home?: boolean }): React.ReactElem
             }
           }}
           onCancel={() => setRunDialogFlow(null)}
-          onSubmit={(input) => {
+          onSubmit={(input, humanAnswers) => {
             const target = runDialogFlow
             setRunDialogFlow(null)
-            void runFlow(target.id, input, runDirId)
+            void runFlow(target.id, input, runDirId, humanAnswers)
           }}
         />
       ) : null}

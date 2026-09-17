@@ -205,4 +205,12 @@ export const common = {
 
   // ── 2026-09-17 补译（扫描测试补齐的缺项）──
   '返回首页': 'Back to home',
+  '人工确认节点': 'Human confirmation nodes',
+  '（待选择）': '(pick one)',
+  '另有 {n} 个提示含模板变量或为空 —— 其答案需走聊天运行路径': '{n} other prompt(s) contain template variables or are empty — answer them via the chat run path',
+  '未检测到任何 CLI 运行时，也未配置 LLM Provider —— LLM/Agent 节点将无法运行': 'No CLI runtime detected and no LLM provider configured — LLM/Agent nodes will not run',
+  '去设置': 'Open settings',
+  '不再提示': "Don't show again",
+  '重跑': 'Rerun',
+  '用相同输入重跑（可修改后提交）': 'Rerun with the same input (editable before submit)',
 } as const
