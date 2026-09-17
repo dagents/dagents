@@ -347,13 +347,16 @@
   padding: 8px;
   border: 1px solid var(--border, rgba(0, 0, 0, 0.12));
   border-radius: var(--radius-md);
-  background: var(--bg-0, var(--bg, #fff));
+  /* 原写 var(--bg-0, var(--bg, #fff)) —— --bg-0/--bg-1 在 tokens.css 从未
+     定义，一直走 fallback。改为语义令牌：浅色 = --bg（纯白底），深色 =
+     --surface（背景之上的浮层面 #1a1a1a，与原 #1a1a22 同层同明度）。 */
+  background: var(--bg);
   box-shadow: 0 8px 24px rgba(0, 0, 0, 0.14);
   z-index: 5;
 }
 
 [data-theme='dark'] .fab-history-drawer {
-  background: var(--bg-1, #1a1a22);
+  background: var(--surface);
 }
 
 .fab-history-search {

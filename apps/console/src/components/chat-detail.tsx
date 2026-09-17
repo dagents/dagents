@@ -237,6 +237,7 @@ export function ChatDetail({ chatId }: ChatDetailProps): React.ReactElement {
   // idle conversation doesn't wake every 600ms forever.
   const busyRef = useRef(false)
   useLayoutEffect(() => {
+    // TODO(轮询收敛,2026-09-17): 本轮未迁移 —— 可换 @/lib/use-polling 单点实现（fetcher 返回是否继续）。
     const timer = window.setInterval(() => {
       const box = messagesScrollRef.current
       if (!box || !atBottomRef.current || !busyRef.current) return

@@ -1,10 +1,15 @@
 import { describe, expect, it } from 'vitest'
+import { normalizeRunNodeSpan } from './node-spans'
 import {
   extractOutputText,
   formatTokensBadge,
   sectionTranscript,
   spanToTerminalSection,
 } from './run-terminal-format'
+
+/** 消费方契约：原始行先过边界归一（nodeId/node_id 双写在那一层处理），
+ *  派生层只吃规范 RunNodeSpan —— 测试同管线组合。 */
+const row = (raw: Record<string, unknown>) => normalizeRunNodeSpan(raw)
 
 describe('extractOutputText（正文直出 + DirectReply 二次解包）', () => {
   it('text 优先，content 兜底', () => {
@@ -22,7 +27,7 @@ describe('extractOutputText（正文直出 + DirectReply 二次解包）', () =>
 
 describe('spanToTerminalSection（events 全量 > activity 环降级）', () => {
   it('events 通道：全文保真映射成终端行', () => {
-    const section = spanToTerminalSection({
+    const section = spanToTerminalSection(row({
       nodeId: 'n1',
       nodeLabel: '竞品分析',
       nodeType: 'platformAgent',
@@ -39,7 +44,7 @@ describe('spanToTerminalSection（events 全量 > activity 环降级）', () => 
           { kind: 'status', label: 'started', at: '2026-09-06T10:00:00Z' },
         ],
       },
-    })
+    }))
     expect(section.title).toBe('竞品分析')
     expect(section.command).toBe('$ agent · sonnet')
     expect(section.tokensBadge).toBe('↑1.2k ↓3.4k')
@@ -56,7 +61,7 @@ describe('spanToTerminalSection（events 全量 > activity 环降级）', () => 
   })
 
   it('无 events 时降级 activity 环（summary 作为行内容 —— 旧运行/早期 running）', () => {
-    const section = spanToTerminalSection({
+    const section = spanToTerminalSection(row({
       nodeId: 'n1',
       output: {
         activity: [
@@ -64,7 +69,7 @@ describe('spanToTerminalSection（events 全量 > activity 环降级）', () => 
           { kind: 'thinking', label: '旧形状全文在 label', at: '2026-09-06T10:00:01Z' },
         ],
       },
-    })
+    }))
     expect(section.lines).toHaveLength(2)
     expect(section.lineSource).toBe('activity') // 降级来源如实标注
     expect(section.lines[0]).toMatchObject({ kind: 'tool', label: 'Bash', detail: '{"command":"ls"}' })
@@ -72,25 +77,25 @@ describe('spanToTerminalSection（events 全量 > activity 环降级）', () => 
   })
 
   it('形状坏损的条目被丢弃，不炸整段', () => {
-    const section = spanToTerminalSection({
+    const section = spanToTerminalSection(row({
       nodeId: 'n1',
       output: { events: [{ kind: 'nonsense', label: 'x' }, { kind: 'tool' }, 'garbage', { kind: 'error', label: 'boom' }] },
-    })
+    }))
     expect(section.lines).toEqual([{ kind: 'error', label: 'boom' }])
   })
 
   it('无正文的裸 JSON 产出进 rawJson（controller 类节点）', () => {
-    const section = spanToTerminalSection({ nodeId: 'n1', output: { iterations: 3 } })
+    const section = spanToTerminalSection(row({ nodeId: 'n1', output: { iterations: 3 } }))
     expect(section.output).toBe('')
     expect(section.hasText).toBe(false)
     expect(section.rawJson).toContain('iterations')
   })
 
-  it('nodeId 缺失时 node_id 兜底；command 随 nodeType 变化', () => {
-    const s1 = spanToTerminalSection({ node_id: 'x1', nodeType: 'llm', input: {} })
+  it('node_id 兜底在边界归一层完成；command 随 nodeType 变化', () => {
+    const s1 = spanToTerminalSection(row({ node_id: 'x1', nodeType: 'llm', input: {} }))
     expect(s1.id).toBe('x1')
     expect(s1.command).toBe('$ llm')
-    const s2 = spanToTerminalSection({ node_id: 'x2', nodeType: 'unknown-kind' })
+    const s2 = spanToTerminalSection(row({ node_id: 'x2', nodeType: 'unknown-kind' }))
     expect(s2.command).toBe('$ unknown-kind')
   })
 })
@@ -98,7 +103,7 @@ describe('spanToTerminalSection（events 全量 > activity 环降级）', () => 
 describe('user_input 插话行（2026-09-08 可操作终端）', () => {
   it('events 与 activity 环里的 user_input 都映射为终端行（label = 消息全文）', () => {
     for (const channel of ['events', 'activity'] as const) {
-      const section = spanToTerminalSection({
+      const section = spanToTerminalSection(row({
         nodeId: 'n2',
         nodeLabel: '开发',
         nodeType: 'platformAgent',
@@ -106,7 +111,7 @@ describe('user_input 插话行（2026-09-08 可操作终端）', () => {
         output: {
           [channel]: [{ kind: 'user_input', label: '重点看登录模块', at: '2026-09-08T10:00:00Z' }],
         },
-      })
+      }))
       expect(section.lines).toHaveLength(1)
       expect(section.lines[0]).toMatchObject({ kind: 'user_input', label: '重点看登录模块' })
       expect(section.lineSource).toBe(channel)

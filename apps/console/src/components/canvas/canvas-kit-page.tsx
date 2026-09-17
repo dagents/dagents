@@ -19,14 +19,16 @@ import { useCallback, useEffect, useMemo, useRef, useState } from 'react'
 import type { FlowData } from '@dagents/workflow'
 import { validateFlowTopology } from '@dagents/workflow'
 import { useToast } from '@/components/toast'
-import { useI18n } from '@/i18n'
+import { useI18n, readLocalePreference } from '@/i18n'
 import { Icon, type IconName } from '@/components/icon'
 import { detectRefusal } from '@/lib/refusal-detect'
 import { pickDirectory, createDirectory } from '@/lib/directories'
+import { fetchRunNodeSpans, type RunNodeSpan } from '@/lib/node-spans'
+import { usePolling } from '@/lib/use-polling'
 import { SaveFlowTemplateDialog, scanTemplateParamNames } from '@/components/save-flow-template-dialog'
 import { FlowEditor, type FlowEditorHandle, type HeaderSlotProps, type NodeRunStatus } from '@/components/flow-canvas'
 import { RunTerminal, type TerminalSendResult } from '@/components/run-terminal'
-import { spanToTerminalSection } from '@/lib/run-terminal-format'
+import { spanToTerminalSection, extractOutputText } from '@/lib/run-terminal-format'
 import { ResultViewer } from '@/components/result-viewer'
 // .kbd（统一 kbd 键帽，shortcuts.css 单一定义、GL03/GL06 全站共用）
 import '@/styles/shortcuts.css'
@@ -34,15 +36,12 @@ import '@/styles/flow-canvas.css'
 import './canvas.css'
 
 /** 未保存守卫的 confirm 文案（confirm 是原生弹窗，走不了 React i18n ——
- *  读当前 locale 给双语；默认中文）。 */
+ *  读当前 locale 给双语；默认中文）。locale 读取走 i18n 模块的单源
+ *  helper（存储键 + 解析规则与 Provider 共用）。 */
 function unsavedMessage(): string {
-  try {
-    return window.localStorage.getItem('dagents.locale') === 'en'
-      ? 'Canvas has unsaved changes. Leave anyway?'
-      : '画布有未保存的修改，确定离开吗？'
-  } catch {
-    return '画布有未保存的修改，确定离开吗？'
-  }
+  return readLocalePreference() === 'en'
+    ? 'Canvas has unsaved changes. Leave anyway?'
+    : '画布有未保存的修改，确定离开吗？'
 }
 
 export interface CanvasKitPageProps {
@@ -59,20 +58,6 @@ export interface CanvasKitPageProps {
   watchRunId?: string | null
   /** ?created=1 —— 模板实例化落地：显示一次性首跑引导条。 */
   firstRunHint?: boolean
-}
-
-/** 运行结果面板的单节点行（gateway node-spans 读端点的 camelCase 形状）。 */
-interface CanvasSpanRow {
-  nodeId?: string
-  node_id?: string
-  nodeLabel?: string | null
-  status?: string
-  error?: string | null
-  durationMs?: number | null
-  tokens?: unknown
-  startedAt?: string | null
-  input?: Record<string, unknown> | string | null
-  output?: Record<string, unknown> | string | null
 }
 
 /** span 的 input/output 载荷 → 可读文本（截断），结果面板展示用。 */
@@ -103,7 +88,7 @@ interface SpanDisplay {
 
 /** 从 span.output 提取活动流（容错：形状不符返回空数组）。 */
 function spanActivity(
-  payload: CanvasSpanRow['output'],
+  payload: RunNodeSpan['output'],
 ): Array<{ kind: ActivityKind; label: string; summary?: string }> {
   if (!payload || typeof payload !== 'object') return []
   const raw = (payload as Record<string, unknown>).activity
@@ -117,23 +102,16 @@ function spanActivity(
   })
 }
 
-function spanToDisplay(payload: CanvasSpanRow['output']): SpanDisplay | null {
+function spanToDisplay(payload: RunNodeSpan['output']): SpanDisplay | null {
   if (payload == null) return null
   if (typeof payload === 'string') {
     return { kind: 'text', text: payload, preview: oneLine(payload, 90) }
   }
   const obj = payload as Record<string, unknown>
-  let textField = typeof obj.text === 'string' && obj.text ? obj.text
-    : typeof obj.content === 'string' && obj.content ? obj.content
-    : null
-  // DirectReply 的 content 常是「字符串化的上游 JSON」—— 二次解包取 text
-  if (textField && textField.trimStart().startsWith('{')) {
-    try {
-      const inner = JSON.parse(textField) as Record<string, unknown>
-      if (typeof inner.text === 'string' && inner.text) textField = inner.text
-      else if (typeof inner.content === 'string' && inner.content) textField = inner.content
-    } catch { /* 保持原样 */ }
-  }
+  // 正文提取复用 run-terminal-format 的 extractOutputText 单源实现
+  //（text/content 直出 + DirectReply 字符串化 JSON 二次解包），display
+  // 特有的活动流/预览/JSON 兜底留在本层。
+  const textField = extractOutputText(payload)
   const activity = spanActivity(payload)
   if (textField) {
     return { kind: 'text', text: textField, preview: oneLine(textField, 90), activity }
@@ -231,6 +209,12 @@ export function CanvasKitPage({
   const [runSummary, setRunSummary] = useState<string | null>(null)
   const pollRef = useRef<number | undefined>(undefined)
   useEffect(() => () => window.clearInterval(pollRef.current), [])
+  // 画布直跑的旁观目标（handleRun 成功后置位）：runId + 起跑时刻。
+  // 轮询循环本身走 usePolling（700ms + 可见性暂停），这里只持有目标。
+  const [watch, setWatch] = useState<{ runId: string; startedAt: number } | null>(null)
+  // 画布直跑接管轮询时，旁观模式（?run=）的自有循环退位 —— 与旧
+  // watchLoop 开场 clearInterval 的接管语义等价。
+  const manualWatchRef = useRef(false)
 
   // 运行输入 + 运行结果：点「▶ 运行」先弹输入面板（作为 {{$start.input}}
   // 传入 —— 没有输入的运行对 LLM/Agent 节点毫无意义）；spans 驱动顶栏的
@@ -270,7 +254,7 @@ export function CanvasKitPage({
   // 插话能力位（node-spans inputSupported）：该 run 当前有活 CLI 会话汇点。
   // undefined（旧网关）按支持处理，发送失败时由回执兜底。
   const [inputSupported, setInputSupported] = useState(true)
-  const [latestSpans, setLatestSpans] = useState<CanvasSpanRow[]>([])
+  const [latestSpans, setLatestSpans] = useState<RunNodeSpan[]>([])
   /** 结果面板里手动折叠过的节点（用户显式收起 → 不再自动展开）。 */
   const manualCollapseRef = useRef<Set<string>>(new Set())
   // 摘要视图元数据底行的展开态（2026-09-06）：输入/原始数据一次只开一个
@@ -382,44 +366,43 @@ export function CanvasKitPage({
     [initialFlow],
   )
 
-  const applySpans = useCallback((spans: ReadonlyArray<CanvasSpanRow>): void => {
+  /** 节点拓扑序（FR-15：结果面板行序按 initialFlow 节点顺序，未知节点垫底）。
+   *  终端视图与摘要视图两个分支共用 —— 此前两处相邻 IIFE 各建一份 Map。 */
+  const topoOrder = useMemo(
+    () => new Map(initialFlow.nodes.map((n, i) => [n.id as string, i])),
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+    [initialFlow],
+  )
+
+  const applySpans = useCallback((spans: ReadonlyArray<RunNodeSpan>): void => {
     const nodeStates: Record<string, { status: NodeRunStatus; error?: string }> = {}
     for (const s of spans) {
-      const nodeId = s.node_id ?? s.nodeId
       const status = s.status ? SPAN_STATUS_MAP[s.status] : undefined
-      if (nodeId && status) nodeStates[nodeId] = { status, error: s.error ?? undefined }
+      if (s.nodeId && status) nodeStates[s.nodeId] = { status, error: s.error ?? undefined }
     }
     editorRef.current?.applyRunStates(nodeStates)
   }, [])
 
   /** 轮询一次 spans + run 终态。返回 runStatus（无 runs 行时为 null）及
-   *  span 概况 —— 旁观模式的启发式收尾需要区分「执行中」和「查不到」。 */
+   *  span 概况 —— 旁观模式的启发式收尾需要区分「执行中」和「查不到」；
+   *  spans 一并返回（失败即时检测要基于**本轮刚 fetch 到的新数据**判定，
+   *  不回头读 state）。 */
   const fetchSpans = useCallback(
     async (
       runId: string,
-    ): Promise<{ runStatus: string | null; hasRunning: boolean; hasSpans: boolean }> => {
-      try {
-        const res = await fetch(`/api/workflows/runs/${encodeURIComponent(runId)}/node-spans`, { cache: 'no-store' })
-        if (!res.ok) return { runStatus: null, hasRunning: false, hasSpans: false } // 404 = 尚未落库，下轮再试
-        const body = (await res.json()) as {
-          data?: {
-            runStatus?: string | null
-            inputSupported?: boolean
-            spans?: CanvasSpanRow[]
-          }
-        }
-        const spans = body?.data?.spans ?? []
-        applySpans(spans)
-        setLatestSpans(spans)
-        if (body?.data?.inputSupported != null) setInputSupported(body.data.inputSupported)
-        return {
-          runStatus: body?.data?.runStatus ?? null,
-          hasRunning: spans.some((sp) => (sp.status ?? '') === 'running'),
-          hasSpans: spans.length > 0,
-        }
-      } catch {
-        // 轮询失败静默 —— 最终状态以 run POST 的返回为准
-        return { runStatus: null, hasRunning: false, hasSpans: false }
+    ): Promise<{ runStatus: string | null; hasRunning: boolean; hasSpans: boolean; spans: RunNodeSpan[] }> => {
+      const r = await fetchRunNodeSpans(runId)
+      // !ok（含 404 = 尚未落库）→ 下轮再试；轮询失败静默，最终状态以
+      // run POST 的返回为准
+      if (!r.ok) return { runStatus: null, hasRunning: false, hasSpans: false, spans: [] }
+      applySpans(r.spans)
+      setLatestSpans(r.spans)
+      if (r.inputSupported != null) setInputSupported(r.inputSupported)
+      return {
+        runStatus: r.runStatus,
+        hasRunning: r.spans.some((sp) => (sp.status ?? '') === 'running'),
+        hasSpans: r.spans.length > 0,
+        spans: r.spans,
       }
     },
     [applySpans],
@@ -441,53 +424,51 @@ export function CanvasKitPage({
     [t],
   )
 
-  /** 统一的运行旁观循环：轮询 spans/runStatus 直到终态；任一 span 失败
-   *  立即置失败（不等 POST/runs 行）—— 引擎失败后可能还有长收尾。 */
-  const watchLoop = useCallback(
-    (runId: string, startedAt: number): void => {
-      window.clearInterval(pollRef.current)
-      const tick = async (): Promise<void> => {
-        const { runStatus } = await fetchSpans(runId)
-        if (runStatus === 'completed' || runStatus === 'failed' || runStatus === 'cancelled') {
-          window.clearInterval(pollRef.current)
-          await fetchSpans(runId) // 收尾定格：终态徽章齐全
-          const duration = ((Date.now() - startedAt) / 1000).toFixed(1)
-          if (runStatus === 'completed') {
-            setRunState('done')
-            setRunSummary(t('运行完成 · {n}s', { n: duration }))
-            toast.show(t('运行完成 · {n}s', { n: duration }), 'success', 4000)
-          } else if (runStatus === 'cancelled') {
-            setRunState('failed')
-            setRunSummary(t('已取消 · {n}s', { n: duration }))
-          } else {
-            setRunState('failed')
-            setRunSummary(t('运行失败 · {n}s', { n: duration }))
-            toast.error(t('运行失败 — 详见「运行结果」面板中红色节点'), 6000)
-          }
-          return
+  /** 统一的运行旁观循环（usePolling 驱动：700ms + 可见性暂停）：轮询
+   *  spans/runStatus 直到终态；任一 span 失败立即置失败（不等 POST/runs
+   *  行）—— 引擎失败后可能还有长收尾。失败判定基于**本轮刚 fetch 的
+   *  spans**（2026-09-17 修复：此前写在 setLatestSpans updater 里 ——
+   *  updater 必须纯，StrictMode 双调用会双发 toast，且读到的是上一轮
+   *  state）。返回 false 即停（usePolling 终态即停）。 */
+  const watchTick = useCallback(
+    async (): Promise<boolean> => {
+      if (!watch) return false
+      const { runStatus, spans } = await fetchSpans(watch.runId)
+      if (runStatus === 'completed' || runStatus === 'failed' || runStatus === 'cancelled') {
+        await fetchSpans(watch.runId) // 收尾定格：终态徽章齐全
+        const duration = ((Date.now() - watch.startedAt) / 1000).toFixed(1)
+        if (runStatus === 'completed') {
+          setRunState('done')
+          setRunSummary(t('运行完成 · {n}s', { n: duration }))
+          toast.show(t('运行完成 · {n}s', { n: duration }), 'success', 4000)
+        } else if (runStatus === 'cancelled') {
+          setRunState('failed')
+          setRunSummary(t('已取消 · {n}s', { n: duration }))
+        } else {
+          setRunState('failed')
+          setRunSummary(t('运行失败 · {n}s', { n: duration }))
+          toast.error(t('运行失败 — 详见「运行结果」面板中红色节点'), 6000)
         }
-        // 失败即时检测：span 已 failed 但 runs 行还没落 —— 立即置失败，
-        // 不再让按钮转圈（此前用户会看到「失败」却还在「运行中」）。
-        setLatestSpans((prev) => {
-          const failed = prev.find((sp) => sp.status === 'failed')
-          if (failed) {
-            window.clearInterval(pollRef.current)
-            setRunState('failed')
-            setRunSummary(
-              t('运行失败 · {node}', { node: failed.nodeLabel || failed.nodeId || '?' }) +
-                (failed.error ? `：${String(failed.error).slice(0, 60)}` : ''),
-            )
-            toast.error(t('节点 {node} 失败 — 展开运行结果查看详情', { node: failed.nodeLabel || failed.nodeId || '?' }), 8000)
-          }
-          return prev
-        })
+        return false
       }
-      void tick()
-      pollRef.current = window.setInterval(() => void tick(), 700)
+      // 失败即时检测：span 已 failed 但 runs 行还没落 —— 立即置失败，
+      // 不再让按钮转圈（此前用户会看到「失败」却还在「运行中」）。
+      const failed = spans.find((sp) => sp.status === 'failed')
+      if (failed) {
+        setRunState('failed')
+        setRunSummary(
+          t('运行失败 · {node}', { node: failed.nodeLabel || failed.nodeId || '?' }) +
+            (failed.error ? `：${String(failed.error).slice(0, 60)}` : ''),
+        )
+        toast.error(t('节点 {node} 失败 — 展开运行结果查看详情', { node: failed.nodeLabel || failed.nodeId || '?' }), 8000)
+        return false
+      }
+      return true
     },
-    // eslint-disable-next-line react-hooks/exhaustive-deps
-    [fetchSpans, toast, t],
+    [watch, fetchSpans, toast, t],
   )
+  // watch 置位即轮询（restartKey=runId：连跑第二次也立即重入）
+  usePolling(watch ? watchTick : null, { intervalMs: 700, visibilityPause: true, restartKey: watch?.runId })
 
   const handleRun = useCallback(
     async (input: string): Promise<void> => {
@@ -527,7 +508,9 @@ export function CanvasKitPage({
           toast.error(t('启动失败：{reason}', { reason: reason.slice(0, 120) }), 8000)
           return
         }
-        watchLoop(runId, startedAt)
+        // 画布直跑接管旁观：manualWatchRef 让 ?run= 的自有循环退位
+        manualWatchRef.current = true
+        setWatch({ runId, startedAt })
       } catch (err) {
         setRunState('failed')
         const reason = err instanceof Error ? err.message : String(err)
@@ -535,7 +518,7 @@ export function CanvasKitPage({
         toast.error(t('启动失败：{reason}', { reason: reason.slice(0, 120) }), 8000)
       }
     },
-    [runState, flowId, watchLoop, toast, t, runDirectoryId, persistRunInput],
+    [runState, flowId, toast, t, runDirectoryId, persistRunInput],
   )
 
   /** 运行中插话（2026-09-08 可操作终端）：POST message 路由，同步回执
@@ -583,6 +566,7 @@ export function CanvasKitPage({
   // 终止条件：runs 行的 runStatus（completed/failed/cancelled）；没有
   // runs 行时退化为启发式 —— 连续 8 轮无 running span 且已有 span 视为结束。
   useEffect(() => {
+    // TODO(轮询收敛,2026-09-17): 本轮未迁移（画布直跑 watchLoop 已迁 usePolling）—— 旁观轮询同款可换 @/lib/use-polling。
     if (!watchRunId) return
     let stablePolls = 0
     let cancelled = false
@@ -595,6 +579,11 @@ export function CanvasKitPage({
     manualCollapseRef.current.clear()
     editorRef.current?.clearRunState()
     const tick = async (): Promise<void> => {
+      // 画布直跑已接管轮询（watchTick 700ms 循环）—— 旁观循环退位
+      if (manualWatchRef.current) {
+        window.clearInterval(pollRef.current)
+        return
+      }
       const { runStatus, hasRunning, hasSpans } = await fetchSpans(watchRunId)
       if (cancelled) return
       if (runStatus === 'completed' || runStatus === 'failed' || runStatus === 'cancelled') {
@@ -963,16 +952,15 @@ export function CanvasKitPage({
                     stdin 行（可操作终端 2026-09-08）：运行中可对 running 节点插话，
                     结束后原位变重跑入口。 */
                 (() => {
-                  const topoOrder = new Map(initialFlow.nodes.map((n, i) => [n.id as string, i]))
                   const sections = [...latestSpans]
                     .sort(
                       (a, b) =>
-                        (topoOrder.get(a.nodeId ?? '') ?? 1e9) - (topoOrder.get(b.nodeId ?? '') ?? 1e9),
+                        (topoOrder.get(a.nodeId) ?? 1e9) - (topoOrder.get(b.nodeId) ?? 1e9),
                     )
                     .map(spanToTerminalSection)
                   const activeNodes = latestSpans
                     .filter((sp) => sp.status === 'running')
-                    .map((sp) => ({ id: sp.nodeId ?? sp.node_id ?? '', label: sp.nodeLabel || sp.nodeId || '?' }))
+                    .map((sp) => ({ id: sp.nodeId, label: sp.nodeLabel || sp.nodeId || '?' }))
                   return (
                     <RunTerminal
                       sections={sections}
@@ -990,14 +978,13 @@ export function CanvasKitPage({
                     顺序），不再按 span 返回序（完成时间倒序会把 start 排最后，
                     违背阅读直觉）；未知节点（理论不该有）排在末尾 */}
                 {(() => {
-                  const topoOrder = new Map(initialFlow.nodes.map((n, i) => [n.id as string, i]))
                   return [...latestSpans]
                     .sort(
                       (a, b) =>
-                        (topoOrder.get(a.nodeId ?? '') ?? 1e9) - (topoOrder.get(b.nodeId ?? '') ?? 1e9),
+                        (topoOrder.get(a.nodeId) ?? 1e9) - (topoOrder.get(b.nodeId) ?? 1e9),
                     )
                     .map((sp) => {
-                      const id = sp.nodeId ?? sp.node_id ?? '?'
+                      const id = sp.nodeId || '?'
                       const displayForWarn = spanToDisplay(sp.output)
                       let st = sp.status ?? ''
                       // 诚实标注：done 但内容是权限拒绝 → 黄警（同聊天执行卡）
@@ -1142,7 +1129,7 @@ export function CanvasKitPage({
         </div>
       )
     },
-    [flowName, saveState, readOnly, runState, runSummary, handleRun, t, runPanelOpen, runInput, resultsOpen, latestSpans, saveTplOpen, handleAddDirectory, firstRunBar, templateParamNames, initialFlow, resultView, switchResultView, ioOpen],
+    [flowName, saveState, readOnly, runState, runSummary, handleRun, t, runPanelOpen, runInput, resultsOpen, latestSpans, saveTplOpen, handleAddDirectory, firstRunBar, templateParamNames, topoOrder, initialFlow, resultView, switchResultView, ioOpen],
   )
 
   return (

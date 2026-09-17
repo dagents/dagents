@@ -1,37 +1,25 @@
 import { defineConfig, devices } from '@playwright/test'
 
 /**
- * Playwright config for the console package (v0.3-M10.1).
- *
- * The design-fidelity e2e (tests/e2e/v0.3-design.spec.ts) exercises the two
- * flows the audit pinned as acceptance for v0.3: the new-task composer's
- * Path B (direct-agent dispatch) → gateway POST contract + agent-detail
- * presence-pill render (the WS-refresh e2e is deferred — see the spec header),
- * and the flows edit button opening the workflow canvas editor.
- * The webServer block boots `next dev` on :3000 and reuses an already-running
- * instance so a developer's `pnpm --filter @dagents/console dev` is not killed
- * between runs.
+ * Playwright config for the console package — full browser e2e suite
+ * (`tests/e2e/`：UC 用户用例 spec 01~10 + 执行态 spec 11~23 + viewport-matrix).
  *
  * These are **true end-to-end** tests, not the in-process `app.request()`
  * suites under `__tests__/`. They need the dagents dev stack up: Postgres
- * (:15432), Redis (:16479), and the gateway (:8080) + dispatch (:8081) +
- * workflow services the console proxies into. See the issue brief and
- * `infra/README.md` for bring-up. The webServer here only owns the Next dev
- * process — the rest is expected to already be running (reuseExistingServer
- * makes a shared dev stack the happy path).
+ * (:15432 本机；CI 用 fresh 服务容器直建 `dagents_e2e`) and the gateway
+ * (:8080 —— dispatch/scheduler/workflow 引擎均已并入 gateway，无独立服务，
+ * Redis 依赖已废弃). The `webServer` array owns exactly two processes:
+ *  1. Mock LLM Provider（:4010，`E2E_MOCK_LLM_PORT` 可覆盖；OpenAI 兼容 +
+ *     `/__control/*` 控制面，docs/e2e-test-plan.md §4.4）—— 执行态用例的
+ *     确定性地基；
+ *  2. console `next dev`（默认 :3000，`E2E_PORT` 可指向已占用另一端口的
+ *     实例）；`reuseExistingServer: true` 让本地已跑的 dev stack 直接复用.
  *
- * Port: defaults to 3000 (the design's console port). Override with
- * `E2E_PORT` to target an already-running dev server on another port — this
- * workspace has another Next app parked on :3000, so MZW-309's viewport matrix
- * already runs against a console booted on a free port pointed at via
- * `E2E_PORT`; the same override works for the design-fidelity suite.
+ * Auth: none — login was removed (本机模式), the gateway runs open. No login
+ * bootstrap is needed.
  *
- * Auth: none — login was removed (本机模式), the gateway runs open. These e2e
- * POST the gateway directly (`/api/v1/tasks`) and rely on the agents picker
- * resolving from `/api/agents`; no login bootstrap is needed.
- *
- * Browsers: Chromium only. The 9-viewport visual matrix is MZW-309 (M10.2),
- * not here.
+ * Browsers: Chromium only（viewport-matrix 的 10 屏 × 9 视口矩阵是同目录的
+ * `viewport-matrix.spec.ts`，同一 config 覆盖）.
  */
 export default defineConfig({
   testDir: './tests/e2e',

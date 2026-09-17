@@ -538,20 +538,6 @@
 }
 .canvas-first-run-close:hover { color: var(--fg); }
 
-/* ─── PX-CV06：dag-node（流程缩略 DAG）与画布节点同视觉契约 ─────────
- * shell.css 的 .dag-node 只读；此处做对齐覆盖：圆角比例与画布卡片一致
- * （radius-md，左侧色条的角跟随令牌而非硬编码 10px）、标签 2 行 clamp
- * 与 CV02 同规。状态色本就走 tokens（running=accent 等），无需改。 */
-.dag-node { border-radius: var(--radius-md); }
-.dag-node::before { border-radius: var(--radius-md) 0 0 var(--radius-md); }
-.dag-node .dag-node-label {
-  display: -webkit-box;
-  -webkit-line-clamp: 2;
-  -webkit-box-orient: vertical;
-  overflow: hidden;
-  word-break: break-word;
-}
-
 /* 2026-09-06 图标统一：活动流/首跑条 emoji → Icon 体系 */
 .canvas-act-icon { display: inline-flex; align-items: center; }
 .canvas-act-icon svg { width: 11px; height: 11px; }

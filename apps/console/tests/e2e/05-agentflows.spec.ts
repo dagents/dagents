@@ -1,5 +1,6 @@
 import { test, expect } from '@playwright/test'
-import { createSeedContext, type SeedContext } from './helpers/seed'
+import { createSeedContext, seedFlow, type SeedContext } from './helpers/seed'
+import { flow, startNode, directReplyNode, edge } from './helpers/flow-builder'
 
 /**
  * AgentFlows module e2e — UC-FLW-01 ~ UC-FLW-07.
@@ -131,13 +132,22 @@ test.describe('AgentFlows module (UC-FLW-01 ~ 07)', () => {
 
   // ── UC-FLW-02: 查看单个 flow 详情/DAG (✅ implemented) ──────────────────
 
-  test('UC-FLW-02: run button jumps to canvas watch (detail page retired)', async ({ page }) => {
+  test('UC-FLW-02: run button jumps to canvas watch (detail page retired)', async ({ page, request }) => {
     // 2026-08-30 三方协商：详情页退役，一次运行一个家 = 画布旁观。
     // hash 深链 #flow=&run= 通道随之删除 —— 本用例改为钉住 /flows 路由上
     // 「运行 → 画布旁观」的新契约（/ 路由的同款旅程由 WF-12/UI-01 覆盖）。
+    // 2026-09-17：自给自足播种 —— 此前依赖更早 spec 的环境残留 flow，
+    // 全新库（CI / 隔离栈）下列表为空、首卡不存在而必挂。
+    const flowId = await seedFlow(ctx!, request, {
+      name: 'e2e-flw02-run-jump',
+      flowData: flow(
+        [startNode('start'), directReplyNode('reply', { text: 'FLW-02 ok' })],
+        [edge('start', 'reply')],
+      ),
+    })
     await page.goto('/flows')
     await expect(page.locator('.flow-cards')).toBeVisible({ timeout: 15_000 })
-    const card = page.locator('.flow-card').first()
+    const card = page.locator('.flow-card', { hasText: 'e2e-flw02-run-jump' }).first()
     await card.getByTitle('运行此 flow').click()
     const dialog = page.locator('.modal-dialog.open')
     await expect(dialog).toBeVisible()
@@ -145,6 +155,8 @@ test.describe('AgentFlows module (UC-FLW-01 ~ 07)', () => {
     // dev 模式画布路由首次访问有冷编译 —— 放宽（15s 在有存量卡片的
     // dev 库上偶发超时，实测全程可达 16s+，放到 30s）
     await page.waitForURL(/\/canvas\?run=/, { timeout: 30_000 })
+    // 跳到的旁观对象就是刚播种的 flow
+    await expect(page).toHaveURL(new RegExp(`/workflows/${flowId}/canvas\\?run=`))
   })
 
   test('UC-FLW-03 (partial): /workflows/:id/canvas renders an honest error state for an unknown id', async ({ page }) => {

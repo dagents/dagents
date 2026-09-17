@@ -1,75 +1,81 @@
 import { describe, it, expect } from 'vitest'
-import { toRunNodeSpan, mapSpanStatus, type SchedulerNodeSpanRow } from './node-spans'
+import { normalizeRunNodeSpan, type RunNodeSpan } from './node-spans'
 
 /**
- * Unit tests for the scheduler → console node-span transform (M6.4 /
- * P1.11.T5). Pure: no fetch, no gateway.
- *
- * Pins the shape contract the console API route + the inspector rely on: a
- * scheduler `run_node_spans` row (NUMERIC cost as string, status domain) maps
- * onto the console `RunNodeSpan` (numeric cost, console status), and unknown
- * statuses degrade to `unknown` rather than crashing the inspector.
+ * 边界归一函数的形状契约（2026-09-17 单源收敛后重写：旧测试钉的是
+ * scheduler → console 的死映射，0 引用）。normalizeRunNodeSpan 是三个
+ * 消费方（canvas 结果面板 / 聊天执行卡 / 终端格式化层）共用的唯一
+ * 边界：nodeId/node_id 双写在此一次归一，输出规范 camelCase。
  */
 
-const baseRow: SchedulerNodeSpanRow = {
+const baseRow: Record<string, unknown> = {
   nodeId: 'n1',
   nodeLabel: 'Start',
   nodeType: 'customNode',
   status: 'done',
-  startedAt: null,
-  finishedAt: '2026-07-10T01:00:00.000Z',
-  durationMs: null,
-  tokens: null,
-  cost: null,
+  startedAt: '2026-09-17T01:00:00.000Z',
+  finishedAt: '2026-09-17T01:00:02.000Z',
+  durationMs: 2000,
+  tokens: { claude: { inputTokens: 10, outputTokens: 5 } },
+  cost: 0.42,
   error: null,
-  traceId: null,
+  traceId: 'trace-abc',
+  input: { model: 'sonnet' },
+  output: { text: 'hi' },
 }
 
-describe('mapSpanStatus', () => {
-  it('passes the known statuses through', () => {
-    expect(mapSpanStatus('running')).toBe('running')
-    expect(mapSpanStatus('done')).toBe('done')
-    expect(mapSpanStatus('failed')).toBe('failed')
-    expect(mapSpanStatus('paused')).toBe('paused')
-    expect(mapSpanStatus('unknown')).toBe('unknown')
-  })
-
-  it('degrades an unrecognized status to unknown', () => {
-    expect(mapSpanStatus('queued')).toBe('unknown')
-    expect(mapSpanStatus('idle')).toBe('unknown')
-    expect(mapSpanStatus('WHATEVER')).toBe('unknown')
-  })
-})
-
-describe('toRunNodeSpan', () => {
-  it('coerces a NUMERIC-as-string cost to a number', () => {
-    const span = toRunNodeSpan({ ...baseRow, cost: '0.420000' })
-    expect(span.cost).toBe(0.42)
-  })
-
-  it('leaves cost null when the row has none', () => {
-    const span = toRunNodeSpan({ ...baseRow, cost: null })
-    expect(span.cost).toBeNull()
-  })
-
-  it('nulls an unparseable cost string rather than NaN-ing', () => {
-    const span = toRunNodeSpan({ ...baseRow, cost: 'not-a-number' })
-    expect(span.cost).toBeNull()
-  })
-
-  it('reads token usage + error + traceId verbatim', () => {
-    const span = toRunNodeSpan({
-      ...baseRow,
-      status: 'failed',
-      tokens: { 'gpt-4': { prompt_tokens: 100, completion_tokens: 50 } },
-      cost: '1.25',
-      error: 'boom',
+describe('normalizeRunNodeSpan', () => {
+  it('规范 camelCase 行原样通过（网关真实形状）', () => {
+    const span = normalizeRunNodeSpan(baseRow)
+    expect(span).toEqual({
+      nodeId: 'n1',
+      nodeLabel: 'Start',
+      nodeType: 'customNode',
+      status: 'done',
+      error: null,
+      startedAt: '2026-09-17T01:00:00.000Z',
+      finishedAt: '2026-09-17T01:00:02.000Z',
+      durationMs: 2000,
+      tokens: { claude: { inputTokens: 10, outputTokens: 5 } },
+      cost: 0.42,
       traceId: 'trace-abc',
-    })
-    expect(span.status).toBe('failed')
-    expect(span.tokens).toEqual({ 'gpt-4': { prompt_tokens: 100, completion_tokens: 50 } })
-    expect(span.cost).toBe(1.25)
-    expect(span.error).toBe('boom')
-    expect(span.traceId).toBe('trace-abc')
+      input: { model: 'sonnet' },
+      output: { text: 'hi' },
+    } satisfies RunNodeSpan)
+  })
+
+  it('snake_case node_id 兜底 → 归一为 camelCase nodeId', () => {
+    const { nodeId, ...rest } = baseRow
+    void nodeId
+    const span = normalizeRunNodeSpan({ ...rest, node_id: 'legacy-1' })
+    expect(span.nodeId).toBe('legacy-1')
+    // camelCase 优先于 snake_case
+    expect(normalizeRunNodeSpan({ ...rest, node_id: 'legacy-1', nodeId: 'camel-1' }).nodeId).toBe('camel-1')
+  })
+
+  it('字段缺席/类型不符全部静默归 null（不抛错）', () => {
+    const span = normalizeRunNodeSpan({ nodeId: 'n2', status: 'running' })
+    expect(span.nodeLabel).toBeNull()
+    expect(span.nodeType).toBeNull()
+    expect(span.status).toBe('running')
+    expect(span.durationMs).toBeNull()
+    expect(span.cost).toBeNull()
+    expect(span.input).toBeNull()
+    expect(span.output).toBeNull()
+    expect(span.tokens).toBeNull()
+  })
+
+  it('input/output 容忍字符串形态（字符串化 JSON 桩）', () => {
+    const span = normalizeRunNodeSpan({ ...baseRow, input: '{"model":"x"}', output: 'plain text' })
+    expect(span.input).toBe('{"model":"x"}')
+    expect(span.output).toBe('plain text')
+  })
+
+  it('非对象输入（null/数组/原始值）退化为空壳而非崩溃', () => {
+    for (const raw of [null, undefined, 42, 'x', []]) {
+      const span = normalizeRunNodeSpan(raw)
+      expect(span.nodeId).toBe('')
+      expect(span.status).toBeNull()
+    }
   })
 })

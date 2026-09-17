@@ -230,6 +230,7 @@ export function AgentDetailView({ id, nowMs }: AgentDetailViewProps): React.Reac
         })
       void Promise.all([detailP, logsP])
     }
+    // TODO(轮询收敛,2026-09-17): 本轮未迁移 —— 可换 @/lib/use-polling 单点实现（fetcher 返回是否继续 + restartKey）。
     const handle = setInterval(tick, POLL_INTERVAL_MS)
     return () => {
       cancelled = true

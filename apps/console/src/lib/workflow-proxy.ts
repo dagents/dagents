@@ -5,12 +5,16 @@
  * (`/api/workflows/:id`) forward to the gateway's `/api/v1/workflows/*`
  * CRUD API. The wiring is identical except for the path segment, so the
  * URL-building / header-forwarding / response-piping live here once.
+ *
+ * 2026-09-17 代理收敛：forwardHeaders / fail / pipeUpstream 不再各自复制，
+ * 一律从第一代 gateway-proxy 导出（单源）；本模块只保留 workflow 特有的
+ * 路径前缀与 id 校验 + 带 svc 标签的错误日志。
  */
 
-import { type NextRequest, NextResponse } from 'next/server'
 import { createLogger } from '@dagents/shared'
 import { gatewayUrl } from '@/lib/config'
-import { resolveRunId } from '@/lib/run-id'
+
+export { fail, forwardHeaders, pipeUpstream } from '@/lib/gateway-proxy'
 
 const proxyLog = createLogger({ svc: 'console:workflow-proxy' })
 
@@ -21,37 +25,9 @@ export function buildUpstreamUrl(path: string, search: string): string {
   return search ? `${base}${search}` : base
 }
 
-export function forwardHeaders(req: NextRequest, hasBody: boolean): Record<string, string> {
-  const headers: Record<string, string> = {
-    'x-run-id': resolveRunId(req.headers.get('x-run-id')),
-  }
-  const cookie = req.headers.get('cookie')
-  if (cookie) headers['cookie'] = cookie
-  const auth = req.headers.get('authorization')
-  if (auth) headers['authorization'] = auth
-  if (hasBody) headers['content-type'] = req.headers.get('content-type') ?? 'application/json'
-  return headers
-}
-
-export function fail(status: number, error: string): NextResponse {
-  return NextResponse.json({ success: false, error }, { status })
-}
-
 export function logProxyError(stage: string, err: unknown): void {
   proxyLog.error('gateway dial failed', {
     stage,
     error: err instanceof Error ? err.name : typeof err,
   })
-}
-
-export async function pipeUpstream(upstream: Response): Promise<NextResponse> {
-  const body = await upstream.text()
-  const headers = new Headers()
-  const ct = upstream.headers.get('content-type')
-  if (ct) headers.set('content-type', ct)
-  // Forward the run id so the browser can open the detail page for the
-  // run that was just executed (the gateway sets it on POST /:id/run).
-  const runId = upstream.headers.get('x-run-id')
-  if (runId) headers.set('x-run-id', runId)
-  return new NextResponse(body, { status: upstream.status, headers })
 }

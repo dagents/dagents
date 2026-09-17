@@ -90,7 +90,10 @@ test.describe('失败与边界（Tier D：ED）', () => {
     expect(ghost?.error ?? '').toContain('not found')
   })
 
-  test('ED-03: Iteration 超 100 项截断 —— 只跑 100 轮', async ({ request }) => {
+  test('ED-03: Iteration 超 100 项 —— 显式报错拒绝静默截断（2026-09-17 语义修订）', async ({ request }) => {
+    // 旧契约「只跑 100 轮 + 静默截断」是数据丢失伪装成成功（101~150 项
+    // 蒸发但 run 报 success）；2026-09-17 评审改为显式失败 —— 引擎侧对应
+    // 测试见 packages/workflow executor-semantics.test.ts。
     const items = Array.from({ length: 150 }, (_, i) => `item-${i}`)
     const flowId = await seedFlow(ctx, request, {
       name: 'e2e-ed03-cap',
@@ -104,16 +107,21 @@ test.describe('失败与边界（Tier D：ED）', () => {
       ),
     })
 
-    const { status, runId } = await runFlow(request, flowId)
-    ctx.runIds.push(runId)
-    expect(status).toBe(200)
-
-    const spansRes = await request.get(`/api/workflows/runs/${runId}/node-spans`)
-    const spans = ((await spansRes.json()).data?.spans ?? []) as Array<{ nodeId: string; output: unknown }>
-    const iterOut = JSON.stringify(spans.find((s) => s.nodeId === 'iter')?.output)
-    expect(iterOut).toContain('"completedIterations":100')
-    // 第 101~150 项被截断，不执行
-    expect(JSON.parse(`{${iterOut.slice(1, -1)}}`).iterations).toHaveLength(100)
+    // 同步 run 端点对失败 run 的既有契约是 500 + 完整信封（error +
+    // executedNodes）—— 旧契约截断=success 才回 200。断言信封即断言一切。
+    const { status, body, runId } = await runFlow(request, flowId)
+    // 失败信封无 data.runId —— 用响应头里的 x-run-id 登记（可能为空，
+    // 空值不进 ctx.runIds：dispose 按任意 uuid 删除会把 '' 炸成 SQL 错）。
+    if (runId && /^[0-9a-f-]{36}$/i.test(runId)) ctx.runIds.push(runId)
+    expect(status).toBe(500)
+    const envelope = body as { error?: string; executedNodes?: Array<{ nodeId: string; status: string }> }
+    // 失败信息点名项数与上限
+    expect(envelope.error ?? '').toContain('150')
+    expect(envelope.error ?? '').toContain('100')
+    // 迭代节点自身 failed；循环体一项都不执行（拒绝执行而非跑一半）
+    const nodes = envelope.executedNodes ?? []
+    expect(nodes.find((n) => n.nodeId === 'iter')?.status).toBe('failed')
+    expect(nodes.find((n) => n.nodeId === 'work')).toBeUndefined()
   })
 
   test('ED-05: 并发 run 同一 flow —— 两个 run 各自完整、run_id 隔离', async ({ request }) => {

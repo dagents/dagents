@@ -246,4 +246,11 @@ export const agents: Record<string, string> = {
   '编辑 Agent': 'Edit agent',
   '未保存的更改': 'Unsaved changes',
   '有未保存的更改，确定离开？': 'You have unsaved changes. Leave anyway?',
+
+  // ── 2026-09-17 补译（扫描测试补齐的缺项）──
+  '返回 Agent 详情': 'Back to agent detail',
+  '指令 (Instructions)': 'Instructions',
+  '留空使用 CLI 默认模型': 'Leave empty to use the CLI default model',
+  '刷新列表': 'Refresh list',
+  ' · 仍可创建（默认本机执行）': ' · can still create (inline execution by default)',
 }

@@ -43,10 +43,14 @@ function fleetReq(headers: Record<string, string> = {}): NextRequest {
   return new NextRequest('http://localhost/api/fleet-stats', { method: 'GET', headers })
 }
 
+/** gatewayProxy 生成的处理器第二参数必填（Next 15 路由签名校验）——
+ *  测试调用补一个空 params context，与 Next 运行时行为一致。 */
+const routeCtx = { params: Promise.resolve({} as Record<string, string>) }
+
 describe('GET /api/fleet-stats', () => {
   it('returns 502 when the gateway is unreachable', async () => {
     process.env.GATEWAY_URL = 'http://127.0.0.1:1'
-    const res = await GET(fleetReq())
+    const res = await GET(fleetReq(), routeCtx)
     expect(res.status).toBe(502)
     const json = await res.json()
     expect(json.success).toBe(false)
@@ -87,7 +91,7 @@ describe('GET /api/fleet-stats', () => {
       res.end(body)
     })
 
-    const res = await GET(fleetReq({ 'x-run-id': 'run-dash-1' }))
+    const res = await GET(fleetReq({ 'x-run-id': 'run-dash-1' }), routeCtx)
     expect(res.status).toBe(200)
     expect(res.headers.get('content-type')).toBe('application/json')
     const json = await res.json()
@@ -106,7 +110,7 @@ describe('GET /api/fleet-stats', () => {
       res.end(JSON.stringify({ success: false, error: 'db unavailable' }))
     })
 
-    const res = await GET(fleetReq())
+    const res = await GET(fleetReq(), routeCtx)
     expect(res.status).toBe(500)
     const json = await res.json()
     expect(json.success).toBe(false)
@@ -126,7 +130,7 @@ describe('GET /api/fleet-stats', () => {
     const reqWithQuery = new NextRequest('http://localhost/api/fleet-stats?windowHours=168', {
       method: 'GET',
     })
-    await GET(reqWithQuery)
+    await GET(reqWithQuery, routeCtx)
     expect(receivedSearch).toBe('/api/v1/dispatch/fleet-stats?windowHours=168')
   })
 
@@ -145,7 +149,7 @@ describe('GET /api/fleet-stats', () => {
     const reqWithPreset = new NextRequest('http://localhost/api/fleet-stats?window=7d', {
       method: 'GET',
     })
-    await GET(reqWithPreset)
+    await GET(reqWithPreset, routeCtx)
     expect(receivedSearch).toBe('/api/v1/dispatch/fleet-stats?windowHours=168')
   })
 
@@ -161,7 +165,7 @@ describe('GET /api/fleet-stats', () => {
     const reqWithPreset = new NextRequest('http://localhost/api/fleet-stats?window=1h', {
       method: 'GET',
     })
-    await GET(reqWithPreset)
+    await GET(reqWithPreset, routeCtx)
     expect(receivedSearch).toBe('/api/v1/dispatch/fleet-stats?windowHours=1')
   })
 
@@ -175,7 +179,7 @@ describe('GET /api/fleet-stats', () => {
       res.end(JSON.stringify({ success: true, data: { windowHours: 24 } }))
     })
 
-    await GET(fleetReq())
+    await GET(fleetReq(), routeCtx)
     expect(receivedSearch).toBe('/api/v1/dispatch/fleet-stats')
   })
 
@@ -191,7 +195,7 @@ describe('GET /api/fleet-stats', () => {
       res.end(JSON.stringify({ success: true, data: { windowHours: 24 } }))
     })
 
-    await GET(fleetReq())
+    await GET(fleetReq(), routeCtx)
     expect(receivedRunId).toMatch(/^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/)
   })
 })

@@ -202,4 +202,7 @@ export const common = {
 '语言': 'Language',
 '界面语言': 'Interface language',
 '切换全站文案语言，即时生效（未翻译词条回退中文）': 'Switch UI copy site-wide, instant (untranslated keys fall back to Chinese)',
+
+  // ── 2026-09-17 补译（扫描测试补齐的缺项）──
+  '返回首页': 'Back to home',
 } as const

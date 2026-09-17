@@ -65,6 +65,7 @@ export function GenerateFlowDialog({
   useEffect(() => {
     if (!generating) return
     setStepIdx(0)
+    // TODO(轮询收敛,2026-09-17): 本轮未迁移 —— 可换 @/lib/use-polling 单点实现。
     stepTimer.current = window.setInterval(() => {
       setStepIdx((i) => Math.min(i + 1, GEN_STEPS.length - 1))
     }, 2600)

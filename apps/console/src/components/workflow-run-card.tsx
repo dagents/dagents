@@ -19,18 +19,9 @@ import { Icon } from '@/components/icon'
 import { detectRefusal } from '@/lib/refusal-detect'
 import { SPAN_STATUS_CN } from '@/lib/flows'
 import { formatDuration } from '@/lib/format'
+import { fetchRunNodeSpans, type RunNodeSpan } from '@/lib/node-spans'
+import { extractOutputText } from '@/lib/run-terminal-format'
 import '@/styles/workflow-run-card.css'
-
-interface SpanRow {
-  nodeId?: string
-  node_id?: string
-  nodeLabel?: string | null
-  status?: string
-  error?: string | null
-  durationMs?: number | null
-  tokens?: unknown
-  output?: Record<string, unknown> | string | null
-}
 
 export interface WorkflowRunCardProps {
   runId: string
@@ -44,29 +35,19 @@ export interface WorkflowRunCardProps {
   defaultOpen?: boolean
 }
 
-function spanText(sp: SpanRow | undefined): string {
+/** 正文提取复用 run-terminal-format 的单源实现（text/content 直出 +
+ *  DirectReply 字符串化 JSON 二次解包）；无正文回落 JSON 截断预览。 */
+function spanText(sp: RunNodeSpan | undefined): string {
   const out = sp?.output
   if (out == null) return ''
-  if (typeof out === 'string') return out
-  const o = out as Record<string, unknown>
-  let text = typeof o.text === 'string' && o.text ? o.text
-    : typeof o.content === 'string' && o.content ? o.content
-    : null
-  // DirectReply 的 content 常是字符串化的上游 JSON —— 二次解包
-  if (text && text.trimStart().startsWith('{')) {
-    try {
-      const inner = JSON.parse(text) as Record<string, unknown>
-      if (typeof inner.text === 'string' && inner.text) text = inner.text
-      else if (typeof inner.content === 'string' && inner.content) text = inner.content
-    } catch { /* 原样 */ }
-  }
+  const text = extractOutputText(out)
   if (text) return text
   return JSON.stringify(out).slice(0, 140)
 }
 
 export function WorkflowRunCard({ runId, flowName, flowId, live = false, onTerminal, defaultOpen }: WorkflowRunCardProps): React.ReactElement | null {
   const { t } = useI18n()
-  const [spans, setSpans] = useState<SpanRow[]>([])
+  const [spans, setSpans] = useState<RunNodeSpan[]>([])
   const [runStatus, setRunStatus] = useState<string | null>(null)
   const [durationMs, setDurationMs] = useState<number | null>(null)
   // 默认展开（PRD F4）：聊天详情执行记录默认可见；live 卡保持自动展开 +
@@ -80,28 +61,21 @@ export function WorkflowRunCard({ runId, flowName, flowId, live = false, onTermi
   const pollRef = useRef<number | undefined>(undefined)
 
   const fetchOnce = useCallback(async (): Promise<string | null> => {
-    try {
-      const res = await fetch(`/api/workflows/runs/${encodeURIComponent(runId)}/node-spans`, { cache: 'no-store' })
-      if (!res.ok) {
-        setFetchError(`HTTP ${res.status}`)
-        return null
-      }
-      const body = (await res.json()) as {
-        data?: { runStatus?: string | null; runDurationMs?: number | null; spans?: SpanRow[] }
-      }
-      setSpans(body?.data?.spans ?? [])
-      setRunStatus(body?.data?.runStatus ?? null)
-      if (body?.data?.runDurationMs != null) setDurationMs(body.data.runDurationMs)
-      setLoaded(true)
-      setFetchError(null)
-      return body?.data?.runStatus ?? null
-    } catch (err) {
-      setFetchError(err instanceof Error ? err.message : String(err))
+    const r = await fetchRunNodeSpans(runId)
+    if (!r.ok) {
+      setFetchError(r.httpStatus > 0 ? `HTTP ${r.httpStatus}` : 'network error')
       return null
     }
+    setSpans(r.spans)
+    setRunStatus(r.runStatus)
+    if (r.runDurationMs != null) setDurationMs(r.runDurationMs)
+    setLoaded(true)
+    setFetchError(null)
+    return r.runStatus
   }, [runId])
 
   useEffect(() => {
+    // TODO(轮询收敛,2026-09-17): 本轮未迁移 —— 可换 @/lib/use-polling 单点实现（fetcher 返回是否继续 + restartKey）。
     let cancelled = false
     terminalFiredRef.current = false
     void fetchOnce().then((status) => {
@@ -166,7 +140,7 @@ export function WorkflowRunCard({ runId, flowName, flowId, live = false, onTermi
             const st = refused ? 'warn' : sp.status ?? ''
             return (
               <span
-                key={sp.nodeId ?? sp.node_id}
+                key={sp.nodeId}
                 className={`wf-chain-node dot-${st || 'pending'}`}
                 title={`${sp.nodeLabel || sp.nodeId} · ${refused ? t('疑似权限受限') : t(SPAN_STATUS_CN[st] ?? st)}`}
               />
@@ -184,7 +158,7 @@ export function WorkflowRunCard({ runId, flowName, flowId, live = false, onTermi
       {open ? (
         <div className='wf-run-timeline'>
           {spanFlags.map(({ sp, refused, text }) => {
-            const id = sp.nodeId ?? sp.node_id ?? '?'
+            const id = sp.nodeId || '?'
             const st = refused ? 'warn' : sp.status ?? ''
             return (
               <details key={id} className={`wf-tl-row status-${st}`} open={st === 'failed' || undefined}>

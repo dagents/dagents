@@ -141,6 +141,7 @@ export function DaemonsView(): React.ReactElement {
   }, [])
 
   useEffect(() => {
+    // TODO(轮询收敛,2026-09-17): 本轮未迁移 —— 可换 @/lib/use-polling 单点实现（fetcher 返回是否继续 + 可见性暂停 + 退避上限）。
     let cancelled = false
     let timer: ReturnType<typeof setTimeout> | null = null
     let ticking = false
@@ -156,13 +157,6 @@ export function DaemonsView(): React.ReactElement {
         if (cancelled) return
         setDaemons(d)
         if (s) setStats(s)
-        // Update selected daemon's info if it's still in the list
-        if (selectedDaemon) {
-          const updated = d.find((x) => x.id === selectedDaemon.id)
-          if (updated && updated.status !== selectedDaemon.status) {
-            setSelectedDaemon(updated)
-          }
-        }
         backoffRef.current = POLL_BASE_MS
         if (isInitialRef.current) {
           isInitialRef.current = false
@@ -212,7 +206,6 @@ export function DaemonsView(): React.ReactElement {
       if (timer) clearTimeout(timer)
       document.removeEventListener('visibilitychange', handleVisibility)
     }
-    // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [])
 
   // ─── task detail view ──────────────────────────────────────────────
@@ -689,6 +682,7 @@ function DaemonTasksView({
   }, [selectedTaskId])
 
   useEffect(() => {
+    // TODO(轮询收敛,2026-09-17): 本轮未迁移 —— 可换 @/lib/use-polling 单点实现（fetcher 返回是否继续 + 可见性暂停 + restartKey）。
     let cancelled = false
     let timer: ReturnType<typeof setTimeout> | null = null
     let ticking = false

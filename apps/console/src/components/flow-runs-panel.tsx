@@ -9,12 +9,15 @@
  * GET /api/v1/runs），行元素压缩为卡片宽度的紧凑形态。
  *
  * 刷新契约：挂载拉一次 + `refreshTick` 变化重拉（父组件在发起运行后
- * bump）；存在 running 行时 3s 轻轮询 —— 卡片展开着就能看到运行收尾。
+ * bump）；存在 running 行时 3s 轻轮询到终态 —— 卡片展开着就能看到运行
+ * 收尾。轮询走 usePolling（2026-09-17 收敛）：延续判定基于每轮刚拉到的
+ * 行（此前按挂载时的首拨行决定，全部到终态后仍无限空转）。
  */
-import { useCallback, useEffect, useRef, useState } from 'react'
+import { useCallback, useState } from 'react'
 import Link from 'next/link'
 import { useI18n } from '@/i18n'
 import { formatDuration, timeAgo, timeTitle } from '@/lib/format'
+import { usePolling } from '@/lib/use-polling'
 import '@/styles/flow-runs.css'
 
 interface RunRow {
@@ -59,9 +62,10 @@ export function FlowRunsPanel({ flowId, refreshTick = 0, onRerun }: FlowRunsPane
   const { t } = useI18n()
   const [runs, setRuns] = useState<RunRow[]>([])
   const [loading, setLoading] = useState(true)
-  const timerRef = useRef<number>(0)
 
-  const load = useCallback(async (): Promise<RunRow[]> => {
+  /** 拉一次运行历史；返回「是否存在未终态行」（usePolling 的延续判定，
+   *  基于本轮新数据）。 */
+  const load = useCallback(async (): Promise<boolean> => {
     try {
       const res = await fetch(`/api/runs?flowId=${encodeURIComponent(flowId)}&limit=20`, {
         cache: 'no-store',
@@ -70,33 +74,17 @@ export function FlowRunsPanel({ flowId, refreshTick = 0, onRerun }: FlowRunsPane
       if (!res.ok || !json.success) throw new Error(json.error ?? `HTTP ${res.status}`)
       const rows = json.data ?? []
       setRuns(rows)
-      return rows
+      return rows.some((r) => r.status === 'running' || r.status === 'pending')
     } catch {
       // 静默 —— 展开区是增强，失败不阻塞卡片
-      return []
+      return false
     } finally {
       setLoading(false)
     }
   }, [flowId])
 
-  useEffect(() => {
-    let cancelled = false
-    void (async () => {
-      setLoading(true)
-      const rows = await load()
-      if (cancelled) return
-      // 有 running 行 → 3s 轻轮询直到全部终态（挂载/refreshTick 重入都会
-      // 重置；卸载清理）。终态即停，不空转。
-      window.clearInterval(timerRef.current)
-      if (rows.some((r) => r.status === 'running' || r.status === 'pending')) {
-        timerRef.current = window.setInterval(() => void load(), 3000)
-      }
-    })()
-    return () => {
-      cancelled = true
-      window.clearInterval(timerRef.current)
-    }
-  }, [load, refreshTick])
+  // 挂载 / refreshTick bump 立即拉一轮；有活跃行才 3s 轮询，全部终态即停
+  usePolling(load, { intervalMs: 3000, visibilityPause: true, restartKey: refreshTick })
 
   if (loading && runs.length === 0) {
     return (

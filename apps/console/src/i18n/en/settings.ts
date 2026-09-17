@@ -367,4 +367,12 @@ export const settings: Record<string, string> = {
   '隐藏': 'Hide',
   '测试中…': 'Testing…',
   '连接成功 · {n} 个模型': 'Connected · {n} models',
+
+  // ── 2026-09-17 补译（扫描测试补齐的缺项）──
+  '强制重扫技能目录': 'Force rescan skill directories',
+  '确认？': 'Confirm?',
+  '输入本机目录路径，立即加载其中的技能包（<名称>/SKILL.md 或 <名称>.md，frontmatter 含 name 与 description）。支持 ~/ 展开，保存后无需重启。':
+    'Enter a local directory path to load skill packs immediately (<name>/SKILL.md or <name>.md, frontmatter with name and description). Supports ~ expansion; no restart needed after saving.',
+  '技能来自运行时目录（不落库）：在 ~/.agents/skills/<name>/SKILL.md 或自定义目录放置 Agent Skills 标准格式的技能包后刷新。':
+    'Skills come from runtime directories (not stored in the DB): drop Agent Skills-format packs in ~/.agents/skills/<name>/SKILL.md or a custom directory, then refresh.',
 }

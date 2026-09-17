@@ -55,6 +55,7 @@ import { useToast } from '@/components/toast'
 import { fetchDirectories, type Directory } from '@/lib/directories'
 import { type FlowSummary } from '@/lib/flows'
 import { truncateMiddle } from '@/lib/format'
+import { usePolling } from '@/lib/use-polling'
 import { useI18n } from '@/i18n'
 import '@/styles/flows.css'
 
@@ -321,44 +322,38 @@ export function FlowsView({ home = false }: { home?: boolean }): React.ReactElem
   // ── FR-04（PRD 决议 D5）：收起态徽章的真实运行状态 ──
   // 列表加载后一次 POST /api/runs/summary 批量拉齐每流最近一次状态/次数
   //（杜绝逐卡 ?flowId= 的 N+1）；存在 running 时 3s 轻轮询到终态，
-  // 页面隐藏时暂停（后台 tab 不空转）。
+  // 页面隐藏时暂停（后台 tab 不空转）。轮询走 usePolling 单点实现：
+  // 延续判定基于**本轮刚 fetch 到的新 summaries**（2026-09-17 修复
+  // stale-closure —— 此前 load 闭包读 effect 建立时的旧 runSummaries，
+  // anyRunning 永远基于旧值，「running 时轮询到终态」实际只在
+  // visibilitychange 触发一次）。
   const [runSummaries, setRunSummaries] = useState<Record<string, RunSummary>>({})
-  useEffect(() => {
-    if (flows.length === 0) return
-    let cancelled = false
-    let timer = 0
-    const load = async (): Promise<void> => {
-      try {
-        const res = await fetch('/api/runs/summary', {
-          method: 'POST',
-          headers: { 'content-type': 'application/json' },
-          body: JSON.stringify({ flowIds: flows.map((f) => f.id) }),
-        })
-        const json = (await res.json()) as { success?: boolean; data?: { summaries?: RunSummary[] } }
-        if (cancelled) return
-        if (json.success && json.data?.summaries) {
-          setRunSummaries(Object.fromEntries(json.data.summaries.map((s) => [s.flowId, s])))
-        }
-      } catch {
-        /* 摘要失败不阻塞列表 */
+  const loadRunSummaries = useCallback(async (): Promise<boolean> => {
+    if (flows.length === 0) return false
+    try {
+      const res = await fetch('/api/runs/summary', {
+        method: 'POST',
+        headers: { 'content-type': 'application/json' },
+        body: JSON.stringify({ flowIds: flows.map((f) => f.id) }),
+      })
+      const json = (await res.json()) as { success?: boolean; data?: { summaries?: RunSummary[] } }
+      if (json.success && json.data?.summaries) {
+        const next = Object.fromEntries(json.data.summaries.map((s) => [s.flowId, s]))
+        setRunSummaries(next)
+        return json.data.summaries.some((s) => s.latestStatus === 'running')
       }
-      if (!cancelled) {
-        const anyRunning = Object.values(runSummaries).some((s) => s.latestStatus === 'running')
-        if (anyRunning && !document.hidden) timer = window.setTimeout(() => void load(), 3000)
-      }
+      return false
+    } catch {
+      /* 摘要失败不阻塞列表，也不无限重试 */
+      return false
     }
-    void load()
-    const onVis = (): void => {
-      if (!document.hidden && !cancelled && timer === 0) void load()
-    }
-    document.addEventListener('visibilitychange', onVis)
-    return () => {
-      cancelled = true
-      window.clearTimeout(timer)
-      document.removeEventListener('visibilitychange', onVis)
-    }
-    // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [flows, reloadListTick])
+  }, [flows])
+  usePolling(loadRunSummaries, {
+    intervalMs: 3000,
+    visibilityPause: true,
+    // 列表重拉（重试 tick）或 flow 集合变化时重入一轮
+    restartKey: `${reloadListTick}:${flows.map((f) => f.id).join(',')}`,
+  })
 
   // Scope counts — all / archived over the full flow set. FR-14（PRD 决议
   // D7）：「我的」tab 已删除 —— 单机无账户体系，恒 0 的 tab 是伪概念。

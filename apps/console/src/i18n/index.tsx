@@ -29,6 +29,19 @@ export type Locale = 'zh-CN' | 'en'
 
 export const LOCALE_STORAGE_KEY = 'dagents.locale'
 
+/** 读取持久化的语言偏好（localStorage 里的明文 locale；无/不可用返回 null）。
+ *  供 Provider 挂载效应与「绕过 React i18n 的场景」（如原生 confirm 文案）
+ *  共用 —— 存储键与解析规则单源，不散落各处手读 localStorage。 */
+export function readLocalePreference(): Locale | null {
+  try {
+    const saved = window.localStorage.getItem(LOCALE_STORAGE_KEY)
+    if (saved === 'en' || saved === 'zh-CN') return saved
+  } catch {
+    // localStorage 不可用（隐私模式等）
+  }
+  return null
+}
+
 type Dict = Record<string, string>
 
 // zh-CN 词典只收录英文源词条（Agent/Flow/Daemon 等）；中文源文案的 key
@@ -50,12 +63,8 @@ export function I18nProvider({ children }: { children: ReactNode }): React.React
 
   // 挂载后读偏好（SSR/首帧仍为 zh-CN，与服务端渲染一致）
   useEffect(() => {
-    try {
-      const saved = window.localStorage.getItem(LOCALE_STORAGE_KEY)
-      if (saved === 'en' || saved === 'zh-CN') setLocaleState(saved)
-    } catch {
-      // localStorage 不可用（隐私模式等）— 保持默认
-    }
+    const saved = readLocalePreference()
+    if (saved) setLocaleState(saved)
   }, [])
 
   const setLocale = useCallback((next: Locale) => {

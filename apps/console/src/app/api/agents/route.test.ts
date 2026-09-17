@@ -41,10 +41,14 @@ function agentsReq(headers: Record<string, string> = {}): NextRequest {
   return new NextRequest('http://localhost/api/agents', { method: 'GET', headers })
 }
 
+/** gatewayProxy 生成的处理器第二参数必填（Next 15 路由签名校验）——
+ *  测试调用补一个空 params context，与 Next 运行时行为一致。 */
+const routeCtx = { params: Promise.resolve({} as Record<string, string>) }
+
 describe('GET /api/agents', () => {
   it('returns 502 when the gateway is unreachable', async () => {
     process.env.GATEWAY_URL = 'http://127.0.0.1:1'
-    const res = await GET(agentsReq())
+    const res = await GET(agentsReq(), routeCtx)
     expect(res.status).toBe(502)
     const json = await res.json()
     expect(json.success).toBe(false)
@@ -67,7 +71,7 @@ describe('GET /api/agents', () => {
       res.end(body)
     })
 
-    const res = await GET(agentsReq({ 'x-run-id': 'run-agents-1' }))
+    const res = await GET(agentsReq({ 'x-run-id': 'run-agents-1' }), routeCtx)
     expect(res.status).toBe(200)
     expect(res.headers.get('content-type')).toBe('application/json')
     const json = await res.json()
@@ -87,7 +91,7 @@ describe('GET /api/agents', () => {
       res.end(JSON.stringify({ success: false, error: 'agent not found' }))
     })
 
-    const res = await GET(agentsReq())
+    const res = await GET(agentsReq(), routeCtx)
     expect(res.status).toBe(404)
     const json = await res.json()
     expect(json.success).toBe(false)
@@ -104,7 +108,7 @@ describe('GET /api/agents', () => {
       res.end(JSON.stringify({ success: true, data: { agents: [], truncated: false } }))
     })
 
-    const res = await GET(agentsReq())
+    const res = await GET(agentsReq(), routeCtx)
     await res.json()
     expect(receivedSearch).toBe('/api/v1/agents')
 
@@ -112,7 +116,7 @@ describe('GET /api/agents', () => {
     const reqWithQuery = new NextRequest('http://localhost/api/agents?kind=claude&status=running', {
       method: 'GET',
     })
-    await GET(reqWithQuery)
+    await GET(reqWithQuery, routeCtx)
     expect(receivedSearch).toBe('/api/v1/agents?kind=claude&status=running')
   })
 
@@ -128,7 +132,7 @@ describe('GET /api/agents', () => {
       res.end(JSON.stringify({ success: true, data: { agents: [], truncated: false } }))
     })
 
-    await GET(agentsReq())
+    await GET(agentsReq(), routeCtx)
     expect(receivedRunId).toMatch(/^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/)
   })
 })

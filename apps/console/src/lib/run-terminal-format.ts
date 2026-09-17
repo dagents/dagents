@@ -1,8 +1,8 @@
 /**
  * run-terminal-format.ts —— 运行终端视图的纯派生层。
  *
- * 把 run_node_spans 行（node-spans 端点的 camelCase 形状）映射成
- * RunTerminal 组件的 section/line 结构（2026-09-06 终端视图 PRD）：
+ * 把 run_node_spans 行映射成 RunTerminal 组件的 section/line 结构
+ * （2026-09-06 终端视图 PRD）：
  *  - `events`（span-writer 全量过程日志，2026-09-06 起落库）是终端行序的
  *    首选数据源；旧运行 / running 早期只有 `activity` 环（策展缓存），
  *    降级用它 —— 行内容是 summary 级摘要，不是全文（全文在那之后的
@@ -10,7 +10,11 @@
  *  - 正文提取与画布摘要面板同语义（text/content 直出 + DirectReply 的
  *    字符串化 JSON 二次解包），但**不截断** —— 终端视图是保真视图，
  *    策展（单行预览/折叠）属于组件层。
+ *  - span 行形状由 lib/node-spans.ts 单源提供（RunNodeSpan，规范
+ *    camelCase；nodeId/node_id 双写在边界归一函数里已处理）。
  */
+
+import type { RunNodeSpan } from '@/lib/node-spans'
 
 /** 终端行类型 —— 与引擎 IStreamActivityKind 对齐。`user_input`（2026-09-08
  *  可操作终端）是插话回写行：label = 消息全文。 */
@@ -54,20 +58,6 @@ export interface TerminalSection {
   hasText: boolean
 }
 
-/** span 行的最小读取面（node-spans 端点 camelCase 形状）。 */
-export interface TerminalSpanRow {
-  nodeId?: string
-  node_id?: string
-  nodeLabel?: string | null
-  nodeType?: string | null
-  status?: string | null
-  error?: string | null
-  durationMs?: number | null
-  tokens?: unknown
-  input?: Record<string, unknown> | string | null
-  output?: Record<string, unknown> | string | null
-}
-
 const LINE_KINDS: readonly TerminalLineKind[] = [
   'thinking',
   'tool',
@@ -80,7 +70,7 @@ const LINE_KINDS: readonly TerminalLineKind[] = [
 
 /** 宽容解析 output.events / output.activity —— 形状不符返回空数组。
  *  返回 [lines, 来源]：events 优先（全量），否则降级 activity 环（摘要级）。 */
-function spanLines(payload: TerminalSpanRow['output']): {
+function spanLines(payload: RunNodeSpan['output']): {
   lines: TerminalLine[]
   source: 'events' | 'activity' | 'none'
 } {
@@ -109,7 +99,7 @@ function spanLines(payload: TerminalSpanRow['output']): {
 }
 
 /** 正文提取：text/content 直出；DirectReply 的字符串化 JSON 二次解包。 */
-export function extractOutputText(payload: TerminalSpanRow['output']): string | null {
+export function extractOutputText(payload: RunNodeSpan['output']): string | null {
   if (payload == null) return null
   if (typeof payload === 'string') return payload || null
   const obj = payload as Record<string, unknown>
@@ -142,7 +132,7 @@ export function formatTokensBadge(tokens: unknown): string | null {
 }
 
 /** 提示行（$ 前缀）：节点类型 × input.model 组合成「这条 CLI 在跑什么」。 */
-function commandOf(nodeType: string | null | undefined, input: TerminalSpanRow['input']): string {
+function commandOf(nodeType: string | null | undefined, input: RunNodeSpan['input']): string {
   const model =
     input && typeof input === 'object' && typeof input.model === 'string' && input.model
       ? input.model
@@ -165,7 +155,7 @@ function commandOf(nodeType: string | null | undefined, input: TerminalSpanRow['
 }
 
 /** span 行 → 终端段。 */
-export function spanToTerminalSection(sp: TerminalSpanRow): TerminalSection {
+export function spanToTerminalSection(sp: RunNodeSpan): TerminalSection {
   const text = extractOutputText(sp.output)
   const { lines, source: lineSource } = spanLines(sp.output)
   const rawJson =
@@ -176,8 +166,8 @@ export function spanToTerminalSection(sp: TerminalSpanRow): TerminalSection {
       ? JSON.stringify(sp.output, null, 1)
       : ''
   return {
-    id: sp.nodeId ?? sp.node_id ?? '?',
-    title: sp.nodeLabel || sp.nodeId || sp.node_id || '?',
+    id: sp.nodeId || '?',
+    title: sp.nodeLabel || sp.nodeId || '?',
     status: sp.status ?? '',
     durationMs: sp.durationMs ?? null,
     tokensBadge: formatTokensBadge(sp.tokens),

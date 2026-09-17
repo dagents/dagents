@@ -83,15 +83,6 @@ export const chat: Record<string, string> = {
   '按': 'Press',
   '随时打开此面板': 'anytime to open this panel',
 
-  // ── onboarding-checklist / onboarding-complete-banner ──
-  '项目目录': 'Project directory',
-  'CLI 已安装': 'CLI installed',
-  'Agent 已创建': 'Agent created',
-  '🚀 快速配置': '🚀 Quick setup',
-  '一切就绪！试试发送你的第一条消息吧': 'All set! Try sending your first message',
-  'Agent 已就绪，输入指令即可开始对话。':
-    'Your agent is ready — type an instruction to start chatting.',
-
   // ── directory-selector ──
   '还没有项目目录，点击上方按钮添加':
     'No project directories yet — click the button above to add one',
@@ -226,4 +217,10 @@ export const chat: Record<string, string> = {
 '搜索会话…': 'Search chats…',
 '没有匹配的会话': 'No matching chats',
 '选择目录与 Agent，发送消息即可触发任务；@workflow 可一句话生成流程': 'Pick a directory and agent, then send; @workflow generates a flow in one sentence',
+
+  // ── 2026-09-17 补译（扫描测试补齐的缺项）──
+  '打开聊天（可拖动）': 'Open chat (draggable)',
+  '去画布': 'Open canvas',
+  '流程在等待你的输入 — 在下方输入并发送即可继续': 'The flow is waiting for your input — type below and send to continue',
+  '调整窗口大小': 'Resize window',
 }

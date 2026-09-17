@@ -249,4 +249,16 @@ export const flows: Record<string, string> = {
 
   // ── 重跑闭环（2026-09-08 operable terminal）──
   '以相同输入重跑（输入可再编辑）': 'Re-run with the same input (editable)',
+
+  // ── 2026-09-17 补译（扫描测试补齐的缺项）──
+  '项目目录': 'Project directory',
+  '目录已添加：{name}': 'Directory added: {name}',
+  '已保存 ✓': 'Saved ✓',
+  '保存失败': 'Save failed',
+  '把这个流程的当前配置存为可复用模板': 'Save the current flow config as a reusable template',
+  '添加新的项目目录': 'Add a new project directory',
+  '模板已就绪 —— 填入任务输入，跑起来看看效果': 'Template ready — fill in the task input and give it a run',
+  '立即运行': 'Run now',
+  '删除此 Flow': 'Delete this flow',
+  '生成中…': 'Generating…',
 }
