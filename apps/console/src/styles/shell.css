@@ -1254,3 +1254,15 @@ table.data .muted { color: var(--muted); }
 .usage-daybar .bar-fill { display: block; height: 100%; background: var(--accent); border-radius: var(--radius-pill); }
 .usage-daybar .bar-fill.zero { background: var(--border); }
 .usage-daybar .cost { font-size: var(--text-2xs); color: var(--fg-2); text-align: right; }
+
+/* ═══ 内联样式收敛工具（2026-09-17 棘轮：components 内联 style 基线 345→267，
+   只降不升，见 src/__tests__/inline-style-ratchet.test.ts）═══
+   高频重复的纯静态样式（字号/图标定寸/紧凑按钮）以工具类承载，
+   新样式一律走 CSS/令牌而非 style={{}}；动态计算值（进度宽度/拖拽坐标）
+   保留内联。 */
+.t-xs { font-size: var(--text-xs); }
+.t-2xs { font-size: var(--text-2xs); }
+.ic-12 svg { width: 12px; height: 12px; }
+.ic-14 svg { width: 14px; height: 14px; }
+/* 比btn-sm 更紧凑的操作钮（表格行内/面板头）。 */
+.btn-compact { padding: 4px 12px; font-size: var(--text-xs); }

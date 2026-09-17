@@ -1,7 +1,10 @@
 /* HoverCard — dark fixed-color tooltip card (deepseek-harness pattern:
    distinct from surface chrome, reads as an inspection affordance).
    PX-GL05：阴影从 --elev-overlay（与对话框同级，过重）降为 --elev-dropdown；
-   出现 80ms 淡入（配合 150ms 延迟，快速划过不再闪卡）。 */
+   出现 80ms 淡入（配合 150ms 延迟，快速划过不再闪卡）。
+   ── intentional（2026-09-17 令牌化盘点标注）：本组件的固定深色
+   （#1f2328 底 / #f0f0f0 文等）是刻意设计 —— inspection 悬卡的
+   deepseek-harness 风格不随明暗主题翻转，**不入令牌体系**，勿迁。 */
 .hover-card {
   position: fixed;
   z-index: 200;

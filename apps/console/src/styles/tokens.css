@@ -46,6 +46,14 @@
   --danger-soft:  #fdecec;
   --info-soft:    #eaf0fe;
 
+  /* 便签（画布 sticky note）语义色 —— 2026-09-17 从 flow-canvas.css 硬编码迁入
+     （同值迁令牌，视觉不变）。便签是物理隐喻：明暗两态同色。 */
+  --note-bg: #fef6d8;
+  --note-border: #e8d89a;
+  --note-text: #4a3f1d;
+  --note-accent: #b08d2e;
+  --note-drag-veil: rgb(0 0 0 / 0.05);
+
   /* ─── Typography ─────────────────────────────────────────────────
      Using Inter (body) + Source Serif 4 (display) as the primary
      stack — both are free, self-hostable, and visually close to
@@ -226,6 +234,14 @@
     --danger-soft:  rgba(248, 113, 113, 0.12);
     --info-soft:    rgba(96, 165, 250, 0.12);
 
+  /* 便签（画布 sticky note）语义色 —— 2026-09-17 从 flow-canvas.css 硬编码迁入
+     （同值迁令牌，视觉不变）。便签是物理隐喻：明暗两态同色。 */
+  --note-bg: #fef6d8;
+  --note-border: #e8d89a;
+  --note-text: #4a3f1d;
+  --note-accent: #b08d2e;
+  --note-drag-veil: rgb(0 0 0 / 0.05);
+
     --elev-raised: 0 1px 2px rgba(0, 0, 0, 0.3), 0 4px 12px rgba(0, 0, 0, 0.2);
     --elev-hover:  0 1px 2px rgba(0, 0, 0, 0.3), 0 8px 20px rgba(0, 0, 0, 0.25);
     --elev-dropdown: 0 4px 12px rgba(0, 0, 0, 0.4), 0 16px 40px rgba(0, 0, 0, 0.3);
@@ -297,6 +313,14 @@
   --warn-soft:    rgba(251, 191, 36, 0.12);
   --danger-soft:  rgba(248, 113, 113, 0.12);
   --info-soft:    rgba(96, 165, 250, 0.12);
+
+  /* 便签（画布 sticky note）语义色 —— 2026-09-17 从 flow-canvas.css 硬编码迁入
+     （同值迁令牌，视觉不变）。便签是物理隐喻：明暗两态同色。 */
+  --note-bg: #fef6d8;
+  --note-border: #e8d89a;
+  --note-text: #4a3f1d;
+  --note-accent: #b08d2e;
+  --note-drag-veil: rgb(0 0 0 / 0.05);
 
   --elev-raised: 0 1px 2px rgba(0, 0, 0, 0.3), 0 4px 12px rgba(0, 0, 0, 0.2);
   --elev-hover:  0 1px 2px rgba(0, 0, 0, 0.3), 0 8px 20px rgba(0, 0, 0, 0.25);

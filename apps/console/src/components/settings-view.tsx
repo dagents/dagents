@@ -184,7 +184,7 @@ function AppearanceTab(): React.ReactElement {
   const { t } = useI18n()
   return (
     <section className="settings-section active" aria-label={t(TAB_LABEL.appearance)}>
-      <div className="card-title mb-4" style={{ fontSize: 'var(--text-lg)' }}>{t(TAB_LABEL.appearance)}</div>
+      <div className="card-title mb-4 card-title-lg">{t(TAB_LABEL.appearance)}</div>
 
       <div className="card">
         <div className="card-head">
@@ -372,8 +372,8 @@ function LlmProvidersTab(): React.ReactElement {
     <section className="settings-section active" aria-label={t(TAB_LABEL.keys)}>
       <div className="row-between mb-4">
         <div>
-          <div className="card-title" style={{ fontSize: 'var(--text-lg)' }}>{t(TAB_LABEL.keys)}</div>
-          <div className="muted mt-2" style={{ fontSize: 'var(--text-sm)' }}>
+          <div className="card-title card-title-lg">{t(TAB_LABEL.keys)}</div>
+          <div className="muted mt-2 settings-sub">
             {t('管理 LLM 服务商配置，支持多 Provider 接入与统一鉴权')}
           </div>
         </div>
@@ -407,33 +407,33 @@ function LlmProvidersTab(): React.ReactElement {
         <div className="grow" />
         {/* 墨紫契约：主按钮 = 墨色（btn-primary），紫不上面板按钮底 */}
         <button type="button" className="btn btn-primary btn-sm" onClick={openCreate}>
-          <Icon name="plus" style={{ width: 14, height: 14 }} />
+          <Icon name="plus" className="ic-14" />
           {t('+ 新建 Provider')}
         </button>
       </div>
 
       <div className="table-wrap">
-        <table className="data" style={{ width: '100%' }}>
+        <table className="data settings-table settings-providers">
           <thead>
             <tr>
-              <th style={{ width: '20%' }}>{t('名称')}</th>
-              <th style={{ width: '14%' }}>{t('类型')}</th>
-              <th style={{ width: '22%' }}>Base URL</th>
-              <th style={{ width: '16%' }}>{t('默认模型')}</th>
-              <th style={{ width: '12%' }}>{t('状态')}</th>
-              <th style={{ textAlign: 'right' }}>{t('操作')}</th>
+              <th className="col-name">{t('名称')}</th>
+              <th className="col-type">{t('类型')}</th>
+              <th className="col-url">Base URL</th>
+              <th className="col-model">{t('默认模型')}</th>
+              <th className="col-status">{t('状态')}</th>
+              <th className="col-actions">{t('操作')}</th>
             </tr>
           </thead>
           <tbody>
             {loading ? (
               <tr>
-                <td colSpan={6} className="tc muted" style={{ padding: 'var(--space-12)' }}>
+                <td colSpan={6} className="tc muted settings-empty">
                   {t('加载中…')}
                 </td>
               </tr>
             ) : error ? (
               <tr>
-                <td colSpan={6} className="tc" style={{ padding: 'var(--space-12)', color: 'var(--danger)' }}>
+                <td colSpan={6} className="tc settings-empty-danger">
                   {t('加载失败：{error}', { error })}
                   <div className="mt-2">
                     <button type="button" className="btn btn-secondary btn-sm" onClick={() => void load()}>
@@ -444,7 +444,7 @@ function LlmProvidersTab(): React.ReactElement {
               </tr>
             ) : filtered.length === 0 ? (
               <tr>
-                <td colSpan={6} className="tc muted" style={{ padding: 'var(--space-12)' }}>
+                <td colSpan={6} className="tc muted settings-empty">
                   {query || statusFilter ? t('没有匹配的 Provider。') : t('还没有 Provider。不配置也能跑：Flow 节点默认走本机 CLI（较慢、消耗订阅额度）。配置 HTTP Provider 可加速并统一计费。点击「+ 新建 Provider」开始配置。')}
                 </td>
               </tr>
@@ -463,10 +463,10 @@ function LlmProvidersTab(): React.ReactElement {
                     <span className="tk-group">{p.providerType}</span>
                   </td>
                   <td>
-                    <span className="mono" style={{ fontSize: 'var(--text-xs)', wordBreak: 'break-all' }}>{p.baseUrl}</span>
+                    <span className="mono settings-mono-url">{p.baseUrl}</span>
                   </td>
                   <td>
-                    <span className="mono" style={{ fontSize: 'var(--text-xs)' }}>{p.defaultModel}</span>
+                    <span className="mono t-xs">{p.defaultModel}</span>
                   </td>
                   <td>
                     <span className={`status ${p.status === 'active' ? 'running' : 'idle'}`}>
@@ -484,7 +484,7 @@ function LlmProvidersTab(): React.ReactElement {
                         disabled={busy}
                         onClick={() => void toggleStatus(p)}
                       >
-                        <Icon name={p.status === 'active' ? 'pause' : 'play'} style={{ width: 12, height: 12 }} />
+                        <Icon name={p.status === 'active' ? 'pause' : 'play'} className="ic-12" />
                       </button>
                       <button
                         type="button"
@@ -496,8 +496,7 @@ function LlmProvidersTab(): React.ReactElement {
                       >
                         <Icon
                           name={testingId === p.id ? 'loader' : 'refresh'}
-                          className={testingId === p.id ? 'icon-spin' : undefined}
-                          style={{ width: 12, height: 12 }}
+                          className={testingId === p.id ? 'icon-spin ic-12' : 'ic-12'}
                         />
                       </button>
                       <button
@@ -508,7 +507,7 @@ function LlmProvidersTab(): React.ReactElement {
                         disabled={busy}
                         onClick={() => openEdit(p)}
                       >
-                        <Icon name="pencil" style={{ width: 12, height: 12 }} />
+                        <Icon name="pencil" className="ic-12" />
                       </button>
                       <button
                         type="button"
@@ -518,13 +517,13 @@ function LlmProvidersTab(): React.ReactElement {
                         disabled={busy}
                         onClick={() => setPendingDelete(p)}
                       >
-                        <Icon name="close" style={{ width: 12, height: 12 }} />
+                        <Icon name="close" className="ic-12" />
                       </button>
                     </div>
                     {/* ST02：测试连接 inline 结果 —— 测试中 spinner，终态 ✓/✗ + 语义色文字 */}
                     {testingId === p.id ? (
                       <div className="tk-test-result">
-                        <Icon name="loader" className="icon-spin" style={{ width: 12, height: 12 }} />
+                        <Icon name="loader" className="icon-spin ic-12" />
                         <span className="msg">{t('测试中…')}</span>
                       </div>
                     ) : testResults[p.id] ? (
@@ -534,7 +533,7 @@ function LlmProvidersTab(): React.ReactElement {
                       >
                         <Icon
                           name={testResults[p.id].ok ? 'check' : 'close'}
-                          style={{ width: 12, height: 12 }}
+                          className="ic-12"
                         />
                         <span className="msg">{testResults[p.id].msg}</span>
                       </div>
@@ -547,7 +546,7 @@ function LlmProvidersTab(): React.ReactElement {
         </table>
       </div>
 
-      <p className="muted mt-3" style={{ fontSize: 'var(--text-xs)', lineHeight: 1.6 }}>
+      <p className="muted mt-3 settings-note">
         {t('Provider 配置由网关统一管理，API Key 以掩码形式显示，原文不返回前端。所有 LLM 调用经网关统一鉴权与路由。')}
       </p>
 
@@ -639,14 +638,14 @@ function RuntimesTab(): React.ReactElement {
     <section className="settings-section active" aria-label={t(TAB_LABEL.runtimes)}>
       <div className="row-between mb-4">
         <div>
-          <div className="card-title" style={{ fontSize: 'var(--text-lg)' }}>{t(TAB_LABEL.runtimes)}</div>
-          <div className="muted mt-2" style={{ fontSize: 'var(--text-sm)' }}>
+          <div className="card-title card-title-lg">{t(TAB_LABEL.runtimes)}</div>
+          <div className="muted mt-2 settings-sub">
             {t('平台支持的全部 CLI agent 运行时。Gateway 自动检测本机 ')}
             <code className="mono">PATH</code>
             {t('，已安装的可直接在对话中使用。')}
           </div>
         </div>
-        <div className="row-between" style={{ gap: 'var(--space-3)' }}>
+        <div className="row-between settings-row-gap">
           {!loading && (
             <span className={`status ${installedCount > 0 ? 'running' : 'idle'}`}>
               <span className="dot" />
@@ -659,14 +658,14 @@ function RuntimesTab(): React.ReactElement {
             disabled={loading}
             onClick={() => void loadDetections()}
           >
-            <Icon name={loading ? 'loader' : 'refresh'} style={{ width: 12, height: 12 }} />
+            <Icon name={loading ? 'loader' : 'refresh'} className="ic-12" />
             {t('重新检测')}
           </button>
         </div>
       </div>
 
       {detectError ? (
-        <div className="agents-error" role="alert" style={{ display: 'flex', alignItems: 'center', gap: 'var(--space-3)', marginBottom: 'var(--space-3)' }}>
+        <div className="agents-error settings-error-row" role="alert">
           <span>{t('CLI 检测失败：{error} — 表内「未安装」状态不可信', { error: detectError })}</span>
           <button type="button" className="btn btn-ghost btn-sm" onClick={() => void loadDetections()}>
             {t('重试')}
@@ -674,14 +673,14 @@ function RuntimesTab(): React.ReactElement {
         </div>
       ) : null}
       <div className="table-wrap">
-        <table className="data" style={{ width: '100%' }}>
+        <table className="data settings-table settings-runtimes">
           <thead>
             <tr>
-              <th style={{ width: '18%' }}>{t('名称')}</th>
-              <th style={{ width: '16%' }}>{t('二进制')}</th>
-              <th style={{ width: '12%' }}>{t('协议')}</th>
-              <th style={{ width: '10%' }}>{t('分组')}</th>
-              <th style={{ width: '12%' }}>{t('状态')}</th>
+              <th className="col-name">{t('名称')}</th>
+              <th className="col-binary">{t('二进制')}</th>
+              <th className="col-proto">{t('协议')}</th>
+              <th className="col-group">{t('分组')}</th>
+              <th className="col-status">{t('状态')}</th>
               <th>{t('说明')}</th>
             </tr>
           </thead>
@@ -695,14 +694,14 @@ function RuntimesTab(): React.ReactElement {
                     <div className="tk-name">
                       <div className="nm">{t(r.label)}</div>
                       <div className="meta">
-                        <span className="mono" style={{ fontSize: 'var(--text-2xs)' }}>{r.kind}</span>
+                        <span className="mono t-2xs">{r.kind}</span>
                       </div>
                     </div>
                   </td>
                   <td>
-                    <span className="mono" style={{ fontSize: 'var(--text-xs)' }}>{r.binary}</span>
+                    <span className="mono t-xs">{r.binary}</span>
                     {det?.path && (
-                      <div className="meta mono" style={{ fontSize: 'var(--text-2xs)', color: 'var(--muted)', marginTop: 2 }}>
+                      <div className="meta mono settings-cell-note">
                         {det.path}
                       </div>
                     )}
@@ -711,7 +710,7 @@ function RuntimesTab(): React.ReactElement {
                     <span className="tk-group">{PROTOCOL_LABEL[r.protocol] ?? r.protocol}</span>
                   </td>
                   <td>
-                    <span className="chip chip-outline" style={{ fontSize: 'var(--text-2xs)' }}>{t(r.group)}</span>
+                    <span className="chip chip-outline t-2xs">{t(r.group)}</span>
                   </td>
                   <td>
                     {loading ? (
@@ -732,7 +731,7 @@ function RuntimesTab(): React.ReactElement {
                     )}
                   </td>
                   <td>
-                    <span className="muted" style={{ fontSize: 'var(--text-xs)' }}>{t(r.hint)}</span>
+                    <span className="muted t-xs">{t(r.hint)}</span>
                   </td>
                 </tr>
               )
@@ -741,7 +740,7 @@ function RuntimesTab(): React.ReactElement {
         </table>
       </div>
 
-      <p className="muted mt-3" style={{ fontSize: 'var(--text-xs)', lineHeight: 1.6 }}>
+      <p className="muted mt-3 settings-note">
         {t('状态由 Gateway 实时检测（')}
         <code className="mono">which &lt;binary&gt;</code>
         {t('）。已安装的 CLI 可直接在对话中选择对应 Agent 使用——无需手动启动 daemon。未安装的请参考各 CLI 官方文档安装。')}
@@ -783,7 +782,7 @@ function LlmProviderModal(props: {
         <div className="modal-head">
           <div className="title" id="lp-title">{isEdit ? t('编辑 Provider') : t('新建 Provider')}</div>
           <button type="button" className="icon-btn" aria-label={t('关闭')} onClick={onCancel}>
-            <Icon name="close" style={{ width: 14, height: 14 }} />
+            <Icon name="close" className="ic-14" />
           </button>
         </div>
         <div className="modal-body">
@@ -955,15 +954,15 @@ function DeleteModal(props: {
   const { provider, busy, onCancel, onConfirm } = props
   return createPortal(
     <div className="modal-backdrop open" onClick={(e) => e.target === e.currentTarget && !busy && onCancel()}>
-      <div className="modal" style={{ width: 420 }} role="alertdialog" aria-modal="true" aria-labelledby="del-title">
+      <div className="modal settings-del-modal" role="alertdialog" aria-modal="true" aria-labelledby="del-title">
         <div className="modal-head">
           <div className="title" id="del-title">{t('删除 Provider')}</div>
         </div>
         <div className="modal-body">
-          <p style={{ fontSize: 'var(--text-sm)', color: 'var(--fg-2)', lineHeight: 1.6 }}>
+          <p className="settings-del-body">
             {t('即将删除 Provider「{name}」。', { name: provider.name })}
           </p>
-          <p className="muted mt-3" style={{ fontSize: 'var(--text-xs)', lineHeight: 1.6 }}>
+          <p className="muted mt-3 settings-note">
             {t('删除后该 Provider 配置立即失效，关联的调用会失败。此操作不可撤销。')}
           </p>
         </div>
@@ -999,16 +998,8 @@ function StubNotice({ note }: { note: string }): React.ReactElement {
   const { t } = useI18n()
   return (
     <div
-      className="muted"
+      className="muted settings-stub"
       role="note"
-      style={{
-        fontSize: 'var(--text-sm)',
-        lineHeight: 1.6,
-        padding: '10px 14px',
-        marginBottom: 16,
-        border: '1px dashed var(--border)',
-        borderRadius: 'var(--radius-sm)',
-      }}
     >
       {t('⚠️ 未接入后端 — ')}{t(note)}
     </div>
@@ -1034,7 +1025,7 @@ function DefaultModelsTab(): React.ReactElement {
   const { t } = useI18n()
   return (
     <section className="settings-section active" aria-label={t(TAB_LABEL.models)}>
-      <div className="card-title mb-4" style={{ fontSize: 'var(--text-lg)' }}>{t(TAB_LABEL.models)}</div>
+      <div className="card-title mb-4 card-title-lg">{t(TAB_LABEL.models)}</div>
       <StubNotice note="本页为设计占位数据，不反映真实配置" />
       <div className="card mb-6">
         <div className="card-head">
@@ -1094,7 +1085,7 @@ function NotifyTab(): React.ReactElement {
   const { t } = useI18n()
   return (
     <section className="settings-section active" aria-label={t(TAB_LABEL.notify)}>
-      <div className="card-title mb-4" style={{ fontSize: 'var(--text-lg)' }}>{t(TAB_LABEL.notify)}</div>
+      <div className="card-title mb-4 card-title-lg">{t(TAB_LABEL.notify)}</div>
 
       {/* Live task-completion notifications — desktop + sound. Fully wired
           (localStorage persistence + Web Audio + Notifications API). */}
@@ -1135,7 +1126,7 @@ function NotifyTab(): React.ReactElement {
             </span>
           </div>
         ))}
-        <p className="muted mt-3" style={{ fontSize: 'var(--text-xs)' }}>
+        <p className="muted mt-3 t-xs">
           {t('平台级通知事件与多渠道（邮件 / Webhook）由网关统一调度，`notifications` 表落地后接入；上方的桌面通知与提示音已即时生效。')}
         </p>
       </div>
@@ -1155,12 +1146,12 @@ function PlannedTab(): React.ReactElement {
   const { t } = useI18n()
   return (
     <section className="settings-section active" aria-label={t('规划中')}>
-      <div className="card-title mb-4" style={{ fontSize: 'var(--text-lg)' }}>{t('规划中')}</div>
+      <div className="card-title mb-4 card-title-lg">{t('规划中')}</div>
       <div className="card">
-        <p className="muted" style={{ fontSize: 'var(--text-sm)', lineHeight: 1.7 }}>
+        <p className="muted settings-planned-p">
           {t('以下能力在产品规划中，尚未实现 —— 当前版本是单机单人模式（docs/product-plan.md Non-Goals）。')}
         </p>
-        <ul style={{ margin: '10px 0 0 18px', fontSize: 'var(--text-sm)', lineHeight: 1.9 }}>
+        <ul className="settings-planned-list">
           {PLANNED_AREAS.map((a) => (
             <li key={a}>{t(a)}</li>
           ))}

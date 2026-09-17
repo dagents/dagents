@@ -323,8 +323,8 @@
   width: 220px;
   height: 130px;
   border-radius: 8px;
-  background: #fef6d8;
-  border: 1px solid #e8d89a;
+  background: var(--note-bg);
+  border: 1px solid var(--note-border);
   box-shadow: 0 1px 3px rgb(13 13 13 / 0.08);
   display: flex;
   overflow: hidden;
@@ -342,7 +342,7 @@
   height: 18px;
   cursor: grab;
   border-radius: 8px 8px 0 0;
-  background: linear-gradient(to bottom, rgb(0 0 0 / 0.05), transparent);
+  background: linear-gradient(to bottom, var(--note-drag-veil), transparent);
 }
 
 .fc-sticky-text {
@@ -354,7 +354,7 @@
   padding: 10px;
   font-family: var(--font-body);
   font-size: var(--text-sm, 13px);
-  color: #4a3f1d;
+  color: var(--note-text);
   line-height: 1.5;
 }
 
@@ -519,7 +519,7 @@
 }
 
 .fc-palette-item-icon-sticky {
-  color: #b08d2e;
+  color: var(--note-accent);
 }
 
 /* ── 检查器（右侧属性面板） ─────────────────────────────── */

@@ -30,6 +30,10 @@
  *  `remote` = generic remote HTTP agent). Any DB row whose `kind` is not in
  *  this set is normalised to `remote` by {@link normalizeKind} so the fleet
  *  still renders. */
+
+import { apiFetch } from '@/lib/api'
+
+
 export type AgentKind =
   | 'prompt' | 'remote'
   | 'claude' | 'codex' | 'copilot' | 'opencode' | 'qwen'
@@ -550,40 +554,15 @@ export function eventToLogLine(
 
 // ─── fetch wrappers ──────────────────────────────────────────────────────
 
-/** Envelope shared by all gateway routes (`{ success, data }` / `{ success, error }`). */
-interface Envelope<T> {
-  success: boolean
-  data?: T
-  error?: string
-}
-
-async function unwrap<T>(res: Response, label: string): Promise<T> {
-  if (!res.ok) {
-    const detail = await res.text().catch(() => '')
-    throw new Error(`${label} failed (${res.status})${detail ? `: ${detail.slice(0, 200)}` : ''}`)
-  }
-  const body = (await res.json()) as Envelope<T>
-  if (!body.success || body.data === undefined) {
-    throw new Error(`${label} failed: ${body.error ?? 'unknown error'}`)
-  }
-  return body.data
-}
-
 /** Fetch + map the agents list. Returns the domain agents (filters applied by caller). */
 export async function fetchAgents(): Promise<{ agents: CatalogAgent[]; truncated: boolean }> {
-  const data = await unwrap<{ agents: AgentListRow[]; truncated: boolean }>(
-    await fetch('/api/agents', { cache: 'no-store' }),
-    'agents list',
-  )
+  const data = await apiFetch<{ agents: AgentListRow[]; truncated: boolean }>('/api/agents', undefined, 'agents list')
   return { agents: data.agents.map(mapRowToCatalogAgent), truncated: data.truncated }
 }
 
 /** Fetch + map the full agent detail (latest row + recent task history + runs). */
 export async function fetchAgentDetail(id: string): Promise<AgentDetail> {
-  const data = await unwrap<AgentDetailRow>(
-    await fetch(`/api/agents/${encodeURIComponent(id)}`, { cache: 'no-store' }),
-    'agent detail',
-  )
+  const data = await apiFetch<AgentDetailRow>(`/api/agents/${encodeURIComponent(id)}`, undefined, 'agent detail')
   return {
     agent: mapRowToCatalogAgent(data.agent),
     tasks: data.tasks.map((t) => ({
@@ -601,10 +580,7 @@ export async function fetchAgentDetail(id: string): Promise<AgentDetail> {
 
 /** Fetch the drawer log stream. */
 export async function fetchAgentLogs(id: string): Promise<AgentLogLine[]> {
-  const data = await unwrap<{ logs: { ts: string; level: string; msg: string }[] }>(
-    await fetch(`/api/agents/${encodeURIComponent(id)}/logs`, { cache: 'no-store' }),
-    'agent logs',
-  )
+  const data = await apiFetch<{ logs: { ts: string; level: string; msg: string }[] }>(`/api/agents/${encodeURIComponent(id)}/logs`, undefined, 'agent logs')
   // Server already maps payload→{ts,level,msg}; coerce level into our union.
   return data.logs.map((l) => ({
     ts: l.ts,
@@ -625,10 +601,7 @@ export interface DaemonOption {
 
 /** Fetch the daemons list (for the create-agent dialog). */
 export async function fetchDaemons(): Promise<DaemonOption[]> {
-  const data = await unwrap<{ daemons: DaemonOption[] }>(
-    await fetch('/api/daemons', { cache: 'no-store' }),
-    'daemons list',
-  )
+  const data = await apiFetch<{ daemons: DaemonOption[] }>('/api/daemons', undefined, 'daemons list')
   return data.daemons
 }
 
@@ -653,13 +626,6 @@ export interface CreateAgentRequest {
 
 /** Create a new agent. Returns the new agent's id. */
 export async function createAgent(req: CreateAgentRequest): Promise<string> {
-  const data = await unwrap<{ id: string }>(
-    await fetch('/api/agents', {
-      method: 'POST',
-      headers: { 'content-type': 'application/json' },
-      body: JSON.stringify(req),
-    }),
-    'create agent',
-  )
+  const data = await apiFetch<{ id: string }>('/api/agents', { method: 'POST', headers: { 'content-type': 'application/json' }, body: JSON.stringify(req) }, 'create agent')
   return data.id
 }

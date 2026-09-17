@@ -6,6 +6,9 @@
  * 人格寻址键是 `<division>/<slug>`（gateway 由 frontmatter name slug 化）。
  */
 
+
+import { apiFetch } from '@/lib/api'
+
 export type PersonaProfile = 'full' | 'slim' | 'minimal'
 
 export interface AgentLibraryEntrySummary {
@@ -66,24 +69,6 @@ export interface AgentLibraryDriftItem {
   currentProfile: PersonaProfile | null
 }
 
-interface Envelope<T> {
-  success?: boolean
-  data?: T
-  error?: string
-}
-
-async function unwrap<T>(res: Response, label: string): Promise<T> {
-  if (!res.ok) {
-    const detail = await res.text().catch(() => '')
-    throw new Error(`${label}（HTTP ${res.status}）${detail ? `: ${detail.slice(0, 200)}` : ''}`)
-  }
-  const body = (await res.json().catch(() => null)) as Envelope<T> | null
-  if (!body || !body.success || body.data === undefined) {
-    throw new Error(body?.error ?? `${label}：未知错误`)
-  }
-  return body.data
-}
-
 function splitId(id: string): { division: string; slug: string } {
   const idx = id.indexOf('/')
   if (idx <= 0 || idx === id.length - 1) throw new Error(`非法的库 id：${id}`)
@@ -95,21 +80,16 @@ export async function fetchAgentLibrary(opts: { division?: string; refresh?: boo
   if (opts.division) qs.set('division', opts.division)
   if (opts.refresh) qs.set('refresh', 'true')
   const query = qs.toString()
-  const res = await fetch(`/api/agent-library${query ? `?${query}` : ''}`, { cache: 'no-store' })
-  return unwrap<AgentLibraryCatalog>(res, '加载人格库失败')
+  return apiFetch<AgentLibraryCatalog>(`/api/agent-library${query ? `?${query}` : ''}`, undefined, '加载人格库')
 }
 
 export async function fetchAgentLibraryEntry(id: string): Promise<AgentLibraryDetail> {
   const { division, slug } = splitId(id)
-  const res = await fetch(`/api/agent-library/${encodeURIComponent(division)}/${encodeURIComponent(slug)}`, {
-    cache: 'no-store',
-  })
-  return unwrap<AgentLibraryDetail>(res, '加载人格详情失败')
+  return apiFetch<AgentLibraryDetail>(`/api/agent-library/${encodeURIComponent(division)}/${encodeURIComponent(slug)}`, undefined, '加载人格详情')
 }
 
 export async function fetchAgentLibraryDrift(): Promise<AgentLibraryDriftItem[]> {
-  const res = await fetch('/api/agent-library/drift', { cache: 'no-store' })
-  const data = await unwrap<{ items: AgentLibraryDriftItem[] }>(res, '加载同步状态失败')
+  const data = await apiFetch<{ items: AgentLibraryDriftItem[] }>('/api/agent-library/drift', undefined, '加载同步状态')
   return data.items
 }
 
@@ -124,15 +104,11 @@ export async function instantiateAgentFromLibrary(
   req: InstantiatePersonaRequest = {},
 ): Promise<{ id: string; libraryId: string; kind: string; profile: PersonaProfile }> {
   const { division, slug } = splitId(id)
-  const res = await fetch(
-    `/api/agent-library/${encodeURIComponent(division)}/${encodeURIComponent(slug)}/instantiate`,
-    {
-      method: 'POST',
-      headers: { 'content-type': 'application/json' },
-      body: JSON.stringify(req),
-    },
-  )
-  return unwrap(res, '启用人格失败')
+  return apiFetch(`/api/agent-library/${encodeURIComponent(division)}/${encodeURIComponent(slug)}/instantiate`, {
+    method: 'POST',
+    headers: { 'content-type': 'application/json' },
+    body: JSON.stringify(req),
+  }, '启用人格')
 }
 
 export async function reimportAgentFromLibrary(
@@ -140,31 +116,23 @@ export async function reimportAgentFromLibrary(
   req: { confirm?: boolean; profile?: PersonaProfile } = {},
 ): Promise<{ id: string; profile: PersonaProfile; fromState: PersonaDriftState }> {
   const { division, slug } = splitId(id)
-  const res = await fetch(
-    `/api/agent-library/${encodeURIComponent(division)}/${encodeURIComponent(slug)}/reimport`,
-    {
-      method: 'POST',
-      headers: { 'content-type': 'application/json' },
-      body: JSON.stringify(req),
-    },
-  )
-  return unwrap(res, '重新导入失败')
+  return apiFetch(`/api/agent-library/${encodeURIComponent(division)}/${encodeURIComponent(slug)}/reimport`, {
+    method: 'POST',
+    headers: { 'content-type': 'application/json' },
+    body: JSON.stringify(req),
+  }, '重新导入')
 }
 
 export async function addAgentLibraryRoot(dir: string): Promise<{ dir: string }> {
-  const res = await fetch('/api/agent-library/roots', {
+  return apiFetch('/api/agent-library/roots', {
     method: 'POST',
     headers: { 'content-type': 'application/json' },
     body: JSON.stringify({ dir }),
-  })
-  return unwrap(res, '添加挂载目录失败')
+  }, '添加挂载目录')
 }
 
 export async function removeAgentLibraryRoot(dir: string): Promise<{ dir: string }> {
-  const res = await fetch(`/api/agent-library/roots?dir=${encodeURIComponent(dir)}`, {
-    method: 'DELETE',
-  })
-  return unwrap(res, '移除挂载目录失败')
+  return apiFetch(`/api/agent-library/roots?dir=${encodeURIComponent(dir)}`, { method: 'DELETE' }, '移除挂载目录')
 }
 
 // ── 团队场景工作流模板（Phase 3） ──────────────────────────────────────
@@ -201,8 +169,7 @@ export interface TeamInstantiateResult {
 }
 
 export async function fetchTeamTemplates(): Promise<TeamTemplateSummary[]> {
-  const res = await fetch('/api/agent-library/team-templates', { cache: 'no-store' })
-  const data = await unwrap<{ templates: TeamTemplateSummary[] }>(res, '加载团队场景失败')
+  const data = await apiFetch<{ templates: TeamTemplateSummary[] }>('/api/agent-library/team-templates', undefined, '加载团队场景')
   return data.templates
 }
 
@@ -210,10 +177,9 @@ export async function instantiateTeamTemplate(
   id: string,
   req: { profile?: PersonaProfile; flowName?: string } = {},
 ): Promise<TeamInstantiateResult> {
-  const res = await fetch(`/api/agent-library/team-templates/${encodeURIComponent(id)}/instantiate`, {
+  return apiFetch(`/api/agent-library/team-templates/${encodeURIComponent(id)}/instantiate`, {
     method: 'POST',
     headers: { 'content-type': 'application/json' },
     body: JSON.stringify({ profile: req.profile, flow_name: req.flowName }),
-  })
-  return unwrap(res, '创建团队工作流失败')
+  }, '创建团队工作流')
 }

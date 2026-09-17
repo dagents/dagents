@@ -157,3 +157,38 @@
   color: var(--fg);
   font-weight: 500;
 }
+
+/* ═══ 内联样式收敛（2026-09-17 棘轮）：settings-view 纯静态样式迁入（51→0）═══ */
+.card-title-lg { font-size: var(--text-lg); }
+.settings-sub { font-size: var(--text-sm); }
+.settings-note { font-size: var(--text-xs); line-height: 1.6; }
+.settings-table { width: 100%; }
+.settings-empty { padding: var(--space-12); }
+.settings-empty-danger { padding: var(--space-12); color: var(--danger); }
+.settings-mono-url { font-size: var(--text-xs); word-break: break-all; }
+.settings-cell-note { font-size: var(--text-2xs); color: var(--muted); margin-top: 2px; }
+.settings-row-gap { gap: var(--space-3); }
+.settings-error-row { display: flex; align-items: center; gap: var(--space-3); margin-bottom: var(--space-3); }
+.settings-del-modal { width: 420px; }
+.settings-del-body { font-size: var(--text-sm); color: var(--fg-2); line-height: 1.6; }
+.settings-planned-p { font-size: var(--text-sm); line-height: 1.7; }
+.settings-planned-list { margin: 10px 0 0 18px; font-size: var(--text-sm); line-height: 1.9; }
+.settings-stub {
+  font-size: var(--text-sm);
+  line-height: 1.6;
+  padding: 10px 14px;
+  margin-bottom: 16px;
+  border: 1px dashed var(--border);
+  border-radius: var(--radius-sm);
+}
+/* 表列宽（两表同名列宽度不同，按表作用域；col-actions 右对齐） */
+.settings-providers .col-name { width: 20%; }
+.settings-providers .col-type { width: 14%; }
+.settings-providers .col-url { width: 22%; }
+.settings-providers .col-model { width: 16%; }
+.settings-runtimes .col-name { width: 18%; }
+.settings-runtimes .col-binary { width: 16%; }
+.settings-runtimes .col-proto { width: 12%; }
+.settings-runtimes .col-group { width: 10%; }
+.col-status { width: 12%; }
+.col-actions { text-align: right; }

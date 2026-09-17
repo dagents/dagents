@@ -260,14 +260,14 @@ export function AgentDetailView({ id, nowMs }: AgentDetailViewProps): React.Reac
         ) : notFound ? (
           <NotFound id={id} />
         ) : error ? (
-          <div className="detail-error card-flat" style={{ padding: 'var(--space-4)', color: 'var(--danger)', gridColumn: '1 / -1', display: 'flex', alignItems: 'center', gap: 'var(--space-3)' }}>
+          <div className="detail-error card-flat detail-span-cols detail-pad detail-error-flex">
             <span>{t('加载失败：{error}', { error })}</span>
             <button
               type="button"
               className="btn btn-ghost btn-sm"
               onClick={() => setReloadTick((n) => n + 1)}
             >
-              <Icon name="refresh" style={{ width: 12, height: 12 }} />
+              <Icon name="refresh" className="ic-12" />
               {t('重试')}
             </button>
           </div>
@@ -428,7 +428,7 @@ function DetailSkeleton(): React.ReactElement {
 function NotFound({ id }: { id: string }): React.ReactElement {
   const { t } = useI18n()
   return (
-    <div className="not-found" style={{ gridColumn: '1 / -1' }}>
+    <div className="not-found detail-span-cols">
       <div className="h">{t('找不到这个 Agent')}</div>
       <div className="d">
         {t('id “{id}” 不存在，可能已被归档或删除。', { id })}
@@ -478,19 +478,19 @@ function Inspector({ model, archiving, onEdit, onArchive, onDelete }: InspectorP
         <div className="ins-actions">
           {onEdit && (
             <button type="button" className="btn btn-secondary btn-sm" onClick={onEdit}>
-              <Icon name="pencil" style={{ width: 12, height: 12 }} />
+              <Icon name="pencil" className="ic-12" />
               <span>{t('编辑')}</span>
             </button>
           )}
           {onArchive && (
             <button type="button" className="btn btn-ghost btn-sm" onClick={onArchive} disabled={archiving}>
-              <Icon name={archiving ? 'loader' : 'folder'} style={{ width: 12, height: 12 }} />
+              <Icon name={archiving ? 'loader' : 'folder'} className="ic-12" />
               <span>{archiving ? t('归档中…') : t('归档')}</span>
             </button>
           )}
           {onDelete && (
             <button type="button" className="btn btn-ghost btn-sm ins-action-danger" onClick={onDelete}>
-              <Icon name="close" style={{ width: 12, height: 12 }} />
+              <Icon name="close" className="ic-12" />
               <span>{t('删除')}</span>
             </button>
           )}
@@ -528,7 +528,7 @@ function Inspector({ model, archiving, onEdit, onArchive, onDelete }: InspectorP
               </span>
             ))
           ) : (
-            <span className="muted" style={{ fontSize: 12 }}>
+            <span className="muted t-xs">
               {t('无')}
             </span>
           )}
@@ -543,10 +543,10 @@ function Inspector({ model, archiving, onEdit, onArchive, onDelete }: InspectorP
               <span style={{ width: `${model.progress}%` }} />
             </div>
             <div className="row-between">
-              <span className="meta" style={{ fontSize: 11 }}>
+              <span className="meta t-2xs">
                 {t('已用 {elapsed}', { elapsed: model.elapsed })}
               </span>
-              <span className="mono" style={{ fontSize: 11, color: 'var(--accent-hover)' }}>
+              <span className="mono t-2xs detail-progress-num">
                 {model.progress}%
               </span>
             </div>
@@ -672,14 +672,14 @@ function ActivityPanel({ model }: { model: AgentDetailPageModel }): React.ReactE
           <div className="l">{t('30 天总运行')}</div>
         </div>
         <div className="act-kpi">
-          <div className="v" style={{ color: 'var(--accent-hover)' }}>
+          <div className="v detail-v-accent">
             {successRate}
             {successRate === '—' ? '' : '%'}
           </div>
           <div className="l">{t('成功率')}</div>
         </div>
         <div className="act-kpi">
-          <div className="v" style={{ color: 'var(--danger)' }}>
+          <div className="v detail-v-danger">
             {fail}
           </div>
           <div className="l">{t('失败次数')}</div>
@@ -692,17 +692,17 @@ function ActivityPanel({ model }: { model: AgentDetailPageModel }): React.ReactE
         {model.logs.length > 0 ? (
           [...model.logs].reverse().map((l, i) => (
             <div className="act-recent-item" key={`${l.ts}-${i}`}>
-              <span className="mono meta" style={{ width: 64, fontSize: 11 }}>
+              <span className="mono meta t-2xs detail-log-code">
                 {logTime(l.ts)}
               </span>
-              <span className={`log-lvl ${l.level}`} style={{ width: 40 }}>
+              <span className={`log-lvl ${l.level} detail-log-lvl`}>
                 {l.level.toUpperCase()}
               </span>
-              <span style={{ color: 'var(--fg-2)' }}>{l.msg}</span>
+              <span className="detail-log-msg">{l.msg}</span>
             </div>
           ))
         ) : (
-          <div className="muted" style={{ fontSize: 12, padding: 'var(--space-2) 0' }}>
+          <div className="muted t-xs detail-log-empty">
             {t('暂无活动')}
           </div>
         )}
@@ -718,7 +718,7 @@ function InstructionsPanel({ model }: { model: AgentDetailPageModel }): React.Re
       <div className="ins-section-label">{t('系统提示词')}</div>
       <div className="instr">{model.instructions}</div>
       <div className="ins-section-label mt-6">{t('能力描述符')}</div>
-      <div className="card-flat" style={{ padding: 'var(--space-4)' }}>
+      <div className="card-flat detail-pad">
         <PropRow label={t('输入 schema')} mono value={model.inputSchema} />
         <PropRow label={t('输出 schema')} mono value={model.outputSchema} />
       </div>
@@ -810,16 +810,15 @@ function SkillsPanel({
     <>
       <div className="row-between">
         <div className="ins-section-label">{t('已挂载 Skills（{n}）', { n: selected.length })}</div>
-        <div style={{ display: 'flex', gap: 'var(--space-2)', alignItems: 'center' }}>
+        <div className="detail-row">
           {savedAt ? (
-            <span className="meta" style={{ fontSize: 11, color: 'var(--success, #16a34a)' }}>
+            <span className="meta t-2xs detail-presence">
               {t('已保存')}
             </span>
           ) : null}
           <button
             type="button"
-            className="btn btn-primary"
-            style={{ padding: '4px 12px', fontSize: 12 }}
+            className="btn btn-primary btn-compact"
             onClick={() => void save()}
             disabled={!dirty || saving}
           >
@@ -828,7 +827,7 @@ function SkillsPanel({
         </div>
       </div>
       {saveError ? (
-        <div className="meta" style={{ fontSize: 12, color: 'var(--danger)', margin: '4px 0' }} role="alert">
+        <div className="meta detail-error-inline detail-save-error" role="alert">
           {saveError}
         </div>
       ) : null}
@@ -847,7 +846,7 @@ function SkillsPanel({
                     title={t('移除挂载')}
                     onClick={() => toggle(s)}
                   >
-                    <Icon name="close" style={{ width: 12, height: 12 }} />
+                    <Icon name="close" className="ic-12" />
                   </button>
                 </div>
                 <div className="ds">{meta ? meta.description : t('（本地目录中未找到 — 可能已被删除）')}</div>
@@ -855,7 +854,7 @@ function SkillsPanel({
             )
           })
         ) : (
-          <div className="muted" style={{ fontSize: 12 }}>
+          <div className="muted t-xs">
             {t('无挂载 Skills — 从下方本地技能库选择导入')}
           </div>
         )}
@@ -863,15 +862,15 @@ function SkillsPanel({
 
       <div className="ins-section-label mt-6">{t('本地技能库')}</div>
       {catalogError ? (
-        <div className="meta" style={{ fontSize: 12, color: 'var(--danger)' }} role="alert">
+        <div className="meta detail-error-inline" role="alert">
           {t('本地技能目录加载失败：{error}', { error: catalogError })}
         </div>
       ) : catalog === null ? (
-        <div className="muted" style={{ fontSize: 12 }}>
+        <div className="muted t-xs">
           {t('加载本地技能目录…')}
         </div>
       ) : catalog.length === 0 ? (
-        <div className="muted" style={{ fontSize: 12 }}>
+        <div className="muted t-xs">
           {t('本地没有可用技能（~/.agents/skills 为空）。放入 <name>/SKILL.md 即可被发现。')}
         </div>
       ) : (
@@ -931,8 +930,7 @@ function LogsPanel({
           {onRetry ? (
             <button
               type="button"
-              className="btn btn-primary"
-              style={{ padding: '4px 12px', fontSize: 12 }}
+              className="btn btn-primary btn-compact"
               onClick={onRetry}
             >
               {t('重试')}
@@ -956,7 +954,7 @@ function LogsPanel({
         )}
       </div>
       <div className="ins-section-label mt-6">{t('区域与资源')}</div>
-      <div className="card-flat" style={{ padding: 'var(--space-4)' }}>
+      <div className="card-flat detail-pad">
         <PropRow label={t('区域')} value={model.region} />
         <PropRow label={t('所属 daemon')} mono value={model.daemon} />
         <PropRow label={t('负载')} value={`${model.load}%`} />

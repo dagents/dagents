@@ -1,3 +1,7 @@
+
+import { apiFetch } from '@/lib/api'
+
+
 export type ChatStatus = 'idle' | 'running' | 'done' | 'failed'
 export type ChatMessageRole = 'user' | 'assistant' | 'system' | 'tool'
 
@@ -34,40 +38,14 @@ export interface ChatMessage {
   createdAt: string
 }
 
-interface Envelope<T> {
-  success: boolean
-  data?: T
-  error?: string
-}
-
-async function unwrap<T>(res: Response, label: string): Promise<T> {
-  if (!res.ok) {
-    const detail = await res.text().catch(() => '')
-    throw new Error(`${label} failed (${res.status})${detail ? `: ${detail.slice(0, 200)}` : ''}`)
-  }
-  const body = (await res.json()) as Envelope<T>
-  if (!body.success || body.data === undefined) {
-    throw new Error(`${label} failed: ${body.error ?? 'unknown error'}`)
-  }
-  return body.data
-}
 
 export async function fetchChats(directoryId: string, signal?: AbortSignal): Promise<Chat[]> {
-  const data = await unwrap<{ items: Chat[] }>(
-    await fetch(`/api/chats?directory_id=${encodeURIComponent(directoryId)}`, {
-      cache: 'no-store',
-      signal,
-    }),
-    'chat list',
-  )
+  const data = await apiFetch<{ items: Chat[] }>(`/api/chats?directory_id=${encodeURIComponent(directoryId)}`, { signal }, 'chat list')
   return data.items
 }
 
 export async function fetchChat(id: string, signal?: AbortSignal): Promise<Chat> {
-  const data = await unwrap<{ chat: Chat }>(
-    await fetch(`/api/chats/${encodeURIComponent(id)}`, { cache: 'no-store', signal }),
-    'chat detail',
-  )
+  const data = await apiFetch<{ chat: Chat }>(`/api/chats/${encodeURIComponent(id)}`, { signal }, 'chat detail')
   return data.chat
 }
 
@@ -77,14 +55,7 @@ export async function createChat(body: {
   agentId?: string
   flowId?: string
 }): Promise<Chat> {
-  const data = await unwrap<{ chat: Chat }>(
-    await fetch('/api/chats', {
-      method: 'POST',
-      headers: { 'content-type': 'application/json' },
-      body: JSON.stringify(body),
-    }),
-    'create chat',
-  )
+  const data = await apiFetch<{ chat: Chat }>('/api/chats', { method: 'POST', headers: { 'content-type': 'application/json' }, body: JSON.stringify(body) }, 'create chat')
   return data.chat
 }
 
@@ -92,14 +63,7 @@ export async function updateChat(
   id: string,
   body: { title?: string; status?: ChatStatus; agentId?: string | null; flowId?: string | null },
 ): Promise<Chat> {
-  const data = await unwrap<{ chat: Chat }>(
-    await fetch(`/api/chats/${encodeURIComponent(id)}`, {
-      method: 'PATCH',
-      headers: { 'content-type': 'application/json' },
-      body: JSON.stringify(body),
-    }),
-    'update chat',
-  )
+  const data = await apiFetch<{ chat: Chat }>(`/api/chats/${encodeURIComponent(id)}`, { method: 'PATCH', headers: { 'content-type': 'application/json' }, body: JSON.stringify(body) }, 'update chat')
   return data.chat
 }
 
@@ -110,32 +74,16 @@ export async function updateChat(
  * on a non-failed chat is a no-op that still returns the updated chat.
  */
 export async function resetChat(chatId: string): Promise<Chat> {
-  const data = await unwrap<{ chat: Chat }>(
-    await fetch(`/api/chats/${encodeURIComponent(chatId)}/reset`, {
-      method: 'POST',
-    }),
-    'reset chat',
-  )
+  const data = await apiFetch<{ chat: Chat }>(`/api/chats/${encodeURIComponent(chatId)}/reset`, { method: 'POST' }, 'reset chat')
   return data.chat
 }
 
 export async function deleteChat(id: string): Promise<{ deleted: boolean; id: string }> {
-  return unwrap<{ deleted: boolean; id: string }>(
-    await fetch(`/api/chats/${encodeURIComponent(id)}`, {
-      method: 'DELETE',
-    }),
-    'delete chat',
-  )
+  return apiFetch<{ deleted: boolean; id: string }>(`/api/chats/${encodeURIComponent(id)}`, { method: 'DELETE' }, 'delete chat')
 }
 
 export async function fetchMessages(chatId: string, signal?: AbortSignal): Promise<ChatMessage[]> {
-  const data = await unwrap<{ items: ChatMessage[] }>(
-    await fetch(`/api/chats/${encodeURIComponent(chatId)}/messages`, {
-      cache: 'no-store',
-      signal,
-    }),
-    'message list',
-  )
+  const data = await apiFetch<{ items: ChatMessage[] }>(`/api/chats/${encodeURIComponent(chatId)}/messages`, { signal }, 'message list')
   return data.items
 }
 
@@ -152,14 +100,7 @@ export async function createMessage(
     flowIdOverride?: string
   },
 ): Promise<ChatMessage> {
-  const data = await unwrap<{ message: ChatMessage }>(
-    await fetch(`/api/chats/${encodeURIComponent(chatId)}/messages`, {
-      method: 'POST',
-      headers: { 'content-type': 'application/json' },
-      body: JSON.stringify(body),
-    }),
-    'create message',
-  )
+  const data = await apiFetch<{ message: ChatMessage }>(`/api/chats/${encodeURIComponent(chatId)}/messages`, { method: 'POST', headers: { 'content-type': 'application/json' }, body: JSON.stringify(body) }, 'create message')
   return data.message
 }
 
@@ -189,14 +130,7 @@ export async function sendMessageRouted(
     flowIdOverride?: string
   },
 ): Promise<RoutedSendResult> {
-  const data = await unwrap<RoutedSendResult>(
-    await fetch(`/api/chats/${encodeURIComponent(chatId)}/messages`, {
-      method: 'POST',
-      headers: { 'content-type': 'application/json' },
-      body: JSON.stringify({ role: 'user', ...body }),
-    }),
-    'create message',
-  )
+  const data = await apiFetch<RoutedSendResult>(`/api/chats/${encodeURIComponent(chatId)}/messages`, { method: 'POST', headers: { 'content-type': 'application/json' }, body: JSON.stringify({ role: 'user', ...body }) }, 'create message')
   return data
 }
 
@@ -211,13 +145,7 @@ export interface ChatRun {
 }
 
 export async function fetchChatRuns(chatId: string, signal?: AbortSignal): Promise<ChatRun[]> {
-  const data = await unwrap<{ items: ChatRun[] }>(
-    await fetch(`/api/chats/${encodeURIComponent(chatId)}/runs`, {
-      cache: 'no-store',
-      signal,
-    }),
-    'chat runs',
-  )
+  const data = await apiFetch<{ items: ChatRun[] }>(`/api/chats/${encodeURIComponent(chatId)}/runs`, { signal }, 'chat runs')
   return data.items
 }
 
@@ -256,12 +184,6 @@ export async function searchChats(
 ): Promise<ChatSearchResult[]> {
   const params = new URLSearchParams({ q: query, limit: '20' })
   if (directoryId) params.set('directory_id', directoryId)
-  const data = await unwrap<{ items: ChatSearchResult[] }>(
-    await fetch(`/api/chats/search?${params.toString()}`, {
-      cache: 'no-store',
-      signal,
-    }),
-    'chat search',
-  )
+  const data = await apiFetch<{ items: ChatSearchResult[] }>(`/api/chats/search?${params.toString()}`, { signal }, 'chat search')
   return data.items
 }

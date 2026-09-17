@@ -34,6 +34,8 @@
  * dispatch response's explicit honesty about its sources.
  */
 
+import { apiFetch } from '@/lib/api'
+
 /** Per-model token totals for the fleet (mirrors `ModelUsageTotals`). */
 export interface ModelUsage {
   inputTokens: number
@@ -301,35 +303,6 @@ export function daemonStatusColor(status: string): string {
   return DAEMON_STATUS_META[status]?.color ?? 'var(--border)'
 }
 
-interface Envelope<T> {
-  success: boolean
-  data?: T
-  error?: string
-}
-
-/**
- * Lift `data` out of the `{ success, data?, error? }` envelope or throw. Mirrors
- * `agents-catalog.ts`'s `unwrap` so a non-2xx (gateway collapses upstream errors
- * to 502) surfaces as a thrown `Error` the view's `try/catch` can render.
- *
- * `signal` lets the view abort a superseded fetch (window switch / unmount).
- * `fetch` itself rejects with an `AbortError` when aborted; we let that propagate
- * as-is so the caller's `catch` can distinguish "aborted" (ignore) from "failed"
- * (surface) via `signal.aborted`.
- */
-async function unwrap<T>(res: Response, label: string, signal?: AbortSignal): Promise<T> {
-  if (signal?.aborted) throw new DOMException('aborted', 'AbortError')
-  if (!res.ok) {
-    const detail = await res.text().catch(() => '')
-    throw new Error(`${label} failed (${res.status})${detail ? `: ${detail.slice(0, 200)}` : ''}`)
-  }
-  const body = (await res.json()) as Envelope<T>
-  if (!body.success || body.data === undefined) {
-    throw new Error(`${label} failed: ${body.error ?? 'unknown error'}`)
-  }
-  return body.data
-}
-
 /**
  * GET /api/fleet-stats — fetch the fleet snapshot for the dashboard. `window`
  * is the design's preset token (`1h`/`24h`/`7d`); it is sent as the `?window=`
@@ -347,11 +320,10 @@ export async function fetchFleetStats(
   signal?: AbortSignal,
 ): Promise<FleetStats> {
   const search = window ? `?window=${encodeURIComponent(window)}` : ''
-  return unwrap<FleetStats>(
-    await fetch(`/api/fleet-stats${search}`, { method: 'GET', cache: 'no-store', signal }),
-    'fleet stats',
-    signal,
-  )
+  // 中止语义保持：已中止时抛确定性 AbortError（解包前的显式守卫，
+  // lib/api.ts 的 apiFetch 不持有 signal 状态）。
+  if (signal?.aborted) throw new DOMException('aborted', 'AbortError')
+  return apiFetch<FleetStats>(`/api/fleet-stats${search}`, { method: 'GET', signal }, 'fleet stats')
 }
 
 // ─── pure formatting / derivation helpers ──────────────────────────

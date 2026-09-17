@@ -1,3 +1,6 @@
+
+import { apiFetch } from '@/lib/api'
+
 /**
  * skills.ts — client for the gateway's runtime skills registry.
  *
@@ -45,38 +48,14 @@ export function sourceLabel(source: string): string {
   return source
 }
 
-interface Envelope<T> {
-  success: boolean
-  error?: string
-  data?: T
-}
-
-async function unwrap<T>(res: Response, label: string): Promise<T> {
-  if (!res.ok) {
-    const detail = await res.text().catch(() => '')
-    throw new Error(`${label} failed (${res.status})${detail ? `: ${detail.slice(0, 200)}` : ''}`)
-  }
-  const body = (await res.json()) as Envelope<T>
-  if (!body.success || body.data === undefined) {
-    throw new Error(`${label} failed: ${body.error ?? 'unknown error'}`)
-  }
-  return body.data
-}
-
 /** Fetch the merged skill catalog. `refresh` bypasses the gateway's 60s cache. */
 export async function fetchSkills(refresh = false): Promise<SkillCatalog> {
-  return unwrap(
-    await fetch(`/api/skills${refresh ? '?refresh=1' : ''}`, { cache: 'no-store' }),
-    'skills list',
-  )
+  return apiFetch(`/api/skills${refresh ? '?refresh=1' : ''}`, undefined, 'skills list')
 }
 
 /** Fetch one full skill definition (body re-read from disk on the gateway). */
 export async function fetchSkillDetail(name: string): Promise<SkillDefinition> {
-  return unwrap(
-    await fetch(`/api/skills/${encodeURIComponent(name)}`, { cache: 'no-store' }),
-    'skill detail',
-  )
+  return apiFetch(`/api/skills/${encodeURIComponent(name)}`, undefined, 'skill detail')
 }
 
 /**
@@ -84,22 +63,14 @@ export async function fetchSkillDetail(name: string): Promise<SkillDefinition> {
  * 并强制重扫）。返回更新后的目录 + 技能列表。
  */
 export async function addSkillRoot(dir: string): Promise<SkillCatalog> {
-  return unwrap(
-    await fetch('/api/skills/roots', {
-      method: 'POST',
-      headers: { 'content-type': 'application/json' },
-      body: JSON.stringify({ dir }),
-    }),
-    'add skill root',
-  )
+  return apiFetch('/api/skills/roots', {
+    method: 'POST',
+    headers: { 'content-type': 'application/json' },
+    body: JSON.stringify({ dir }),
+  }, 'add skill root')
 }
 
 /** 移除一个 UI 管理的自定义目录（env 配置的目录不可移除）。 */
 export async function removeSkillRoot(dir: string): Promise<SkillCatalog> {
-  return unwrap(
-    await fetch(`/api/skills/roots?dir=${encodeURIComponent(dir)}`, {
-      method: 'DELETE',
-    }),
-    'remove skill root',
-  )
+  return apiFetch(`/api/skills/roots?dir=${encodeURIComponent(dir)}`, { method: 'DELETE' }, 'remove skill root')
 }

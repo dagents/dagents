@@ -20,7 +20,11 @@
  *   - `running`            → `running`
  *   - `completed`          → `done`
  *   - `failed`             → `failed`
+ *
+ * 数据获取走 lib/api.ts 单源（2026-09-17 收敛：各模块自写的 unwrap 样板已删）。
  */
+
+import { apiFetch } from '@/lib/api'
 
 export type DispatchTaskStatus = 'queued' | 'running' | 'done' | 'failed'
 
@@ -56,12 +60,6 @@ export interface FleetStats {
   active_tasks: number
   queue_depth: number
   throughput_per_min: number
-}
-
-interface Envelope<T> {
-  success: boolean
-  data?: T
-  error?: string
 }
 
 /** Row shape from `/api/agents` (snake_case from pg, mirrors `agents-catalog.ts`). */
@@ -100,16 +98,6 @@ interface DaemonsListPayload {
   }>
 }
 
-async function unwrap<T>(res: Response, label: string): Promise<T> {
-  if (!res.ok) {
-    throw new Error(`${label} failed (${res.status})`)
-  }
-  const body = (await res.json()) as Envelope<T>
-  if (!body.success || body.data === undefined) {
-    throw new Error(`${label} failed: ${body.error ?? 'unknown error'}`)
-  }
-  return body.data
-}
 
 /** Map a raw `dispatch_tasks.status` value to the UI's four-bucket status. */
 function mapTaskStatus(raw: string | null): DispatchTaskStatus | null {
@@ -133,10 +121,7 @@ function toDateStr(d: Date | string | null | undefined): string | null {
  * (`queued`/`running`/`done`/`failed`); omit it for the full list.
  */
 export async function fetchDispatchTasks(statusFilter?: DispatchTaskStatus): Promise<DispatchTask[]> {
-  const data = await unwrap<{ agents: AgentListRow[]; truncated: boolean }>(
-    await fetch('/api/agents', { cache: 'no-store' }),
-    'dispatch tasks',
-  )
+  const data = await apiFetch<{ agents: AgentListRow[]; truncated: boolean }>('/api/agents', undefined, 'dispatch tasks')
   const tasks: DispatchTask[] = []
   for (const a of data.agents) {
     if (!a.task_id) continue
@@ -167,10 +152,7 @@ export async function fetchDispatchTasks(statusFilter?: DispatchTaskStatus): Pro
  * over the window minutes (0 when no window).
  */
 export async function fetchFleetStats(): Promise<FleetStats> {
-  const data = await unwrap<FleetStatsPayload>(
-    await fetch('/api/fleet-stats', { cache: 'no-store' }),
-    'fleet stats',
-  )
+  const data = await apiFetch<FleetStatsPayload>('/api/fleet-stats', undefined, 'fleet stats')
   const taskByStatus = data.fleet?.tasks?.byStatus ?? {}
   const daemonByStatus = data.fleet?.daemons?.byStatus ?? {}
   const hours = data.windowHours > 0 ? data.windowHours : 0
@@ -191,10 +173,7 @@ export async function fetchFleetStats(): Promise<FleetStats> {
  * capabilities, and last heartbeat time.
  */
 export async function fetchDaemons(): Promise<DaemonInfo[]> {
-  const data = await unwrap<DaemonsListPayload>(
-    await fetch('/api/daemons', { cache: 'no-store' }),
-    'daemons list',
-  )
+  const data = await apiFetch<DaemonsListPayload>('/api/daemons', undefined, 'daemons list')
   return data.daemons.map((d) => ({
     id: d.id,
     label: d.label,
