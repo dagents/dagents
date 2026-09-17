@@ -213,6 +213,9 @@ importers:
 
   packages/db:
     dependencies:
+      '@dagents/contracts':
+        specifier: workspace:*
+        version: link:../contracts
       pg:
         specifier: ^8.12.0
         version: 8.22.0

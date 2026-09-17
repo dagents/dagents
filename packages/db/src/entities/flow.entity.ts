@@ -1,3 +1,4 @@
+import type { FlowData } from '@dagents/contracts'
 import {
   Entity,
   PrimaryGeneratedColumn,
@@ -27,6 +28,7 @@ export class Flow {
   @Column({ type: 'text', nullable: true })
   description!: string | null
 
+  /** nodes/edges/viewport —— 形状由 @dagents/contracts FlowData 编译期联动。 */
   @Column({ type: 'jsonb', name: 'flow_data' })
   flowData!: {
     nodes: Array<{
