@@ -1,6 +1,7 @@
 # 设计：执行状态检查点与断点续跑（Run Checkpointing & Resume）
 
-> 状态：设计定稿待评审 · 2026-09-18 · 架构师起草
+> 状态：**已实施（P0+P1+P2 全量落地）** · 设计 2026-09-18 · 实施 2026-09-18
+> 实施记录：引擎 ResumeOptions/迭代游标/awaiting（executor-resume.test 8 例）；run_checkpoints 表+迁移；三端点（checkpoint/resume/answer）+ BFF 透传；checkpoint 写入经串行链（波次/挂起/终态同链保序——迟到的波次快照不再覆盖终态 failedAt 或 awaiting 载荷，e2e 实测竞态修复）；MA-09 契约修订（缺答案 → awaiting 而非报错）；e2e RM-01~03（spec 24）含零重跑证明。与设计偏差：§7 P0 的「读 spans 干跑」未单独落地（spans 反演被否决后失去独立价值，表结构先行）；聊天回流优先走 DB awaiting（进程内 Promise 仅兜底）。
 > 关联：PM 优化批次建议 #1（失败节点断点续跑）· 2026-09-17 架构评审遗留（HumanInput 挂起态在内存）· `docs/workflow-engine.md` 执行模型
 > 落地节奏：三阶段（见 §7），P0 可独立先行
 

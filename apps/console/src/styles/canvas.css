@@ -14,3 +14,18 @@
 .canvas-run-human-answers { margin-top: 10px; }
 .canvas-run-human-answers .form-section-label { font-size: var(--text-xs); color: var(--meta); margin-bottom: 4px; }
 .canvas-run-human-answers .field { margin-bottom: 8px; }
+
+/* 断点续跑（2026-09-18 §6.6）：失败现场「从此处继续」与挂起应答条 */
+.canvas-results-resume { border-color: var(--accent, var(--border)); color: var(--accent, var(--text)); }
+.canvas-awaiting-bar {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  margin-bottom: 8px;
+  padding: 8px 10px;
+  border: 1px solid var(--warn-border, #e8d89a);
+  border-radius: var(--radius-md, 8px);
+  background: var(--note-bg, #fef6d8);
+}
+.canvas-awaiting-prompt { font-size: var(--text-sm); color: var(--note-text, #4a3f1d); flex: none; }
+.canvas-awaiting-input { flex: 1; min-width: 120px; }

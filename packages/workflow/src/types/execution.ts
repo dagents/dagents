@@ -9,7 +9,8 @@
 import type { IServerSideEventStreamer } from './stream.js'
 
 /** Execution status for a node or the overall flow run. */
-export type ExecutionStatus = 'idle' | 'running' | 'success' | 'failed' | 'cancelled'
+/** 'awaiting'：HumanInput 持久挂起（断点续跑 §6.3）—— 非终态，可应答回流续跑。 */
+export type ExecutionStatus = 'idle' | 'running' | 'success' | 'failed' | 'cancelled' | 'awaiting'
 
 /** Token usage reported by an LLM call. */
 export interface ITokenUsage {

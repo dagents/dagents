@@ -87,6 +87,25 @@ async function sweepDanglingExecutions(): Promise<void> {
     // claimed/running 任务仍会正常回报终态，不能一刀切。只收敛「认领
     // daemon 已离线」的任务；未被认领的 queued 任务留给调度路径（daemon
     // 重连后仍可 claim）。
+    // 持久挂起超时收敛（断点续跑 P2）：deadline 已过的 awaiting run →
+    // failed + checkpoint terminal（应答窗 = HUMAN_INPUT_TIMEOUT_MS）。
+    await step(
+      'run_checkpoints_expired_awaiting',
+      `UPDATE runs r
+          SET status = 'failed', finished_at = NOW()
+         FROM run_checkpoints c
+        WHERE c.run_id = r.id
+          AND r.status = 'awaiting_input'
+          AND c.status = 'awaiting_input'
+          AND (c.awaiting->>'deadlineAt')::timestamptz < NOW()`,
+    )
+    await step(
+      'run_checkpoints_terminalize',
+      `UPDATE run_checkpoints
+          SET status = 'terminal', updated_at = NOW()
+        WHERE status = 'awaiting_input'
+          AND (awaiting->>'deadlineAt')::timestamptz < NOW()`,
+    )
     await step(
       'dispatch_tasks',
       `UPDATE dispatch_tasks t

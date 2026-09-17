@@ -202,16 +202,19 @@ export async function persistWorkflowRunRow(input: {
   finishedAt: Date
   durationMs: number
   cost: number
+  /** 2026-09-18：chat 触发的画布运行也落关联（应答回流 join 依赖）。 */
+  chatId?: string | null
 }): Promise<void> {
   await runQuery(
-    `INSERT INTO runs (id, identifier, pipeline_id, status, input, output, started_at, finished_at, duration_ms, cost)
-     VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10)
+    `INSERT INTO runs (id, identifier, pipeline_id, status, input, output, started_at, finished_at, duration_ms, cost, chat_id)
+     VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11)
      ON CONFLICT (id) DO UPDATE SET
        status = EXCLUDED.status,
        output = EXCLUDED.output,
        finished_at = EXCLUDED.finished_at,
        duration_ms = EXCLUDED.duration_ms,
-       cost = EXCLUDED.cost`,
+       cost = EXCLUDED.cost,
+       chat_id = COALESCE(EXCLUDED.chat_id, runs.chat_id)`,
     [
       input.runId,
       input.runId,
@@ -223,6 +226,7 @@ export async function persistWorkflowRunRow(input: {
       input.finishedAt,
       input.durationMs,
       input.cost,
+      input.chatId ?? null,
     ],
   )
 }

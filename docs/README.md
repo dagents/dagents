@@ -26,7 +26,7 @@
 | [`product-review.md`](product-review.md) | 产品推敲（2026-08-22 快照）：定位、四个核心张力、旅程漏洞、竞品坐标、优先级总览 |
 | [`product-plan.md`](product-plan.md) | 产品方案（活文档）：@workflow 质量闭环 / 可中断执行 / 成本实测 / 适配器分级等 7 个方案的设计与验收标准 |
 | [`product-architecture.md`](product-architecture.md) | 产品方案架构分析（活文档）：AD-1~AD-6 架构决策、逐方案受力点、BFF 边界规则、里程碑修订 |
-| [`design-run-checkpoint-resume.md`](design-run-checkpoint-resume.md) | 设计：执行状态检查点与断点续跑（2026-09-18 定稿待评审）——失败节点续跑/迭代项级游标/HumanInput 挂起持久化；三阶段落地 |
+| [`design-run-checkpoint-resume.md`](design-run-checkpoint-resume.md) | 设计：执行状态检查点与断点续跑（2026-09-18 已实施）——失败节点续跑/迭代项级游标/HumanInput 挂起持久化（checkpoint 串行链/resume·answer 端点/e2e RM-01~03 零重跑证明） |
 
 ## 流程文档（docs/superpowers/）
 

@@ -8,6 +8,7 @@ import type {
   ITokenUsage,
 } from '../types/execution.js'
 import { NodeRegistry } from './node-registry.js'
+import { HumanInputPendingError } from './errors.js'
 import { RuntimeState } from './runtime.js'
 
 /** Result of a DAG execution. */
@@ -20,6 +21,8 @@ export interface ExecutionResult {
   error?: string
   /** Final runtime state snapshot. */
   state: Record<string, unknown>
+  /** HumanInput 挂起载荷（status === 'awaiting' 时必带，§6.3）。 */
+  awaiting?: { nodeId: string; prompt: string; inputType: string; options: unknown[] }
 }
 
 /** Options passed to `DagExecutor.execute`. */
@@ -57,6 +60,13 @@ export interface ExecuteOptions {
     node: { nodeId: string; nodeName: string },
     chunk: import('../types/execution.js').IStreamDelta,
   ) => void
+  /** 断点续跑种子（§6.3）：命中 seedOutputs 的节点跳过执行。 */
+  resume?: ResumeOptions
+  /**
+   * 执行状态快照钩子（§6.2）：每波次收敛 / 迭代每项完成 / 终态前回调。
+   * 同步 fire-and-forget（宿主自行节流落库），绝不阻塞调度。
+   */
+  onCheckpoint?: (snapshot: RunCheckpointSnapshot) => void
 }
 
 /** Node type names whose iteration body the executor repeats. */
@@ -65,6 +75,33 @@ const ITERATION_CONTROLLERS = new Set(['iterationAgentflow'])
 /** 节点级重试上限（opt-in `retries` 输入的硬顶，防配置错误放大故障）。 */
 const MAX_NODE_RETRIES = 3
 const RETRY_BACKOFF_BASE_MS = 200
+
+/** 迭代项级游标（断点续跑 §6.2）：controllerId → 已完成项数 + 每项末态。 */
+export interface IterationProgress {
+  completed: number
+  itemOutputs: Array<Record<string, unknown>>
+}
+
+/** 断点续跑种子（§6.3 ResumeOptions 的载荷）。 */
+export interface ResumeOptions {
+  /** 已完成节点的原始引擎输出 —— 命中者跳过执行（结构保证，非 best-effort）。 */
+  seedOutputs: Record<string, Record<string, unknown>>
+  /** 预填充的 runtime state 顶层（含 $start 别名 / 各节点键 / humanInputs 应答）。 */
+  seedRuntime?: Record<string, unknown>
+  /** 迭代游标：controllerId → 进度。 */
+  iterationProgress?: Record<string, IterationProgress>
+}
+
+/**
+ * 执行状态快照（落库载荷形状，§6.2）。引擎只负责生产；持久化由宿主的
+ * onCheckpoint 钩子完成（引擎保持 DB-free）。
+ */
+export interface RunCheckpointSnapshot {
+  outputs: Record<string, Record<string, unknown>>
+  runtime: Record<string, unknown>
+  iterationProgress: Record<string, IterationProgress>
+  failedAt?: { nodeId: string; error: string }
+}
 
 /** An iteration controller's parsed execution plan (see `planIterationBody`). */
 interface IterationPlan {
@@ -97,6 +134,11 @@ interface RunContext {
   /** finalOutput = 拓扑最深的已执行节点输出。 */
   finalOutput: Record<string, unknown> | null
   finalOutputIndex: number
+  /** 迭代游标（断点续跑）：runIterationBody 增量维护。 */
+  iterationProgress: Map<string, IterationProgress>
+  /** 根图 outputs 引用（区分根调度与迭代体克隆，checkpoint 只拍根）。 */
+  rootOutputs: Map<string, Record<string, unknown>> | null
+  onCheckpoint?: (snapshot: RunCheckpointSnapshot) => void
 }
 
 /**
@@ -163,29 +205,73 @@ export class DagExecutor {
       const topoIndex = new Map(order.map((n, i) => [n.id, i]))
       const outgoingEdges = this.buildOutgoingEdges(flow.edges)
 
+      // 断点续跑种子（§6.3）：预填充节点输出 + runtime + 迭代游标。
+      const resume = opts.resume
+      const nodeOutputs = new Map<string, Record<string, unknown>>()
+      const nodeById = new Map(order.map((n) => [n.id, n]))
+      if (resume) {
+        for (const [id, out] of Object.entries(resume.seedOutputs)) {
+          if (nodeById.has(id)) nodeOutputs.set(id, out)
+        }
+        if (resume.seedRuntime) runtime.merge(resume.seedRuntime)
+      }
+
       const ctx: RunContext = {
         opts,
         input,
         runtime,
         executedNodes,
-        nodeById: new Map(order.map((n) => [n.id, n])),
+        nodeById,
         topoIndex,
         incomingEdges: this.buildIncomingEdges(flow.edges),
         outgoingEdges,
         toolRegistry: { ...(opts.toolRegistry ?? {}) },
         finalOutput: null,
         finalOutputIndex: -1,
+        iterationProgress: new Map(
+          Object.entries(resume?.iterationProgress ?? {}).map(([k, v]) => [k, { ...v, itemOutputs: [...v.itemOutputs] }]),
+        ),
+        rootOutputs: nodeOutputs,
+        onCheckpoint: opts.onCheckpoint,
       }
 
-      const nodeOutputs = new Map<string, Record<string, unknown>>()
+      // 种子节点计入 finalOutput 判定（续跑后无新节点执行时最终产出仍正确）
+      if (resume) {
+        for (const id of Object.keys(resume.seedOutputs)) {
+          if (nodeById.has(id)) this.recordExecution(ctx, id, nodeOutputs.get(id) ?? {})
+        }
+      }
+
       const allScope = new Set(order.map((n) => n.id))
       const result = await this.runWaves(ctx, allScope, [], nodeOutputs, new Map())
+
+      if (result.pending) {
+        // HumanInput 持久挂起（§6.3）：不判失败 —— 宿主落 checkpoint
+        // （awaiting_input）并结束本次执行；应答后以 resume 语义续跑。
+        this.fireCheckpoint(ctx, nodeOutputs)
+        return {
+          status: 'awaiting',
+          executedNodes,
+          finalOutput: null,
+          awaiting: {
+            nodeId: result.pending.nodeId,
+            prompt: result.pending.prompt,
+            inputType: result.pending.inputType,
+            options: result.pending.options,
+          },
+          state: runtime.snapshot(),
+        }
+      }
 
       if (result.error) {
         // A caller-aborted run reports `cancelled` (not `failed') so callers
         // can distinguish user intent from engine errors — the enum value
         // existed since the beginning but was never produced (spec D3).
         const cancelled = opts.signal?.aborted === true
+        this.fireCheckpoint(ctx, nodeOutputs, {
+          nodeId: result.failedNodeId ?? '',
+          error: result.error,
+        })
         return {
           status: cancelled ? 'cancelled' : 'failed',
           executedNodes,
@@ -195,6 +281,7 @@ export class DagExecutor {
         }
       }
 
+      this.fireCheckpoint(ctx, nodeOutputs)
       return {
         status: 'success',
         executedNodes,
@@ -215,6 +302,21 @@ export class DagExecutor {
         state: runtime.snapshot(),
       }
     }
+  }
+
+  /** 组装并发射快照（§6.2）。只在根图上有意义 —— 迭代体克隆不拍。 */
+  private fireCheckpoint(
+    ctx: RunContext,
+    rootOutputs: Map<string, Record<string, unknown>>,
+    failedAt?: { nodeId: string; error: string },
+  ): void {
+    if (!ctx.onCheckpoint) return
+    ctx.onCheckpoint({
+      outputs: Object.fromEntries(rootOutputs),
+      runtime: ctx.runtime.snapshot(),
+      iterationProgress: Object.fromEntries(ctx.iterationProgress),
+      ...(failedAt ? { failedAt } : {}),
+    })
   }
 
   /** Record a node output as the run's final output if it's topologically deepest. */
@@ -336,7 +438,12 @@ export class DagExecutor {
     entryEdges: FlowEdge[],
     outputs: Map<string, Record<string, unknown>>,
     seed: Map<string, Record<string, unknown>>,
-  ): Promise<{ processed: Set<string>; error?: string }> {
+  ): Promise<{
+    processed: Set<string>
+    error?: string
+    failedNodeId?: string
+    pending?: { nodeId: string; prompt: string; inputType: string; options: unknown[] }
+  }> {
     const { opts, runtime, executedNodes, nodeById, topoIndex, incomingEdges } = ctx
 
     // Local pending counts: only edges internal to the scope gate
@@ -354,7 +461,22 @@ export class DagExecutor {
     const byTopo = (a: string, b: string) => (topoIndex.get(a) ?? 0) - (topoIndex.get(b) ?? 0)
 
     const processed = new Set<string>()
-    let wave = [...scope].filter((id) => (localPending.get(id) ?? 0) === 0).sort(byTopo)
+    // 断点续跑（§6.3）：outputs 里已有的节点视为已执行 —— 计入 processed
+    // 并释放其出边的 pending 计数（首次波次装配即从断点之后开始）。
+    // 仅根图生效：迭代体每项拿的是上游 outputs 的克隆，若误判会把
+    // 前一项的 body 当「已完成」跳过（嵌套迭代 2×2 塌成 1×2 的教训）。
+    if (outputs === ctx.rootOutputs) {
+      for (const id of outputs.keys()) {
+        if (!scope.has(id) || processed.has(id)) continue
+        processed.add(id)
+        for (const edge of ctx.outgoingEdges.get(id) ?? []) {
+          if (scope.has(edge.target)) {
+            localPending.set(edge.target, (localPending.get(edge.target) ?? 1) - 1)
+          }
+        }
+      }
+    }
+    let wave = [...scope].filter((id) => (localPending.get(id) ?? 0) === 0 && !processed.has(id)).sort(byTopo)
 
     while (wave.length > 0) {
       if (opts.signal?.aborted) {
@@ -422,6 +544,17 @@ export class DagExecutor {
             this.recordExecution(ctx, nodeId, output.output)
             return { kind: 'executed', nodeId, output: output.output, input: nodeInput }
           } catch (err) {
+            // HumanInput 挂起信号（§6.3）：resolver reject HumanInputPendingError
+            // —— 本波次收敛为 pending 而非 failure。
+            if (err instanceof HumanInputPendingError) {
+              return {
+                kind: 'pending',
+                nodeId,
+                prompt: err.prompt,
+                inputType: err.inputType,
+                options: err.options,
+              } satisfies WaveOutcome
+            }
             const message = err instanceof Error ? err.message : String(err)
             // 被看门狗清理/取消的 CLI 调用把已产生的 usage 附着在错误
             // 对象上（见 gateway createCliLlmClient）—— 失败节点的 span
@@ -445,10 +578,24 @@ export class DagExecutor {
         }),
       )
 
+      const pendingOutcome = outcomes.find((o): o is PendingOutcome => o.kind === 'pending')
+      if (pendingOutcome) {
+        for (const o of outcomes) processed.add(o.nodeId)
+        return {
+          processed,
+          pending: {
+            nodeId: pendingOutcome.nodeId,
+            prompt: pendingOutcome.prompt,
+            inputType: pendingOutcome.inputType,
+            options: pendingOutcome.options,
+          },
+        }
+      }
+
       const failure = outcomes.find((o): o is FailedOutcome => o.kind === 'failed')
       if (failure) {
         for (const o of outcomes) processed.add(o.nodeId)
-        return { processed, error: failure.error }
+        return { processed, error: failure.error, failedNodeId: failure.nodeId }
       }
 
       // Everything processed this round — iteration controllers additionally
@@ -510,6 +657,11 @@ export class DagExecutor {
         }
       }
       wave = nextWave.sort(byTopo)
+      // 根图每波次收敛后拍快照（§6.2 写入时机；迭代体克隆不拍 —— 判据
+      // 是本 runWaves 操作的 outputs 即 ctx.rootOutputs）
+      if (ctx.onCheckpoint && outputs === ctx.rootOutputs) {
+        this.fireCheckpoint(ctx, outputs)
+      }
     }
 
     return { processed }
@@ -531,7 +683,6 @@ export class DagExecutor {
   ): Promise<{ output: Record<string, unknown>; error?: string }> {
     const { runtime, topoIndex } = ctx
     const controllerOutput = globalOutputs.get(controller.id) ?? {}
-    const iterations: Array<Record<string, unknown>> = []
     // 纵深防御：IterationNode.run 已在节点侧对超上限抛错（span 可见），
     // 这里兜住绕过节点校验直接进入 body 计划的路径 —— 同值同语义。
     const MAX_ITERATION_ITEMS = 100
@@ -546,9 +697,21 @@ export class DagExecutor {
     }
     const count = plan.items.length
     let lastBodyOutput: Record<string, unknown> = {}
-    let completed = 0
+    // 断点续跑（§6.2 迭代游标）：从 checkpoint 的已完成项继续；已完项的
+    // 产出直接进聚合（不重跑）。仅根图直挂的控制器保留游标 —— 嵌套在内
+    // 层的控制器随外层每轮重新执行，其游标必须重置（否则外层第 2 项的
+    // 内层循环被上一轮的游标「续」空）。
+    if (globalOutputs !== ctx.rootOutputs) {
+      ctx.iterationProgress.delete(controller.id)
+    }
+    const progress = ctx.iterationProgress.get(controller.id) ?? { completed: 0, itemOutputs: [] }
+    const iterations: Array<Record<string, unknown>> = [...progress.itemOutputs]
+    let completed = progress.completed
+    if (completed > 0 && iterations.length > 0) {
+      lastBodyOutput = iterations[iterations.length - 1] ?? {}
+    }
 
-    for (let i = 0; i < count; i++) {
+    for (let i = completed; i < count; i++) {
       if (ctx.opts.signal?.aborted) break
 
       const item = plan.items[i]
@@ -587,6 +750,11 @@ export class DagExecutor {
       iterations.push(iterationFinal)
       lastBodyOutput = iterationFinal
       completed = i + 1
+      // 游标增量维护 + 快照（§6.2：迭代每项完成后）
+      ctx.iterationProgress.set(controller.id, { completed, itemOutputs: [...iterations] })
+      if (ctx.onCheckpoint && ctx.rootOutputs === globalOutputs) {
+        this.fireCheckpoint(ctx, globalOutputs)
+      }
     }
 
     // 循环结束后清掉迭代元数据（2026-09-17 评审修复）：此前
@@ -899,7 +1067,16 @@ export class DagExecutor {
 type WaveOutcome =
   | { kind: 'skipped'; nodeId: string }
   | { kind: 'executed'; nodeId: string; output: Record<string, unknown>; input: unknown }
+  | PendingOutcome
   | FailedOutcome
+
+interface PendingOutcome {
+  kind: 'pending'
+  nodeId: string
+  prompt: string
+  inputType: string
+  options: unknown[]
+}
 
 interface FailedOutcome {
   kind: 'failed'

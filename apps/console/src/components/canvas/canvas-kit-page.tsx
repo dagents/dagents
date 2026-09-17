@@ -207,7 +207,12 @@ export function CanvasKitPage({
   // 因此画布自己生成 runId、带着头发起运行，同时轮询 node-spans 把
   // 每个节点的 status 实时刷到节点徽章（running = 旋转，done = 绿勾，
   // failed = 红叉 + 错误提示）。
-  const [runState, setRunState] = useState<'idle' | 'running' | 'done' | 'failed'>('idle')
+  const [runState, setRunState] = useState<'idle' | 'running' | 'done' | 'failed' | 'awaiting'>('idle')
+  // 断点续跑（2026-09-18）：失败终态拉 checkpoint 判 resumable；awaiting 挂起载荷
+  const [resumeInfo, setResumeInfo] = useState<{ runId: string; completedCount: number } | null>(null)
+  const [awaitingInfo, setAwaitingInfo] = useState<{ nodeId: string; prompt: string; inputType: string; options: string[] } | null>(null)
+  const [answerText, setAnswerText] = useState('')
+  const [answerBusy, setAnswerBusy] = useState(false)
   const [runSummary, setRunSummary] = useState<string | null>(null)
   const pollRef = useRef<number | undefined>(undefined)
   useEffect(() => () => window.clearInterval(pollRef.current), [])
@@ -443,6 +448,12 @@ export function CanvasKitPage({
     async (): Promise<boolean> => {
       if (!watch) return false
       const { runStatus, spans } = await fetchSpans(watch.runId)
+      // 持久挂起（P2）：非终态 —— 面板亮出应答入口，继续轮询等续跑
+      if (runStatus === 'awaiting_input') {
+        setRunState('awaiting')
+        void refreshCheckpointState(watch.runId)
+        return false
+      }
       if (runStatus === 'completed' || runStatus === 'failed' || runStatus === 'cancelled') {
         await fetchSpans(watch.runId) // 收尾定格：终态徽章齐全
         const duration = ((Date.now() - watch.startedAt) / 1000).toFixed(1)
@@ -482,6 +493,8 @@ export function CanvasKitPage({
   const handleRun = useCallback(
     async (input: string, humanInputs?: Record<string, string>): Promise<void> => {
       if (runState === 'running') return
+      // 断点续跑模式（2026-09-18）：resumeInfo 在场 → 提交到 resume 端点
+      const isResume = resumeInfo != null
       setRunPanelOpen(false)
       setResultsOpen(true)
       setLatestSpans([])
@@ -489,29 +502,34 @@ export function CanvasKitPage({
       editorRef.current?.clearRunState()
       setRunState('running')
       setRunSummary(null)
-      // 输入记忆（⬆ 语义）：提交即记，⌘⏎ 重跑时预填
+      // 输入记忆（⌃ 语义）：提交即记，⌘⏎ 重跑时预填
       persistRunInput(input)
 
-      const runId = crypto.randomUUID()
-      setActiveRunId(runId)
+      const clientRunId = crypto.randomUUID()
       const startedAt = Date.now()
       try {
         // 异步模式：立即返回 runId，进度全靠轮询 —— 同步等待会让长流程
         //（如 5-9 分钟的多 Agent 链）撞上代理层 300s 超时，客户端误报失败。
         const res = await fetch(
-          `/api/workflows/${encodeURIComponent(flowId)}/run?async=1`,
+          isResume
+            ? `/api/workflows/runs/${encodeURIComponent(resumeInfo.runId)}/resume`
+            : `/api/workflows/${encodeURIComponent(flowId)}/run?async=1`,
           {
             method: 'POST',
-            headers: { 'content-type': 'application/json', 'x-run-id': runId },
+            headers: { 'content-type': 'application/json', ...(!isResume ? { 'x-run-id': clientRunId } : {}) },
             body: JSON.stringify({
           ...(input.trim() ? { input: input.trim() } : {}),
           ...(runDirectoryId ? { directoryId: runDirectoryId } : {}),
           // HumanInput 预供答案（2026-09-18）：与列表运行面板同契约
-          ...(humanInputs ? { state: { humanInputs } } : {}),
+          ...(humanInputs ? { humanInputs } : {}),
         }),
           },
         )
-        const json = (await res.json().catch(() => null)) as { success?: boolean; error?: string } | null
+        const json = (await res.json().catch(() => null)) as {
+          success?: boolean
+          error?: string
+          data?: { runId?: string }
+        } | null
         if (!res.ok || !json?.success) {
           setRunState('failed')
           const reason = json?.error ?? `HTTP ${res.status}`
@@ -519,9 +537,16 @@ export function CanvasKitPage({
           toast.error(t('启动失败：{reason}', { reason: reason.slice(0, 120) }), 8000)
           return
         }
+        // resume 端点分配新 runId；直跑沿用客户端预生成 id
+        const effectiveRunId = json.data?.runId ?? clientRunId
+        setActiveRunId(effectiveRunId)
+        if (isResume) {
+          setResumeInfo(null)
+          toast.info(t('已从断点继续 —— 跳过 {n} 个已完成节点', { n: String(resumeInfo.completedCount) }), 5000)
+        }
         // 画布直跑接管旁观：manualWatchRef 让 ?run= 的自有循环退位
         manualWatchRef.current = true
-        setWatch({ runId, startedAt })
+        setWatch({ runId: effectiveRunId, startedAt })
       } catch (err) {
         setRunState('failed')
         const reason = err instanceof Error ? err.message : String(err)
@@ -529,7 +554,7 @@ export function CanvasKitPage({
         toast.error(t('启动失败：{reason}', { reason: reason.slice(0, 120) }), 8000)
       }
     },
-    [runState, flowId, toast, t, runDirectoryId, persistRunInput],
+    [runState, flowId, toast, t, runDirectoryId, persistRunInput, resumeInfo],
   )
 
   /** 运行中插话（2026-09-08 可操作终端）：POST message 路由，同步回执
@@ -565,6 +590,78 @@ export function CanvasKitPage({
     },
     [activeRunId],
   )
+
+  /** 断点续跑状态刷新（2026-09-18）：failed→resumable 入口判定；
+   *  awaiting→挂起载荷（prompt/options）。失败终态或 awaiting 时调用。 */
+  const refreshCheckpointState = useCallback(async (runId: string): Promise<void> => {
+    try {
+      const res = await fetch(`/api/workflows/runs/${encodeURIComponent(runId)}/checkpoint`)
+      const json = (await res.json()) as {
+        success?: boolean
+        data?: {
+          status?: string
+          completedNodeCount?: number
+          awaiting?: { nodeId: string; prompt: string; inputType: string; options?: unknown[] } | null
+        }
+      }
+      if (!json.success || !json.data) return
+      if (json.data.status === 'resumable') {
+        setResumeInfo({ runId, completedCount: json.data.completedNodeCount ?? 0 })
+      } else if (json.data.status === 'awaiting_input' && json.data.awaiting) {
+        setAwaitingInfo({
+          nodeId: json.data.awaiting.nodeId,
+          prompt: json.data.awaiting.prompt,
+          inputType: json.data.awaiting.inputType,
+          options: (json.data.awaiting.options ?? []).filter((o): o is string => typeof o === 'string'),
+        })
+      } else {
+        setResumeInfo(null)
+        setAwaitingInfo(null)
+      }
+    } catch {
+      // checkpoint 不可达不影响主流程
+    }
+  }, [])
+
+  /** 失败终态 → 拉一次 checkpoint（resumable 才亮「从此处继续」）。 */
+  useEffect(() => {
+    if (runState === 'failed' && activeRunId) void refreshCheckpointState(activeRunId)
+    if (runState !== 'awaiting') setAwaitingInfo(null)
+    if (runState !== 'failed') setResumeInfo(null)
+  }, [runState, activeRunId, refreshCheckpointState])
+
+  /** 从此处继续（§6.6）：走 resume 端点 —— 新 runId，种子跳过已完成节点。 */
+  const handleResume = useCallback((): void => {
+    if (!resumeInfo || runState === 'running') return
+    setRunPanelOpen(true)
+  }, [resumeInfo, runState])
+
+  /** 应答提交（P2）：同 runId 原地续跑，回到 running 继续旁观。 */
+  const submitAnswer = useCallback(async (): Promise<void> => {
+    if (!activeRunId || !answerText.trim() || answerBusy) return
+    setAnswerBusy(true)
+    try {
+      const res = await fetch(`/api/workflows/runs/${encodeURIComponent(activeRunId)}/answer`, {
+        method: 'POST',
+        headers: { 'content-type': 'application/json' },
+        body: JSON.stringify({ answer: answerText.trim() }),
+      })
+      const json = (await res.json()) as { success?: boolean; error?: string }
+      if (!res.ok || !json.success) {
+        toast.error(json.error ?? t('提交答案失败'), 6000)
+        return
+      }
+      setAnswerText('')
+      setAwaitingInfo(null)
+      setRunState('running')
+      manualWatchRef.current = true
+      setWatch({ runId: activeRunId, startedAt: Date.now() })
+    } catch (err) {
+      toast.error(err instanceof Error ? err.message : String(err), 6000)
+    } finally {
+      setAnswerBusy(false)
+    }
+  }, [activeRunId, answerText, answerBusy, toast, t])
 
   /** stdin 行结束态的「重跑」入口（就近原则）：打开运行输入面板 ——
    *  输入已在面板初始化时从记忆预填（persistRunInput），⬆ 语义。 */
@@ -785,7 +882,7 @@ export function CanvasKitPage({
             <button
               className='canvas-run-btn'
               onClick={() => setRunPanelOpen((v) => !v)}
-              disabled={runState === 'running'}
+              disabled={runState === 'running' || runState === 'awaiting'}
               title={t('在画布上运行此工作流，节点将实时显示执行进度')}
             >
               {runState === 'running' ? <span className='canvas-run-spin' aria-hidden='true' /> : null}
@@ -914,9 +1011,60 @@ export function CanvasKitPage({
               摘要 = 策展卡片（默认）；终端 = 保真回放（单流分段，全文直出）。 */}
           {resultsOpen && latestSpans.length > 0 ? (
             <div className='canvas-results-panel' role='region' aria-label={t('运行结果')}>
+              {/* 持久挂起应答（P2 §6.6）：prompt + 输入/选择 + 提交 →
+                  同 runId 原地续跑（聊天里直接回复也可）。 */}
+              {runState === 'awaiting' && awaitingInfo ? (
+                <div className='canvas-awaiting-bar'>
+                  <span className='canvas-awaiting-prompt'>{awaitingInfo.prompt}</span>
+                  {awaitingInfo.options.length > 0 ? (
+                    <select
+                      className='input canvas-awaiting-input'
+                      value={answerText}
+                      onChange={(e) => setAnswerText(e.target.value)}
+                      aria-label={awaitingInfo.prompt}
+                    >
+                      <option value=''>{t('（待选择）')}</option>
+                      {awaitingInfo.options.map((o) => (
+                        <option key={o} value={o}>{o}</option>
+                      ))}
+                    </select>
+                  ) : (
+                    <input
+                      className='input canvas-awaiting-input'
+                      type='text'
+                      value={answerText}
+                      placeholder={t('输入答案后继续')}
+                      onChange={(e) => setAnswerText(e.target.value)}
+                      onKeyDown={(e) => {
+                        if (e.key === 'Enter') void submitAnswer()
+                      }}
+                    />
+                  )}
+                  <button
+                    type='button'
+                    className='btn btn-primary btn-compact'
+                    onClick={() => void submitAnswer()}
+                    disabled={answerBusy || !answerText.trim()}
+                  >
+                    {t('继续运行')}
+                  </button>
+                </div>
+              ) : null}
               <div className='canvas-run-panel-title'>
                 <span className='canvas-results-title-row'>
                   {t('运行结果')}
+                  {/* 断点续跑（2026-09-18 §6.6）：失败 + checkpoint resumable →
+                      从此处继续（提交走 resume 端点，种子跳过已完成节点）。 */}
+                  {runState === 'failed' && resumeInfo ? (
+                    <button
+                      type='button'
+                      className='canvas-results-rerun canvas-results-resume'
+                      onClick={handleResume}
+                      title={t('跳过 {n} 个已完成节点，从失败处继续', { n: String(resumeInfo.completedCount) })}
+                    >
+                      {t('从此处继续')}（{t('跳过 {n} 个节点', { n: String(resumeInfo.completedCount) })}）
+                    </button>
+                  ) : null}
                   {/* 终态「重跑」直达（2026-09-18 PM）：失败现场就近挽回 ——
                       与终端 stdin 行同款 handleRerun（打开输入面板，⬆ 预填）。 */}
                   {runState === 'failed' || runState === 'done' || runState === 'idle' ? (
@@ -1161,7 +1309,7 @@ export function CanvasKitPage({
         </div>
       )
     },
-    [flowName, saveState, readOnly, runState, runSummary, handleRun, t, runPanelOpen, runInput, resultsOpen, latestSpans, saveTplOpen, handleRerun, handleAddDirectory, firstRunBar, templateParamNames, topoOrder, initialFlow, resultView, switchResultView, ioOpen],
+    [flowName, saveState, readOnly, runState, runSummary, handleRun, t, runPanelOpen, runInput, resultsOpen, latestSpans, saveTplOpen, handleRerun, handleResume, submitAnswer, resumeInfo, awaitingInfo, answerText, answerBusy, handleAddDirectory, firstRunBar, templateParamNames, topoOrder, initialFlow, resultView, switchResultView, ioOpen],
   )
 
   return (

@@ -11,6 +11,7 @@ import { persistCancelled } from './internal-runs-helpers.js'
 import { sendToRunNode } from './workflow-clients.js'
 import { assembleWorkflowEngine, toRunStatus } from './workflow-engine-service.js'
 import { createChatHumanInputResolver, resolvePendingHumanInput } from './human-input.js'
+import { answerAwaitingRunForChat } from './resume-execution.js'
 import {
   listChats,
   searchChats,
@@ -371,9 +372,18 @@ chatRoutes.post('/:id/messages', async (c) => {
     return ok(c, { message: normalizeMsg(msgRow) })
   }
 
-  // A pending HumanInput node consumes the user's message as its answer —
-  // the parked flow continues on its still-open SSE stream instead of this
-  // message starting a new run.
+  // A pending HumanInput consumes the user's message as its answer.
+  // 2026-09-18 P2：优先走持久挂起（DB checkpoint awaiting —— 跨重启存活，
+  // resume 语义续跑，进度经 span writer/WS 可旁观）；进程内 Promise 机制
+  // 保留为旧路径兜底（同进程内的老式挂起仍在时先消费）。
+  const resumed = await answerAwaitingRunForChat(id, data.content)
+  if (resumed) {
+    return ok(c, {
+      message: normalizeMsg(msgRow),
+      mode: 'json',
+      payload: { type: 'human_input_ack', content: data.content, runId: resumed },
+    })
+  }
   if (resolvePendingHumanInput(id, data.content)) {
     return ok(c, {
       message: normalizeMsg(msgRow),

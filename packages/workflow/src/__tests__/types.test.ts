@@ -42,7 +42,7 @@ describe('type contracts', () => {
   })
 
   it('ExecutionStatus is the union', () => {
-    expectTypeOf<ExecutionStatus>().toEqualTypeOf<'idle' | 'running' | 'success' | 'failed' | 'cancelled'>()
+    expectTypeOf<ExecutionStatus>().toEqualTypeOf<'idle' | 'running' | 'success' | 'failed' | 'cancelled' | 'awaiting'>()
   })
 
   it('IServerSideEventStreamer has streamTokenEvent and streamEndEvent', () => {

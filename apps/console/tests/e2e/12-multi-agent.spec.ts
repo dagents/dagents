@@ -410,14 +410,25 @@ test.describe('多 Agent 协作专项（MA-01 ~ MA-18）', () => {
     expect(postCall.messages.some((m) => m.role === 'user' && String(m.content).includes('采用方案一'))).toBe(true)
     expect(ok.body.data?.output).toMatchObject({ content: 'POST-EXECUTED' })
 
-    // 缺答案 → 明确报错并指向 chat 路径，不挂死
+    // 缺答案 → 持久挂起（2026-09-18 断点续跑 P2 契约修订）：不再 500 报错 ——
+    // run 收敛 awaiting_input（非终态），挂起载荷带 prompt；应答端点/聊天
+    // 回复可续跑。旧「明确报错指向 chat 路径」契约由挂起提示取代。
     const missing = await runFlow(request, flowId, { input: '再来一次' })
     ctx.runIds.push(missing.runId)
-    expect(missing.status).toBe(500)
-    expect(String(missing.body.error)).toContain('HumanInput node has no pre-supplied answer')
-    expect(String(missing.body.error)).toContain('chat')
-    const spans = await getSpans(request, missing.runId)
-    expect(spans.find((s) => s.nodeId === 'confirm')?.status).toBe('failed')
+    expect(missing.status).toBe(200)
+    expect(missing.body.data?.status).toBe('awaiting_input')
+    expect(String(missing.body.data?.awaiting?.prompt)).toBe('确认方案')
+    // 补答 → 同 runId 原地续跑到完成（post 节点收到人类答案）
+    const answer = await request.post(`/api/workflows/runs/${missing.runId}/answer`, {
+      data: { answer: '改用方案二' },
+    })
+    expect(answer.status()).toBe(200)
+    await expect
+      .poll(async () => {
+        const spans = await getSpans(request, missing.runId)
+        return spans.some((s) => s.nodeId === 'post' && s.status === 'done')
+      }, { timeout: 20_000 })
+      .toBe(true)
   })
 
   test('MA-10: 多 Agent 中一个失败 —— 同波次失败语义', async ({ request }) => {

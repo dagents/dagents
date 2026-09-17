@@ -11,6 +11,7 @@ import { flowTemplateRoutes } from './routes/flow-templates.js'
 import { flowGeneratorRoutes } from './routes/flow-generator.js'
 import { chatCancelRoutes, runCancelRoutes } from './routes/execution-cancel.js'
 import { runMessageRoutes } from './routes/execution-message.js'
+import { runResumeRoutes } from './routes/execution-resume.js'
 import { llmProviderRoutes } from './routes/llm-providers.js'
 import { workflowsRoutes } from './routes/workflows.js'
 import { runsRoutes } from './routes/runs.js'
@@ -211,6 +212,8 @@ app.route('/api/v1/flow-generator', flowGeneratorRoutes)
 app.route('/api/v1/chats', chatCancelRoutes)
 app.route('/api/v1/workflows', runCancelRoutes)
 app.route('/api/v1/workflows', runMessageRoutes)
+// 断点续跑（§6.5）：GET checkpoint / POST resume / POST answer
+app.route('/api/v1/workflows', runResumeRoutes)
 
 /**
  * LLM Provider CRUD API: llm provider list + detail + create + update + delete + test.

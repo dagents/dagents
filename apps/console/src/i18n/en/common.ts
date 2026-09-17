@@ -213,4 +213,11 @@ export const common = {
   '不再提示': "Don't show again",
   '重跑': 'Rerun',
   '用相同输入重跑（可修改后提交）': 'Rerun with the same input (editable before submit)',
+  '从此处继续': 'Continue from here',
+  '跳过 {n} 个节点': 'skip {n} nodes',
+  '跳过 {n} 个已完成节点，从失败处继续': 'Skip {n} completed nodes and continue from the failure point',
+  '已从断点继续 —— 跳过 {n} 个已完成节点': 'Resumed from checkpoint — skipped {n} completed nodes',
+  '输入答案后继续': 'Type an answer to continue',
+  '继续运行': 'Continue run',
+  '提交答案失败': 'Failed to submit answer',
 } as const

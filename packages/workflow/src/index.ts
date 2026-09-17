@@ -21,6 +21,9 @@ export { CANVAS_NODES, getNodeMeta, getNodesByCategory, NODE_CATEGORIES } from '
 export { NodeRegistry } from './engine/node-registry.js'
 export { RuntimeState } from './engine/runtime.js'
 export { DagExecutor } from './engine/executor.js'
+export type { ExecutionResult } from './engine/executor.js'
+export type { ResumeOptions, IterationProgress, RunCheckpointSnapshot } from './engine/executor.js'
+export { HumanInputPendingError } from './engine/errors.js'
 export { SseStreamer } from './engine/sse-streamer.js'
 
 // Utils (Task 3+ — uncomment when modules landed)

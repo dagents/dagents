@@ -4,10 +4,11 @@ import { z } from 'zod'
 import type { NodeSpanStatus } from '@dagents/db'
 import { createLogger } from '@dagents/shared'
 import { exportRunTraceToLangfuse, isLangfuseConfigured } from '@dagents/shared/langfuse'
-import { CANVAS_NODES, type FlowData, type IExecutedNode } from '@dagents/workflow'
+import { CANVAS_NODES, type FlowData, type IExecutedNode, type ExecutionResult } from '@dagents/workflow'
 import { sendToRunNode, runHasLiveSinks } from './workflow-clients.js'
 import { assembleWorkflowEngine, toRunStatus } from './workflow-engine-service.js'
-import { createStaticHumanInputResolver } from './human-input.js'
+import { makePersistentHumanInputResolver, makeCheckpointHook, computeTopoHash } from './resume-execution.js'
+import { getCheckpoint, upsertCheckpoint, updateCheckpointStatus } from '../repositories/run-checkpoints.repo.js'
 import { recordAudit } from '../audit.js'
 import { executionRegistry, type ExecutionHandle } from '../execution-registry.js'
 import { aggregateExecutedNodesUsage, recordUsageEvent } from '../usage-events.js'
@@ -394,11 +395,16 @@ workflowsRoutes.post('/:id/run', async (c) => {
     typeof humanInputsRaw === 'object' && humanInputsRaw !== null && !Array.isArray(humanInputsRaw)
       ? (humanInputsRaw as Record<string, string>)
       : {}
-  const humanInputResolver = createStaticHumanInputResolver(humanInputs)
+  // 持久 HumanInput（P2）：预供答案命中即答；无则挂起（awaiting）而非失败
+  const humanInputResolver = makePersistentHumanInputResolver(humanInputs)
+  // 断点续跑：波次/迭代粒度快照（失败后可从断点续跑）
+  const checkpointHook = makeCheckpointHook({ checkpointRunId: runId, flowId: id, flowData })
 
   // 闭包（runAndPersist）内赋值、闭包外（同步响应）读取：
   // `!` 明确赋值断言 + runStatus 用 string（TS 无法跨闭包收窄）
-  let result!: { status: string; finalOutput: unknown; executedNodes: IExecutedNode[]; state: Record<string, unknown>; error?: string }
+  type RunResultAwaiting = { nodeId: string; prompt: string; inputType: string; options: unknown[] }
+  type RunResultShape = Omit<ExecutionResult, 'awaiting'> & { awaiting?: RunResultAwaiting }
+  let result!: RunResultShape
   let finishedAt = new Date()
   let durationMs = 0
   let runStatus: string = 'running'
@@ -436,6 +442,7 @@ workflowsRoutes.post('/:id/run', async (c) => {
       startInput,
       signal: abort.signal,
       humanInputResolver,
+      onCheckpoint: checkpointHook,
     })
   } catch (err) {
     log.error('workflow execution failed', { id, error: String(err) })
@@ -445,9 +452,28 @@ workflowsRoutes.post('/:id/run', async (c) => {
     resolveDone()
     executionRegistry.unregister(execHandle)
   }
+  // 持久挂起（P2 §6.3）：不判失败 —— checkpoint awaiting + runs awaiting_input
+  if (result.status === 'awaiting' && result.awaiting) {
+    // 经钩子串行链写 awaiting —— 直连 upsert 会被在途波次快照后发覆盖
+    const deadlineAt = new Date(Date.now() + Number(process.env.HUMAN_INPUT_TIMEOUT_MS ?? 300_000)).toISOString()
+    checkpointHook.suspend({ ...result.awaiting, deadlineAt })
+    runStatus = 'awaiting_input'
+  }
+
+  // 终态 checkpoint 收敛（经钩子串行链：快照 failedAt 与 status 合并一次写，
+  // 杜绝迟到波次快照覆盖终态字段的竞态）
+  if (result.status !== 'awaiting') {
+    checkpointHook.terminalize(
+      result.status === 'success' ? 'terminal' : 'resumable',
+      result.status !== 'success' && result.error
+        ? { nodeId: (result.executedNodes.find((n) => n.status === 'failed')?.nodeId) ?? '', error: result.error }
+        : undefined,
+    )
+  }
+
   finishedAt = new Date()
   durationMs = Math.round(finishedAt.getTime() - startedAt.getTime())
-  runStatus = toRunStatus(result.status)
+  runStatus = result.status === 'awaiting' ? 'awaiting_input' : toRunStatus(result.status)
 
   // AD-3（方案 D b 路径）：run 级用量聚合 —— sum 各节点 tokens，cost 只在
   // 所有 token 节点都有价格时成立（引擎目前 cost 恒 null → priced=false，
@@ -471,6 +497,7 @@ workflowsRoutes.post('/:id/run', async (c) => {
       finishedAt,
       durationMs,
       cost: usageRollup.cost ?? 0,
+      chatId: chatId || null,
     })
   } catch (err) {
     log.warn('persist runs row failed, spans still written below', { id, runId, error: String(err) })
@@ -584,6 +611,14 @@ workflowsRoutes.post('/:id/run', async (c) => {
 
   c.header('x-run-id', runId)
 
+  if (runStatus === 'awaiting_input' && result.awaiting) {
+    // 持久挂起（P2）：非失败 —— 返回挂起载荷（应答端点/聊天回复续跑）
+    return ok(c, {
+      status: 'awaiting_input',
+      awaiting: result.awaiting,
+      executedNodes: result.executedNodes,
+    })
+  }
   if (runStatus === 'completed') {
     return ok(c, {
       output: result.finalOutput,
