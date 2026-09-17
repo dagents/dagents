@@ -7,8 +7,9 @@
 | 文档 | 读者 | 内容 |
 |---|---|---|
 | [`README.md`](../README.md) | 所有人 | 项目简介、安全须知（对外暴露必读）、架构、快速启动 |
-| [`AGENTS.md`](../AGENTS.md) | AI agent / 开发者 | 一键重启脚本、常用命令、端口表、架构要点、已知问题、审计摘要 |
-| [`CLAUDE.md`](../CLAUDE.md) | Claude Code | 架构分层、关键契约（contracts / daemon / adapters）、命令、提交与测试约定 |
+| [`AGENTS.md`](../AGENTS.md) | AI agent / 开发者 | 一键重启脚本、常用命令、端口表、架构总览、已知问题、配置 |
+| [`CHANGELOG.md`](../CHANGELOG.md) | 所有人 | 发布日志（Keep a Changelog）+ 开发流水账（带日期的功能/修复记录，时间倒序） |
+| [`CLAUDE.md`](../CLAUDE.md) | Claude Code | 薄指针：跳转 AGENTS.md（操作）/ ARCHITECTURE.md（架构）/ docs/README.md（地图） |
 
 ## 主题文档（docs/ 顶层，随代码同步维护）
 
@@ -28,10 +29,10 @@
 
 ## 流程文档（docs/superpowers/）
 
-- [`superpowers/specs/`](superpowers/specs/) — 活跃 spec。其中 **`2026-07-25-system-architecture-redesign.md` 是架构真相源**，顶部「实现状态总览」表反映当前进度。
+- [`superpowers/specs/`](superpowers/specs/) — 活跃 spec。**架构现状真相源是 [`ARCHITECTURE.md`](ARCHITECTURE.md)**（2026-09-12 起）；这些 spec 是各专题的决策快照，`2026-07-25-system-architecture-redesign.md` 顶部「实现状态总览」表反映历史进度。
 - [`superpowers/plans/`](superpowers/plans/) — 活跃 plan（TDD 任务清单）。
 
-新功能走 brainstorm → spec → plan → issue → execute 四阶段流水线，见 `CLAUDE.md`。
+新功能走 brainstorm → spec → plan → issue → execute 四阶段流水线，见 `.claude/skills/dagents-patterns/`。
 
 ## 归档（docs/archive/，只读快照）
 

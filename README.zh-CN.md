@@ -115,7 +115,6 @@ gateway 会打印警告。完整说明与 SSO 方案见文档。
 我们宁可先说清楚：
 
 - **JS 节点非沙箱** —— `CustomFunction` / 工具 / 循环条件走 `new Function`。flow 的信任对象是机器所有者；不要把 flow 编排开放给不受信任的用户。
-- **远程 daemon 任务暂不可取消** —— 内联聊天/工作流执行已具备超时与显式取消（`POST /chats/:id/cancel`）；dispatch/daemon 远程任务的取消通道延后（见取消 spec §7）。
 - **CLI agent 不设墙钟上限，只有静默看门狗** —— Agent 自主长跑是常态（曾以 180s 硬墙把 4 路并行真实运行截成假成功，已移除）；`WORKFLOW_CLI_INACTIVITY_TIMEOUT_MS`（默认 5 分钟，逐行输出重置）静默超时才判失败，usage 随错误如实记录。
 - **普通 `LLM` 节点是单次调用** —— 需要工具循环请用 `PlatformAgent` 节点。
 - **Retriever 是关键词检索**（chat 历史 ILIKE），不是向量 RAG —— 节点契约已为向量后端替换预留。

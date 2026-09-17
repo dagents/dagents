@@ -9,7 +9,10 @@
     "dev:daemon": "tsx packages/daemon/src/cli.ts http://localhost:8080 dev-laptop claude",
     "dev:all": "scripts/dev.sh --with-daemon",
     "test": "node scripts/guard-build.mjs && turbo run test",
-    "lint": "turbo run lint --filter='!@dagents/agentflow'",
+    "lint": "turbo run lint",
+    "clean": "bash scripts/clean.sh",
+    "format": "prettier --write .",
+    "format:check": "prettier --check .",
     "typecheck": "node scripts/guard-build.mjs && turbo run typecheck"
   },
   "devDependencies": {
@@ -17,6 +20,7 @@
     "@typescript-eslint/parser": "^8.65.0",
     "@typescript-eslint/eslint-plugin": "^8.65.0",
     "eslint-plugin-react-hooks": "^5.2.0",
+    "prettier": "^3.3.3",
     "turbo": "^2.0.0",
     "typescript": "^5.5.0"
   },

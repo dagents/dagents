@@ -15,13 +15,9 @@
 #   - Playwright e2e: boots the full gateway+daemon stack against a fake LLM and
 #     needs the wider dev environment; lives in e2e.yml instead.
 #
-# lint runs across every workspace except @dagents/agentflow (the vendored
-# Flowise canvas ships its own ESLint config, which isn't ours to maintain).
-# Only errors fail the job — `no-unused-vars` and `react-hooks/exhaustive-deps`
-# are warnings by design (see .eslintrc.cjs).
-#
-# .npmrc sets ignore-scripts=true, so vendored agentflow's husky postinstall is
-# skipped — install is safe under --frozen-lockfile.
+# lint runs across every workspace. Only errors fail the job —
+# `no-unused-vars` and `react-hooks/exhaustive-deps` are warnings by design
+# (see .eslintrc.cjs).
 
 name: CI
 
@@ -59,7 +55,6 @@ jobs:
             src:
               - 'apps/**'
               - 'packages/**'
-              - 'vendor/**'
               - 'Dockerfile'
               - 'docker-entrypoint.sh'
               - '.dockerignore'
@@ -120,7 +115,7 @@ jobs:
         run: pnpm typecheck
 
       - name: Lint
-        run: pnpm exec turbo run lint --filter='!@dagents/agentflow'
+        run: pnpm exec turbo run lint
 
       - name: Apply DB migrations
         run: pnpm --filter @dagents/db migration:run

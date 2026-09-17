@@ -1,0 +1,26 @@
+# 构建产物 / 依赖
+node_modules/
+dist/
+.next/
+.next-build/
+.turbo/
+coverage/
+apps/console/test-results/
+test-results/
+gui-test-screenshots/
+
+# 锁文件（机器生成，格式不属于本仓风格）
+pnpm-lock.yaml
+flowsync/package-lock.json
+
+# 活工具状态目录
+.codegraph/
+.superpowers/
+.gstack/
+backups/
+
+# flowsync —— 另一产品的独立 npm 工程（迁移去留待裁决，不参与本仓格式化）
+flowsync/
+
+# e2e 截图/trace 等生成产物
+apps/console/tests/e2e/screenshots/

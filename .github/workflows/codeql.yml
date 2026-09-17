@@ -1,7 +1,6 @@
 # CodeQL — static security analysis for the TypeScript codebase.
 #
-# Scope is limited to apps/ + packages/ (see .github/codeql/codeql-config.yml):
-# vendor/agentflow is vendored upstream code we don't analyze or maintain.
+# Scope is limited to apps/ + packages/ (see .github/codeql/codeql-config.yml).
 
 name: CodeQL
 

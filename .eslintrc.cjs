@@ -45,7 +45,6 @@ module.exports = {
     'node_modules/',
     '.next/',
     'coverage/',
-    'vendor/',
     'next-env.d.ts',
     '*.config.js',
     '*.config.ts',
