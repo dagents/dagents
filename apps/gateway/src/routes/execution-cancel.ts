@@ -10,11 +10,10 @@
  * chat/run 取消时级联取消名下非终态 dispatch 任务（queued/claimed 直接落
  * 终态，running 打 cancel_requested 由 daemon 轮询 abort）。
  */
-import { Hono, type Context } from 'hono'
-import type { ContentfulStatusCode } from 'hono/utils/http-status'
-import { runQuery } from '@dagents/db'
+import { Hono } from 'hono'
 import { executionRegistry } from '../execution-registry.js'
 import { cancelDispatchTask } from './dispatch/service.js'
+import { listActiveRunIdsForChat, listDispatchTaskIdsForRunCascade } from '../repositories/runs.repo.js'
 import { ok, fail } from '../lib/http.js'
 import { UUID_RE } from '../lib/http.js'
 
@@ -68,12 +67,9 @@ runCancelRoutes.post('/runs/:runId/cancel', async (c) => {
  *  现在落真实 runs 行，2026-09-06）。 */
 async function cascadeChatDispatchTasks(chatId: string): Promise<string[]> {
   try {
-    const { records } = await runQuery<{ id: string }>(
-      `SELECT id FROM runs WHERE chat_id = $1::uuid AND status IN ('running', 'pending')`,
-      [chatId],
-    )
+    const runIds = await listActiveRunIdsForChat(chatId)
     const out: string[] = []
-    for (const r of records) out.push(...(await cascadeRunDispatchTasks(r.id)))
+    for (const runId of runIds) out.push(...(await cascadeRunDispatchTasks(runId)))
     return out
   } catch {
     return []
@@ -83,14 +79,11 @@ async function cascadeChatDispatchTasks(chatId: string): Promise<string[]> {
 /** run 取消的 dispatch 级联（幂等，失败不阻断取消主流程）。 */
 async function cascadeRunDispatchTasks(runId: string): Promise<string[]> {
   try {
-    const { records } = await runQuery<{ id: string }>(
-      `SELECT id FROM dispatch_tasks WHERE run_id = $1 AND status NOT IN ('completed', 'failed')`,
-      [runId],
-    )
+    const taskIds = await listDispatchTaskIdsForRunCascade(runId)
     const out: string[] = []
-    for (const r of records) {
-      const res = await cancelDispatchTask(r.id)
-      if (res.outcome !== 'missing') out.push(r.id)
+    for (const taskId of taskIds) {
+      const res = await cancelDispatchTask(taskId)
+      if (res.outcome !== 'missing') out.push(taskId)
     }
     return out
   } catch {

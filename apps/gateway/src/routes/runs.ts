@@ -6,10 +6,9 @@
  * run_node_spans 聚合（首个 failed 节点的 error 截断 160 字）。chat_id
  * 非空 → 触发源 chat，否则 canvas/API。
  */
-import { Hono, type Context } from 'hono'
-import type { ContentfulStatusCode } from 'hono/utils/http-status'
-import { runQuery } from '@dagents/db'
+import { Hono } from 'hono'
 import { createLogger } from '@dagents/shared'
+import { listRunsHistory, summarizeRunsByFlow, type RunHistoryRow } from '../repositories/runs.repo.js'
 import { ok, fail, UUID_RE } from '../lib/http.js'
 
 const log = createLogger({ svc: 'gateway:runs' })
@@ -47,55 +46,18 @@ function extractInputFull(input: unknown): string | null {
   return typeof s === 'string' && s.length > 0 ? s.slice(0, 8_000) : null
 }
 
-interface RunListRow {
-  id: string
-  flow_id: string | null
-  flow_name: string | null
-  status: string
-  started_at: Date | null
-  finished_at: Date | null
-  duration_ms: number | null
-  input: unknown
-  chat_id: string | null
-  created_at: Date
-  first_error: string | null
-}
-
 runsRoutes.get('/', async (c) => {
   const limitRaw = Number(c.req.query('limit') ?? 50)
   const limit = Number.isFinite(limitRaw) ? Math.min(Math.max(1, Math.floor(limitRaw)), 200) : 50
   const status = c.req.query('status')
   const flowId = c.req.query('flowId')
 
-  const where: string[] = []
-  const params: unknown[] = []
-  if (status && ['completed', 'failed', 'cancelled', 'running'].includes(status)) {
-    params.push(status)
-    where.push(`r.status = $${params.length}`)
-  }
-  if (flowId && UUID_RE.test(flowId)) {
-    params.push(flowId)
-    where.push(`r.pipeline_id = $${params.length}`)
-  }
-  const whereSql = where.length > 0 ? `WHERE ${where.join(' AND ')}` : ''
-
   try {
-    params.push(limit)
-    const limitIdx = params.length
-    const { records } = await runQuery<RunListRow>(
-      `SELECT r.id, r.pipeline_id AS flow_id, f.name AS flow_name,
-              r.status, r.started_at, r.finished_at, r.duration_ms,
-              r.input, r.chat_id, r.created_at,
-              (SELECT left(s.error, 160) FROM run_node_spans s
-                WHERE s.run_id = r.id AND s.status = 'failed' AND s.error IS NOT NULL
-                ORDER BY s.started_at ASC LIMIT 1) AS first_error
-         FROM runs r
-         LEFT JOIN flows f ON f.id::text = r.pipeline_id
-         ${whereSql}
-        ORDER BY r.created_at DESC
-        LIMIT $${limitIdx}`,
-      params,
-    )
+    const records: RunHistoryRow[] = await listRunsHistory({
+      status: status && ['completed', 'failed', 'cancelled', 'running'].includes(status) ? status : undefined,
+      flowId: flowId && UUID_RE.test(flowId) ? flowId : undefined,
+      limit,
+    })
 
     return ok(
       c,
@@ -143,28 +105,7 @@ runsRoutes.post('/summary', async (c) => {
   if (flowIds.length === 0) return ok(c, { summaries: [] })
 
   try {
-    const { records } = await runQuery<{
-      flow_id: string
-      latest_status: string | null
-      latest_run_id: string | null
-      latest_at: Date | null
-      run_count: string | number
-    }>(
-      `SELECT r.pipeline_id AS flow_id,
-              latest.status AS latest_status,
-              latest.id AS latest_run_id,
-              latest.created_at AS latest_at,
-              COUNT(r.id)::text AS run_count
-         FROM runs r
-         LEFT JOIN LATERAL (
-           SELECT id, status, created_at FROM runs s
-            WHERE s.pipeline_id = r.pipeline_id
-            ORDER BY s.created_at DESC LIMIT 1
-         ) latest ON true
-        WHERE r.pipeline_id = ANY($1::text[])
-        GROUP BY r.pipeline_id, latest.id, latest.status, latest.created_at`,
-      [flowIds],
-    )
+    const records = await summarizeRunsByFlow(flowIds)
     const byFlow = new Map(
       records.map((r) => [
         r.flow_id,

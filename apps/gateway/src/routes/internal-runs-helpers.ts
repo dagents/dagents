@@ -3,6 +3,7 @@ import { runQuery, withTransaction } from '@dagents/db'
 import { createLogger } from '@dagents/shared'
 import { wsHub } from '../ws-hub.js'
 import { recordUsageEvent } from '../usage-events.js'
+import { exportRunTraceToLangfuse } from '@dagents/shared/langfuse'
 import type { TokenUsage } from '@dagents/contracts'
 
 const log = createLogger({ svc: 'gateway:internal-runs-helpers' })
@@ -96,6 +97,41 @@ export async function persistComplete(params: CompleteParams): Promise<string> {
       cost: params.cost,
     })
   }
+
+  // Langfuse trace（2026-09-17 扩面）：inline chat / @flow / 回调路径的
+  // 终态也上 trace —— 此前只有画布 workflow run 可观测，产品主路径的
+  // 聊天执行全程无 trace。单节点形态（非 DAG），nodes 用一条 output 记录。
+  // 未配置三件套时 isLangfuseConfigured 为 false，导出函数自身 no-op。
+  void exportRunTraceToLangfuse({
+    runId: params.runId,
+    flowId: params.runId, // chat 执行没有 flow —— runId 兼任分组键
+    flowName: `chat:${params.chatId.slice(0, 8)}`,
+    chatId: params.chatId,
+    status: params.status,
+    startedAt: new Date(Date.now() - (params.durationMs ?? 0)).toISOString(),
+    finishedAt: new Date().toISOString(),
+    output: params.output,
+    nodes: [
+      {
+        nodeId: 'chat',
+        nodeName: params.model ? `chat:${params.model}` : 'chat',
+        status: params.status,
+        startedAt: new Date(Date.now() - (params.durationMs ?? 0)).toISOString(),
+        endedAt: new Date().toISOString(),
+        output: { content: params.output },
+        tokens: params.usage
+          ? {
+              prompt_tokens: params.usage.inputTokens,
+              completion_tokens: params.usage.outputTokens,
+            }
+          : null,
+        error: params.status === 'failed' ? params.output : undefined,
+      },
+    ],
+  }).catch((err) => {
+    log.warn('chat trace export failed', { runId: params.runId, error: String(err) })
+  })
+
   return messageId
 }
 

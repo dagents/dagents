@@ -22,6 +22,7 @@ import { dispatchRoutes } from './routes/dispatch/index.js'
 import { runQuery } from '@dagents/db'
 import { createLogger } from '@dagents/shared'
 import { requireAuth, verifyApiKey, bearerFromRequest, originAllowed } from './auth.js'
+import { reportErrorToSink } from './lib/error-sink.js'
 
 // `app` is exported separately from the `serve()` entry so tests can drive it
 // via `app.request()` without binding a port. `index.ts` is the only place
@@ -273,5 +274,7 @@ app.notFound((c) => c.json({ success: false, error: 'not found' }, 404))
 app.onError((err, c) => {
   const log = createLogger({ svc: 'gateway:error' })
   log.error('unhandled error', { error: err.message, stack: err.stack })
+  // 可选聚合出口（DAGENTS_ERROR_WEBHOOK 未配置时为显式 no-op）
+  reportErrorToSink(err, 'gateway')
   return c.json({ success: false, error: 'internal server error' }, 500)
 })

@@ -1,7 +1,6 @@
 import { Hono } from 'hono'
 import { daemonsRoutes } from './daemons.js'
 import { tasksRoutes } from './tasks.js'
-import { agentsRoutes } from './agents.js'
 import { invokeRoutes } from './invoke.js'
 import { runsUsageRoutes } from './runs-usage-route.js'
 import { fleetStatsRoutes } from './fleet-stats-route.js'
@@ -14,7 +13,7 @@ export { ok, fail } from '../../lib/http.js'
  * Dispatch protocol routes (spec §1.5), merged into gateway (Plan A, 2026-08-01).
  *
  * Originally a separate `apps/dispatch/` Hono app on :8081; now mounted under
- * `/api/v1/dispatch` on the gateway. The 20 routes + 2 service modules
+ * `/api/v1/dispatch` on the gateway. The remaining routes + 2 service modules
  * (runs-usage.ts, fleet-stats.ts) are co-located here. daemon clients dial the
  * gateway port (:8080) instead of a separate dispatch port.
  *
@@ -30,7 +29,6 @@ export const dispatchRoutes = new Hono()
 
 dispatchRoutes.route('/', daemonsRoutes)
 dispatchRoutes.route('/', tasksRoutes)
-dispatchRoutes.route('/', agentsRoutes)
 dispatchRoutes.route('/', invokeRoutes)
 dispatchRoutes.route('/', runsUsageRoutes)
 dispatchRoutes.route('/', fleetStatsRoutes)

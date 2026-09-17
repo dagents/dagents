@@ -11,10 +11,8 @@
  * 额外写入 `library_meta` 溯源（source sha + instructions sha + profile），
  * drift 判定的全部输入都在这一列里。
  */
-import { Hono, type Context } from 'hono'
-import type { ContentfulStatusCode } from 'hono/utils/http-status'
+import { Hono } from 'hono'
 import { z } from 'zod'
-import { runQuery } from '@dagents/db'
 import { createLogger } from '@dagents/shared'
 import { agentLibraryRegistry } from '../agent-library-registry.js'
 import { managedAgentLibraryDirs } from '../managed-agent-library-dirs.js'
@@ -23,6 +21,7 @@ import {
   insertLibraryAgent,
   type LibraryAgentRow,
 } from '../agent-library-instantiate.js'
+import { listLibraryAgentRows, updateAgentReimport } from '../repositories/agents.repo.js'
 import { INLINE_SUPPORTED_KINDS } from '../inline-executor.js'
 import {
   PERSONA_PROFILES,
@@ -72,29 +71,28 @@ agentLibraryRoutes.get('/', (c) => {
 
 /** GET /drift — 已启用人格的同步状态三态（+diverged/missing-upstream）清单。 */
 agentLibraryRoutes.get('/drift', async (c) => {
-  let rows: LibraryAgentRow[]
+  let rows: Awaited<ReturnType<typeof listLibraryAgentRows>>
   try {
-    const { records } = await runQuery<LibraryAgentRow>(
-      `SELECT id, name, instructions, library_meta FROM agents
-        WHERE library_meta IS NOT NULL AND library_meta->>'id' IS NOT NULL
-        ORDER BY name`,
-    )
-    rows = records
+    rows = await listLibraryAgentRows()
   } catch (err) {
     log.error('drift query failed', { error: String(err) })
     return fail(c, 502, 'drift query failed')
   }
   const items = rows.map((row) => {
-    const libraryId = String(row.library_meta?.id ?? '')
+    const meta = (row.library_meta ?? {}) as LibraryAgentRow['library_meta']
+    const libraryId = String(meta?.id ?? '')
     const entry = libraryId ? agentLibraryRegistry.get(libraryId) : undefined
     return {
       agentId: row.id,
       libraryId,
       name: row.name,
-      division: typeof row.library_meta?.division === 'string' ? row.library_meta.division : null,
-      state: driftForRow(row, entry?.rawSha256 ?? null),
+      division: typeof meta?.division === 'string' ? meta.division : null,
+      state: driftForRow(
+        { id: row.id, name: row.name, instructions: row.instructions, library_meta: meta },
+        entry?.rawSha256 ?? null,
+      ),
       currentProfile:
-        typeof row.library_meta?.profile === 'string' ? (row.library_meta.profile as PersonaProfile) : null,
+        typeof meta?.profile === 'string' ? (meta.profile as PersonaProfile) : null,
     }
   })
   return ok(c, { items })
@@ -255,12 +253,11 @@ agentLibraryRoutes.post('/:division/:slug/reimport', async (c) => {
   }
 
   try {
-    await runQuery(
-      `UPDATE agents
-          SET instructions = $1, summary = $2, library_meta = $3::jsonb, updated_at = NOW()
-        WHERE id = $4::uuid`,
-      [instructions, entry.description, JSON.stringify(libraryMeta), row.id],
-    )
+    await updateAgentReimport(row.id, {
+      instructions,
+      summary: entry.description,
+      libraryMetaJson: JSON.stringify(libraryMeta),
+    })
   } catch (err) {
     log.error('agent library reimport failed', { id, agentId: row.id, error: String(err) })
     return fail(c, 422, 'reimport failed', { detail: String(err) })

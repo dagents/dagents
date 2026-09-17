@@ -17,9 +17,13 @@
  * fails the node with a clear error instead of hanging the run forever.
  */
 
-import { runQuery } from '@dagents/db'
 import { createLogger } from '@dagents/shared'
 import type { IExecutionContext, IServerSideEventStreamer } from '@dagents/workflow'
+import {
+  listChatsWithOrphanedHumanInput,
+  insertSystemMessageDatedNow,
+  insertHumanInputPromptMessage,
+} from '../repositories/chats.repo.js'
 
 const log = createLogger({ svc: 'gateway:human-input' })
 
@@ -66,23 +70,11 @@ export function resolvePendingHumanInput(chatId: string, answer: string): boolea
  */
 export async function markOrphanedHumanInputs(): Promise<void> {
   try {
-    const { records } = await runQuery<{ chat_id: string }>(
-      `SELECT m.chat_id
-         FROM chat_messages m
-         JOIN (
-           SELECT chat_id, MAX(created_at) AS last_at
-             FROM chat_messages
-            GROUP BY chat_id
-         ) latest ON latest.chat_id = m.chat_id AND latest.last_at = m.created_at
-        WHERE m.role = 'system'
-          AND m.metadata->>'type' = 'human_input'`,
-      [],
-    )
+    const records = await listChatsWithOrphanedHumanInput()
     for (const row of records) {
-      await runQuery(
-        `INSERT INTO chat_messages (chat_id, role, content, created_at)
-         VALUES ($1::uuid, 'system', $2, NOW())`,
-        [row.chat_id, '⏹ 上一个人工确认请求已因网关重启中断（流程不会继续）—— 如需继续请重新发起运行'],
+      await insertSystemMessageDatedNow(
+        row.chat_id,
+        '⏹ 上一个人工确认请求已因网关重启中断（流程不会继续）—— 如需继续请重新发起运行',
       ).catch(() => {})
     }
     if (records.length > 0) {
@@ -149,10 +141,11 @@ async function persistPromptMessage(
   options: unknown[],
 ): Promise<void> {
   try {
-    await runQuery(
-      `INSERT INTO chat_messages (chat_id, role, content, run_id, metadata)
-       VALUES ($1::uuid, 'system', $2, $3, $4)`,
-      [chatId, formatPromptMessage(prompt, inputType, options), runId, JSON.stringify({ type: 'human_input', prompt, inputType })],
+    await insertHumanInputPromptMessage(
+      chatId,
+      formatPromptMessage(prompt, inputType, options),
+      runId,
+      JSON.stringify({ type: 'human_input', prompt, inputType }),
     )
   } catch (err) {
     // Best-effort: the SSE event already notified the live listener; history

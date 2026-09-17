@@ -28,6 +28,7 @@ import { createLogger } from '@dagents/shared'
 import {
   CANVAS_NODES,
   validateFlowTopology,
+  isPrivateHttpHost,
   type FlowData,
   type TopologyError,
   type TopologyWarning,
@@ -527,6 +528,49 @@ function normalizeSafely(rawText: string): {
   }
 }
 
+/**
+ * 生成内容风险扫描（2026-09-17 评审搁置项）：拓扑校验只管图形状，
+ * 节点**内容**是另一层攻击面 —— 生成的 customFunction 会在运行时执行
+ * （worker 隔离非沙箱）、HTTP url 会真实发请求。生成结果是「草稿」而非
+ * 直接执行物，所以这里出**警告**不出错误：随响应与 generator_attempts
+ * 落档，用户在画布上审阅草稿时知情。
+ */
+export function scanGeneratedFlowRisks(flow: FlowData): TopologyWarning[] {
+  const warnings: TopologyWarning[] = []
+  for (const node of flow.nodes) {
+    const name = (node.data as { name?: string })?.name ?? node.id
+    const flat = node.data as Record<string, unknown>
+    if (name === 'customFunctionAgentflow') {
+      warnings.push({
+        message: `节点「${node.id}」包含 CustomFunction 代码 —— 运行时将在本机执行（隔离非沙箱），请先审阅 functionCode 再保存运行`,
+      })
+      const code = flat?.functionCode ?? flat?.code
+      if (typeof code === 'string' && code.length > 16_384) {
+        warnings.push({ message: `节点「${node.id}」的 functionCode 超过 16KB —— 异常庞大，建议人工复核` })
+      }
+    }
+    if (name === 'httpAgentflow') {
+      const url = flat?.url
+      if (typeof url === 'string' && url.length > 0) {
+        try {
+          const parsed = new URL(url)
+          if (parsed.protocol !== 'https:') {
+            warnings.push({ message: `节点「${node.id}」的 URL 非 https（${parsed.protocol}）` })
+          }
+          if (isPrivateHttpHost(parsed.hostname)) {
+            warnings.push({
+              message: `节点「${node.id}」的 URL 指向内网/本机地址（${parsed.hostname}）—— 运行时会被 SSRF 守卫拦截，除非确有需要并开 DAGENTS_HTTP_ALLOW_PRIVATE`,
+            })
+          }
+        } catch {
+          warnings.push({ message: `节点「${node.id}」的 URL 不是合法绝对地址（${String(url).slice(0, 80)}）` })
+        }
+      }
+    }
+  }
+  return warnings
+}
+
 function validate(
   normalized: { flowData: FlowData; droppedNodes: string[]; parseFailed: boolean },
 ):
@@ -540,8 +584,9 @@ function validate(
     }
   }
   const verdict = validateFlowTopology(normalized.flowData)
-  if (verdict.ok) return { ok: true, warnings: verdict.warnings }
-  return { ok: false, errors: verdict.errors, warnings: verdict.warnings }
+  const contentRisks = scanGeneratedFlowRisks(normalized.flowData)
+  if (verdict.ok) return { ok: true, warnings: [...verdict.warnings, ...contentRisks] }
+  return { ok: false, errors: verdict.errors, warnings: [...verdict.warnings, ...contentRisks] }
 }
 
 /** chat 路径持久化 flow 后回填埋点（canvas 路径不落库，attempt 保持 flow_id 空）。 */

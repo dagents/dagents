@@ -1,8 +1,7 @@
-import { Hono, type Context } from 'hono'
-import type { ContentfulStatusCode } from 'hono/utils/http-status'
+import { Hono } from 'hono'
 import { randomUUID } from 'node:crypto'
 import { z } from 'zod'
-import { runQuery, type NodeSpanStatus } from '@dagents/db'
+import type { NodeSpanStatus } from '@dagents/db'
 import { createLogger } from '@dagents/shared'
 import { exportRunTraceToLangfuse, isLangfuseConfigured } from '@dagents/shared/langfuse'
 import { CANVAS_NODES, type FlowData, type IExecutedNode } from '@dagents/workflow'
@@ -12,6 +11,27 @@ import { createStaticHumanInputResolver } from './human-input.js'
 import { recordAudit } from '../audit.js'
 import { executionRegistry, type ExecutionHandle } from '../execution-registry.js'
 import { aggregateExecutedNodesUsage, recordUsageEvent } from '../usage-events.js'
+import {
+  listFlows,
+  getFlowById,
+  createFlow,
+  updateFlowFields,
+  updateFlowLayout,
+  deleteFlow,
+  normalizeFlowListItem,
+  normalizeFlowDetail,
+  type FlowRow,
+} from '../repositories/workflows.repo.js'
+import { getDirectoryPath } from '../repositories/directories.repo.js'
+import {
+  getRunNodeSpans,
+  getRunStatusAndDuration,
+  persistWorkflowRunRow,
+  initAsyncWorkflowRunRow,
+  insertNodeSpansBatch,
+  stampRunSpansTraceId,
+  toNodeSpanStatus,
+} from '../repositories/runs.repo.js'
 import { ok, fail, UUID_RE } from '../lib/http.js'
 
 export const workflowsRoutes = new Hono()
@@ -33,64 +53,12 @@ const updateBodySchema = z.object({
   status: z.enum(['draft', 'published', 'archived']).optional(),
 })
 
-interface FlowRow {
-  id: string
-  name: string
-  description: string | null
-  flow_data: unknown
-  status: string
-  created_at: Date
-  updated_at: Date
-}
-
-function countNodes(flowData: unknown): number {
-  if (flowData && typeof flowData === 'object' && 'nodes' in flowData) {
-    const nodes = (flowData as { nodes?: unknown }).nodes
-    if (Array.isArray(nodes)) {
-      return nodes.length
-    }
-  }
-  return 0
-}
-
-function normalizeFlowListItem(r: FlowRow) {
-  return {
-    id: r.id,
-    name: r.name,
-    description: r.description,
-    status: r.status,
-    nodeCount: countNodes(r.flow_data),
-    updatedAt: r.updated_at instanceof Date ? r.updated_at.toISOString() : new Date(r.updated_at).toISOString(),
-  }
-}
-
-function normalizeFlowDetail(r: FlowRow) {
-  return {
-    id: r.id,
-    name: r.name,
-    description: r.description,
-    flowData: r.flow_data,
-    status: r.status,
-    createdAt: r.created_at instanceof Date ? r.created_at.toISOString() : new Date(r.created_at).toISOString(),
-    updatedAt: r.updated_at instanceof Date ? r.updated_at.toISOString() : new Date(r.updated_at).toISOString(),
-  }
-}
-
 workflowsRoutes.get('/', async (c) => {
   const status = c.req.query('status')
 
   let rows: FlowRow[]
   try {
-    let sql = `SELECT id, name, description, flow_data, status, created_at, updated_at
-               FROM flows`
-    const params: unknown[] = []
-    if (status) {
-      params.push(status)
-      sql += ` WHERE status = $${params.length}`
-    }
-    sql += ` ORDER BY updated_at DESC`
-    const { records } = await runQuery<FlowRow>(sql, params)
-    rows = records
+    rows = await listFlows(status)
   } catch (err) {
     log.error('workflow list query failed', { error: String(err) })
     return fail(c, 502, 'workflow list failed')
@@ -109,13 +77,7 @@ workflowsRoutes.get('/:id', async (c) => {
 
   let row: FlowRow | null
   try {
-    const { records } = await runQuery<FlowRow>(
-      `SELECT id, name, description, flow_data, status, created_at, updated_at
-         FROM flows
-         WHERE id = $1`,
-      [id],
-    )
-    row = records[0] ?? null
+    row = await getFlowById(id)
   } catch (err) {
     log.error('workflow detail query failed', { id, error: String(err) })
     return fail(c, 502, 'workflow detail failed')
@@ -142,18 +104,12 @@ workflowsRoutes.post('/', async (c) => {
 
   let row: FlowRow | null
   try {
-    const { records } = await runQuery<FlowRow>(
-      `INSERT INTO flows (name, description, flow_data, status)
-       VALUES ($1, $2, $3, $4)
-       RETURNING id, name, description, flow_data, status, created_at, updated_at`,
-      [
-        data.name,
-        data.description ?? null,
-        JSON.stringify(data.flowData ?? { nodes: [], edges: [] }),
-        data.status ?? 'draft',
-      ],
-    )
-    row = records[0] ?? null
+    row = await createFlow({
+      name: data.name,
+      description: data.description ?? null,
+      flowDataJson: JSON.stringify(data.flowData ?? { nodes: [], edges: [] }),
+      status: data.status ?? 'draft',
+    })
   } catch (err) {
     log.error('workflow create failed', { error: String(err) })
     return fail(c, 502, 'workflow create failed')
@@ -189,36 +145,16 @@ workflowsRoutes.put('/:id', async (c) => {
   }
   const data = parsed.data
 
-  const sets: string[] = []
-  const params: unknown[] = []
+  const hasUpdates =
+    data.name !== undefined ||
+    data.description !== undefined ||
+    data.flowData !== undefined ||
+    data.status !== undefined
 
-  if (data.name !== undefined) {
-    params.push(data.name)
-    sets.push(`name = $${params.length}`)
-  }
-  if (data.description !== undefined) {
-    params.push(data.description)
-    sets.push(`description = $${params.length}`)
-  }
-  if (data.flowData !== undefined) {
-    params.push(JSON.stringify(data.flowData))
-    sets.push(`flow_data = $${params.length}`)
-  }
-  if (data.status !== undefined) {
-    params.push(data.status)
-    sets.push(`status = $${params.length}`)
-  }
-
-  if (sets.length === 0) {
+  if (!hasUpdates) {
     let existing: FlowRow | null
     try {
-      const { records } = await runQuery<FlowRow>(
-        `SELECT id, name, description, flow_data, status, created_at, updated_at
-           FROM flows
-           WHERE id = $1`,
-        [id],
-      )
-      existing = records[0] ?? null
+      existing = await getFlowById(id)
     } catch (err) {
       log.error('workflow detail query failed', { id, error: String(err) })
       return fail(c, 502, 'workflow update failed')
@@ -229,19 +165,14 @@ workflowsRoutes.put('/:id', async (c) => {
     return ok(c, { flow: normalizeFlowDetail(existing) })
   }
 
-  params.push(id)
-  const idParam = `$${params.length}`
-
   let row: FlowRow | null
   try {
-    const { records } = await runQuery<FlowRow>(
-      `UPDATE flows
-       SET ${sets.join(', ')}, updated_at = NOW()
-       WHERE id = ${idParam}
-       RETURNING id, name, description, flow_data, status, created_at, updated_at`,
-      params,
-    )
-    row = records[0] ?? null
+    row = await updateFlowFields(id, {
+      name: data.name,
+      description: data.description,
+      flowDataJson: data.flowData !== undefined ? JSON.stringify(data.flowData) : undefined,
+      status: data.status,
+    })
   } catch (err) {
     log.error('workflow update failed', { id, error: String(err) })
     return fail(c, 502, 'workflow update failed')
@@ -299,12 +230,7 @@ workflowsRoutes.put('/:id/layout', async (c) => {
 
   let row: FlowRow | null
   try {
-    const { records } = await runQuery<FlowRow>(
-      `SELECT id, name, description, flow_data, status, created_at, updated_at
-         FROM flows WHERE id = $1`,
-      [id],
-    )
-    row = records[0] ?? null
+    row = await getFlowById(id)
   } catch (err) {
     log.error('workflow layout read failed', { id, error: String(err) })
     return fail(c, 502, 'workflow layout update failed')
@@ -339,10 +265,7 @@ workflowsRoutes.put('/:id/layout', async (c) => {
   }
 
   try {
-    await runQuery(`UPDATE flows SET flow_data = $1::jsonb, updated_at = NOW() WHERE id = $2`, [
-      JSON.stringify(flowData),
-      id,
-    ])
+    await updateFlowLayout(id, JSON.stringify(flowData))
   } catch (err) {
     log.error('workflow layout update failed', { id, error: String(err) })
     return fail(c, 502, 'workflow layout update failed')
@@ -360,11 +283,7 @@ workflowsRoutes.delete('/:id', async (c) => {
 
   let deletedId: string | null
   try {
-    const { records } = await runQuery<{ id: string }>(
-      `DELETE FROM flows WHERE id = $1 RETURNING id`,
-      [id],
-    )
-    deletedId = records[0]?.id ?? null
+    deletedId = await deleteFlow(id)
   } catch (err) {
     log.error('workflow delete failed', { id, error: String(err) })
     return fail(c, 502, 'workflow delete failed')
@@ -391,34 +310,6 @@ const runBodySchema = z.object({
 })
 
 const MAX_RUN_ID_LEN = 128
-
-/**
- * Map the executor's IExecutedNode.status or a persisted run_node_spans.status
- * onto the NodeSpanStatus domain used by the scheduler proxy. Kept consistent
- * with the scheduler's own status map.
- */
-function toNodeSpanStatus(raw: string): NodeSpanStatus {
-  switch (raw) {
-    case 'success':
-    case 'done':
-    case 'completed':
-      return 'done'
-    case 'fail':
-    case 'failed':
-    case 'error':
-      return 'failed'
-    case 'running':
-    case 'INPROGRESS':
-      return 'running'
-    case 'cancel':
-    case 'cancelled':
-    case 'STOPPED':
-    case 'paused':
-      return 'paused'
-    default:
-      return 'unknown'
-  }
-}
 
 /**
  * POST /:id/run — Execute a workflow using the internal @dagents/workflow engine.
@@ -449,13 +340,7 @@ workflowsRoutes.post('/:id/run', async (c) => {
 
   let row: FlowRow | null
   try {
-    const { records } = await runQuery<FlowRow>(
-      `SELECT id, name, description, flow_data, status, created_at, updated_at
-         FROM flows
-         WHERE id = $1`,
-      [id],
-    )
-    row = records[0] ?? null
+    row = await getFlowById(id)
   } catch (err) {
     log.error('workflow detail query failed', { id, error: String(err) })
     return fail(c, 502, 'workflow execution failed')
@@ -484,11 +369,8 @@ workflowsRoutes.post('/:id/run', async (c) => {
   let runCwd: string | undefined
   if (data.directoryId) {
     try {
-      const { records: dirRows } = await runQuery<{ path: string }>(
-        `SELECT path FROM directories WHERE id = $1::uuid`,
-        [data.directoryId],
-      )
-      if (dirRows[0]?.path) runCwd = dirRows[0].path
+      const path = await getDirectoryPath(data.directoryId)
+      if (path) runCwd = path
       else log.warn('run directory not found — CLI falls back to gateway cwd', { id, directoryId: data.directoryId })
     } catch (err) {
       log.warn('run directory lookup failed — CLI falls back to gateway cwd', { id, error: String(err) })
@@ -579,28 +461,17 @@ workflowsRoutes.post('/:id/run', async (c) => {
     // `cost` 消灭死列：写入聚合成本。列是 NOT NULL，无价格时写 0 ——
     // 「未计价」的诚实标记在 usage_events.priced，runs.cost 只是去规格化
     // 汇总（账单页只读 usage_events）。
-    await runQuery(
-      `INSERT INTO runs (id, identifier, pipeline_id, status, input, output, started_at, finished_at, duration_ms, cost)
-       VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10)
-       ON CONFLICT (id) DO UPDATE SET
-         status = EXCLUDED.status,
-         output = EXCLUDED.output,
-         finished_at = EXCLUDED.finished_at,
-         duration_ms = EXCLUDED.duration_ms,
-         cost = EXCLUDED.cost`,
-      [
-        runId,
-        runId,
-        id,
-        runStatus,
-        JSON.stringify(data.input ?? null),
-        JSON.stringify(result.finalOutput ?? null),
-        startedAt,
-        finishedAt,
-        durationMs,
-        usageRollup.cost ?? 0,
-      ],
-    )
+    await persistWorkflowRunRow({
+      runId,
+      flowId: id,
+      status: runStatus,
+      inputJson: JSON.stringify(data.input ?? null),
+      outputJson: JSON.stringify(result.finalOutput ?? null),
+      startedAt,
+      finishedAt,
+      durationMs,
+      cost: usageRollup.cost ?? 0,
+    })
   } catch (err) {
     log.warn('persist runs row failed, spans still written below', { id, runId, error: String(err) })
   }
@@ -620,9 +491,7 @@ workflowsRoutes.post('/:id/run', async (c) => {
   // reached (e.g. early-return / skipped branch) are not written — the canvas
   // leaves them `idle`.
   try {
-    const spanPlaceholders: string[] = []
-    const spanValues: unknown[] = []
-    let i = 1
+    const spanRows: Parameters<typeof insertNodeSpansBatch>[0] = []
     for (const en of result.executedNodes) {
       // 增量路径已实时写过（画布进度轮询的数据源），只补子流程节点等遗漏项
       if (spanWriter.writtenNodes.has(en.nodeId)) continue
@@ -638,34 +507,24 @@ workflowsRoutes.post('/:id/run', async (c) => {
         : en.status === 'cancelled'
         ? 'paused'
         : 'unknown'
-      // 14 columns: run_id, flow_id, node_id, node_label, node_type, status,
-      // started_at, finished_at, duration_ms, tokens, cost, error, input, output
-      spanPlaceholders.push(`($${i++}, $${i++}, $${i++}, $${i++}, $${i++}, $${i++}, $${i++}, $${i++}, $${i++}, $${i++}, $${i++}, $${i++}, $${i++}, $${i++})`)
-      spanValues.push(
-        runId,
-        id,
-        en.nodeId,
-        nodeLabelById.get(en.nodeId) ?? null,
-        nodeTypeById.get(en.nodeId) ?? null,
+      spanRows.push({
+        run_id: runId,
+        flow_id: id,
+        node_id: en.nodeId,
+        node_label: nodeLabelById.get(en.nodeId) ?? null,
+        node_type: nodeTypeById.get(en.nodeId) ?? null,
         status,
-        started,
-        finished,
-        durMs,
-        en.tokens ? JSON.stringify(en.tokens) : null,
-        en.cost ?? null,
-        en.error ?? null,
-        Object.keys(en.input ?? {}).length > 0 ? JSON.stringify(en.input) : null,
-        Object.keys(en.output ?? {}).length > 0 ? JSON.stringify(en.output) : null,
-      )
+        started_at: started,
+        finished_at: finished,
+        duration_ms: durMs,
+        tokens: en.tokens ? JSON.stringify(en.tokens) : null,
+        cost: en.cost ?? null,
+        error: en.error ?? null,
+        input: Object.keys(en.input ?? {}).length > 0 ? JSON.stringify(en.input) : null,
+        output: Object.keys(en.output ?? {}).length > 0 ? JSON.stringify(en.output) : null,
+      })
     }
-    if (spanPlaceholders.length > 0) {
-      await runQuery(
-        `INSERT INTO run_node_spans (run_id, flow_id, node_id, node_label, node_type, status, started_at, finished_at, duration_ms, tokens, cost, error, input, output)
-         VALUES ${spanPlaceholders.join(', ')}
-         ON CONFLICT DO NOTHING`,
-        spanValues,
-      )
-    }
+    await insertNodeSpansBatch(spanRows)
   } catch (err) {
     log.warn('persist run_node_spans failed', { id, runId, error: String(err) })
   }
@@ -689,10 +548,7 @@ workflowsRoutes.post('/:id/run', async (c) => {
     })
     if (langfuse.exported && langfuse.traceId) {
       try {
-        await runQuery(
-          `UPDATE run_node_spans SET trace_id = $1 WHERE run_id = $2 AND trace_id IS NULL`,
-          [langfuse.traceId, runId],
-        )
+        await stampRunSpansTraceId(langfuse.traceId, runId)
       } catch (err) {
         log.warn('stamp trace_id on spans failed', { id, runId, error: String(err) })
       }
@@ -708,12 +564,12 @@ workflowsRoutes.post('/:id/run', async (c) => {
     // 先落一行 running（轮询终态判断依据 + 运行历史即时可见）；
     // 结束时 runAndPersist 里的 ON CONFLICT 会更新为终态。
     try {
-      await runQuery(
-        `INSERT INTO runs (id, identifier, pipeline_id, status, input, output, started_at, duration_ms, cost)
-         VALUES ($1::uuid, $2::text, $3::uuid, 'running', $4, NULL, $5, NULL, 0)
-         ON CONFLICT (id) DO NOTHING`,
-        [runId, runId, id, JSON.stringify(data.input ?? null), startedAt],
-      )
+      await initAsyncWorkflowRunRow({
+        runId,
+        flowId: id,
+        inputJson: JSON.stringify(data.input ?? null),
+        startedAt,
+      })
     } catch (err) {
       log.warn('async runs row init failed', { id, runId, error: String(err) })
     }
@@ -750,22 +606,6 @@ workflowsRoutes.post('/:id/run', async (c) => {
   })
 })
 
-interface NodeSpanRow {
-  node_id: string
-  node_label: string | null
-  node_type: string | null
-  status: string
-  started_at: Date | string | null
-  finished_at: Date | string | null
-  duration_ms: number | null
-  tokens: unknown
-  cost: string | number | null
-  error: string | null
-  trace_id: string | null
-  input: unknown
-  output: unknown
-}
-
 /**
  * GET /runs/:runId/node-spans — Gateway-owned read path for a run's node trace.
  *
@@ -785,18 +625,11 @@ workflowsRoutes.get('/runs/:runId/node-spans', async (c) => {
     return fail(c, 400, 'invalid run id', { runId })
   }
 
-  let rows: NodeSpanRow[] = []
+  let rows: Awaited<ReturnType<typeof getRunNodeSpans>> = []
   let runStatus: string | null = null
   let runDurationMs: number | null = null
   try {
-    const { records } = await runQuery<NodeSpanRow>(
-      `SELECT node_id, node_label, node_type, status, started_at, finished_at, duration_ms, tokens, cost, error, trace_id, input, output
-         FROM run_node_spans
-         WHERE run_id = $1
-         ORDER BY COALESCE(started_at, created_at) ASC`,
-      [runId],
-    )
-    rows = records
+    rows = await getRunNodeSpans(runId)
   } catch (err) {
     log.error('node-spans query failed', { runId, error: String(err) })
     return fail(c, 502, 'node-spans query failed')
@@ -804,12 +637,9 @@ workflowsRoutes.get('/runs/:runId/node-spans', async (c) => {
   // 附带 runs 行的状态/耗时 —— 画布旁观（canvas?run=）据此判断终态。
   // 没有 runs 行（老数据 / 尚未落库）时为 null，旁观端回退到启发式判断。
   try {
-    const { records: runRows } = await runQuery<{ status: string; duration_ms: number | null }>(
-      `SELECT status, duration_ms FROM runs WHERE id = $1`,
-      [runId],
-    )
-    runStatus = runRows[0]?.status ?? null
-    runDurationMs = runRows[0]?.duration_ms ?? null
+    const runRow = await getRunStatusAndDuration(runId)
+    runStatus = runRow?.status ?? null
+    runDurationMs = runRow?.duration_ms ?? null
   } catch {
     // runs 查询失败不影响 spans 返回
   }

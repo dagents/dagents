@@ -1,10 +1,17 @@
-import { Hono, type Context } from 'hono'
-import type { ContentfulStatusCode } from 'hono/utils/http-status'
+import { Hono } from 'hono'
 import { z } from 'zod'
 import { spawn } from 'node:child_process'
 import { platform } from 'node:os'
-import { runQuery } from '@dagents/db'
 import { createLogger } from '@dagents/shared'
+import {
+  listDirectoriesWithCounts,
+  getDirectoryById,
+  createDirectory,
+  updateDirectoryFields,
+  deleteDirectory,
+  normalizeDir,
+  type DirectoryRow,
+} from '../repositories/directories.repo.js'
 import { ok, fail } from '../lib/http.js'
 import { UUID_RE } from '../lib/http.js'
 
@@ -134,32 +141,6 @@ const updateBodySchema = z.object({
   settings: z.record(z.string(), z.unknown()).optional(),
 })
 
-interface DirectoryRow {
-  id: string
-  path: string
-  name: string
-  settings: unknown
-  chat_count: string | null
-  created_at: Date
-  updated_at: Date
-}
-
-function normalizeDir(r: DirectoryRow) {
-  let settings: Record<string, unknown> = {}
-  if (typeof r.settings === 'object' && r.settings !== null && !Array.isArray(r.settings)) {
-    settings = r.settings as Record<string, unknown>
-  }
-  return {
-    id: r.id,
-    path: r.path,
-    name: r.name,
-    settings,
-    chatCount: Number(r.chat_count ?? 0),
-    createdAt: r.created_at instanceof Date ? r.created_at.toISOString() : new Date(r.created_at).toISOString(),
-    updatedAt: r.updated_at instanceof Date ? r.updated_at.toISOString() : new Date(r.updated_at).toISOString(),
-  }
-}
-
 directoryRoutes.get('/', async (c) => {
   const parsed = listQuerySchema.safeParse(c.req.query())
   if (!parsed.success) {
@@ -169,16 +150,7 @@ directoryRoutes.get('/', async (c) => {
 
   let rows: DirectoryRow[]
   try {
-    const { records } = await runQuery<DirectoryRow>(
-      `SELECT d.id, d.path, d.name, d.settings,
-              (SELECT count(*)::text FROM chats ch WHERE ch.directory_id = d.id) AS chat_count,
-              d.created_at, d.updated_at
-         FROM directories d
-         ORDER BY d.updated_at DESC
-         LIMIT $1`,
-      [q.limit],
-    )
-    rows = records
+    rows = await listDirectoriesWithCounts(q.limit)
   } catch (err) {
     log.error('directory list query failed', { error: String(err) })
     return fail(c, 502, 'directory list failed')
@@ -232,15 +204,7 @@ directoryRoutes.get('/:id', async (c) => {
 
   let row: DirectoryRow | null
   try {
-    const { records } = await runQuery<DirectoryRow>(
-      `SELECT d.id, d.path, d.name, d.settings,
-              (SELECT count(*)::text FROM chats ch WHERE ch.directory_id = d.id) AS chat_count,
-              d.created_at, d.updated_at
-         FROM directories d
-         WHERE d.id = $1`,
-      [id],
-    )
-    row = records[0] ?? null
+    row = await getDirectoryById(id)
   } catch (err) {
     log.error('directory detail query failed', { id, error: String(err) })
     return fail(c, 502, 'directory detail failed')
@@ -268,15 +232,11 @@ directoryRoutes.post('/', async (c) => {
 
   let row: DirectoryRow | null
   try {
-    const { records } = await runQuery<DirectoryRow>(
-      `INSERT INTO directories (path, name, settings)
-       VALUES ($1, $2, $3)
-       RETURNING id, path, name, settings,
-                 (SELECT count(*)::text FROM chats ch WHERE ch.directory_id = directories.id) AS chat_count,
-                 created_at, updated_at`,
-      [data.path, name, JSON.stringify(data.settings ?? {})],
-    )
-    row = records[0] ?? null
+    row = await createDirectory({
+      path: data.path,
+      name,
+      settingsJson: JSON.stringify(data.settings ?? {}),
+    })
   } catch (err) {
     log.error('directory create failed', { error: String(err) })
     return fail(c, 502, 'directory create failed')
@@ -306,30 +266,12 @@ directoryRoutes.patch('/:id', async (c) => {
   }
   const data = parsed.data
 
-  const sets: string[] = []
-  const params: unknown[] = []
+  const hasUpdates = data.name !== undefined || data.settings !== undefined
 
-  if (data.name !== undefined) {
-    params.push(data.name)
-    sets.push(`name = $${params.length}`)
-  }
-  if (data.settings !== undefined) {
-    params.push(JSON.stringify(data.settings))
-    sets.push(`settings = $${params.length}`)
-  }
-
-  if (sets.length === 0) {
+  if (!hasUpdates) {
     let existing: DirectoryRow | null
     try {
-      const { records } = await runQuery<DirectoryRow>(
-        `SELECT d.id, d.path, d.name, d.settings,
-                (SELECT count(*)::text FROM chats ch WHERE ch.directory_id = d.id) AS chat_count,
-                d.created_at, d.updated_at
-           FROM directories d
-           WHERE d.id = $1`,
-        [id],
-      )
-      existing = records[0] ?? null
+      existing = await getDirectoryById(id)
     } catch (err) {
       log.error('directory detail query failed', { id, error: String(err) })
       return fail(c, 502, 'directory update failed')
@@ -340,21 +282,12 @@ directoryRoutes.patch('/:id', async (c) => {
     return ok(c, { directory: normalizeDir(existing) })
   }
 
-  params.push(id)
-  const idParam = `$${params.length}`
-
   let row: DirectoryRow | null
   try {
-    const { records } = await runQuery<DirectoryRow>(
-      `UPDATE directories
-       SET ${sets.join(', ')}, updated_at = NOW()
-       WHERE id = ${idParam}
-       RETURNING id, path, name, settings,
-                 (SELECT count(*)::text FROM chats ch WHERE ch.directory_id = directories.id) AS chat_count,
-                 created_at, updated_at`,
-      params,
-    )
-    row = records[0] ?? null
+    row = await updateDirectoryFields(id, {
+      name: data.name,
+      settingsJson: data.settings !== undefined ? JSON.stringify(data.settings) : undefined,
+    })
   } catch (err) {
     log.error('directory update failed', { id, error: String(err) })
     return fail(c, 502, 'directory update failed')
@@ -374,11 +307,7 @@ directoryRoutes.delete('/:id', async (c) => {
 
   let deletedId: string | null
   try {
-    const { records } = await runQuery<{ id: string }>(
-      `DELETE FROM directories WHERE id = $1 RETURNING id`,
-      [id],
-    )
-    deletedId = records[0]?.id ?? null
+    deletedId = await deleteDirectory(id)
   } catch (err) {
     log.error('directory delete failed', { id, error: String(err) })
     return fail(c, 502, 'directory delete failed')

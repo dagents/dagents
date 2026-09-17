@@ -7,9 +7,7 @@
  * llmAgentflow（模板永远可跑，降级显式回传）。
  */
 import { Hono, type Context } from 'hono'
-import type { ContentfulStatusCode } from 'hono/utils/http-status'
 import { z } from 'zod'
-import { runQuery } from '@dagents/db'
 import { createLogger } from '@dagents/shared'
 import { agentLibraryRegistry } from '../agent-library-registry.js'
 import {
@@ -18,8 +16,18 @@ import {
   scanTemplateParams,
   type AgentRef,
   type FlowTemplateSpec,
-  type TemplateCategory,
 } from '../flow-template-pipeline.js'
+import {
+  listUserTemplates,
+  getUserTemplateRow,
+  insertUserTemplate,
+  deleteUserTemplate,
+  rowToSpec,
+  type UserTemplateRow,
+} from '../repositories/flow-templates.repo.js'
+import { getFlowForTemplateExtract } from '../repositories/workflows.repo.js'
+import { findAgentNamesByLibrary } from '../repositories/agents.repo.js'
+import { insertDraftFlow } from '../repositories/workflows.repo.js'
 import { BUILTIN_FLOW_TEMPLATES } from '../flow-templates/builtin/index.js'
 import { ok, fail } from '../lib/http.js'
 
@@ -27,35 +35,6 @@ export const flowTemplateRoutes = new Hono()
 
 const log = createLogger({ svc: 'gateway:flow-templates' })
 
-
-interface UserTemplateRow {
-  id: string
-  name: string
-  description: string | null
-  icon: string
-  category: string
-  flow_data: { nodes: Record<string, unknown>[]; edges: Record<string, unknown>[] }
-  agent_refs: AgentRef[] | null
-  params: { name: string; defaultValue?: string }[] | null
-  source_flow_id: string | null
-  created_at: string | Date
-}
-
-function rowToSpec(row: UserTemplateRow): FlowTemplateSpec {
-  return {
-    id: row.id,
-    name: row.name,
-    description: row.description ?? '',
-    icon: row.icon,
-    category: (row.category === 'dev' || row.category === 'research' || row.category === 'content' || row.category === 'ops'
-      ? row.category
-      : 'custom') as TemplateCategory,
-    source: 'user',
-    flowData: row.flow_data,
-    agentRefs: row.agent_refs ?? [],
-    params: row.params ?? [],
-  }
-}
 
 /** 模板摘要里的成员解析状态（UI 确认步展示「将绑定 Agent / 将降级 LLM」）。 */
 interface MemberSummary {
@@ -81,11 +60,7 @@ function memberSummaries(refs: AgentRef[], entriesByName: Map<string, { division
 flowTemplateRoutes.get('/', async (c) => {
   let userRows: UserTemplateRow[] = []
   try {
-    const { records } = await runQuery<UserTemplateRow>(
-      `SELECT id, name, description, icon, category, flow_data, agent_refs, params, source_flow_id, created_at
-         FROM flow_templates ORDER BY created_at DESC`,
-    )
-    userRows = records
+    userRows = await listUserTemplates()
   } catch (err) {
     log.error('list user templates failed', { error: String(err) })
     return fail(c, 502, '加载用户模板失败')
@@ -214,14 +189,10 @@ flowTemplateRoutes.post('/from-flow/:flowId', async (c) => {
     return fail(c, 400, 'invalid from-flow body', { detail: String(err) })
   }
 
-  let flowRow: { name: string; description: string | null; flow_data: unknown }
+  let flowRow: Awaited<ReturnType<typeof getFlowForTemplateExtract>>
   try {
-    const { records } = await runQuery<typeof flowRow>(
-      `SELECT name, description, flow_data FROM flows WHERE id = $1::uuid`,
-      [flowId],
-    )
-    if (!records[0]) return fail(c, 404, 'flow not found', { flowId })
-    flowRow = records[0]
+    flowRow = await getFlowForTemplateExtract(flowId)
+    if (!flowRow) return fail(c, 404, 'flow not found', { flowId })
   } catch (err) {
     log.error('from-flow: flow lookup failed', { error: String(err) })
     return fail(c, 502, 'flow lookup failed')
@@ -240,11 +211,7 @@ flowTemplateRoutes.post('/from-flow/:flowId', async (c) => {
   ]
   const personaNameByAgentId = new Map<string, string>()
   if (agentIds.length > 0) {
-    const { records } = await runQuery<{ id: string; name: string }>(
-      `SELECT id, name FROM agents
-        WHERE id = ANY($1::uuid[]) AND library_meta->>'id' IS NOT NULL`,
-      [agentIds],
-    )
+    const records = await findAgentNamesByLibrary(agentIds)
     for (const row of records) personaNameByAgentId.set(row.id, row.name)
   }
 
@@ -261,22 +228,16 @@ flowTemplateRoutes.post('/from-flow/:flowId', async (c) => {
       })
     : extracted.params
 
-  const { records: inserted } = await runQuery<{ id: string }>(
-    `INSERT INTO flow_templates (name, description, icon, category, flow_data, agent_refs, params, source_flow_id)
-     VALUES ($1, $2, $3, $4, $5::jsonb, $6::jsonb, $7::jsonb, $8::uuid)
-     RETURNING id`,
-    [
-      parsed.name ?? `${flowRow.name}（模板）`,
-      parsed.description ?? flowRow.description ?? '',
-      parsed.icon ?? '📄',
-      parsed.category ?? 'custom',
-      JSON.stringify(extracted.flowData),
-      JSON.stringify(extracted.agentRefs),
-      JSON.stringify(params),
-      flowId,
-    ],
-  )
-  const id = inserted[0].id
+  const id = await insertUserTemplate({
+    name: parsed.name ?? `${flowRow.name}（模板）`,
+    description: parsed.description ?? flowRow.description ?? '',
+    icon: parsed.icon ?? '📄',
+    category: parsed.category ?? 'custom',
+    flowDataJson: JSON.stringify(extracted.flowData),
+    agentRefsJson: JSON.stringify(extracted.agentRefs),
+    paramsJson: JSON.stringify(params),
+    sourceFlowId: flowId,
+  })
   log.info('flow template extracted', { id, fromFlow: flowId, agentRefs: extracted.agentRefs.length, params: extracted.params.length })
   return c.json({ success: true, data: { id, agentRefCount: extracted.agentRefs.length, paramCount: extracted.params.length } }, 201)
 })
@@ -304,12 +265,8 @@ async function resolveTemplate(id: string): Promise<FlowTemplateSpec | null> {
   if (id.startsWith('builtin/')) {
     return BUILTIN_FLOW_TEMPLATES.find((t) => t.id === id) ?? null
   }
-  const { records } = await runQuery<UserTemplateRow>(
-    `SELECT id, name, description, icon, category, flow_data, agent_refs, params, source_flow_id, created_at
-       FROM flow_templates WHERE id = $1::uuid`,
-    [id],
-  ).catch(() => ({ records: [] as UserTemplateRow[] }))
-  return records[0] ? rowToSpec(records[0]) : null
+  const row = await getUserTemplateRow(id).catch(() => null)
+  return row ? rowToSpec(row) : null
 }
 
 /**
@@ -341,16 +298,11 @@ async function handleInstantiate(c: Context, id: string) {
     return fail(c, 422, '模板实例化失败', { detail: String(err) })
   }
 
-  const { records } = await runQuery<{ id: string }>(
-    `INSERT INTO flows (name, description, flow_data, status)
-     VALUES ($1, $2, $3, 'draft') RETURNING id`,
-    [
-      parsed.flow_name ?? template.name,
-      `Flow Template「${template.name}」实例化: ${template.description}`.slice(0, 2000),
-      JSON.stringify(instantiated.flowData),
-    ],
+  const flowId = await insertDraftFlow(
+    parsed.flow_name ?? template.name,
+    `Flow Template「${template.name}」实例化: ${template.description}`.slice(0, 2000),
+    JSON.stringify(instantiated.flowData),
   )
-  const flowId = records[0].id
   log.info('flow template instantiated', {
     templateId: id, flowId,
     bound: instantiated.members.filter((m) => !m.degraded).length,
@@ -371,11 +323,8 @@ flowTemplateRoutes.delete('/builtin/:slug', (c) =>
   fail(c, 405, '内置模板不可删除（随仓库分发，见 flow-templates/builtin/README.md）'))
 flowTemplateRoutes.delete('/:id', async (c) => {
   const id = c.req.param('id')
-  const { records } = await runQuery<{ id: string }>(
-    `DELETE FROM flow_templates WHERE id = $1::uuid RETURNING id`,
-    [id],
-  )
-  if (!records[0]) return fail(c, 404, `flow template not found: ${id}`, { id })
+  const deletedId = await deleteUserTemplate(id)
+  if (!deletedId) return fail(c, 404, `flow template not found: ${id}`, { id })
   log.info('flow template deleted', { id })
   return ok(c, { id })
 })

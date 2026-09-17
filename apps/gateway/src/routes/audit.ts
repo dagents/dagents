@@ -1,9 +1,7 @@
-import { Hono, type Context } from 'hono'
-import type { ContentfulStatusCode } from 'hono/utils/http-status'
+import { Hono } from 'hono'
 import { z } from 'zod'
-import { runQuery } from '@dagents/db'
-import type { AuditActorType, AuditTargetType } from '@dagents/db'
 import { createLogger } from '@dagents/shared'
+import { listAuditRecords, type AuditRow } from '../repositories/audit-log.repo.js'
 import { ok, fail } from '../lib/http.js'
 
 /**
@@ -15,10 +13,8 @@ import { ok, fail } from '../lib/http.js'
  * action / target / run_id, newest-first, paginated.
  *
  * Filters are all optional + validated by zod; an absent filter is not added to
- * the WHERE clause (dynamic SQL is built with a fixed clause list + a params
- * array — no string interpolation of user input, so no injection surface). The
- * query is parameterised raw SQL via `runQuery`, mirroring the gateway's other
- * read paths (no entity class on the hot path).
+ * the WHERE clause（动态子句在 repositories/audit-log.repo.ts 内以固定子句
+ * 清单 + params 数组构建 —— 无用户输入拼进 SQL 文本，无注入面）。
  *
  * `detail` is jsonb; pg returns it parsed, so it is forwarded verbatim.
  *
@@ -31,8 +27,6 @@ import { ok, fail } from '../lib/http.js'
 export const auditRoutes = new Hono()
 
 const log = createLogger({ svc: 'gateway:audit' })
-
-/** Standard envelope helpers (same shape as the rest of the gateway). */
 
 const querySchema = z.object({
   actorType: z.enum(['user', 'system']).optional(),
@@ -55,22 +49,6 @@ const querySchema = z.object({
   before: z.string().datetime().optional(),
 })
 
-/** Row shape returned by the audit query (snake_case from pg → camelCased). */
-interface AuditRow {
-  id: string
-  actor_type: AuditActorType
-  actor_id: string
-  action: string
-  target_type: AuditTargetType
-  target_id: string
-  run_id: string | null
-  workspace_id: string | null
-  detail: unknown
-  ip: string | null
-  user_agent: string | null
-  created_at: Date
-}
-
 /**
  * GET /api/v1/audit — list audit records, newest-first, filtered + paginated.
  *
@@ -88,62 +66,19 @@ auditRoutes.get('/', async (c) => {
   }
   const q = parsed.data
 
-  // Build a fixed-clause WHERE with a params array. Each filter adds
-  // `AND col = $n`; the cursor adds `AND created_at < $n`. No user input is
-  // interpolated into the SQL string — only parameter placeholders — so there
-  // is no injection surface even though the clause set is dynamic.
-  const clauses: string[] = []
-  const params: unknown[] = []
-  if (q.actorType) {
-    params.push(q.actorType)
-    clauses.push(`actor_type = $${params.length}`)
-  }
-  if (q.actorId) {
-    params.push(q.actorId)
-    clauses.push(`actor_id = $${params.length}`)
-  }
-  if (q.action) {
-    params.push(q.action)
-    clauses.push(`action = $${params.length}`)
-  }
-  if (q.targetType) {
-    params.push(q.targetType)
-    clauses.push(`target_type = $${params.length}`)
-  }
-  if (q.targetId) {
-    params.push(q.targetId)
-    clauses.push(`target_id = $${params.length}`)
-  }
-  if (q.runId) {
-    params.push(q.runId)
-    clauses.push(`run_id = $${params.length}`)
-  }
-  if (q.workspaceId) {
-    params.push(q.workspaceId)
-    clauses.push(`workspace_id = $${params.length}`)
-  }
-  if (q.before) {
-    params.push(q.before)
-    clauses.push(`created_at < $${params.length}`)
-  }
-  // Fetch limit+1 to detect a next page without a second count query: if we get
-  // limit+1 rows, a next page exists (and we trim to `limit` for the response).
-  params.push(q.limit + 1)
-  const limitParam = `$${params.length}`
-
-  const where = clauses.length ? `WHERE ${clauses.join(' AND ')}` : ''
   let rows: AuditRow[]
   try {
-    const { records } = await runQuery<AuditRow>(
-      `SELECT id, actor_type, actor_id, action, target_type, target_id,
-              run_id, workspace_id, detail, ip, user_agent, created_at
-         FROM audit_log
-         ${where}
-         ORDER BY created_at DESC
-         LIMIT ${limitParam}`,
-      params,
-    )
-    rows = records
+    rows = await listAuditRecords({
+      actorType: q.actorType,
+      actorId: q.actorId,
+      action: q.action,
+      targetType: q.targetType,
+      targetId: q.targetId,
+      runId: q.runId,
+      workspaceId: q.workspaceId,
+      before: q.before,
+      limit: q.limit,
+    })
   } catch (err) {
     // The audit_log table may not exist yet on a fresh DB before migrations
     // run; surface a 502 (infrastructure) rather than a 500 with a raw pg

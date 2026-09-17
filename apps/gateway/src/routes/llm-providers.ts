@@ -1,10 +1,17 @@
-import { Hono, type Context } from 'hono'
-import type { ContentfulStatusCode } from 'hono/utils/http-status'
+import { Hono } from 'hono'
 import { z } from 'zod'
-import { runQuery } from '@dagents/db'
 import { createLogger } from '@dagents/shared'
 import { recordAudit } from '../audit.js'
-import { decryptSecret, encrypt, encryptionConfigured } from '../crypto.js'
+import { decryptSecret } from '../crypto.js'
+import {
+  listLlmProviders,
+  getLlmProviderById,
+  createLlmProvider,
+  updateLlmProviderFields,
+  deleteLlmProvider,
+  normalizeProvider,
+  type LlmProviderRow,
+} from '../repositories/llm-providers.repo.js'
 import { ok, fail } from '../lib/http.js'
 import { UUID_RE } from '../lib/http.js'
 
@@ -51,76 +58,10 @@ const updateBodySchema = z.object({
   remark: z.string().optional(),
 })
 
-interface LlmProviderRow {
-  id: string
-  directory_id: string | null
-  name: string
-  provider_type: string
-  base_url: string
-  api_key: string
-  default_model: string
-  models: unknown
-  status: string
-  remark: string | null
-  created_at: Date
-  updated_at: Date
-}
-
-function maskApiKey(key: string): string {
-  if (key.length >= 8) {
-    return `${key.slice(0, 4)}...${key.slice(-4)}`
-  }
-  if (key.length > 3) {
-    return `${key.slice(0, 3)}...`
-  }
-  return '...'
-}
-
-/**
- * Encrypt an API key for at-rest storage. Uses AES-256-GCM when ENCRYPTION_KEY
- * is configured; falls back to legacy Base64 for dev without encryption (with
- * a log warning) so the gateway still boots.
- */
-function encodeApiKey(plain: string): string {
-  if (encryptionConfigured()) {
-    return encrypt(plain)
-  }
-  log.warn('ENCRYPTION_KEY not set — API key stored with legacy Base64 (not secure!)')
-  return Buffer.from(plain).toString('base64')
-}
-
-function normalizeProvider(r: LlmProviderRow) {
-  let models: unknown[] = []
-  if (Array.isArray(r.models)) {
-    models = r.models
-  }
-  const decodedKey = decryptSecret(r.api_key)
-  return {
-    id: r.id,
-    directoryId: r.directory_id,
-    name: r.name,
-    providerType: r.provider_type,
-    baseUrl: r.base_url,
-    apiKey: maskApiKey(decodedKey),
-    defaultModel: r.default_model,
-    models,
-    status: r.status,
-    remark: r.remark,
-    createdAt: r.created_at instanceof Date ? r.created_at.toISOString() : new Date(r.created_at).toISOString(),
-    updatedAt: r.updated_at instanceof Date ? r.updated_at.toISOString() : new Date(r.updated_at).toISOString(),
-  }
-}
-
 llmProviderRoutes.get('/', async (c) => {
   let rows: LlmProviderRow[]
   try {
-    const { records } = await runQuery<LlmProviderRow>(
-      `SELECT id, directory_id, name, provider_type, base_url, api_key,
-              default_model, models, status, remark, created_at, updated_at
-         FROM llm_providers
-         ORDER BY updated_at DESC`,
-    )
-    rows = records
+    rows = await listLlmProviders()
   } catch (err) {
     log.error('llm provider list query failed', { error: String(err) })
     return fail(c, 502, 'llm provider list failed')
@@ -139,14 +80,7 @@ llmProviderRoutes.get('/:id', async (c) => {
 
   let row: LlmProviderRow | null
   try {
-    const { records } = await runQuery<LlmProviderRow>(
-      `SELECT id, directory_id, name, provider_type, base_url, api_key,
-              default_model, models, status, remark, created_at, updated_at
-         FROM llm_providers
-         WHERE id = $1`,
-      [id],
-    )
-    row = records[0] ?? null
+    row = await getLlmProviderById(id)
   } catch (err) {
     log.error('llm provider detail query failed', { id, error: String(err) })
     return fail(c, 502, 'llm provider detail failed')
@@ -171,28 +105,18 @@ llmProviderRoutes.post('/', async (c) => {
   }
   const data = parsed.data
 
-  const encodedApiKey = encodeApiKey(data.apiKey)
-
   let row: LlmProviderRow | null
   try {
-    const { records } = await runQuery<LlmProviderRow>(
-      `INSERT INTO llm_providers (name, provider_type, base_url, api_key,
-                                  default_model, models, status, remark)
-       VALUES ($1, $2, $3, $4, $5, $6, $7, $8)
-       RETURNING id, directory_id, name, provider_type, base_url, api_key,
-                 default_model, models, status, remark, created_at, updated_at`,
-      [
-        data.name,
-        data.providerType ?? 'openai_compatible',
-        data.baseUrl,
-        encodedApiKey,
-        data.defaultModel,
-        JSON.stringify(data.models ?? []),
-        data.status ?? 'active',
-        data.remark ?? null,
-      ],
-    )
-    row = records[0] ?? null
+    row = await createLlmProvider({
+      name: data.name,
+      providerType: data.providerType ?? 'openai_compatible',
+      baseUrl: data.baseUrl,
+      apiKey: data.apiKey,
+      defaultModel: data.defaultModel,
+      modelsJson: JSON.stringify(data.models ?? []),
+      status: data.status ?? 'active',
+      remark: data.remark ?? null,
+    })
   } catch (err) {
     log.error('llm provider create failed', { error: String(err) })
     return fail(c, 502, 'llm provider create failed')
@@ -228,55 +152,20 @@ llmProviderRoutes.patch('/:id', async (c) => {
   }
   const data = parsed.data
 
-  const sets: string[] = []
-  const params: unknown[] = []
+  const hasUpdates =
+    data.name !== undefined ||
+    data.providerType !== undefined ||
+    data.baseUrl !== undefined ||
+    data.apiKey !== undefined ||
+    data.defaultModel !== undefined ||
+    data.models !== undefined ||
+    data.status !== undefined ||
+    data.remark !== undefined
 
-  if (data.name !== undefined) {
-    params.push(data.name)
-    sets.push(`name = $${params.length}`)
-  }
-  if (data.providerType !== undefined) {
-    // schema 接受了 providerType 但此前 SET 构建器没有对应分支 —— PATCH
-    // {providerType} 会落进"无字段可更新"分支返回 200，变更被静默丢弃。
-    params.push(data.providerType)
-    sets.push(`provider_type = $${params.length}`)
-  }
-  if (data.baseUrl !== undefined) {
-    params.push(data.baseUrl)
-    sets.push(`base_url = $${params.length}`)
-  }
-  if (data.apiKey !== undefined) {
-    params.push(encodeApiKey(data.apiKey))
-    sets.push(`api_key = $${params.length}`)
-  }
-  if (data.defaultModel !== undefined) {
-    params.push(data.defaultModel)
-    sets.push(`default_model = $${params.length}`)
-  }
-  if (data.models !== undefined) {
-    params.push(JSON.stringify(data.models))
-    sets.push(`models = $${params.length}`)
-  }
-  if (data.status !== undefined) {
-    params.push(data.status)
-    sets.push(`status = $${params.length}`)
-  }
-  if (data.remark !== undefined) {
-    params.push(data.remark)
-    sets.push(`remark = $${params.length}`)
-  }
-
-  if (sets.length === 0) {
+  if (!hasUpdates) {
     let existing: LlmProviderRow | null
     try {
-      const { records } = await runQuery<LlmProviderRow>(
-        `SELECT id, directory_id, name, provider_type, base_url, api_key,
-                default_model, models, status, remark, created_at, updated_at
-           FROM llm_providers
-           WHERE id = $1`,
-        [id],
-      )
-      existing = records[0] ?? null
+      existing = await getLlmProviderById(id)
     } catch (err) {
       log.error('llm provider detail query failed', { id, error: String(err) })
       return fail(c, 502, 'llm provider update failed')
@@ -287,20 +176,18 @@ llmProviderRoutes.patch('/:id', async (c) => {
     return ok(c, { provider: normalizeProvider(existing) })
   }
 
-  params.push(id)
-  const idParam = `$${params.length}`
-
   let row: LlmProviderRow | null
   try {
-    const { records } = await runQuery<LlmProviderRow>(
-      `UPDATE llm_providers
-       SET ${sets.join(', ')}, updated_at = NOW()
-       WHERE id = ${idParam}
-       RETURNING id, directory_id, name, provider_type, base_url, api_key,
-                 default_model, models, status, remark, created_at, updated_at`,
-      params,
-    )
-    row = records[0] ?? null
+    row = await updateLlmProviderFields(id, {
+      name: data.name,
+      providerType: data.providerType,
+      baseUrl: data.baseUrl,
+      apiKey: data.apiKey,
+      defaultModel: data.defaultModel,
+      modelsJson: data.models !== undefined ? JSON.stringify(data.models) : undefined,
+      status: data.status,
+      remark: data.remark,
+    })
   } catch (err) {
     log.error('llm provider update failed', { id, error: String(err) })
     return fail(c, 502, 'llm provider update failed')
@@ -334,11 +221,7 @@ llmProviderRoutes.delete('/:id', async (c) => {
 
   let deletedId: string | null
   try {
-    const { records } = await runQuery<{ id: string }>(
-      `DELETE FROM llm_providers WHERE id = $1 RETURNING id`,
-      [id],
-    )
-    deletedId = records[0]?.id ?? null
+    deletedId = await deleteLlmProvider(id)
   } catch (err) {
     log.error('llm provider delete failed', { id, error: String(err) })
     return fail(c, 502, 'llm provider delete failed')
@@ -364,14 +247,7 @@ llmProviderRoutes.post('/:id/test', async (c) => {
 
   let row: LlmProviderRow | null
   try {
-    const { records } = await runQuery<LlmProviderRow>(
-      `SELECT id, directory_id, name, provider_type, base_url, api_key,
-              default_model, models, status, remark, created_at, updated_at
-         FROM llm_providers
-         WHERE id = $1`,
-      [id],
-    )
-    row = records[0] ?? null
+    row = await getLlmProviderById(id)
   } catch (err) {
     log.error('llm provider detail query failed', { id, error: String(err) })
     return fail(c, 502, 'llm provider test failed')

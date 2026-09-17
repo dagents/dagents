@@ -1,7 +1,4 @@
-import { Hono, type Context } from 'hono'
-import type { ContentfulStatusCode } from 'hono/utils/http-status'
 import { randomUUID } from 'node:crypto'
-import { runQuery } from '@dagents/db'
 import { createLogger } from '@dagents/shared'
 import { type FlowData } from '@dagents/workflow'
 import { executeInline, INLINE_SUPPORTED_KINDS } from '../inline-executor.js'
@@ -12,6 +9,29 @@ import { assembleWorkflowEngine } from './workflow-engine-service.js'
 import { generateFlow, attachFlowIdToAttempt } from './flow-generator.js'
 import { executionRegistry, type ExecutionHandle } from '../execution-registry.js'
 import { persistCancelled } from './internal-runs-helpers.js'
+import {
+  getChatRouting,
+  bindChatAgent,
+  persistChatBindingOverrides,
+  setChatStatusRunning,
+  markChatRunningWithFlow,
+  getChatDirectoryPath,
+  getChatAgentAndDirectoryPath,
+  insertSystemMessageReturningId,
+  insertSystemMessageDatedNow,
+} from '../repositories/chats.repo.js'
+import {
+  findAgentIdByName,
+  findFirstAgentByKinds,
+  findFirstAgentAny,
+} from '../repositories/agents.repo.js'
+import {
+  findAgentDaemonIdByName,
+  findFirstAgentDaemonByKinds,
+  findFirstAgentDaemonAny,
+} from '../repositories/agent-daemons.repo.js'
+import { findRunnableFlowIdByName, getFlowDataById, insertDraftFlow } from '../repositories/workflows.repo.js'
+import { insertDirectDaemonRunRow } from '../repositories/runs.repo.js'
 
 const log = createLogger({ svc: 'gateway:chat-execute' })
 
@@ -70,13 +90,9 @@ export async function routeMessage(
   opts: { agentIdOverride?: string; flowIdOverride?: string },
 ): Promise<RouteResult> {
   // 1. Fetch chat row to know agent_id / flow_id
-  let chat: { id: string; agent_id: string | null; flow_id: string | null } | null
+  let chat: Awaited<ReturnType<typeof getChatRouting>>
   try {
-    const { records } = await runQuery<{ id: string; agent_id: string | null; flow_id: string | null }>(
-      `SELECT id, agent_id, flow_id FROM chats WHERE id = $1::uuid`,
-      [chatId],
-    )
-    chat = records[0] ?? null
+    chat = await getChatRouting(chatId)
   } catch (err) {
     log.error('routeMessage chat lookup failed', { chatId, error: String(err) })
     return { mode: 'json', error: 'chat lookup failed' }
@@ -104,35 +120,25 @@ export async function routeMessage(
   // ③ agents 表任意（执行时报友好错误）→ ④ agent_daemons 任意。
   if (!flowId && !agentId) {
     const inlineKinds = [...INLINE_SUPPORTED_KINDS]
-    const pickAgentId = async (sql: string, params?: unknown[]): Promise<string | null> => {
+    const pickAgentId = async (lookup: () => Promise<string | null>): Promise<string | null> => {
       try {
-        const { records } = await runQuery<{ id: string }>(sql, params)
-        return records[0]?.id ?? null
+        return await lookup()
       } catch (err) {
         log.error('routeMessage auto-agent lookup failed', { chatId, error: String(err) })
         return null
       }
     }
     agentId =
-      (await pickAgentId(
-        `SELECT id FROM agents WHERE kind = ANY($1::text[]) ORDER BY created_at ASC LIMIT 1`,
-        [inlineKinds],
-      )) ??
-      (await pickAgentId(
-        `SELECT id FROM agent_daemons WHERE kind = ANY($1::text[]) ORDER BY created_at ASC LIMIT 1`,
-        [inlineKinds],
-      )) ??
-      (await pickAgentId(`SELECT id FROM agents ORDER BY created_at ASC LIMIT 1`)) ??
-      (await pickAgentId(`SELECT id FROM agent_daemons ORDER BY created_at ASC LIMIT 1`))
+      (await pickAgentId(() => findFirstAgentByKinds(inlineKinds))) ??
+      (await pickAgentId(() => findFirstAgentDaemonByKinds(inlineKinds))) ??
+      (await pickAgentId(() => findFirstAgentAny())) ??
+      (await pickAgentId(() => findFirstAgentDaemonAny()))
 
     // Persist the resolved agent onto the chat row so subsequent messages
     // skip this lookup (and the chat-detail context panel shows the binding).
     if (agentId) {
       try {
-        await runQuery(
-          `UPDATE chats SET agent_id = $1::uuid, updated_at = NOW() WHERE id = $2::uuid`,
-          [agentId, chatId],
-        )
+        await bindChatAgent(chatId, agentId)
       } catch (err) {
         log.warn('routeMessage auto-agent persist failed', { chatId, agentId, error: String(err) })
       }
@@ -145,23 +151,16 @@ export async function routeMessage(
 
   // Persist agent/flow overrides onto the chat row so subsequent reads
   // (stream endpoint, WS subscribers) see the same binding.
-  const updates: string[] = []
-  const params: unknown[] = []
+  const overrides: { agentId?: string; flowId?: string } = {}
   if (opts.agentIdOverride && opts.agentIdOverride !== chat.agent_id) {
-    params.push(opts.agentIdOverride)
-    updates.push(`agent_id = $${params.length}::uuid`)
+    overrides.agentId = opts.agentIdOverride
   }
   if (opts.flowIdOverride && opts.flowIdOverride !== chat.flow_id) {
-    params.push(opts.flowIdOverride)
-    updates.push(`flow_id = $${params.length}::uuid`)
+    overrides.flowId = opts.flowIdOverride
   }
-  if (updates.length > 0) {
-    params.push(chatId)
+  if (overrides.agentId !== undefined || overrides.flowId !== undefined) {
     try {
-      await runQuery(
-        `UPDATE chats SET ${updates.join(', ')}, updated_at = NOW() WHERE id = $${params.length}::uuid`,
-        params,
-      )
+      await persistChatBindingOverrides(chatId, overrides)
     } catch (err) {
       log.warn('routeMessage override persist failed', { chatId, error: String(err) })
     }
@@ -177,14 +176,7 @@ export async function routeMessage(
     // the user's project (matches the directory selector in the UI).
     let cwd: string | undefined
     try {
-      const { records } = await runQuery<{ directory_path: string | null }>(
-        `SELECT d.path AS directory_path
-           FROM chats c
-           JOIN directories d ON d.id = c.directory_id
-          WHERE c.id = $1::uuid`,
-        [chatId],
-      )
-      cwd = records[0]?.directory_path ?? undefined
+      cwd = await getChatDirectoryPath(chatId)
     } catch (err) {
       log.warn('routeMessage directory lookup failed', { chatId, error: String(err) })
     }
@@ -209,10 +201,7 @@ export async function routeMessage(
 
   // ─── Flow path: caller pulls SSE from /chats/:id/stream ───
   try {
-    await runQuery(
-      `UPDATE chats SET status = 'running', updated_at = NOW() WHERE id = $1::uuid`,
-      [chatId],
-    )
+    await setChatStatusRunning(chatId)
   } catch (err) {
     log.warn('routeMessage status=running update failed', { chatId, error: String(err) })
   }
@@ -231,13 +220,7 @@ async function routeCommand(
   const ack = formatCommandAck(cmd)
   let systemMessageId: string | undefined
   try {
-    const { records } = await runQuery<{ id: string }>(
-      `INSERT INTO chat_messages (chat_id, role, content, metadata)
-       VALUES ($1::uuid, 'system', $2, $3)
-       RETURNING id`,
-      [chatId, ack.text, JSON.stringify({ command: cmd })],
-    )
-    systemMessageId = records[0]?.id
+    systemMessageId = await insertSystemMessageReturningId(chatId, ack.text, JSON.stringify({ command: cmd }))
   } catch (err) {
     log.error('routeCommand system message insert failed', { chatId, error: String(err) })
     return { mode: 'json', error: 'command ack failed' }
@@ -269,20 +252,12 @@ async function routeAgentCommand(
 ): Promise<RouteResult> {
   // Resolve agent by name (cmd.target) → agentId.
   // Check both agents (v0.3 domain model) and agent_daemons (legacy).
-  let agent: { id: string } | undefined
+  let agentId: string | null
   try {
-    const { records } = await runQuery<{ id: string }>(
-      `SELECT id FROM agents WHERE name = $1 LIMIT 1`,
-      [cmd.target],
-    )
-    agent = records[0]
-    if (!agent) {
+    agentId = await findAgentIdByName(cmd.target ?? '')
+    if (!agentId) {
       // fallback to agent_daemons
-      const { records: adRecords } = await runQuery<{ id: string }>(
-        `SELECT id FROM agent_daemons WHERE name = $1 LIMIT 1`,
-        [cmd.target],
-      )
-      agent = adRecords[0]
+      agentId = await findAgentDaemonIdByName(cmd.target ?? '')
     }
   } catch (err) {
     log.error('routeAgentCommand agent lookup failed', {
@@ -302,7 +277,7 @@ async function routeAgentCommand(
     }
   }
 
-  if (!agent) {
+  if (!agentId) {
     return {
       mode: 'json',
       payload: {
@@ -319,14 +294,7 @@ async function routeAgentCommand(
   // the user's project (matches the directory selector in the UI).
   let cwd: string | undefined
   try {
-    const dirRes = await runQuery<{ directory_path: string | null }>(
-      `SELECT d.path AS directory_path
-         FROM chats c
-         JOIN directories d ON d.id = c.directory_id
-        WHERE c.id = $1::uuid`,
-      [chatId],
-    )
-    cwd = dirRes.records[0]?.directory_path ?? undefined
+    cwd = await getChatDirectoryPath(chatId)
   } catch (err) {
     log.warn('routeAgentCommand directory lookup failed', { chatId, error: String(err) })
   }
@@ -335,10 +303,10 @@ async function routeAgentCommand(
   // pushes chat:done via wsHub when finished. We don't await here so the
   // HTTP response returns immediately with the ack.
   const runId = randomUUID()
-  void executeInline(chatId, agent.id, cmd.message || '(no message)', { cwd }).catch((err) => {
+  void executeInline(chatId, agentId, cmd.message || '(no message)', { cwd }).catch((err) => {
     log.error('routeAgentCommand executeInline failed', {
       chatId,
-      agentId: agent.id,
+      agentId,
       runId,
       error: String(err),
     })
@@ -373,13 +341,9 @@ async function routeFlowCommand(
 ): Promise<RouteResult> {
   // Resolve flow by name (cmd.target). Exclude 'archived' flows — only
   // draft + published are runnable from chat.
-  let flow: { id: string } | undefined
+  let flowId: string | null
   try {
-    const { records } = await runQuery<{ id: string }>(
-      `SELECT id FROM flows WHERE name = $1 AND status IN ('draft', 'published') LIMIT 1`,
-      [cmd.target],
-    )
-    flow = records[0]
+    flowId = await findRunnableFlowIdByName(cmd.target ?? '')
   } catch (err) {
     log.error('routeFlowCommand flow lookup failed', {
       chatId,
@@ -398,7 +362,7 @@ async function routeFlowCommand(
     }
   }
 
-  if (!flow) {
+  if (!flowId) {
     return {
       mode: 'json',
       payload: {
@@ -412,11 +376,8 @@ async function routeFlowCommand(
   }
 
   // Mark chat as running + bind flow_id (text column — accepts any string).
-  await runQuery(
-    `UPDATE chats SET status = 'running', flow_id = $1, updated_at = NOW() WHERE id = $2::uuid`,
-    [flow.id, chatId],
-  ).catch((err) => {
-    log.warn('routeFlowCommand status update failed', { chatId, flowId: flow!.id, error: String(err) })
+  await markChatRunningWithFlow(flowId, chatId).catch((err) => {
+    log.warn('routeFlowCommand status update failed', { chatId, flowId, error: String(err) })
   })
 
   const runId = randomUUID()
@@ -446,13 +407,9 @@ async function routeFlowCommand(
   void (async () => {
     const startedAt = Date.now()
     try {
-      const { records } = await runQuery<{ flow_data: unknown }>(
-        `SELECT flow_data FROM flows WHERE id = $1::uuid`,
-        [flow.id],
-      )
-      const flowRow = records[0]
+      const flowRow = await getFlowDataById(flowId)
       if (!flowRow) {
-        await writeErrorSystemMessage(chatId, `Flow execution failed: flow ${flow.id} not loadable`)
+        await writeErrorSystemMessage(chatId, `Flow execution failed: flow ${flowId} not loadable`)
         await persistComplete({
           chatId,
           runId,
@@ -481,7 +438,7 @@ async function routeFlowCommand(
       const { executor, baseOptions } = assembleWorkflowEngine({
         flowData,
         runId,
-        flowId: flow.id,
+        flowId,
         logger: log,
       })
 
@@ -535,7 +492,7 @@ async function routeFlowCommand(
     } catch (err) {
       log.error('routeFlowCommand execution failed', {
         chatId,
-        flowId: flow.id,
+        flowId,
         runId,
         error: String(err),
       })
@@ -571,7 +528,7 @@ async function routeFlowCommand(
       command: cmd,
       systemMessageId,
       runId,
-      flowId: flow.id,
+      flowId,
     },
     systemMessageId,
   }
@@ -618,14 +575,11 @@ async function routeWorkflowCommand(
 
       // Persist the validated flow as a draft.
       const flowName = userDesc.slice(0, 40).trim() || 'AI生成的工作流'
-      const { records } = await runQuery<{ id: string }>(
-        `INSERT INTO flows (name, description, flow_data, status)
-         VALUES ($1, $2, $3, 'draft')
-         RETURNING id`,
-        [flowName, `由聊天 @workflow 命令生成: ${userDesc}`, JSON.stringify(result.flowData)],
+      const flowId = await insertDraftFlow(
+        flowName,
+        `由聊天 @workflow 命令生成: ${userDesc}`,
+        JSON.stringify(result.flowData),
       )
-      const flowId = records[0]?.id
-      if (!flowId) throw new Error('flow insert returned no id')
 
       if (result.attemptId) await attachFlowIdToAttempt(result.attemptId, flowId)
 
@@ -696,10 +650,7 @@ async function routeWorkflowCommand(
 }
 
 async function writeErrorSystemMessage(chatId: string, text: string): Promise<void> {
-  await runQuery(
-    `INSERT INTO chat_messages (chat_id, role, content, created_at) VALUES ($1::uuid, 'system', $2, NOW())`,
-    [chatId, text],
-  ).catch((err) => {
+  await insertSystemMessageDatedNow(chatId, text).catch((err) => {
     log.error('writeErrorSystemMessage failed', { chatId, error: String(err) })
   })
 }
@@ -712,8 +663,8 @@ async function writeErrorSystemMessage(chatId: string, text: string): Promise<vo
  * returns `{ taskId }` immediately — the daemon later pulls the task via
  * `/daemons/:id/tasks/claim` and runs it async.
  *
- * Returns immediately with an ack payload containing `runId` + `taskId` so
- * the HTTP response can render an optimistic bubble. The chat is marked
+ * Returns immediately with an ack payload containing `runId` + `taskId` so the
+ * HTTP response can render an optimistic bubble. The chat is marked
  * `running`; completion is signalled separately:
  *
  *   - Dispatch's future callback to gateway `/internal/runs/:runId/complete`
@@ -729,16 +680,9 @@ async function routeDaemonCommand(
 ): Promise<RouteResult> {
   // @daemon requires chat.agent_id (used as agentDaemonId for dispatch).
   // LEFT JOIN directories so chats without a directory still resolve (cwd undefined).
-  let chat: { agent_id: string | null; directory_path: string | null } | undefined
+  let chat: Awaited<ReturnType<typeof getChatAgentAndDirectoryPath>>
   try {
-    const { records } = await runQuery<{ agent_id: string | null; directory_path: string | null }>(
-      `SELECT c.agent_id, d.path AS directory_path
-         FROM chats c
-         LEFT JOIN directories d ON d.id = c.directory_id
-        WHERE c.id = $1::uuid`,
-      [chatId],
-    )
-    chat = records[0]
+    chat = await getChatAgentAndDirectoryPath(chatId)
   } catch (err) {
     log.error('routeDaemonCommand chat lookup failed', { chatId, error: String(err) })
     return {
@@ -778,19 +722,18 @@ async function routeDaemonCommand(
     // 落真实 runs 行（2026-09-06）：此前 runId 是幻影（无 runs 行）——
     // chat 取消无法级联到 dispatch 任务、boot 清扫也收敛不到它、
     // 完成回执的 usage rollup 被迫跳过。现在三点全部打通。
-    await runQuery(
-      `INSERT INTO runs (id, identifier, pipeline_id, status, input, path, chat_id, started_at)
-       VALUES ($1::uuid, $2, $3, 'running', $4, 'direct', $5::uuid, NOW())`,
-      [runId, `daemon-${cmd.message.slice(0, 24)}`, chat.agent_id, JSON.stringify({ prompt: cmd.message }), chatId],
-    ).catch((err) => {
+    await insertDirectDaemonRunRow({
+      runId,
+      identifier: `daemon-${cmd.message.slice(0, 24)}`,
+      agentDaemonId: chat.agent_id,
+      inputJson: JSON.stringify({ prompt: cmd.message }),
+      chatId,
+    }).catch((err) => {
       log.warn('routeDaemonCommand runs row insert failed', { chatId, runId, error: String(err) })
     })
 
     // Mark chat running — daemon will complete async (see jsdoc above).
-    await runQuery(
-      `UPDATE chats SET status = 'running', updated_at = NOW() WHERE id = $1::uuid`,
-      [chatId],
-    ).catch((err) => {
+    await setChatStatusRunning(chatId).catch((err) => {
       log.warn('routeDaemonCommand status=running update failed', { chatId, runId, error: String(err) })
     })
 

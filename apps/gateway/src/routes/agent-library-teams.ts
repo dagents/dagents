@@ -23,16 +23,15 @@
  * `/team-templates/:id/instantiate` 与 `/:division/:slug/instantiate` 同形）——
  * app.ts 里本路由先 mount。
  */
-import { Hono, type Context } from 'hono'
-import type { ContentfulStatusCode } from 'hono/utils/http-status'
+import { Hono } from 'hono'
 import { z } from 'zod'
-import { runQuery } from '@dagents/db'
 import { createLogger } from '@dagents/shared'
 import { agentLibraryRegistry } from '../agent-library-registry.js'
 import {
   findInstantiatedRows,
   insertLibraryAgent,
 } from '../agent-library-instantiate.js'
+import { insertDraftFlow } from '../repositories/workflows.repo.js'
 import { INLINE_SUPPORTED_KINDS } from '../inline-executor.js'
 import { ok, fail } from '../lib/http.js'
 
@@ -319,17 +318,11 @@ agentLibraryTeamRoutes.post('/team-templates/:id/instantiate', async (c) => {
   // 4. 落 draft flow。
   let flowId: string
   try {
-    const { records } = await runQuery<{ id: string }>(
-      `INSERT INTO flows (name, description, flow_data, status)
-       VALUES ($1, $2, $3, 'draft')
-       RETURNING id`,
-      [
-        parsed.flow_name ?? template.name,
-        `Agent Library 团队场景「${template.name}」: ${template.description}`,
-        JSON.stringify(flowData),
-      ],
+    flowId = await insertDraftFlow(
+      parsed.flow_name ?? template.name,
+      `Agent Library 团队场景「${template.name}」: ${template.description}`,
+      JSON.stringify(flowData),
     )
-    flowId = records[0].id
   } catch (err) {
     log.error('team instantiate: flow insert failed', { error: String(err) })
     return fail(c, 422, '工作流创建失败', { detail: String(err) })

@@ -1,7 +1,11 @@
 import { Hono, type Context } from 'hono'
-import { runQuery } from '@dagents/db'
 import { createLogger } from '@dagents/shared'
 import { decryptSecret } from '../crypto.js'
+import {
+  getProviderProxyConfigById,
+  getFirstActiveProviderProxyConfig,
+  type LlmProviderProxyRow,
+} from '../repositories/llm-providers.repo.js'
 import { LLM_HTTP_TIMEOUT_MS } from './workflow-clients.js'
 
 export const llmRoutes = new Hono()
@@ -40,30 +44,8 @@ const connectionListedFields = (connectionHeader: string | null | undefined): st
 const fail = (c: Context, status: 400 | 502, error: string, extra?: Record<string, unknown>) =>
   c.json({ success: false, error, ...extra }, status)
 
-interface LlmProviderRow {
-  id: string
-  base_url: string
-  api_key: string
-  status: string
-}
-
 function decodeApiKey(encoded: string): string {
   return decryptSecret(encoded)
-}
-
-async function getProviderById(id: string): Promise<LlmProviderRow | null> {
-  const { records } = await runQuery<LlmProviderRow>(
-    `SELECT id, base_url, api_key, status FROM llm_providers WHERE id = $1`,
-    [id],
-  )
-  return records[0] ?? null
-}
-
-async function getFirstActiveProvider(): Promise<LlmProviderRow | null> {
-  const { records } = await runQuery<LlmProviderRow>(
-    `SELECT id, base_url, api_key, status FROM llm_providers WHERE status = 'active' ORDER BY updated_at DESC LIMIT 1`,
-  )
-  return records[0] ?? null
 }
 
 llmRoutes.all('/*', async (c) => {
@@ -81,13 +63,13 @@ llmRoutes.all('/*', async (c) => {
   }
 
   const providerId = c.req.header('x-llm-provider-id')
-  let provider: LlmProviderRow | null
+  let provider: LlmProviderProxyRow | null
 
   try {
     if (providerId) {
-      provider = await getProviderById(providerId)
+      provider = await getProviderProxyConfigById(providerId)
     } else {
-      provider = await getFirstActiveProvider()
+      provider = await getFirstActiveProviderProxyConfig()
     }
   } catch (err) {
     log.error('llm provider lookup failed', { error: String(err) })

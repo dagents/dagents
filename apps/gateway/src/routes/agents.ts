@@ -1,11 +1,25 @@
-import { Hono, type Context } from 'hono'
-import type { ContentfulStatusCode } from 'hono/utils/http-status'
+import { Hono } from 'hono'
 import { z } from 'zod'
 import { randomUUID } from 'node:crypto'
-import { runQuery, withTransaction } from '@dagents/db'
 import { createLogger } from '@dagents/shared'
 import { findAgentReferences } from '@dagents/workflow'
 import { checkExecutablePath } from '../lib/executable-path.js'
+import {
+  listAgentsWithRuntime,
+  getAgentDetailRow,
+  listAgentRecentTasks,
+  agentExists,
+  listAgentLogEvents,
+  eventToLogLine,
+  updateAgentFields,
+  deleteAgentCascade,
+  insertAgentWithBridge,
+  toAgentDto,
+  type AgentRow,
+} from '../repositories/agents.repo.js'
+import { daemonExists } from '../repositories/agent-daemons.repo.js'
+import { listFlowsContainingText } from '../repositories/workflows.repo.js'
+import { listRunsTouchingAgentDaemon } from '../repositories/runs.repo.js'
 import { ok, fail } from '../lib/http.js'
 import { UUID_RE } from '../lib/http.js'
 
@@ -44,13 +58,13 @@ import { UUID_RE } from '../lib/http.js'
  * M5; until then these routes are read by the acceptance test only. (Consumer
  * migration tracked under M5.)
  *
- * All reads are parameterised raw SQL via `runQuery`, returning the standard
- * `{ success, data }` envelope. No filters are pushed into SQL — the catalogue
- * is small for MVP so kind/status/role filtering happens client-side, keeping
- * the SQL static (no dynamic WHERE building) and the routes trivial to audit.
- * ⚠️ The list route does NOT yet scope rows by workspace/membership (it returns
- * the full catalogue) — membership scoping lands with RBAC (follow-up, not
- * this task).
+ * All reads are parameterised raw SQL via the repositories layer, returning
+ * the standard `{ success, data }` envelope. No filters are pushed into SQL —
+ * the catalogue is small for MVP so kind/status/role filtering happens
+ * client-side, keeping the SQL static (no dynamic WHERE building) and the
+ * routes trivial to audit. ⚠️ The list route does NOT yet scope rows by
+ * workspace/membership (it returns the full catalogue) — membership scoping
+ * lands with RBAC (follow-up, not this task).
  *
  * `roles` / `skills` / `activity` are JSONB arrays (parsed by the pg driver),
  * so we forward them verbatim (never re-stringify, mirroring the dispatch
@@ -63,10 +77,6 @@ import { UUID_RE } from '../lib/http.js'
 export const agentsRoutes = new Hono()
 
 const log = createLogger({ svc: 'gateway:agents' })
-
-/** Standard envelope helpers (same shape as the rest of the gateway). */
-
-/** UUID shape guard for path ids — 400 on a malformed id, not a 404. */
 
 /** Guard against an unbounded full-table scan if the fleet ever grows. */
 const LIST_LIMIT = 500
@@ -88,268 +98,6 @@ const LOG_LIMIT = 200
 const DEFAULT_WORKSPACE_ID = '00000000-0000-4000-8000-000000000001'
 
 /**
- * snake_case row shape from pg for an `agents` row joined to its owner member.
- *
- * `roles` / `skills` / `activity` are JSONB arrays (parsed by the pg driver).
- * `owner_display` is the resolved human name from `workspace_members`; NULL
- * when the owner has no member row, in which case the route falls back to the
- * raw `owner_id` text so the design's `负责人` prop-row always renders a value.
- */
-interface AgentRow {
-  // --- agents table (design source of truth, M9.1) ---
-  id: string
-  name: string
-  kind: string
-  roles: unknown
-  instructions: string
-  skills: unknown
-  visibility: string
-  concurrency: number
-  model: string
-  runtime: string
-  owner_id: string
-  owner_display: string | null
-  status: string
-  availability: string
-  activity: unknown
-  summary: string
-  input_schema: string
-  output_schema: string
-  daemon_id: string | null
-  flow_id: string | null
-  created_at: Date
-  updated_at: Date
-  // --- agent_daemons join (runtime registration, by shared id) ---
-  ad_id: string | null
-  ad_daemon_id: string | null
-  capability_descriptor: unknown
-  executable_path: string | null
-  ad_visibility: string | null
-  ad_created_at: Date | null
-  // --- daemons join (runtime host) ---
-  daemon_label: string | null
-  daemon_status: string | null
-  last_heartbeat_at: Date | null
-  daemon_capabilities: unknown
-  // --- dispatch_tasks LATERAL join (latest task) ---
-  task_id: string | null
-  run_id: string | null
-  task_status: string | null
-  usage: unknown
-  duration_ms: number | null
-  task_created_at: Date | null
-  finished_at: Date | null
-}
-
-/** Coerce a JSONB value into a `string[]`, tolerating any stored shape. */
-function toStringArray(raw: unknown): string[] {
-  if (!Array.isArray(raw)) return []
-  return raw.filter((s): s is string => typeof s === 'string')
-}
-
-/** Coerce the JSONB `activity` into the design's `{total,ok,fail}[]` shape. */
-function toActivity(raw: unknown): Array<{ total: number; ok: number; fail: number }> {
-  if (!Array.isArray(raw)) return []
-  return raw
-    .filter((b): b is Record<string, unknown> => b !== null && typeof b === 'object')
-    .map((b) => {
-      const total = typeof b.total === 'number' && Number.isFinite(b.total) ? b.total : 0
-      const fail = typeof b.fail === 'number' && Number.isFinite(b.fail) ? b.fail : 0
-      // `ok` is stored explicitly when present; otherwise derive `total - fail`
-      // (the design's `buckets()` helper sets `ok = total - fail`, so the two
-      // are always consistent — deriving keeps the contract honest if a row
-      // was written with only `total` + `fail`).
-      const ok =
-        typeof b.ok === 'number' && Number.isFinite(b.ok) ? b.ok : Math.max(0, total - fail)
-      return { total, ok, fail }
-    })
-}
-
-/** ISO string for a pg `timestamptz` that arrives as a Date or string. */
-function toIso(d: Date | string | null | undefined): string | null {
-  if (d === null || d === undefined) return null
-  return d instanceof Date ? d.toISOString() : new Date(d).toISOString()
-}
-
-/**
- * Parse the `capability_descriptor` JSONB into the design's `{ summary, tags,
- * inputSchema, outputSchema }` shape. Mirrors `parseCapability` in the
- * console's agents-catalog so the two sides agree on the descriptor layout.
- */
-function parseCapability(raw: unknown): {
-  summary: string
-  tags: string[]
-  inputSchema: string
-  outputSchema: string
-} {
-  if (!raw || typeof raw !== 'object') {
-    return { summary: '', tags: [], inputSchema: '', outputSchema: '' }
-  }
-  const c = raw as Record<string, unknown>
-  return {
-    summary: typeof c.summary === 'string' ? c.summary : '',
-    tags: Array.isArray(c.tags) ? c.tags.filter((s): s is string => typeof s === 'string') : [],
-    inputSchema: typeof c.inputSchema === 'string' ? c.inputSchema : '',
-    outputSchema: typeof c.outputSchema === 'string' ? c.outputSchema : '',
-  }
-}
-
-/** Derive a region label from the daemon's `capabilities` JSONB. */
-function deriveRegion(caps: unknown): string {
-  if (!Array.isArray(caps)) return '—'
-  const found = caps.find(
-    (c): c is Record<string, unknown> =>
-      c !== null && typeof c === 'object' && typeof (c as Record<string, unknown>).region === 'string',
-  )
-  return found ? (found.region as string) : '—'
-}
-
-/** Elapsed ms for an in-flight task; null when not running or no task. */
-function deriveElapsedMs(
-  taskStatus: string | null,
-  taskCreatedAt: Date | null,
-  finishedAt: Date | null,
-): number | null {
-  if (!taskCreatedAt) return null
-  const end = finishedAt ? finishedAt.getTime() : Date.now()
-  const ms = end - taskCreatedAt.getTime()
-  // Only count elapsed for tasks that are (or were) in flight; queued tasks
-  // have no meaningful elapsed.
-  return taskStatus && taskStatus !== 'queued' && Number.isFinite(ms) ? Math.max(0, ms) : null
-}
-
-/** Load bucket label from the latest task status + elapsed. */
-function deriveLoad(taskStatus: string | null, elapsedMs: number | null): string {
-  if (taskStatus === 'running') return elapsedMs != null ? '运行中' : '运行中'
-  if (taskStatus === 'queued') return '排队'
-  if (taskStatus === 'completed') return '空闲'
-  if (taskStatus === 'failed') return '异常'
-  return '空闲'
-}
-
-/** Cost rollup from the latest task's `usage` JSONB. */
-function deriveCost(usage: unknown): number | null {
-  if (!usage || typeof usage !== 'object') return null
-  const u = usage as Record<string, unknown>
-  const cost = u.cost
-  return typeof cost === 'number' && Number.isFinite(cost) ? cost : null
-}
-
-/**
- * Map a raw `agents` row to the design's single-agent object shape
- * (`design/js/agents-data.js`).
- *
- * The design's derived fields (`runCount` / `failCount`) are stamped here from
- * `activity` exactly as `agents-data.js:228-231` stamps them client-side — the
- * 30-day total run count + total fail count. `lastActiveDays` is not tracked in
- * the schema today (no "last activity" column); it defaults to 0 (active today)
- * which is the honest placeholder until a daemon-heartbeat rollup lands.
- *
- * The run-context fields (`run` / `load` / `cost` / `progress` / `elapsed`)
- * are joined from `agent_daemons` + `daemons` + the latest `dispatch_tasks` row
- * (the same data the dispatch `/agents` route returns), so the agents page no
- * longer needs a separate dispatch read path. When an agent has no
- * `agent_daemons` row (e.g. an editor-only agent not yet registered with a
- * daemon), the runtime fields fall back to null/0 placeholders — matching the
- * pre-bridge behaviour.
- *
- * Snake_case runtime aliases (`daemon_label`, `task_status`, …) are emitted
- * alongside the camelCase design fields so the console's agents-catalog mapper
- * (which historically consumed the dispatch snake_case shape) can read this
- * payload without a rewrite.
- */
-function toAgentDto(row: AgentRow): Record<string, unknown> {
-  const activity = toActivity(row.activity)
-  const runCount = activity.reduce((s, b) => s + b.total, 0)
-  const failCount = activity.reduce((s, b) => s + b.fail, 0)
-  const capability = parseCapability(row.capability_descriptor)
-  const elapsedMs = deriveElapsedMs(row.task_status, row.task_created_at, row.finished_at)
-  const daemon = row.ad_id ? row.ad_daemon_id ?? row.daemon_id ?? null : row.daemon_id ?? null
-
-  // design camelCase fields (M9.1 acceptance set) — unchanged.
-  // For inline-executor agents (agent_daemons row with executable_path but
-  // no daemon_id), override availability to 'online' — the gateway can
-  // spawn the CLI directly, no daemon process needed.
-  const isInlineReady = !!(row.ad_id && row.executable_path && !row.ad_daemon_id)
-  const availability = isInlineReady ? 'online' : row.availability
-
-  const dto: Record<string, unknown> = {
-    id: row.id,
-    name: row.name,
-    kind: row.kind,
-    roles: toStringArray(row.roles),
-    instructions: row.instructions,
-    skills: toStringArray(row.skills),
-    visibility: row.visibility,
-    concurrency: row.concurrency,
-    model: row.model,
-    runtime: row.runtime,
-    owner: row.owner_display ?? row.owner_id,
-    activity,
-    status: row.status,
-    availability,
-    summary: row.summary,
-    // run-context (joined from dispatch tables; null/0 when no daemon bound).
-    region: row.ad_id ? deriveRegion(row.daemon_capabilities) : null,
-    daemon,
-    run: row.run_id ?? null,
-    flow: row.flow_id ?? null,
-    load: row.ad_id ? deriveLoad(row.task_status, elapsedMs) : 0,
-    cost: row.ad_id ? deriveCost(row.usage) : null,
-    progress: 0,
-    elapsed: elapsedMs,
-    inputSchema: row.input_schema,
-    outputSchema: row.output_schema,
-    created: toIso(row.created_at) ?? '',
-    lastActiveDays: 0,
-    runCount,
-    failCount,
-  }
-
-  // Runtime aliases consumed by the console agents-catalog mapper
-  // (snake_case, matching the legacy dispatch shape). Emitted only when the
-  // agent has an agent_daemons row so editor-only agents surface nulls rather
-  // than fabricated dispatch data.
-  dto.daemon_label = row.daemon_label ?? (isInlineReady ? 'inline' : null)
-  // Inline-executor agents are always 'online' (gateway spawns directly).
-  dto.daemon_status = row.daemon_status ?? (isInlineReady ? 'online' : null)
-  dto.last_heartbeat_at = toIso(row.last_heartbeat_at)
-  dto.daemon_capabilities = row.daemon_capabilities ?? null
-  dto.task_id = row.task_id ?? null
-  dto.run_id = row.run_id ?? null
-  dto.task_status = row.task_status ?? null
-  dto.usage = row.usage ?? null
-  dto.duration_ms = row.duration_ms ?? null
-  dto.task_created_at = toIso(row.task_created_at)
-  dto.finished_at = toIso(row.finished_at)
-  dto.elapsedMs = elapsedMs
-  dto.capability = capability
-  dto.capability_descriptor = row.capability_descriptor ?? null
-  dto.executable_path = row.executable_path ?? null
-  // `created_at` mirrors `created` as an ISO string for snake_case consumers.
-  dto.created_at = toIso(row.created_at) ?? ''
-
-  return dto
-}
-
-/** Shared column list + owner-member + runtime LEFT JOINs for list + detail. */
-const AGENT_COLUMNS = `
-  a.id, a.name, a.kind, a.roles, a.instructions, a.skills,
-  a.visibility, a.concurrency, a.model, a.runtime, a.owner_id,
-  a.status, a.availability, a.activity,
-  a.summary, a.input_schema, a.output_schema,
-  a.daemon_id, a.flow_id, a.created_at, a.updated_at,
-  m.display_name AS owner_display,
-  ad.id AS ad_id, ad.daemon_id AS ad_daemon_id,
-  ad.capability_descriptor, ad.executable_path,
-  ad.visibility AS ad_visibility, ad.created_at AS ad_created_at,
-  d.label AS daemon_label, d.status AS daemon_status,
-  d.last_heartbeat_at, d.capabilities AS daemon_capabilities,
-  t.id AS task_id, t.run_id, t.status AS task_status,
-  t.usage, t.duration_ms, t.created_at AS task_created_at, t.finished_at
-`
-
-/**
  * GET /api/v1/agents — list agents (design-aligned shape), newest-first.
  *
  * Returns `{ agents, truncated }`. The list mirrors `window.OD_AGENTS` from
@@ -363,23 +111,7 @@ const AGENT_COLUMNS = `
 agentsRoutes.get('/', async (c) => {
   let rows: AgentRow[]
   try {
-    const { records } = await runQuery<AgentRow>(
-      `SELECT ${AGENT_COLUMNS}
-         FROM agents a
-         LEFT JOIN workspace_members m
-           ON m.workspace_id = a.workspace_id AND m.member_id = a.owner_id
-         LEFT JOIN agent_daemons ad ON ad.id = a.id
-         LEFT JOIN daemons d ON d.id = ad.daemon_id
-         LEFT JOIN LATERAL (
-           SELECT * FROM dispatch_tasks dt
-            WHERE dt.agent_daemon_id = ad.id
-            ORDER BY dt.created_at DESC LIMIT 1
-         ) t ON true
-        ORDER BY a.created_at DESC, a.id DESC
-        LIMIT $1`,
-      [LIST_FETCH],
-    )
-    rows = records
+    rows = await listAgentsWithRuntime(LIST_FETCH)
   } catch (err) {
     // The agents table may not exist yet on a fresh DB before the domain
     // migration runs; surface a 502 (infrastructure) rather than a 500 leaking
@@ -419,22 +151,7 @@ agentsRoutes.get('/:id', async (c) => {
 
   let row: AgentRow | null
   try {
-    const { records } = await runQuery<AgentRow>(
-      `SELECT ${AGENT_COLUMNS}
-         FROM agents a
-         LEFT JOIN workspace_members m
-           ON m.workspace_id = a.workspace_id AND m.member_id = a.owner_id
-         LEFT JOIN agent_daemons ad ON ad.id = a.id
-         LEFT JOIN daemons d ON d.id = ad.daemon_id
-         LEFT JOIN LATERAL (
-           SELECT * FROM dispatch_tasks dt
-            WHERE dt.agent_daemon_id = ad.id
-            ORDER BY dt.created_at DESC LIMIT 1
-         ) t ON true
-        WHERE a.id = $1`,
-      [id],
-    )
-    row = records[0] ?? null
+    row = await getAgentDetailRow(id)
   } catch (err) {
     log.error('agent detail query failed', { id, error: String(err) })
     return fail(c, 502, 'agent detail failed')
@@ -447,42 +164,10 @@ agentsRoutes.get('/:id', async (c) => {
   // Recent task history for the activity sparkline + cost rollup. Mirrors the
   // dispatch detail route's `tasks[]`. Best-effort: an agent without an
   // agent_daemons row (editor-only) yields an empty list, not an error.
-  let tasks: Array<{
-    id: string
-    run_id: string
-    status: string
-    usage: unknown
-    duration_ms: number | null
-    created_at: string
-    finished_at: string | null
-  }> = []
+  let tasks: Awaited<ReturnType<typeof listAgentRecentTasks>> = []
   if (row.ad_id) {
     try {
-      const { records: taskRows } = await runQuery<{
-        id: string
-        run_id: string
-        status: string
-        usage: unknown
-        duration_ms: number | null
-        created_at: Date
-        finished_at: Date | null
-      }>(
-        `SELECT id, run_id, status, usage, duration_ms, created_at, finished_at
-           FROM dispatch_tasks
-          WHERE agent_daemon_id = $1
-          ORDER BY created_at DESC
-          LIMIT $2`,
-        [row.ad_id, DETAIL_TASK_LIMIT],
-      )
-      tasks = taskRows.map((t) => ({
-        id: t.id,
-        run_id: t.run_id,
-        status: t.status,
-        usage: t.usage,
-        duration_ms: t.duration_ms,
-        created_at: toIso(t.created_at) ?? '',
-        finished_at: toIso(t.finished_at),
-      }))
+      tasks = await listAgentRecentTasks(row.ad_id, DETAIL_TASK_LIMIT)
     } catch (err) {
       log.error('agent detail tasks query failed', { id, error: String(err) })
     }
@@ -492,15 +177,7 @@ agentsRoutes.get('/:id', async (c) => {
   let runs: { id: string; identifier: string; status: string; cost: string }[] = []
   if (row.ad_id) {
     try {
-      const { records } = await runQuery<{ id: string; identifier: string; status: string; cost: string }>(
-        `SELECT id, identifier, status, cost::text AS cost
-           FROM runs
-          WHERE agent_daemon_calls @> $1::jsonb
-          ORDER BY created_at DESC
-          LIMIT 20`,
-        [JSON.stringify([{ agentDaemonId: row.ad_id }])],
-      )
-      runs = records
+      runs = await listRunsTouchingAgentDaemon(row.ad_id)
     } catch {
       runs = []
     }
@@ -549,13 +226,9 @@ agentsRoutes.delete('/:id', async (c) => {
   // JSONB 反序列化（2026-09-17 评审修复）。精确判定仍在应用层做
   // （findAgentReferences 兼容两种存储形态，比镜像一个 jsonb_path_query
   // 好审计）。
-  let flowRows: Array<{ id: string; name: string; flow_data: unknown }>
+  let flowRows: Awaited<ReturnType<typeof listFlowsContainingText>>
   try {
-    const { records } = await runQuery<{ id: string; name: string; flow_data: unknown }>(
-      `SELECT id, name, flow_data FROM flows WHERE flow_data::text LIKE '%' || $1 || '%'`,
-      [id],
-    )
-    flowRows = records
+    flowRows = await listFlowsContainingText(id)
   } catch (err) {
     log.error('agent delete: flows scan failed', { id, error: String(err) })
     return fail(c, 502, 'agent delete reference scan failed')
@@ -578,17 +251,8 @@ agentsRoutes.delete('/:id', async (c) => {
 
   // No references — delete agent + bridge row atomically（此前两条独立
   // DELETE，第二条失败会留 agent_daemons 幽灵行，2026-09-17 评审修复）。
-  // RETURNING id lets us distinguish a genuine 404 (no row) from a success.
   try {
-    const deleted = await withTransaction(async (tx) => {
-      const { records } = await tx<{ id: string }>(
-        `DELETE FROM agents WHERE id = $1 RETURNING id`,
-        [id],
-      )
-      if (!records[0]) return null
-      await tx(`DELETE FROM agent_daemons WHERE id = $1`, [id])
-      return records[0]
-    })
+    const deleted = await deleteAgentCascade(id)
     if (!deleted) {
       return fail(c, 404, 'agent not found', { id })
     }
@@ -623,50 +287,34 @@ agentsRoutes.patch('/:id', async (c) => {
     return fail(c, 400, 'invalid JSON body')
   }
 
-  // Whitelist updatable columns
-  const allowed = new Map<string, string>([
-    ['visibility', 'visibility'],
-    ['name', 'name'],
-    ['instructions', 'instructions'],
-    ['model', 'model'],
-    ['summary', 'summary'],
-    ['status', 'status'],
-    ['availability', 'availability'],
-  ])
-
-  const sets: string[] = []
-  const params: unknown[] = []
-  for (const [key, col] of allowed) {
-    if (key in body) {
-      params.push(body[key])
-      sets.push(`${col} = $${params.length}`)
-    }
-  }
+  // Whitelist updatable columns; 只收集 body 里出现的键（undefined 视同缺省）。
+  const patch: Parameters<typeof updateAgentFields>[1] = {}
+  if ('visibility' in body) patch.visibility = body.visibility
+  if ('name' in body) patch.name = body.name
+  if ('instructions' in body) patch.instructions = body.instructions
+  if ('model' in body) patch.model = body.model
+  if ('summary' in body) patch.summary = body.summary
+  if ('status' in body) patch.status = body.status
+  if ('availability' in body) patch.availability = body.availability
 
   // skills 是 jsonb 字符串数组（本地技能注册表里的 kebab-case 名称）。
-  // 单独处理：需要校验元素类型 + 去重 + ::jsonb cast。
+  // 单独处理：需要校验元素类型。
   if ('skills' in body) {
     const skills = body.skills
     if (!Array.isArray(skills) || !skills.every((s) => typeof s === 'string' && s.length > 0)) {
       return fail(c, 400, 'skills must be a non-empty array of strings')
     }
-    params.push(JSON.stringify([...new Set(skills as string[])]))
-    sets.push(`skills = $${params.length}::jsonb`)
+    patch.skills = skills as string[]
   }
 
-  if (sets.length === 0) {
+  const hasUpdates = Object.keys(patch).length > 0
+  if (!hasUpdates) {
     return fail(c, 400, 'no updatable fields provided')
   }
 
-  sets.push(`updated_at = NOW()`)
-  params.push(id)
-
   try {
-    const { records } = await runQuery<{ id: string }>(
-      `UPDATE agents SET ${sets.join(', ')} WHERE id = $${params.length} RETURNING id`,
-      params,
-    )
-    if (!records[0]) {
+    const outcome = await updateAgentFields(id, patch)
+    if (outcome === 'missing') {
       return fail(c, 404, 'agent not found', { id })
     }
   } catch (err) {
@@ -699,8 +347,7 @@ agentsRoutes.get('/:id/logs', async (c) => {
   // dispatch_tasks on agent_daemon_id, which under the shared-id bridge equals
   // the agents.id — so we query with the request id directly.
   try {
-    const { records } = await runQuery<{ id: string }>(`SELECT id FROM agents WHERE id = $1`, [id])
-    if (!records[0]) {
+    if (!(await agentExists(id))) {
       return fail(c, 404, 'agent not found', { id })
     }
   } catch (err) {
@@ -710,21 +357,8 @@ agentsRoutes.get('/:id/logs', async (c) => {
 
   let logs: Array<{ ts: string; level: string; msg: string }>
   try {
-    const { records } = await runQuery<{
-      kind: string
-      seq: number
-      payload: unknown
-      created_at: Date
-    }>(
-      `SELECT e.kind, e.seq, e.payload, e.created_at
-         FROM dispatch_task_events e
-         JOIN dispatch_tasks t ON t.id = e.task_id
-        WHERE t.agent_daemon_id = $1
-        ORDER BY e.created_at DESC
-        LIMIT $2`,
-      [id, LOG_LIMIT],
-    )
-    logs = records.map(eventToLogLine)
+    const rows = await listAgentLogEvents(id, LOG_LIMIT)
+    logs = rows.map(eventToLogLine)
   } catch (err) {
     log.error('agent logs query failed', { id, error: String(err) })
     return fail(c, 502, 'agent logs failed')
@@ -732,33 +366,6 @@ agentsRoutes.get('/:id/logs', async (c) => {
 
   return ok(c, { logs })
 })
-
-/**
- * Map a dispatch_task_event payload to a drawer log line — same shape/contract
- * as the dispatch route's `eventToLogLine` so the console logs tab is
- * unchanged. `payload` is an `AgentEvent` union; collapsed to `{ts,level,msg}`.
- */
-function eventToLogLine(row: { kind: string; seq: number; payload: unknown; created_at: Date }): {
-  ts: string
-  level: string
-  msg: string
-} {
-  const p = (row.payload ?? {}) as Record<string, unknown>
-  const type = typeof p.type === 'string' ? p.type : ''
-  const level =
-    type === 'error' ? 'err'
-    : type === 'status' ? 'ok'
-    : type === 'log' ? 'info'
-    : type === 'tool-use' ? 'info'
-    : 'info'
-  const msg =
-    typeof p.content === 'string' ? p.content
-    : typeof p.output === 'string' ? p.output
-    : typeof p.status === 'string' ? p.status
-    : type ? `[${type}]`
-    : ''
-  return { ts: row.created_at.toISOString(), level, msg }
-}
 
 /**
  * POST /api/v1/agents — create a platform agent (editor row + runtime row).
@@ -825,10 +432,7 @@ agentsRoutes.post('/', async (c) => {
   // (the agent_daemons FK would 500 otherwise; we want a clean 404).
   if (parsed.daemonId) {
     try {
-      const { records } = await runQuery<{ id: string }>(`SELECT id FROM daemons WHERE id = $1`, [
-        parsed.daemonId,
-      ])
-      if (!records[0]) {
+      if (!(await daemonExists(parsed.daemonId))) {
         return fail(c, 404, 'daemon not found', { daemonId: parsed.daemonId })
       }
     } catch (err) {
@@ -839,10 +443,7 @@ agentsRoutes.post('/', async (c) => {
 
   const id = randomUUID()
 
-  // Bridge row: register the agent with a daemon under the same id so the
-  // runtime read path (agent_daemons join) lights up immediately.
-  //
-  // Two paths create the bridge row:
+  // 编辑器行 + 可选桥接行（共享 id）。两条路径创建桥接行：
   //   1. daemonId supplied → full registration (daemon-managed agent)
   //   2. executablePath supplied, no daemonId → inline-executor agent
   //      (gateway spawns the CLI directly, no daemon process needed).
@@ -852,71 +453,27 @@ agentsRoutes.post('/', async (c) => {
   // 原子化（2026-09-17 评审修复）：此前三段 best-effort 独立写，桥接失败
   // 留下「编辑器有行、运行时没行」的半注册常态 —— 现在整体一个事务，
   // 桥接失败即整体回滚并如实 502（Platform Agent 场景重试即可）。
-  const needsBridge = Boolean(parsed.daemonId || parsed.executablePath)
-  const capabilityDescriptor = {
-    name: parsed.name,
-    summary: parsed.summary,
-    tags: parsed.roles,
-    inputSchema: parsed.inputSchema,
-    outputSchema: parsed.outputSchema,
-  }
-  // For inline-executor agents (no daemonId but has executablePath), mark
-  // availability as 'online' since the gateway can spawn the CLI directly —
-  // no daemon process needed.  Without this, the agent shows as 'offline'
-  // even though it is immediately usable via inline execution.
-  const finalAvailability = (!parsed.daemonId && parsed.executablePath)
-    ? 'online'
-    : parsed.availability
-
   try {
-    await withTransaction(async (tx) => {
-      await tx(
-        `INSERT INTO agents (id, workspace_id, name, kind, roles, instructions, skills,
-                             visibility, concurrency, model, runtime, owner_id,
-                             status, availability, activity, summary, input_schema, output_schema,
-                             daemon_id)
-         VALUES ($1, $2, $3, $4, $5::jsonb, $6, $7::jsonb,
-                 $8, $9, $10, $11, $12,
-                 $13, $14, '[]'::jsonb, $15, $16, $17,
-                 $18)`,
-        [
-          id,
-          parsed.workspaceId,
-          parsed.name,
-          parsed.kind,
-          JSON.stringify(parsed.roles),
-          parsed.instructions,
-          JSON.stringify(parsed.skills),
-          parsed.visibility,
-          parsed.concurrency,
-          parsed.model,
-          parsed.runtime,
-          parsed.ownerId,
-          parsed.status,
-          finalAvailability,
-          parsed.summary,
-          parsed.inputSchema,
-          parsed.outputSchema,
-          parsed.daemonId ?? null,
-        ],
-      )
-      if (needsBridge) {
-        await tx(
-          `INSERT INTO agent_daemons (id, name, kind, daemon_id, capability_descriptor,
-                                      executable_path, visibility, workspace_id)
-           VALUES ($1, $2, $3, $4, $5, $6, $7, $8)`,
-          [
-            id,
-            parsed.name,
-            parsed.kind,
-            parsed.daemonId ?? null,
-            JSON.stringify(capabilityDescriptor),
-            parsed.executablePath ?? null,
-            parsed.visibility,
-            parsed.workspaceId,
-          ],
-        )
-      }
+    await insertAgentWithBridge({
+      id,
+      workspaceId: parsed.workspaceId,
+      name: parsed.name,
+      kind: parsed.kind,
+      ownerId: parsed.ownerId,
+      daemonId: parsed.daemonId ?? null,
+      instructions: parsed.instructions,
+      skills: parsed.skills,
+      roles: parsed.roles,
+      model: parsed.model,
+      runtime: parsed.runtime,
+      visibility: parsed.visibility,
+      concurrency: parsed.concurrency,
+      status: parsed.status,
+      availability: parsed.availability,
+      summary: parsed.summary,
+      inputSchema: parsed.inputSchema,
+      outputSchema: parsed.outputSchema,
+      executablePath: parsed.executablePath ?? null,
     })
   } catch (err) {
     log.error('agent create failed (rolled back)', { id, error: String(err) })

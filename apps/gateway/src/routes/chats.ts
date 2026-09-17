@@ -2,7 +2,6 @@ import { randomUUID } from 'node:crypto'
 import { Hono, type Context } from 'hono'
 import type { ContentfulStatusCode } from 'hono/utils/http-status'
 import { z } from 'zod'
-import { runQuery } from '@dagents/db'
 import { createLogger } from '@dagents/shared'
 import { SseStreamer, type FlowData } from '@dagents/workflow'
 import { routeMessage } from './chat-execute.js'
@@ -12,6 +11,30 @@ import { persistCancelled } from './internal-runs-helpers.js'
 import { sendToRunNode } from './workflow-clients.js'
 import { assembleWorkflowEngine, toRunStatus } from './workflow-engine-service.js'
 import { createChatHumanInputResolver, resolvePendingHumanInput } from './human-input.js'
+import {
+  listChats,
+  searchChats,
+  getChatById,
+  createChat,
+  updateChatFields,
+  deleteChat,
+  chatExists,
+  listChatMessages,
+  appendChatMessage,
+  resetChatToIdle,
+  setChatStatusIdle,
+  getChatExecutionBinding,
+  getLatestUserMessage,
+  insertAssistantChatMessage,
+  bumpChatAfterAssistantMessage,
+  normalizeChat,
+  normalizeMsg,
+  type ChatRow,
+  type ChatMessageRow,
+} from '../repositories/chats.repo.js'
+import { getFlowDataById } from '../repositories/workflows.repo.js'
+import { getDirectoryPath } from '../repositories/directories.repo.js'
+import { upsertChatWorkflowRunRow, listRunsForChat } from '../repositories/runs.repo.js'
 import { ok, fail, UUID_RE } from '../lib/http.js'
 
 export const chatRoutes = new Hono()
@@ -56,62 +79,6 @@ const createMessageWithExecBodySchema = z.object({
   flowIdOverride: z.string().optional(),
 })
 
-interface ChatRow {
-  id: string
-  directory_id: string
-  title: string
-  status: string
-  agent_id: string | null
-  flow_id: string | null
-  last_message: string | null
-  message_count: number
-  last_run_id: string | null
-  created_at: Date
-  updated_at: Date
-}
-
-interface ChatMessageRow {
-  id: string
-  chat_id: string
-  role: string
-  content: string
-  run_id: string | null
-  metadata: unknown
-  created_at: Date
-}
-
-function normalizeChat(r: ChatRow) {
-  return {
-    id: r.id,
-    directoryId: r.directory_id,
-    title: r.title,
-    status: r.status,
-    agentId: r.agent_id,
-    flowId: r.flow_id,
-    lastMessage: r.last_message,
-    messageCount: r.message_count,
-    lastRunId: r.last_run_id,
-    createdAt: r.created_at instanceof Date ? r.created_at.toISOString() : new Date(r.created_at).toISOString(),
-    updatedAt: r.updated_at instanceof Date ? r.updated_at.toISOString() : new Date(r.updated_at).toISOString(),
-  }
-}
-
-function normalizeMsg(r: ChatMessageRow) {
-  let metadata: Record<string, unknown> = {}
-  if (typeof r.metadata === 'object' && r.metadata !== null && !Array.isArray(r.metadata)) {
-    metadata = r.metadata as Record<string, unknown>
-  }
-  return {
-    id: r.id,
-    chatId: r.chat_id,
-    role: r.role,
-    content: r.content,
-    runId: r.run_id,
-    metadata,
-    createdAt: r.created_at instanceof Date ? r.created_at.toISOString() : new Date(r.created_at).toISOString(),
-  }
-}
-
 chatRoutes.get('/', async (c) => {
   const parsed = listQuerySchema.safeParse(c.req.query())
   if (!parsed.success) {
@@ -121,46 +88,7 @@ chatRoutes.get('/', async (c) => {
 
   let rows: ChatRow[]
   try {
-    if (q.directory_id) {
-      // Scope to a specific directory
-      const { records } = await runQuery<ChatRow>(
-        `SELECT id, directory_id, title, status, agent_id, flow_id,
-                last_message, message_count, last_run_id,
-                created_at, updated_at
-           FROM chats
-           WHERE directory_id = $1::uuid
-           ORDER BY updated_at DESC
-           LIMIT $2`,
-        [q.directory_id, q.limit],
-      )
-      rows = records
-    } else {
-      // No directory filter — list all chats (optionally filtered by q)
-      if (q.q) {
-        const { records } = await runQuery<ChatRow>(
-          `SELECT id, directory_id, title, status, agent_id, flow_id,
-                  last_message, message_count, last_run_id,
-                  created_at, updated_at
-             FROM chats
-             WHERE title ILIKE '%' || $1 || '%'
-             ORDER BY updated_at DESC
-             LIMIT $2`,
-          [q.q, q.limit],
-        )
-        rows = records
-      } else {
-        const { records } = await runQuery<ChatRow>(
-          `SELECT id, directory_id, title, status, agent_id, flow_id,
-                  last_message, message_count, last_run_id,
-                  created_at, updated_at
-             FROM chats
-             ORDER BY updated_at DESC
-             LIMIT $1`,
-          [q.limit],
-        )
-        rows = records
-      }
-    }
+    rows = await listChats({ directoryId: q.directory_id, q: q.q, limit: q.limit })
   } catch (err) {
     log.error('chat list query failed', { error: String(err) })
     return fail(c, 502, 'chat list failed')
@@ -205,70 +133,9 @@ chatRoutes.get('/search', async (c) => {
   const escaped = q.q.replace(/\\/g, '\\\\').replace(/%/g, '\\%').replace(/_/g, '\\_')
   const likePattern = `%${escaped}%`
 
-  const params: unknown[] = [likePattern, q.q]
-  let dirFilter = ''
-  if (q.directory_id) {
-    params.push(q.directory_id)
-    dirFilter = `AND ch.directory_id = $${params.length}::uuid`
-  }
-  params.push(q.limit)
-  const limitParam = `$${params.length}`
-
-  interface SearchRow {
-    chat_id: string
-    chat_title: string
-    directory_id: string
-    directory_name: string
-    snippet_raw: string
-    match_type: 'title' | 'content'
-    created_at: Date
-  }
-
-  let rows: SearchRow[]
+  let rows: Awaited<ReturnType<typeof searchChats>>
   try {
-    const { records } = await runQuery<SearchRow>(
-      `
-      -- The union is wrapped in a subselect: Postgres only allows the outer
-      -- ORDER BY of a UNION to reference output columns directly, not
-      -- expressions over them (the CASE below), so it must sort the wrapper.
-      SELECT * FROM (
-        -- Title matches: snippet_raw is the raw title (capped at 200 chars).
-        SELECT ch.id            AS chat_id,
-               ch.title         AS chat_title,
-               ch.directory_id  AS directory_id,
-               d.name           AS directory_name,
-               left(ch.title, 200) AS snippet_raw,
-               'title'::text    AS match_type,
-               ch.created_at    AS created_at
-          FROM chats ch
-          JOIN directories d ON d.id = ch.directory_id
-         WHERE ch.title ILIKE $1 ESCAPE '\\'
-           ${dirFilter}
-         UNION ALL
-        -- Content matches: snippet_raw is a ~200-char window centered on the
-        -- first hit (60 chars of context before, then the hit, then the tail).
-          SELECT ch.id            AS chat_id,
-                 ch.title         AS chat_title,
-                 ch.directory_id  AS directory_id,
-                 d.name           AS directory_name,
-                 substring(cm.content
-                          FROM GREATEST(1, POSITION(LOWER($2) IN LOWER(cm.content)) - 60)
-                          FOR 200) AS snippet_raw,
-                 'content'::text  AS match_type,
-                 cm.created_at    AS created_at
-            FROM chat_messages cm
-            JOIN chats ch ON ch.id = cm.chat_id
-            JOIN directories d ON d.id = ch.directory_id
-           WHERE cm.content ILIKE $1 ESCAPE '\\'
-             ${dirFilter}
-      ) search_results
-      ORDER BY
-        CASE match_type WHEN 'title' THEN 0 ELSE 1 END,
-        created_at DESC
-      LIMIT ${limitParam}`,
-      params,
-    )
-    rows = records
+    rows = await searchChats({ likePattern, q: q.q, directoryId: q.directory_id, limit: q.limit })
   } catch (err) {
     log.error('chat search query failed', { q: q.q, error: String(err) })
     return fail(c, 502, 'chat search failed')
@@ -320,15 +187,7 @@ chatRoutes.get('/:id', async (c) => {
 
   let row: ChatRow | null
   try {
-    const { records } = await runQuery<ChatRow>(
-      `SELECT id, directory_id, title, status, agent_id, flow_id,
-              last_message, message_count, last_run_id,
-              created_at, updated_at
-         FROM chats
-         WHERE id = $1::uuid`,
-      [id],
-    )
-    row = records[0] ?? null
+    row = await getChatById(id)
   } catch (err) {
     log.error('chat detail query failed', { id, error: String(err) })
     return fail(c, 502, 'chat detail failed')
@@ -355,20 +214,12 @@ chatRoutes.post('/', async (c) => {
 
   let row: ChatRow | null
   try {
-    const { records } = await runQuery<ChatRow>(
-      `INSERT INTO chats (directory_id, title, agent_id, flow_id)
-       VALUES ($1::uuid, $2, $3, $4)
-       RETURNING id, directory_id, title, status, agent_id, flow_id,
-                 last_message, message_count, last_run_id,
-                 created_at, updated_at`,
-      [
-        data.directoryId,
-        data.title,
-        data.agentId ?? null,
-        data.flowId ?? null,
-      ],
-    )
-    row = records[0] ?? null
+    row = await createChat({
+      directoryId: data.directoryId,
+      title: data.title,
+      agentId: data.agentId ?? null,
+      flowId: data.flowId ?? null,
+    })
   } catch (err) {
     log.error('chat create failed', { error: String(err) })
     return fail(c, 502, 'chat create failed')
@@ -398,38 +249,16 @@ chatRoutes.patch('/:id', async (c) => {
   }
   const data = parsed.data
 
-  const sets: string[] = []
-  const params: unknown[] = []
+  const hasUpdates =
+    data.title !== undefined ||
+    data.status !== undefined ||
+    data.agentId !== undefined ||
+    data.flowId !== undefined
 
-  if (data.title !== undefined) {
-    params.push(data.title)
-    sets.push(`title = $${params.length}`)
-  }
-  if (data.status !== undefined) {
-    params.push(data.status)
-    sets.push(`status = $${params.length}`)
-  }
-  if (data.agentId !== undefined) {
-    params.push(data.agentId)
-    sets.push(`agent_id = $${params.length}`)
-  }
-  if (data.flowId !== undefined) {
-    params.push(data.flowId)
-    sets.push(`flow_id = $${params.length}`)
-  }
-
-  if (sets.length === 0) {
+  if (!hasUpdates) {
     let existing: ChatRow | null
     try {
-      const { records } = await runQuery<ChatRow>(
-        `SELECT id, directory_id, title, status, agent_id, flow_id,
-                last_message, message_count, last_run_id,
-                created_at, updated_at
-           FROM chats
-           WHERE id = $1::uuid`,
-        [id],
-      )
-      existing = records[0] ?? null
+      existing = await getChatById(id)
     } catch (err) {
       log.error('chat detail query failed', { id, error: String(err) })
       return fail(c, 502, 'chat update failed')
@@ -440,22 +269,9 @@ chatRoutes.patch('/:id', async (c) => {
     return ok(c, { chat: normalizeChat(existing) })
   }
 
-  sets.push(`updated_at = NOW()`)
-  params.push(id)
-  const idParam = `$${params.length}::uuid`
-
   let row: ChatRow | null
   try {
-    const { records } = await runQuery<ChatRow>(
-      `UPDATE chats
-          SET ${sets.join(', ')}
-        WHERE id = ${idParam}
-       RETURNING id, directory_id, title, status, agent_id, flow_id,
-                 last_message, message_count, last_run_id,
-                 created_at, updated_at`,
-      params,
-    )
-    row = records[0] ?? null
+    row = await updateChatFields(id, data)
   } catch (err) {
     log.error('chat update failed', { id, error: String(err) })
     return fail(c, 502, 'chat update failed')
@@ -475,11 +291,7 @@ chatRoutes.delete('/:id', async (c) => {
 
   let deletedId: string | null
   try {
-    const { records } = await runQuery<{ id: string }>(
-      `DELETE FROM chats WHERE id = $1::uuid RETURNING id`,
-      [id],
-    )
-    deletedId = records[0]?.id ?? null
+    deletedId = await deleteChat(id)
   } catch (err) {
     log.error('chat delete failed', { id, error: String(err) })
     return fail(c, 502, 'chat delete failed')
@@ -498,11 +310,7 @@ chatRoutes.get('/:id/messages', async (c) => {
   }
 
   try {
-    const { records: chatRecords } = await runQuery<{ id: string }>(
-      `SELECT id FROM chats WHERE id = $1::uuid`,
-      [id],
-    )
-    if (chatRecords.length === 0) {
+    if (!(await chatExists(id))) {
       return fail(c, 404, 'chat not found', { id })
     }
   } catch (err) {
@@ -512,14 +320,7 @@ chatRoutes.get('/:id/messages', async (c) => {
 
   let rows: ChatMessageRow[]
   try {
-    const { records } = await runQuery<ChatMessageRow>(
-      `SELECT id, chat_id, role, content, run_id, metadata, created_at
-         FROM chat_messages
-         WHERE chat_id = $1::uuid
-         ORDER BY created_at ASC`,
-      [id],
-    )
-    rows = records
+    rows = await listChatMessages(id)
   } catch (err) {
     log.error('chat messages query failed', { id, error: String(err) })
     return fail(c, 502, 'chat messages failed')
@@ -551,33 +352,12 @@ chatRoutes.post('/:id/messages', async (c) => {
   // system paths and should not re-route.
   let msgRow: ChatMessageRow | null
   try {
-    const result = await runQuery<ChatMessageRow>(
-      `WITH chat_check AS (
-         SELECT id FROM chats WHERE id = $1::uuid
-       ),
-       inserted AS (
-         INSERT INTO chat_messages (chat_id, role, content, run_id, metadata)
-         SELECT $1::uuid, $2, $3, $4, $5
-          FROM chat_check
-         RETURNING id, chat_id, role, content, run_id, metadata, created_at
-       ),
-       updated AS (
-         UPDATE chats
-            SET last_message = $3,
-                message_count = message_count + 1,
-                updated_at = NOW()
-          WHERE id = $1::uuid
-       )
-       SELECT * FROM inserted`,
-      [
-        id,
-        data.role,
-        data.content,
-        data.runId ?? null,
-        JSON.stringify(data.metadata ?? {}),
-      ],
-    )
-    msgRow = result.records[0] ?? null
+    msgRow = await appendChatMessage(id, {
+      role: data.role,
+      content: data.content,
+      runId: data.runId ?? null,
+      metadataJson: JSON.stringify(data.metadata ?? {}),
+    })
   } catch (err) {
     log.error('chat message create failed', { id, error: String(err) })
     return fail(c, 502, 'chat message create failed')
@@ -642,16 +422,7 @@ chatRoutes.post('/:id/reset', async (c) => {
 
   let row: ChatRow | null
   try {
-    const { records } = await runQuery<ChatRow>(
-      `UPDATE chats
-          SET status = 'idle', updated_at = NOW()
-        WHERE id = $1::uuid
-       RETURNING id, directory_id, title, status, agent_id, flow_id,
-                 last_message, message_count, last_run_id,
-                 created_at, updated_at`,
-      [id],
-    )
-    row = records[0] ?? null
+    row = await resetChatToIdle(id)
   } catch (err) {
     log.error('chat reset failed', { id, error: String(err) })
     return fail(c, 502, 'chat reset failed')
@@ -762,10 +533,7 @@ async function streamAgentExecution(
 
       // Update chat status
       try {
-        await runQuery(
-          `UPDATE chats SET status = 'idle', updated_at = NOW() WHERE id = $1::uuid`,
-          [chatId],
-        )
+        await setChatStatusIdle(chatId)
       } catch {
         // best-effort status reset — ignore errors once the stream has closed
       }
@@ -792,20 +560,12 @@ chatRoutes.get('/:id/stream', async (c) => {
   }
 
   // Fetch the latest user message (the prompt for execution) alongside chat metadata.
-  let chat: { flow_id: string | null; agent_id: string | null; directory_id: string | null } | null
+  let chat: Awaited<ReturnType<typeof getChatExecutionBinding>>
   let lastUserMsg: string | null = null
   try {
-    const { records: chatRows } = await runQuery<{ flow_id: string | null; agent_id: string | null; directory_id: string | null }>(
-      `SELECT flow_id, agent_id, directory_id FROM chats WHERE id = $1::uuid`,
-      [id],
-    )
-    chat = chatRows[0] ?? null
+    chat = await getChatExecutionBinding(id)
     if (chat) {
-      const { records: msgRows } = await runQuery<{ content: string }>(
-        `SELECT content FROM chat_messages WHERE chat_id = $1::uuid AND role = 'user' ORDER BY created_at DESC LIMIT 1`,
-        [id],
-      )
-      lastUserMsg = msgRows[0]?.content ?? null
+      lastUserMsg = await getLatestUserMessage(id)
     }
   } catch (err) {
     log.error('chat stream lookup failed', { id, error: String(err) })
@@ -826,13 +586,9 @@ chatRoutes.get('/:id/stream', async (c) => {
     return fail(c, 400, 'chat has no flow_id — bind a flow via PATCH /chats/:id first', { id })
   }
 
-  let flowRow: { flow_data: unknown } | null
+  let flowRow: Awaited<ReturnType<typeof getFlowDataById>>
   try {
-    const { records } = await runQuery<{ flow_data: unknown }>(
-      `SELECT flow_data FROM flows WHERE id = $1::uuid`,
-      [chat.flow_id],
-    )
-    flowRow = records[0] ?? null
+    flowRow = await getFlowDataById(chat.flow_id)
   } catch (err) {
     log.error('chat stream flow lookup failed', { id, flowId: chat.flow_id, error: String(err) })
     return fail(c, 502, 'chat stream failed')
@@ -890,11 +646,7 @@ chatRoutes.get('/:id/stream', async (c) => {
       let chatCwd: string | undefined
       if (chat.directory_id) {
         try {
-          const { records: dirRows } = await runQuery<{ path: string }>(
-            `SELECT path FROM directories WHERE id = $1::uuid`,
-            [chat.directory_id],
-          )
-          chatCwd = dirRows[0]?.path ?? undefined
+          chatCwd = (await getDirectoryPath(chat.directory_id)) ?? undefined
         } catch { /* 目录解析失败回落网关 cwd */ }
       }
       // 引擎装配单一来源（与画布直跑 / @flow 路径共用）：chat 触发的
@@ -932,26 +684,16 @@ chatRoutes.get('/:id/stream', async (c) => {
       // （canvas?run=）依赖它判断终态。best-effort —— 失败不影响流。
       try {
         const runStatus = toRunStatus(result.status)
-        await runQuery(
-          `INSERT INTO runs (id, identifier, pipeline_id, chat_id, status, input, output, started_at, finished_at, duration_ms, cost)
-           VALUES ($1::uuid, $2::text, $3::uuid, $4::text, $5, $6, $7, $8, NOW(), $9, 0)
-           ON CONFLICT (id) DO UPDATE SET
-             status = EXCLUDED.status,
-             output = EXCLUDED.output,
-             finished_at = EXCLUDED.finished_at,
-             duration_ms = EXCLUDED.duration_ms`,
-          [
-            runId,
-            runId,
-            chat.flow_id!,
-            id,
-            runStatus,
-            JSON.stringify(prompt.slice(0, 200)),
-            JSON.stringify(finalText.slice(0, 500) || null),
-            new Date(handle.startedAt).toISOString(),
-            Math.max(0, Date.now() - handle.startedAt),
-          ],
-        )
+        await upsertChatWorkflowRunRow({
+          runId,
+          flowId: chat.flow_id!,
+          chatId: id,
+          status: runStatus,
+          inputJson: JSON.stringify(prompt.slice(0, 200)),
+          outputJson: JSON.stringify(finalText.slice(0, 500) || null),
+          startedAtIso: new Date(handle.startedAt).toISOString(),
+          durationMs: Math.max(0, Date.now() - handle.startedAt),
+        })
       } catch (err) {
         log.warn('chat stream runs row persist failed', { id, runId, error: String(err) })
       }
@@ -972,26 +714,14 @@ chatRoutes.get('/:id/stream', async (c) => {
       // page reload (best-effort — the stream already delivered the text).
       else if (finalText.length > 0) {
         try {
-          await runQuery(
-            `INSERT INTO chat_messages (chat_id, role, content, run_id, metadata)
-             VALUES ($1::uuid, 'assistant', $2, $3, $4)`,
-            [id, finalText, runId, JSON.stringify({ source: 'workflow' })],
-          )
-          await runQuery(
-            `UPDATE chats
-                SET last_message = $2, message_count = message_count + 1, status = 'idle', updated_at = NOW()
-              WHERE id = $1::uuid`,
-            [id, finalText.slice(0, 200)],
-          )
+          await insertAssistantChatMessage(id, finalText, runId, JSON.stringify({ source: 'workflow' }))
+          await bumpChatAfterAssistantMessage(id, finalText.slice(0, 200))
         } catch (err) {
           log.warn('persist assistant reply failed', { id, runId, error: String(err) })
         }
       } else {
         try {
-          await runQuery(
-            `UPDATE chats SET status = 'idle', updated_at = NOW() WHERE id = $1::uuid`,
-            [id],
-          )
+          await setChatStatusIdle(id)
         } catch {
           // best-effort status reset — ignore errors once the stream closed
         }
@@ -1033,16 +763,6 @@ function extractReplyText(finalOutput: Record<string, unknown> | null): string {
   return raw
 }
 
-interface RunRow {
-  id: string
-  status: string
-  created_at: Date
-  finished_at: Date | null
-  duration_ms: number | null
-  pipeline_id: string | null
-  flow_name: string | null
-}
-
 chatRoutes.get('/:id/runs', async (c) => {
   const id = c.req.param('id')
   if (!UUID_RE.test(id)) {
@@ -1050,19 +770,9 @@ chatRoutes.get('/:id/runs', async (c) => {
   }
 
   // runs.chat_id is TEXT, so cast chat id to text for the comparison.
-  let rows: RunRow[]
+  let rows: Awaited<ReturnType<typeof listRunsForChat>>
   try {
-    const { records } = await runQuery<RunRow>(
-      `SELECT r.id, r.status, r.created_at, r.finished_at, r.duration_ms,
-              r.pipeline_id, f.name AS flow_name
-         FROM runs r
-         LEFT JOIN flows f ON f.id::text = r.pipeline_id::text
-         WHERE r.chat_id = $1::text
-         ORDER BY r.created_at DESC
-         LIMIT 50`,
-      [id],
-    )
-    rows = records
+    rows = await listRunsForChat(id)
   } catch (err) {
     log.error('chat runs query failed', { id, error: String(err) })
     return fail(c, 502, 'chat runs failed')

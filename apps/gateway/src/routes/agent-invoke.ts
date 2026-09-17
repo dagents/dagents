@@ -1,11 +1,12 @@
-import { Hono, type Context } from 'hono'
-import type { ContentfulStatusCode } from 'hono/utils/http-status'
+import { Hono } from 'hono'
 import { z } from 'zod'
 import { createBackend } from '@dagents/agent-adapters'
-import { runQuery } from '@dagents/db'
 import { createLogger } from '@dagents/shared'
 import type { AgentResult } from '@dagents/contracts'
 import { checkExecutablePath } from '../lib/executable-path.js'
+import { getAgentKind } from '../repositories/agents.repo.js'
+import { getAgentDaemonRuntime } from '../repositories/agent-daemons.repo.js'
+import { getDirectoryPath } from '../repositories/directories.repo.js'
 import { ok, fail } from '../lib/http.js'
 
 /**
@@ -57,18 +58,10 @@ const SUPPORTED_KINDS = [
 /** Resolve an agent's kind + executable: `agents` table first (v0.3 domain
  *  model), `agent_daemons` fallback (legacy dispatch rows carry the path). */
 async function resolveAgent(id: string): Promise<{ kind: string; executablePath: string } | null> {
-  const { records: agentRows } = await runQuery<{ kind: string }>(
-    `SELECT kind FROM agents WHERE id = $1::uuid`,
-    [id],
-  )
-  if (agentRows[0]) return { kind: agentRows[0].kind, executablePath: '' }
+  const kind = await getAgentKind(id)
+  if (kind !== null) return { kind, executablePath: '' }
 
-  const { records: daemonRows } = await runQuery<{ kind: string; executable_path: string | null }>(
-    `SELECT kind, executable_path FROM agent_daemons WHERE id = $1::uuid`,
-    [id],
-  )
-  if (!daemonRows[0]) return null
-  return { kind: daemonRows[0].kind, executablePath: daemonRows[0].executable_path ?? '' }
+  return await getAgentDaemonRuntime(id)
 }
 
 agentInvokeRoutes.post('/:id/invoke', async (c) => {
@@ -109,14 +102,11 @@ agentInvokeRoutes.post('/:id/invoke', async (c) => {
   let cwd: string | undefined
   if (parsed.directoryId) {
     try {
-      const { records } = await runQuery<{ path: string }>(
-        `SELECT path FROM directories WHERE id = $1::uuid`,
-        [parsed.directoryId],
-      )
-      if (!records[0]) {
+      const path = await getDirectoryPath(parsed.directoryId)
+      if (path === null) {
         return fail(c, 404, 'directory not found', { directoryId: parsed.directoryId })
       }
-      cwd = records[0].path
+      cwd = path
     } catch (err) {
       log.error('invoke directory lookup failed', { id, error: String(err) })
       return fail(c, 502, 'directory lookup failed')
