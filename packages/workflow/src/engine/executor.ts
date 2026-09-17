@@ -62,6 +62,10 @@ export interface ExecuteOptions {
 /** Node type names whose iteration body the executor repeats. */
 const ITERATION_CONTROLLERS = new Set(['iterationAgentflow'])
 
+/** 节点级重试上限（opt-in `retries` 输入的硬顶，防配置错误放大故障）。 */
+const MAX_NODE_RETRIES = 3
+const RETRY_BACKOFF_BASE_MS = 200
+
 /** An iteration controller's parsed execution plan (see `planIterationBody`). */
 interface IterationPlan {
   /** Body node ids — transitive closure from the body anchor, excluding the controller. */
@@ -70,6 +74,29 @@ interface IterationPlan {
   entryEdges: FlowEdge[]
   /** The items to iterate over. */
   items: unknown[]
+}
+
+/**
+ * Per-execution mutable state shared by the scheduler / node runner /
+ * iteration runner（2026-09-17 拆解：此前这十余个可变量以闭包形式挤在
+ * execute() 单方法里，任何改动只能整图级回归 —— 现在以显式上下文对象
+ * 在私有方法间传递，行为逐字保持）。
+ */
+interface RunContext {
+  opts: ExecuteOptions
+  /** 本次执行的原始输入（start 节点的 nodeInput 来源）。 */
+  input: unknown
+  runtime: RuntimeState
+  executedNodes: IExecutedNode[]
+  nodeById: Map<string, FlowNode>
+  topoIndex: Map<string, number>
+  incomingEdges: Map<string, FlowEdge[]>
+  outgoingEdges: Map<string, FlowEdge[]>
+  /** Per-run tool registry overlay（不泄漏进调用方对象）。 */
+  toolRegistry: Record<string, IAgentTool>
+  /** finalOutput = 拓扑最深的已执行节点输出。 */
+  finalOutput: Record<string, unknown> | null
+  finalOutputIndex: number
 }
 
 /**
@@ -133,393 +160,29 @@ export class DagExecutor {
       }
 
       const order = sorted.order
-      const nodeById = new Map(order.map((n) => [n.id, n]))
       const topoIndex = new Map(order.map((n, i) => [n.id, i]))
-      const nodeOutputs = new Map<string, Record<string, unknown>>()
-      const incomingEdges = this.buildIncomingEdges(flow.edges)
       const outgoingEdges = this.buildOutgoingEdges(flow.edges)
 
-      // Per-run tool registry overlay. It starts from the caller's base
-      // registry (built-in tools), and future registrations land here without
-      // leaking into the caller's object.
-      const toolRegistry: Record<string, IAgentTool> = { ...(opts.toolRegistry ?? {}) }
-
-      // Final output = the deepest (max topological index) executed node.
-      let finalOutput: Record<string, unknown> | null = null
-      let finalOutputIndex = -1
-      const recordExecution = (nodeId: string, output: Record<string, unknown>): void => {
-        const idx = topoIndex.get(nodeId) ?? -1
-        if (idx >= finalOutputIndex) {
-          finalOutputIndex = idx
-          finalOutput = output
-        }
+      const ctx: RunContext = {
+        opts,
+        input,
+        runtime,
+        executedNodes,
+        nodeById: new Map(order.map((n) => [n.id, n])),
+        topoIndex,
+        incomingEdges: this.buildIncomingEdges(flow.edges),
+        outgoingEdges,
+        toolRegistry: { ...(opts.toolRegistry ?? {}) },
+        finalOutput: null,
+        finalOutputIndex: -1,
       }
 
-      const buildContext = (isLast: boolean, nodeId?: string, nodeName?: string): IExecutionContext => ({
-        chatId: opts.chatId,
-        runId: opts.runId,
-        state: runtime.state,
-        isLastNode: isLast,
-        sseStreamer: opts.sseStreamer,
-        startInput: opts.startInput,
-        sessionId: opts.sessionId,
-        signal: opts.signal,
-        agentflowRuntime: { state: runtime.state },
-        // 按当前节点绑定 delta 回调 —— 并行波次里每个节点报自己的增量
-        onNodeDelta:
-          opts.onNodeDelta && nodeId
-            ? (chunk: import('../types/execution.js').IStreamDelta) =>
-                opts.onNodeDelta!({ nodeId, nodeName: nodeName ?? nodeId }, chunk)
-            : undefined,
-        llmClient: opts.llmClient,
-        agentFetcher: opts.agentFetcher,
-        toolRegistry,
-        humanInputResolver: opts.humanInputResolver,
-      })
-
-      /** Execute one node instance (no scheduling). Throws on node failure. */
-      const runNode = async (flowNode: FlowNode, nodeInput: unknown): Promise<INodeOutput> => {
-        const nodeInstance = this.registry.get(flowNode.data.name as string)
-        if (!nodeInstance) {
-          throw new Error(`Node type "${flowNode.data.name}" not registered`)
-        }
-        // 两种数据形态归一化：AI 生成/手工编写的 flow 把配置平铺在
-        // `data.<field>`；画布编辑器（vendor/agentflow nodeFactory +
-        // EditNodeDialog）把配置嵌套在 `data.inputs.<field>`。节点统一从
-        // `nodeData.inputs.<field>` 读 —— 平铺键打底、嵌套 inputs 覆盖，
-        // 这样画布保存后改的值生效，且老 flow 不受影响。
-        const flat = flowNode.data as Record<string, unknown>
-        const nested = flat?.inputs
-        const mergedInputs =
-          nested && typeof nested === 'object' && !Array.isArray(nested)
-            ? { ...flat, ...(nested as Record<string, unknown>) }
-            : { ...flat }
-        const nodeData: INodeData = {
-          id: flowNode.id,
-          name: flowNode.data.name as string,
-          inputs: mergedInputs,
-        }
-        const isLast = this.isLastExecutableNode(flowNode, outgoingEdges, opts.isLastNode)
-        return nodeInstance.run(
-          nodeData,
-          nodeInput,
-          buildContext(isLast, flowNode.id, flowNode.data.name as string),
-        )
-      }
-
-      /** Incoming edges of `nodeId` that are active given `outputs`. */
-      const activeIncoming = (
-        nodeId: string,
-        outputs: Map<string, Record<string, unknown>>,
-      ): FlowEdge[] => {
-        const edges = incomingEdges.get(nodeId) ?? []
-        return edges.filter((edge) => {
-          const sourceOutput = outputs.get(edge.source)
-          if (!sourceOutput) return false
-          return this.shouldExecuteEdge(edge, sourceOutput, nodeById.get(edge.source))
-        })
-      }
-
-      /**
-       * Wave scheduler over a restricted node scope (the whole graph, or a
-       * iteration body). Mutates `outputs` and appends to `executedNodes`; merges
-       * node state into `runtime`. Returns the processed ids (executed +
-       * skipped) and the first error, if any.
-       *
-       * `entryEdges` are scope-entry edges whose source lives outside the
-       * scope (an iteration controller's body edges). They count as satisfied for
-       * readiness and resolve against `seed` — a per-iteration pseudo-output
-       * map — instead of `outputs`.
-       */
-      const runWaves = async (
-        scope: Set<string>,
-        entryEdges: FlowEdge[],
-        outputs: Map<string, Record<string, unknown>>,
-        seed: Map<string, Record<string, unknown>>,
-      ): Promise<{ processed: Set<string>; error?: string }> => {
-        // Local pending counts: only edges internal to the scope gate
-        // readiness — entry edges are pre-satisfied (their source, the iteration
-        // controller, already ran) and resolve via `seed`.
-        const entrySet = new Set(entryEdges)
-        const localPending = new Map<string, number>()
-        for (const nodeId of scope) {
-          const edges = (incomingEdges.get(nodeId) ?? []).filter(
-            (e) => scope.has(e.source) && !entrySet.has(e),
-          )
-          localPending.set(nodeId, edges.length)
-        }
-
-        const byTopo = (a: string, b: string) => (topoIndex.get(a) ?? 0) - (topoIndex.get(b) ?? 0)
-
-        const processed = new Set<string>()
-        let wave = [...scope].filter((id) => (localPending.get(id) ?? 0) === 0).sort(byTopo)
-
-        while (wave.length > 0) {
-          if (opts.signal?.aborted) {
-            return { processed, error: 'Execution cancelled' }
-          }
-
-          // Evaluate every wave member: execute or skip. Tasks never reject —
-          // failures are carried in the outcome.
-          const outcomes = await Promise.all(
-            wave.map(async (nodeId): Promise<WaveOutcome> => {
-              const flowNode = nodeById.get(nodeId)!
-              const nodeIncoming = incomingEdges.get(nodeId) ?? []
-              const isStartNode = nodeIncoming.length === 0
-
-              // Entry edges with no resolved source output resolve via seed.
-              const seedEntries = entryEdges.filter(
-                (e) => e.target === nodeId && !outputs.has(e.source),
-              )
-              const incoming = activeIncoming(nodeId, outputs)
-              const shouldExecute =
-                isStartNode || incoming.length > 0 || seedEntries.length > 0
-
-              if (!shouldExecute) {
-                return { kind: 'skipped', nodeId }
-              }
-
-              const nodeInput = seedEntries.length > 0
-                ? this.mergeInputs(seedEntries, seed)
-                : isStartNode
-                  ? input
-                  : this.mergeInputs(incoming, outputs)
-
-              const startedAt = new Date().toISOString()
-              try {
-                opts.onNodeStart?.({ nodeId, nodeName: flowNode.data.name as string })
-                const output = await runNode(flowNode, nodeInput)
-                const executed: IExecutedNode = {
-                  nodeId,
-                  nodeName: flowNode.data.name as string,
-                  startedAt,
-                  endedAt: new Date().toISOString(),
-                  status: 'success',
-                  input: output.input,
-                  output: output.output,
-                  tokens: output.usage ?? null,
-                  cost: null,
-                }
-                executedNodes.push(executed)
-                opts.onNodeEnd?.(executed)
-                runtime.merge(output.state)
-                // Expose the node's output to template variables under its
-                // node id (the canvas variable picker inserts `{{<nodeId>}}`),
-                // spread at top level for `{{id.field}}` AND nested under
-                // `output` for `{{id.output.field}}`.
-                const nodeOut = output.output
-                runtime.merge({ [nodeId]: { ...nodeOut, output: nodeOut } })
-                // `{{$start.input}}` 别名（variables.ts resolveAlias 映射到
-                // state.start.content）此前永远落空 —— Start 输出只挂在节点
-                // id 键下，而画布运行面板的文案恰恰宣传这个语法。Start 节点
-                // 输出额外登记 state.start（文档语义：$start = 流程入口）。
-                if (flowNode.data.name === 'startAgentflow') {
-                  runtime.merge({ start: { ...nodeOut, output: nodeOut } })
-                }
-                outputs.set(nodeId, output.output)
-                recordExecution(nodeId, output.output)
-                return { kind: 'executed', nodeId, output: output.output, input: nodeInput }
-              } catch (err) {
-                const message = err instanceof Error ? err.message : String(err)
-                // 被看门狗清理/取消的 CLI 调用把已产生的 usage 附着在错误
-                // 对象上（见 gateway createCliLlmClient）—— 失败节点的 span
-                // 也能如实记录烧掉的 tokens，而不是恒 0。
-                const errUsage = (err as { usage?: ITokenUsage }).usage
-                const executed: IExecutedNode = {
-                  nodeId,
-                  nodeName: flowNode.data.name as string,
-                  startedAt,
-                  endedAt: new Date().toISOString(),
-                  status: 'failed',
-                  input: this.toRecord(nodeInput),
-                  output: {},
-                  tokens: errUsage ?? null,
-                  error: message,
-                }
-                executedNodes.push(executed)
-                opts.onNodeEnd?.(executed)
-                return { kind: 'failed', nodeId, error: message }
-              }
-            }),
-          )
-
-          const failure = outcomes.find((o): o is FailedOutcome => o.kind === 'failed')
-          if (failure) {
-            for (const o of outcomes) processed.add(o.nodeId)
-            return { processed, error: failure.error }
-          }
-
-          // Everything processed this round — iteration controllers additionally
-          // run their whole body inline, which processes the body nodes too.
-          const released = new Set<string>()
-          for (const o of outcomes) {
-            processed.add(o.nodeId)
-            released.add(o.nodeId)
-
-            const flowNode = nodeById.get(o.nodeId)!
-            if (o.kind !== 'executed' || !ITERATION_CONTROLLERS.has(flowNode.data.name as string)) {
-              continue
-            }
-
-            const plan = this.planIterationBody(flowNode, outgoingEdges, o.output, scope)
-            if (plan.body.size === 0) {
-              continue
-            }
-            const iterationResult = await runIterationBody(flowNode, plan, outputs, o.input)
-            if (iterationResult.error) {
-              for (const bodyId of plan.body) processed.add(bodyId)
-              return { processed, error: iterationResult.error }
-            }
-            for (const bodyId of plan.body) {
-              processed.add(bodyId)
-              released.add(bodyId)
-            }
-            // Downstream (result-path) nodes consume the aggregate output,
-            // and the controller's trace record reflects it too.
-            outputs.set(o.nodeId, iterationResult.output)
-            recordExecution(o.nodeId, iterationResult.output)
-            for (let i = executedNodes.length - 1; i >= 0; i--) {
-              if (executedNodes[i].nodeId === o.nodeId) {
-                executedNodes[i].output = iterationResult.output
-                // 体内执行发生在控制器节点的 onNodeEnd 之后 —— 若不重发
-                // 钩子，增量 span 落库的是 start 快照（只有 iterationInput），
-                // completedIterations/iterations 等终态字段永久丢失
-                // （6 例 e2e 既有失败的根因）。endedAt 顺延到体内完成，
-                // span 时长才等于整轮循环的真实耗时。
-                executedNodes[i].endedAt = new Date().toISOString()
-                opts.onNodeEnd?.(executedNodes[i])
-                break
-              }
-            }
-          }
-
-          // Release outgoing edges of everything processed this round, then
-          // assemble the next wave from the scope's remaining nodes.
-          const nextWave: string[] = []
-          for (const releasedId of released) {
-            for (const edge of outgoingEdges.get(releasedId) ?? []) {
-              if (!scope.has(edge.target)) continue
-              localPending.set(edge.target, (localPending.get(edge.target) ?? 1) - 1)
-            }
-          }
-          for (const nodeId of scope) {
-            if (!processed.has(nodeId) && (localPending.get(nodeId) ?? 0) === 0) {
-              nextWave.push(nodeId)
-            }
-          }
-          wave = nextWave.sort(byTopo)
-        }
-
-        return { processed }
-      }
-
-      /**
-       * Execute an iteration controller's body once per item, sequentially.
-       * Each iteration runs the body sub-DAG against a fresh clone of the
-       * global outputs (minus the controller's raw output, so entry edges
-       * resolve via the per-iteration seed: the current item wrapped in the
-       * content-string convention). Iteration metadata is merged into runtime
-       * state so prompts can reference it via template variables.
-       */
-      const runIterationBody = async (
-        controller: FlowNode,
-        plan: IterationPlan,
-        globalOutputs: Map<string, Record<string, unknown>>,
-        _controllerInput: unknown,
-      ): Promise<{ output: Record<string, unknown>; error?: string }> => {
-        const controllerOutput = globalOutputs.get(controller.id) ?? {}
-        const iterations: Array<Record<string, unknown>> = []
-        // 纵深防御：IterationNode.run 已在节点侧对超上限抛错（span 可见），
-        // 这里兜住绕过节点校验直接进入 body 计划的路径 —— 同值同语义。
-        const MAX_ITERATION_ITEMS = 100
-        if (plan.items.length > MAX_ITERATION_ITEMS) {
-          return {
-            output: {},
-            error:
-              `Iteration 节点「${controller.data?.name ?? controller.id}」的列表有 ` +
-              `${plan.items.length} 项，超过上限 ${MAX_ITERATION_ITEMS}（拒绝静默截断，` +
-              `请在上游缩小列表或分批运行）`,
-          }
-        }
-        const count = plan.items.length
-        let lastBodyOutput: Record<string, unknown> = {}
-        let completed = 0
-
-        for (let i = 0; i < count; i++) {
-          if (opts.signal?.aborted) break
-
-          const item = plan.items[i]
-          const seedValue: Record<string, unknown> = {
-            content: typeof item === 'string' ? item : JSON.stringify(item),
-            item,
-            iterationIndex: i,
-          }
-          const seed = new Map<string, Record<string, unknown>>([[controller.id, seedValue]])
-          runtime.merge({
-            iterationIndex: i,
-            iterationCount: count,
-            iterationItem: item ?? null,
-            iteration: item ?? null,
-          })
-
-          const iterationOutputs = new Map(globalOutputs)
-          iterationOutputs.delete(controller.id)
-          const result = await runWaves(plan.body, plan.entryEdges, iterationOutputs, seed)
-          if (result.error) {
-            return { output: {}, error: result.error }
-          }
-
-          // The iteration's final output = deepest body node executed.
-          let iterationFinal: Record<string, unknown> = {}
-          let iterationFinalIndex = -1
-          for (const nodeId of result.processed) {
-            const out = iterationOutputs.get(nodeId)
-            if (!out) continue
-            const idx = topoIndex.get(nodeId) ?? -1
-            if (idx >= iterationFinalIndex) {
-              iterationFinalIndex = idx
-              iterationFinal = out
-            }
-          }
-          iterations.push(iterationFinal)
-          lastBodyOutput = iterationFinal
-          completed = i + 1
-        }
-
-        // 循环结束后清掉迭代元数据（2026-09-17 评审修复）：此前
-        // iterationIndex/iterationItem 等保留字残留最后一项的值，循环后
-        // 的下游节点模板里 {{iterationItem}} 会静默解析到脏数据。
-        runtime.delete('iterationIndex')
-        runtime.delete('iterationCount')
-        runtime.delete('iterationItem')
-        runtime.delete('iteration')
-
-        // FR-06（PRD 决议）：Iteration 的聚合 content = 逐项正文有序拼接
-        // （与 N 进 1 合并契约同语义）——此前只保留最后一项，下游
-        // `{{iter.content}}` 静默丢 N-1 份产出。完整数组在 `.iterations`。
-        const aggregateContent = iterations
-          .map((it) => (typeof it.content === 'string' ? it.content : JSON.stringify(it)))
-          .filter((s) => s.length > 0)
-          .join('\n\n')
-        const content =
-          typeof lastBodyOutput.content === 'string'
-            ? lastBodyOutput.content
-            : JSON.stringify(lastBodyOutput)
-        return {
-          output: {
-            ...controllerOutput,
-            iterations,
-            completedIterations: completed,
-            content: aggregateContent || content,
-          },
-        }
-      }
-
+      const nodeOutputs = new Map<string, Record<string, unknown>>()
       const allScope = new Set(order.map((n) => n.id))
-      const result = await runWaves(allScope, [], nodeOutputs, new Map())
+      const result = await this.runWaves(ctx, allScope, [], nodeOutputs, new Map())
 
       if (result.error) {
-        // A caller-aborted run reports `cancelled` (not `failed`) so callers
+        // A caller-aborted run reports `cancelled` (not `failed') so callers
         // can distinguish user intent from engine errors — the enum value
         // existed since the beginning but was never produced (spec D3).
         const cancelled = opts.signal?.aborted === true
@@ -535,7 +198,7 @@ export class DagExecutor {
       return {
         status: 'success',
         executedNodes,
-        finalOutput,
+        finalOutput: ctx.finalOutput,
         state: runtime.snapshot(),
       }
     } catch (err) {
@@ -551,6 +214,407 @@ export class DagExecutor {
             : String(err),
         state: runtime.snapshot(),
       }
+    }
+  }
+
+  /** Record a node output as the run's final output if it's topologically deepest. */
+  private recordExecution(ctx: RunContext, nodeId: string, output: Record<string, unknown>): void {
+    const idx = ctx.topoIndex.get(nodeId) ?? -1
+    if (idx >= ctx.finalOutputIndex) {
+      ctx.finalOutputIndex = idx
+      ctx.finalOutput = output
+    }
+  }
+
+  /** Build the IExecutionContext handed to one node run. */
+  private buildNodeContext(
+    ctx: RunContext,
+    isLast: boolean,
+    nodeId?: string,
+    nodeName?: string,
+  ): IExecutionContext {
+    const { opts } = ctx
+    return {
+      chatId: opts.chatId,
+      runId: opts.runId,
+      state: ctx.runtime.state,
+      isLastNode: isLast,
+      sseStreamer: opts.sseStreamer,
+      startInput: opts.startInput,
+      sessionId: opts.sessionId,
+      signal: opts.signal,
+      agentflowRuntime: { state: ctx.runtime.state },
+      // 按当前节点绑定 delta 回调 —— 并行波次里每个节点报自己的增量
+      onNodeDelta:
+        opts.onNodeDelta && nodeId
+          ? (chunk: import('../types/execution.js').IStreamDelta) =>
+            opts.onNodeDelta!({ nodeId, nodeName: nodeName ?? nodeId }, chunk)
+          : undefined,
+      llmClient: opts.llmClient,
+      agentFetcher: opts.agentFetcher,
+      toolRegistry: ctx.toolRegistry,
+      humanInputResolver: opts.humanInputResolver,
+    }
+  }
+
+  /** Execute one node instance (no scheduling). Throws on node failure.
+   * 节点级 opt-in 重试（2026-09-17）：节点声明 `retries` 输入（0~3，缺省
+   * 0 = 行为不变）时，失败自动重试并指数退避 —— LLM/HTTP 类瞬时故障的
+   * 单节点自愈，不改变波次失败语义（重试耗尽仍按波次失败上报）。取消
+   * 信号触发时不重试。 */
+  private async runNode(ctx: RunContext, flowNode: FlowNode, nodeInput: unknown): Promise<INodeOutput> {
+    const nodeInstance = this.registry.get(flowNode.data.name as string)
+    if (!nodeInstance) {
+      throw new Error(`Node type "${flowNode.data.name}" not registered`)
+    }
+    // 两种数据形态归一化：AI 生成/手工编写的 flow 把配置平铺在
+    // `data.<field>`；画布编辑器（vendor/agentflow nodeFactory +
+    // EditNodeDialog）把配置嵌套在 `data.inputs.<field>`。节点统一从
+    // `nodeData.inputs.<field>` 读 —— 平铺键打底、嵌套 inputs 覆盖，
+    // 这样画布保存后改的值生效，且老 flow 不受影响。
+    const flat = flowNode.data as Record<string, unknown>
+    const nested = flat?.inputs
+    const mergedInputs =
+      nested && typeof nested === 'object' && !Array.isArray(nested)
+        ? { ...flat, ...(nested as Record<string, unknown>) }
+        : { ...flat }
+    const nodeData: INodeData = {
+      id: flowNode.id,
+      name: flowNode.data.name as string,
+      inputs: mergedInputs,
+    }
+    const isLast = this.isLastExecutableNode(flowNode, ctx.outgoingEdges, ctx.opts.isLastNode)
+    const runCtx = this.buildNodeContext(ctx, isLast, flowNode.id, flowNode.data.name as string)
+
+    const retriesRaw = mergedInputs.retries
+    const retries =
+      typeof retriesRaw === 'number' && Number.isFinite(retriesRaw)
+        ? Math.min(Math.max(Math.trunc(retriesRaw), 0), MAX_NODE_RETRIES)
+        : 0
+
+    let attempt = 0
+    // eslint-disable-next-line no-constant-condition
+    while (true) {
+      try {
+        return await nodeInstance.run(nodeData, nodeInput, runCtx)
+      } catch (err) {
+        if (attempt >= retries || ctx.opts.signal?.aborted) throw err
+        attempt += 1
+        await new Promise((r) => setTimeout(r, RETRY_BACKOFF_BASE_MS * attempt))
+      }
+    }
+  }
+
+  /** Incoming edges of `nodeId` that are active given `outputs`. */
+  private activeIncomingEdges(
+    ctx: RunContext,
+    nodeId: string,
+    outputs: Map<string, Record<string, unknown>>,
+  ): FlowEdge[] {
+    const edges = ctx.incomingEdges.get(nodeId) ?? []
+    return edges.filter((edge) => {
+      const sourceOutput = outputs.get(edge.source)
+      if (!sourceOutput) return false
+      return this.shouldExecuteEdge(edge, sourceOutput, ctx.nodeById.get(edge.source))
+    })
+  }
+
+  /**
+   * Wave scheduler over a restricted node scope (the whole graph, or a
+   * iteration body). Mutates `outputs` and appends to `ctx.executedNodes`;
+   * merges node state into `ctx.runtime`. Returns the processed ids
+   * (executed + skipped) and the first error, if any.
+   *
+   * `entryEdges` are scope-entry edges whose source lives outside the
+   * scope (an iteration controller's body edges). They count as satisfied for
+   * readiness and resolve against `seed` — a per-iteration pseudo-output
+   * map — instead of `outputs`.
+   */
+  private async runWaves(
+    ctx: RunContext,
+    scope: Set<string>,
+    entryEdges: FlowEdge[],
+    outputs: Map<string, Record<string, unknown>>,
+    seed: Map<string, Record<string, unknown>>,
+  ): Promise<{ processed: Set<string>; error?: string }> {
+    const { opts, runtime, executedNodes, nodeById, topoIndex, incomingEdges } = ctx
+
+    // Local pending counts: only edges internal to the scope gate
+    // readiness — entry edges are pre-satisfied (their source, the iteration
+    // controller, already ran) and resolve via `seed`.
+    const entrySet = new Set(entryEdges)
+    const localPending = new Map<string, number>()
+    for (const nodeId of scope) {
+      const edges = (incomingEdges.get(nodeId) ?? []).filter(
+        (e) => scope.has(e.source) && !entrySet.has(e),
+      )
+      localPending.set(nodeId, edges.length)
+    }
+
+    const byTopo = (a: string, b: string) => (topoIndex.get(a) ?? 0) - (topoIndex.get(b) ?? 0)
+
+    const processed = new Set<string>()
+    let wave = [...scope].filter((id) => (localPending.get(id) ?? 0) === 0).sort(byTopo)
+
+    while (wave.length > 0) {
+      if (opts.signal?.aborted) {
+        return { processed, error: 'Execution cancelled' }
+      }
+
+      // Evaluate every wave member: execute or skip. Tasks never reject —
+      // failures are carried in the outcome.
+      const outcomes = await Promise.all(
+        wave.map(async (nodeId): Promise<WaveOutcome> => {
+          const flowNode = nodeById.get(nodeId)!
+          const nodeIncoming = incomingEdges.get(nodeId) ?? []
+          const isStartNode = nodeIncoming.length === 0
+
+          // Entry edges with no resolved source output resolve via seed.
+          const seedEntries = entryEdges.filter(
+            (e) => e.target === nodeId && !outputs.has(e.source),
+          )
+          const incoming = this.activeIncomingEdges(ctx, nodeId, outputs)
+          const shouldExecute =
+            isStartNode || incoming.length > 0 || seedEntries.length > 0
+
+          if (!shouldExecute) {
+            return { kind: 'skipped', nodeId }
+          }
+
+          const nodeInput = seedEntries.length > 0
+            ? this.mergeInputs(seedEntries, seed)
+            : isStartNode
+              ? ctx.input
+              : this.mergeInputs(incoming, outputs)
+
+          const startedAt = new Date().toISOString()
+          try {
+            opts.onNodeStart?.({ nodeId, nodeName: flowNode.data.name as string })
+            const output = await this.runNode(ctx, flowNode, nodeInput)
+            const executed: IExecutedNode = {
+              nodeId,
+              nodeName: flowNode.data.name as string,
+              startedAt,
+              endedAt: new Date().toISOString(),
+              status: 'success',
+              input: output.input,
+              output: output.output,
+              tokens: output.usage ?? null,
+              cost: null,
+            }
+            executedNodes.push(executed)
+            opts.onNodeEnd?.(executed)
+            runtime.merge(output.state)
+            // Expose the node's output to template variables under its
+            // node id (the canvas variable picker inserts `{{<nodeId>}}`),
+            // spread at top level for `{{id.field}}` AND nested under
+            // `output` for `{{id.output.field}}`.
+            const nodeOut = output.output
+            runtime.merge({ [nodeId]: { ...nodeOut, output: nodeOut } })
+            // `{{$start.input}}` 别名（variables.ts resolveAlias 映射到
+            // state.start.content）此前永远落空 —— Start 输出只挂在节点
+            // id 键下，而画布运行面板的文案恰恰宣传这个语法。Start 节点
+            // 输出额外登记 state.start（文档语义：$start = 流程入口）。
+            if (flowNode.data.name === 'startAgentflow') {
+              runtime.merge({ start: { ...nodeOut, output: nodeOut } })
+            }
+            outputs.set(nodeId, output.output)
+            this.recordExecution(ctx, nodeId, output.output)
+            return { kind: 'executed', nodeId, output: output.output, input: nodeInput }
+          } catch (err) {
+            const message = err instanceof Error ? err.message : String(err)
+            // 被看门狗清理/取消的 CLI 调用把已产生的 usage 附着在错误
+            // 对象上（见 gateway createCliLlmClient）—— 失败节点的 span
+            // 也能如实记录烧掉的 tokens，而不是恒 0。
+            const errUsage = (err as { usage?: ITokenUsage }).usage
+            const executed: IExecutedNode = {
+              nodeId,
+              nodeName: flowNode.data.name as string,
+              startedAt,
+              endedAt: new Date().toISOString(),
+              status: 'failed',
+              input: this.toRecord(nodeInput),
+              output: {},
+              tokens: errUsage ?? null,
+              error: message,
+            }
+            executedNodes.push(executed)
+            opts.onNodeEnd?.(executed)
+            return { kind: 'failed', nodeId, error: message }
+          }
+        }),
+      )
+
+      const failure = outcomes.find((o): o is FailedOutcome => o.kind === 'failed')
+      if (failure) {
+        for (const o of outcomes) processed.add(o.nodeId)
+        return { processed, error: failure.error }
+      }
+
+      // Everything processed this round — iteration controllers additionally
+      // run their whole body inline, which processes the body nodes too.
+      const released = new Set<string>()
+      for (const o of outcomes) {
+        processed.add(o.nodeId)
+        released.add(o.nodeId)
+
+        const flowNode = nodeById.get(o.nodeId)!
+        if (o.kind !== 'executed' || !ITERATION_CONTROLLERS.has(flowNode.data.name as string)) {
+          continue
+        }
+
+        const plan = this.planIterationBody(flowNode, ctx.outgoingEdges, o.output, scope)
+        if (plan.body.size === 0) {
+          continue
+        }
+        const iterationResult = await this.runIterationBody(ctx, flowNode, plan, outputs)
+        if (iterationResult.error) {
+          for (const bodyId of plan.body) processed.add(bodyId)
+          return { processed, error: iterationResult.error }
+        }
+        for (const bodyId of plan.body) {
+          processed.add(bodyId)
+          released.add(bodyId)
+        }
+        // Downstream (result-path) nodes consume the aggregate output,
+        // and the controller's trace record reflects it too.
+        outputs.set(o.nodeId, iterationResult.output)
+        this.recordExecution(ctx, o.nodeId, iterationResult.output)
+        for (let i = executedNodes.length - 1; i >= 0; i--) {
+          if (executedNodes[i].nodeId === o.nodeId) {
+            executedNodes[i].output = iterationResult.output
+            // 体内执行发生在控制器节点的 onNodeEnd 之后 —— 若不重发
+            // 钩子，增量 span 落库的是 start 快照（只有 iterationInput），
+            // completedIterations/iterations 等终态字段永久丢失
+            // （6 例 e2e 既有失败的根因）。endedAt 顺延到体内完成，
+            // span 时长才等于整轮循环的真实耗时。
+            executedNodes[i].endedAt = new Date().toISOString()
+            opts.onNodeEnd?.(executedNodes[i])
+            break
+          }
+        }
+      }
+
+      // Release outgoing edges of everything processed this round, then
+      // assemble the next wave from the scope's remaining nodes.
+      const nextWave: string[] = []
+      for (const releasedId of released) {
+        for (const edge of ctx.outgoingEdges.get(releasedId) ?? []) {
+          if (!scope.has(edge.target)) continue
+          localPending.set(edge.target, (localPending.get(edge.target) ?? 1) - 1)
+        }
+      }
+      for (const nodeId of scope) {
+        if (!processed.has(nodeId) && (localPending.get(nodeId) ?? 0) === 0) {
+          nextWave.push(nodeId)
+        }
+      }
+      wave = nextWave.sort(byTopo)
+    }
+
+    return { processed }
+  }
+
+  /**
+   * Execute an iteration controller's body once per item, sequentially.
+   * Each iteration runs the body sub-DAG against a fresh clone of the
+   * global outputs (minus the controller's raw output, so entry edges
+   * resolve via the per-iteration seed: the current item wrapped in the
+   * content-string convention). Iteration metadata is merged into runtime
+   * state so prompts can reference it via template variables.
+   */
+  private async runIterationBody(
+    ctx: RunContext,
+    controller: FlowNode,
+    plan: IterationPlan,
+    globalOutputs: Map<string, Record<string, unknown>>,
+  ): Promise<{ output: Record<string, unknown>; error?: string }> {
+    const { runtime, topoIndex } = ctx
+    const controllerOutput = globalOutputs.get(controller.id) ?? {}
+    const iterations: Array<Record<string, unknown>> = []
+    // 纵深防御：IterationNode.run 已在节点侧对超上限抛错（span 可见），
+    // 这里兜住绕过节点校验直接进入 body 计划的路径 —— 同值同语义。
+    const MAX_ITERATION_ITEMS = 100
+    if (plan.items.length > MAX_ITERATION_ITEMS) {
+      return {
+        output: {},
+        error:
+          `Iteration 节点「${controller.data?.name ?? controller.id}」的列表有 ` +
+          `${plan.items.length} 项，超过上限 ${MAX_ITERATION_ITEMS}（拒绝静默截断，` +
+          `请在上游缩小列表或分批运行）`,
+      }
+    }
+    const count = plan.items.length
+    let lastBodyOutput: Record<string, unknown> = {}
+    let completed = 0
+
+    for (let i = 0; i < count; i++) {
+      if (ctx.opts.signal?.aborted) break
+
+      const item = plan.items[i]
+      const seedValue: Record<string, unknown> = {
+        content: typeof item === 'string' ? item : JSON.stringify(item),
+        item,
+        iterationIndex: i,
+      }
+      const seed = new Map<string, Record<string, unknown>>([[controller.id, seedValue]])
+      runtime.merge({
+        iterationIndex: i,
+        iterationCount: count,
+        iterationItem: item ?? null,
+        iteration: item ?? null,
+      })
+
+      const iterationOutputs = new Map(globalOutputs)
+      iterationOutputs.delete(controller.id)
+      const result = await this.runWaves(ctx, plan.body, plan.entryEdges, iterationOutputs, seed)
+      if (result.error) {
+        return { output: {}, error: result.error }
+      }
+
+      // The iteration's final output = deepest body node executed.
+      let iterationFinal: Record<string, unknown> = {}
+      let iterationFinalIndex = -1
+      for (const nodeId of result.processed) {
+        const out = iterationOutputs.get(nodeId)
+        if (!out) continue
+        const idx = topoIndex.get(nodeId) ?? -1
+        if (idx >= iterationFinalIndex) {
+          iterationFinalIndex = idx
+          iterationFinal = out
+        }
+      }
+      iterations.push(iterationFinal)
+      lastBodyOutput = iterationFinal
+      completed = i + 1
+    }
+
+    // 循环结束后清掉迭代元数据（2026-09-17 评审修复）：此前
+    // iterationIndex/iterationItem 等保留字残留最后一项的值，循环后
+    // 的下游节点模板里 {{iterationItem}} 会静默解析到脏数据。
+    runtime.delete('iterationIndex')
+    runtime.delete('iterationCount')
+    runtime.delete('iterationItem')
+    runtime.delete('iteration')
+
+    // FR-06（PRD 决议）：Iteration 的聚合 content = 逐项正文有序拼接
+    // （与 N 进 1 合并契约同语义）——此前只保留最后一项，下游
+    // `{{iter.content}}` 静默丢 N-1 份产出。完整数组在 `.iterations`。
+    const aggregateContent = iterations
+      .map((it) => (typeof it.content === 'string' ? it.content : JSON.stringify(it)))
+      .filter((s) => s.length > 0)
+      .join('\n\n')
+    const content =
+      typeof lastBodyOutput.content === 'string'
+        ? lastBodyOutput.content
+        : JSON.stringify(lastBodyOutput)
+    return {
+      output: {
+        ...controllerOutput,
+        iterations,
+        completedIterations: completed,
+        content: aggregateContent || content,
+      },
     }
   }
 
@@ -732,6 +796,29 @@ export class DagExecutor {
   }
 
   /**
+   * Determine if the node is a "last executable node".
+   * A node is "last" when it has no outgoing edges at all. This is a pre-run
+   * heuristic: edges whose sourceHandle won't match the current output cannot
+   * be detected here, but it correctly handles linear DAGs and active branch
+   * tails (which themselves have no outgoing edges). 并行多尾时**每个执行到
+   * 的尾节点**都拿到 isLastNode=true —— 每条分支的终点各自是「最后一节
+   * 点」（SSE 终帧/DirectReply 语义）；静态挑唯一尾会被条件剪枝打破
+   * （被剪掉的更深尾节点 vs 实际执行的尾节点），语义钉在
+   * executor-semantics.test.ts。
+   *
+   * Returns false when the caller disabled last-node handling (`isLastNodeFlag`).
+   */
+  private isLastExecutableNode(
+    currentNode: FlowNode,
+    outgoingEdges: Map<string, FlowEdge[]>,
+    isLastNodeFlag: boolean,
+  ): boolean {
+    if (!isLastNodeFlag) return false
+    const outgoing = outgoingEdges.get(currentNode.id) ?? []
+    return outgoing.length === 0
+  }
+
+  /**
    * Build a map of node id → list of incoming edges.
    */
   private buildIncomingEdges(edges: FlowEdge[]): Map<string, FlowEdge[]> {
@@ -755,25 +842,6 @@ export class DagExecutor {
       outgoing.set(edge.source, list)
     }
     return outgoing
-  }
-
-  /**
-   * Determine if the node is the last executable node.
-   * A node is "last" when it has no outgoing edges at all. This is a pre-run
-   * heuristic: edges whose sourceHandle won't match the current output cannot
-   * be detected here, but it correctly handles linear DAGs and active branch tails
-   * (which themselves have no outgoing edges).
-   *
-   * Returns false when the caller disabled last-node handling (`isLastNodeFlag`).
-   */
-  private isLastExecutableNode(
-    currentNode: FlowNode,
-    outgoingEdges: Map<string, FlowEdge[]>,
-    isLastNodeFlag: boolean,
-  ): boolean {
-    if (!isLastNodeFlag) return false
-    const outgoing = outgoingEdges.get(currentNode.id) ?? []
-    return outgoing.length === 0
   }
 
   /**

@@ -13,8 +13,10 @@ import { runUserCode } from './user-code-exec.js'
  * （require/process/globalThis/fetch/Worker）以形参 shadow 成 undefined。
  * 这是**隔离不是沙箱**：刻意逃逸（constructor 链）拦不住；死循环冻住网关
  * 事件循环的旧问题已消除。真沙箱（isolated-vm/子进程隔离）是多用户化的
- * 前置条件，见 docs/workflow-engine.md 现状与限制。loop break condition 与
- * Tool 节点 handler 仍是同步 new Function（待同样处理）。
+ * 前置条件，见 docs/workflow-engine.md 现状与限制。
+ * （2026-09-17 勘误：旧注释称 loop break condition / Tool 节点 handler
+ * 仍是同步 new Function —— 两类节点已随 D8 精简删除，仓内唯一用户代码
+ * 求值点就是本文件的 worker 路径。）
  *
  * Flowise dependencies removed:
  *   - `eval` with `flow.state` / `input` → `new Function('$input', '$flow', code)`

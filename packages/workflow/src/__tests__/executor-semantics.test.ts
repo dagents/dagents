@@ -285,3 +285,79 @@ describe('DagExecutor 脆弱语义（N 进 1 合并）', () => {
     expect(merged.result).toBe('two')
   })
 })
+
+describe('DagExecutor 脆弱语义（isLastNode 与节点重试）', () => {
+  it('并行多尾：每个执行到的尾节点都拿到 isLastNode=true（各分支终点语义）', async () => {
+    const lastFlags: Record<string, boolean | undefined> = {}
+    const makeTail = (name: string): INode => ({
+      label: name, name, version: 1, type: name, category: 'Test', color: '#000', inputs: [],
+      async run(nodeData: INodeData, _input: unknown, options: IExecutionContext): Promise<INodeOutput> {
+        lastFlags[nodeData.id] = options.isLastNode
+        return { id: nodeData.id, name, input: {}, output: { content: `${nodeData.id} done` } }
+      },
+    })
+    const registry = new NodeRegistry()
+    registry.register(makeEchoNode('branchSource', 'SRC'))
+    registry.register(makeTail('tailOne'))
+    registry.register(makeTail('tailTwo'))
+
+    const flow: FlowData = {
+      nodes: [
+        { id: 'src', data: { name: 'branchSource' } },
+        { id: 't1', data: { name: 'tailOne' } },
+        { id: 't2', data: { name: 'tailTwo' } },
+      ],
+      edges: [
+        { id: 'e1', source: 'src', target: 't1' },
+        { id: 'e2', source: 'src', target: 't2' },
+      ],
+    }
+    const executor = new DagExecutor(registry)
+    const result = await executor.execute(flow, 'seed', {
+      chatId: 'c1', runId: 'r1', state: {}, isLastNode: true,
+    })
+    expect(result.status).toBe('success')
+    expect(lastFlags.t1).toBe(true)
+    expect(lastFlags.t2).toBe(true)
+    // finalOutput 仍确定性：拓扑最深的尾
+    expect(result.finalOutput).toEqual({ content: 't2 done' })
+  })
+
+  it('节点级 retries 输入：瞬时失败自愈，重试次数如实执行', async () => {
+    let attempts = 0
+    const flaky: INode = {
+      label: 'Flaky', name: 'flakyNode', version: 1, type: 'Flaky', category: 'Test', color: '#000',
+      inputs: [],
+      async run(nodeData: INodeData): Promise<INodeOutput> {
+        attempts += 1
+        if (attempts < 3) throw new Error(`transient-${attempts}`)
+        return { id: nodeData.id, name: 'flakyNode', input: {}, output: { content: 'recovered' } }
+      },
+    }
+    const registry = new NodeRegistry()
+    registry.register(flaky)
+    const flow: FlowData = {
+      nodes: [{ id: 'f', data: { name: 'flakyNode', retries: 2 } }],
+      edges: [],
+    }
+    const executor = new DagExecutor(registry)
+    const result = await executor.execute(flow, 'seed', {
+      chatId: 'c1', runId: 'r1', state: {}, isLastNode: false,
+    })
+    expect(result.status).toBe('success')
+    expect(attempts).toBe(3)
+    expect(result.finalOutput).toEqual({ content: 'recovered' })
+  })
+
+  it('无 retries（缺省 0）：失败即波次失败，行为与拆解前一致', async () => {
+    const registry = new NodeRegistry()
+    registry.register(makeFailNode('alwaysFail', 'boom'))
+    const flow: FlowData = { nodes: [{ id: 'f', data: { name: 'alwaysFail' } }], edges: [] }
+    const executor = new DagExecutor(registry)
+    const result = await executor.execute(flow, 'seed', {
+      chatId: 'c1', runId: 'r1', state: {}, isLastNode: false,
+    })
+    expect(result.status).toBe('failed')
+    expect(result.error).toBe('boom')
+  })
+})
