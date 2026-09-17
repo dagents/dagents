@@ -106,6 +106,24 @@ export type AgentEvent =
   | { type: 'log'; content: string }
   | { type: 'error'; content: string }
 
+/**
+ * `status` 事件的受控词汇表（2026-09-17 收敛：此前各适配器与 gateway 各自
+ * 硬编码字符串，新增状态编译器零感知 —— turn-boundary 就是这样私生进来的）。
+ * 类型上仍允许任意 string（向后兼容存量适配器），但新代码必须引用这些常量。
+ */
+export const AgentStatus = {
+  /** 会话/适配器启动。 */
+  Started: 'started',
+  /** 插话已并入，开始新的 turn（claude stream-json 中间 result 帧触发）。 */
+  TurnBoundary: 'turn-boundary',
+  /** 非终局性过程状态（各适配器自定文案）。 */
+  Running: 'running',
+  /** 会话终局完成（每会话至多一次，终态判定不依赖它）。 */
+  Completed: 'completed',
+} as const
+
+export type AgentStatusValue = (typeof AgentStatus)[keyof typeof AgentStatus]
+
 /** Final outcome of an agent session. Mirrors multica `agent.Result`. */
 export interface AgentResult {
   status: 'completed' | 'failed' | 'aborted' | 'timeout' | 'cancelled'

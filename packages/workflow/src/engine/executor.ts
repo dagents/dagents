@@ -429,11 +429,19 @@ export class DagExecutor {
       ): Promise<{ output: Record<string, unknown>; error?: string }> => {
         const controllerOutput = globalOutputs.get(controller.id) ?? {}
         const iterations: Array<Record<string, unknown>> = []
-        // Iteration 项数没有上游节点把关（数组可能来自 HTTP 响应或状态变量），
-        // 必须在这里设上限，否则一个 10k 项的数组会把循环体（可能每项一次
-        // LLM 调用）跑 10k 次。
+        // 纵深防御：IterationNode.run 已在节点侧对超上限抛错（span 可见），
+        // 这里兜住绕过节点校验直接进入 body 计划的路径 —— 同值同语义。
         const MAX_ITERATION_ITEMS = 100
-        const count = Math.min(plan.items.length, MAX_ITERATION_ITEMS)
+        if (plan.items.length > MAX_ITERATION_ITEMS) {
+          return {
+            output: {},
+            error:
+              `Iteration 节点「${controller.data?.name ?? controller.id}」的列表有 ` +
+              `${plan.items.length} 项，超过上限 ${MAX_ITERATION_ITEMS}（拒绝静默截断，` +
+              `请在上游缩小列表或分批运行）`,
+          }
+        }
+        const count = plan.items.length
         let lastBodyOutput: Record<string, unknown> = {}
         let completed = 0
 
@@ -477,6 +485,14 @@ export class DagExecutor {
           lastBodyOutput = iterationFinal
           completed = i + 1
         }
+
+        // 循环结束后清掉迭代元数据（2026-09-17 评审修复）：此前
+        // iterationIndex/iterationItem 等保留字残留最后一项的值，循环后
+        // 的下游节点模板里 {{iterationItem}} 会静默解析到脏数据。
+        runtime.delete('iterationIndex')
+        runtime.delete('iterationCount')
+        runtime.delete('iterationItem')
+        runtime.delete('iteration')
 
         // FR-06（PRD 决议）：Iteration 的聚合 content = 逐项正文有序拼接
         // （与 N 进 1 合并契约同语义）——此前只保留最后一项，下游
@@ -640,8 +656,10 @@ export class DagExecutor {
         const flat = sourceNode?.data as Record<string, unknown> | undefined
         const nested = flat?.inputs as Record<string, unknown> | undefined
         const conditions = (nested?.conditions ?? flat?.conditions) as unknown[] | undefined
-        const conditionCount = Array.isArray(conditions) ? conditions.length : Number.NaN
-        const isElseAnchor = Number.isFinite(conditionCount) && index >= conditionCount
+        // 读不到 conditions 时无法判定「最后一个是 Else」—— 按条件锚点
+        // 处理（显式分支，不再走 NaN 比较的隐式结果）。
+        const conditionCount = Array.isArray(conditions) ? conditions.length : null
+        const isElseAnchor = conditionCount !== null && index >= conditionCount
         return isElseAnchor ? !matchedTrue : matchedTrue
       }
       // 未知 handle 但输出声明了 matched —— 默认走 true 分支语义。
@@ -658,6 +676,11 @@ export class DagExecutor {
    *   otherwise the whole output object)
    * - Multiple active inputs: shallow-merges output objects. For `content`,
    *   concatenates all content strings with newlines.
+   *
+   * 浅合并的覆盖语义（后到 edge 赢）是历史行为，保持兼容；但 2026-09-17
+   * 起多输入合并额外携带 `inputs` 数组 —— 按边序保留每路上游的完整输出，
+   * 下游模板/节点可确定性取用（`inputs[0].result`），不再依赖 Object.assign
+   * 的覆盖顺序。注意：上游自己输出的 `inputs` 字段会被本引擎字段覆盖。
    */
   private mergeInputs(
     activeEdges: FlowEdge[],
@@ -675,9 +698,11 @@ export class DagExecutor {
 
     const merged: Record<string, unknown> = {}
     const contents: string[] = []
+    const inputs: Array<Record<string, unknown>> = []
 
     for (const edge of activeEdges) {
       const output = nodeOutputs.get(edge.source) ?? {}
+      inputs.push(output)
       Object.assign(merged, output)
       if (typeof output.content === 'string') {
         contents.push(output.content)
@@ -687,6 +712,7 @@ export class DagExecutor {
     if (contents.length > 0) {
       merged.content = contents.join('\n')
     }
+    merged.inputs = inputs
 
     return merged
   }

@@ -31,6 +31,11 @@ export class RuntimeState {
     }
   }
 
+  /** Remove a key (executor-reserved namespace cleanup after a scope ends). */
+  delete(key: string): void {
+    delete this._state[key]
+  }
+
   /** Return a shallow snapshot of the current state. */
   snapshot(): Record<string, unknown> {
     return { ...this._state }

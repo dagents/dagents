@@ -21,7 +21,7 @@
  *     Gate-1 e2e (M2.4) needs to be restartable without losing a run.
  */
 import { DispatchClient, DispatchHttpError } from './client.js'
-import { claudeBackend } from '@dagents/agent-adapters'
+import { createBackend } from '@dagents/agent-adapters'
 import { context, trace } from '@opentelemetry/api'
 import { createLogger, getTracer, type Logger } from '@dagents/shared'
 import type { AgentBackend, AgentResult, AgentType, ExecOptions } from '@dagents/contracts'
@@ -67,22 +67,17 @@ export interface DaemonHandle {
   stop: () => void
 }
 
-/** Build the agent backend for a given type. MVP only supports `claude`. */
+/** Build the agent backend for a given type via the shared adapter factory.
+ *
+ * 2026-09-17 评审修复：此前硬性只允许 claude（M2.1 时代的临时限制），
+ * 与「18 适配器」的公开面矛盾 —— daemon 现在与 inline 路径共用同一个
+ * `createBackend` 工厂；不支持的类型由工厂如实抛错。 */
 export function defaultBackendFactory(
   agentType: AgentType,
   executablePath: string,
   logger: Logger,
 ): AgentBackend {
-  // Only the claude adapter exists in @dagents/agent-adapters today (M2.1).
-  // Codex/opencode/… land with their own tasks; until then a daemon started
-  // for any non-claude type fails loudly at execute time, not silently.
-  if (agentType !== 'claude') {
-    throw new Error(
-      `unsupported agentType '${agentType}': only 'claude' has an adapter in @dagents/agent-adapters (M2.1). ` +
-        `Other backends arrive in their own tasks.`,
-    )
-  }
-  return claudeBackend({ executablePath, logger })
+  return createBackend(agentType, { executablePath, logger })
 }
 
 export function runDaemon(opts: DaemonOpts): DaemonHandle {

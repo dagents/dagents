@@ -40,6 +40,8 @@
  */
 import { spawn } from 'node:child_process'
 import * as readline from 'node:readline'
+import { AgentStatus } from '@dagents/contracts'
+import { accumulateUsage } from './usage.js'
 import type {
   AgentBackend,
   AgentEvent,
@@ -353,15 +355,8 @@ export function accumulateAssistantUsage(
   usage: Record<string, TokenUsage>,
   message: ClaudeMessage,
 ): void {
-  const u = message.usage
-  if (!u || !message.model) return
-  const existing = usage[message.model] ?? { inputTokens: 0, outputTokens: 0 }
-  existing.inputTokens += u.input_tokens ?? 0
-  existing.outputTokens += u.output_tokens ?? 0
-  existing.cacheReadTokens = (existing.cacheReadTokens ?? 0) + (u.cache_read_input_tokens ?? 0)
-  existing.cacheWriteTokens =
-    (existing.cacheWriteTokens ?? 0) + (u.cache_creation_input_tokens ?? 0)
-  usage[message.model] = existing
+  // claude 的 usage 帧是逐消息增量（sum）—— 单源实现见 usage.ts
+  accumulateUsage(usage, message.model, message.usage, 'sum')
 }
 
 /**
@@ -749,17 +744,34 @@ export function claudeBackend(cfg: BackendConfig): AgentBackend {
           }) + '\n'
         // 运行中插话：只允许「静默判定尚未触发」（finishing / openTurns=0
         // / stdin 已死都拒绝 —— gateway 据此回 not_running 诚实回执）。
+        // write 失败（EPIPE：进程死/对端关 stdin）时回滚 openTurns ——
+        // 这个 turn 永远等不到 result 帧，不回滚则计数永不归零、会话挂到
+        // watchdog 被杀且误报 aborted（2026-09-17 评审修复）。
+        const rollbackTurn = (): void => {
+          if (openTurns > 0) openTurns -= 1
+          log.warn('claude turn write failed (EPIPE?) — openTurns rolled back', { openTurns })
+        }
+        const writeTurnFrame = (text: string): boolean => {
+          openTurns += 1
+          let ok = true
+          try {
+            stdinRef!.write(userFrame(text), (err) => {
+              if (err) rollbackTurn()
+            })
+          } catch {
+            ok = false
+            rollbackTurn()
+          }
+          return ok
+        }
         sendTurnImpl = (text: string): boolean => {
           if (!streamInput || finishing || !stdinRef || stdinRef.destroyed || openTurns <= 0) {
             return false
           }
-          openTurns += 1
-          stdinRef.write(userFrame(text))
-          return true
+          return writeTurnFrame(text)
         }
         if (streamInput) {
-          stdinRef!.write(userFrame(prompt))
-          openTurns += 1 // prompt 首帧：openTurns 0 → 1
+          writeTurnFrame(prompt)
         } else {
           stdinRef!.end(prompt)
         }
@@ -830,7 +842,7 @@ export function claudeBackend(cfg: BackendConfig): AgentBackend {
                 streamInput &&
                 openTurns > 0
               ) {
-                queue.push({ type: 'status', status: 'turn-boundary' })
+                queue.push({ type: 'status', status: AgentStatus.TurnBoundary })
                 continue
               }
               // Accumulate streamed assistant text so Result.output is

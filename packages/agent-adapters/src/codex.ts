@@ -33,6 +33,7 @@ import type {
 } from '@dagents/contracts'
 import { filterCustomArgs, spawnStreamAgent } from './stream-backend.js'
 import type { StreamAgentRunState } from './stream-backend.js'
+import { accumulateUsage } from './usage.js'
 
 // ────────────────────────────────────────────────────────────────────────────
 // argv construction
@@ -180,15 +181,8 @@ export function parseCodexLine(line: string, state: StreamAgentRunState): AgentE
     }
 
     case 'turn.completed': {
-      const u = msg.usage
-      if (u) {
-        const model = 'codex'
-        const existing = state.usage[model] ?? { inputTokens: 0, outputTokens: 0 }
-        existing.inputTokens = Math.max(existing.inputTokens, u.input_tokens ?? 0)
-        existing.outputTokens = Math.max(existing.outputTokens, u.output_tokens ?? 0)
-        existing.cacheReadTokens = (existing.cacheReadTokens ?? 0) + (u.cached_input_tokens ?? 0)
-        state.usage[model] = existing
-      }
+      // codex 的 usage 帧是会话累计快照（max 防重发重复计数）—— 单源见 usage.ts
+      accumulateUsage(state.usage, 'codex', msg.usage, 'max')
       return out
     }
 
@@ -231,14 +225,7 @@ export function parseCodexLine(line: string, state: StreamAgentRunState): AgentE
     return out
   }
   if (msg.type === 'completed') {
-    const u = msg.usage
-    if (u) {
-      const model = msg.model ?? 'codex'
-      const existing = state.usage[model] ?? { inputTokens: 0, outputTokens: 0 }
-      existing.inputTokens = Math.max(existing.inputTokens, u.input_tokens ?? 0)
-      existing.outputTokens = Math.max(existing.outputTokens, u.output_tokens ?? 0)
-      state.usage[model] = existing
-    }
+    accumulateUsage(state.usage, msg.model ?? 'codex', msg.usage, 'max')
   }
   return out
 }

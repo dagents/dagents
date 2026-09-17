@@ -1,6 +1,6 @@
 /**
- * CodeBuddy adapter — spawn `codebuddy -p --output-format stream-json
- * --input-format stream-json` and parse its NDJSON event stream.
+ * CodeBuddy adapter — spawn `codebuddy -p --output-format stream-json` and
+ * parse its NDJSON event stream.
  *
  * CodeBuddy is a Claude Code fork and speaks the SAME stream-json protocol as
  * `claude.ts` (system/assistant/user/result frames with content blocks).
@@ -10,15 +10,14 @@
  *
  * Translated from multica `codebuddy.go`.
  *
- * Two protocol differences from the claude adapter:
- *   - `--input-format stream-json` is set so control_request auto-approval
- *     can flow back over stdin (we don't implement the auto-approver in this
- *     MVP — stdout parsing is enough; the stdin channel stays open via the
- *     argv prompt path, so a control_request is simply not answered and the
- *     CLI times out the call itself).
- *   - `--permission-mode bypassPermissions`, `--strict-mcp-config`, and
- *     `--disallowedTools AskUserQuestion` are hardcoded for autonomous
- *     daemon operation.
+ * ⚠️ 2026-08-16 修正：本适配器**不再**使用 `--input-format stream-json`
+ * （该 flag 与 codebuddy CLI 的实际行为自相矛盾，裸文本 stdin + 即刻 EOF
+ * 是实测可用形态 —— 见 buildCodebuddyArgs）。以下历史差异描述已过时，
+ * 保留仅作考古：control_request 自动批准通道因此不可用。
+ *
+ * `--permission-mode bypassPermissions`, `--strict-mcp-config`, and
+ * `--disallowedTools AskUserQuestion` are hardcoded for autonomous
+ * daemon operation.
  */
 import type {
   AgentBackend,

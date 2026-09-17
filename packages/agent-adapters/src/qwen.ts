@@ -23,6 +23,7 @@ import type {
 } from '@dagents/contracts'
 import { filterCustomArgs, spawnStreamAgent } from './stream-backend.js'
 import type { StreamAgentRunState } from './stream-backend.js'
+import { accumulateUsage } from './usage.js'
 
 // ────────────────────────────────────────────────────────────────────────────
 // argv construction
@@ -154,14 +155,8 @@ export function parseQwenLine(line: string, state: StreamAgentRunState): AgentEv
   // assistant: text + thinking + tool_use blocks; incremental usage
   if (msg.type === 'assistant' && msg.message) {
     const model = msg.message.model ?? msg.model
-    if (msg.message.usage && model) {
-      const u = msg.message.usage
-      const existing = state.usage[model] ?? { inputTokens: 0, outputTokens: 0 }
-      existing.inputTokens += u.input_tokens ?? 0
-      existing.outputTokens += u.output_tokens ?? 0
-      existing.cacheReadTokens = (existing.cacheReadTokens ?? 0) + (u.cache_read_input_tokens ?? 0)
-      state.usage[model] = existing
-    }
+    // qwen 的 usage 帧是逐消息增量（sum）—— 单源实现见 usage.ts
+    accumulateUsage(state.usage, model, msg.message.usage, 'sum')
     for (const block of msg.message.content ?? []) {
       if (block.type === 'text' && block.text) {
         out.push({ type: 'text', content: block.text })
