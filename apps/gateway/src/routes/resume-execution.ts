@@ -13,6 +13,13 @@ import { assembleWorkflowEngine, toRunStatus } from './workflow-engine-service.j
 
 const log = createLogger({ svc: 'gateway:resume' })
 
+/**
+ * 同一 checkpoint 的在途 resume 互斥（设计 §6.7 幂等护栏，2026-09-18
+ * 测试轮实弹逮出缺失：并发两发曾双双 200 各自起跑 —— 重复烧 token +
+ * 历史混乱）。checkpointRunId 维度的进程内 Set，执行 done 时清除。
+ */
+const activeResumeCheckpoints = new Set<string>()
+
 /** HumanInput 挂起时限（应答窗；过期由 boot sweep 收敛 failed）。 */
 const AWAITING_TIMEOUT_MS = Number(process.env.HUMAN_INPUT_TIMEOUT_MS ?? 300_000)
 
@@ -169,7 +176,18 @@ export interface RunExecutionHandleResult {
  * 发起一次异步工作流执行（resume 语义可选）。立即返回；进度经 span writer
  * 落 run_node_spans，终态落 runs + usage + checkpoint。
  */
+/**
+ * 原子认领：在途则返回 false（check-then-act 竞态的解——两发并发时只有
+ * 第一发认领成功，第二发立即 409）。执行 done 时释放。
+ */
+export function claimCheckpointRun(checkpointRunId: string): boolean {
+  if (activeResumeCheckpoints.has(checkpointRunId)) return false
+  activeResumeCheckpoints.add(checkpointRunId)
+  return true
+}
+
 export function startWorkflowExecution(req: RunExecutionInput): RunExecutionHandleResult {
+  activeResumeCheckpoints.add(req.checkpointRunId)
   const { executor, spanWriter, baseOptions } = assembleWorkflowEngine({
     flowData: req.flowData as Parameters<typeof assembleWorkflowEngine>[0]['flowData'],
     runId: req.runId,
@@ -289,6 +307,7 @@ export function startWorkflowExecution(req: RunExecutionInput): RunExecutionHand
     } finally {
       resolveDone()
       executionRegistry.unregister(handle)
+      activeResumeCheckpoints.delete(req.checkpointRunId)
     }
   }
 
@@ -298,7 +317,10 @@ export function startWorkflowExecution(req: RunExecutionInput): RunExecutionHand
 
 // ── 供路由层使用的种子组装 ─────────────────────────────────────────────────
 
-export async function buildResumeSeed(checkpointRunId: string): Promise<{
+export async function buildResumeSeed(
+  checkpointRunId: string,
+  flowData?: unknown,
+): Promise<{
   seedOutputs: Record<string, Record<string, unknown>>
   seedRuntime: Record<string, unknown>
   iterationProgress?: Record<string, IterationProgress>
@@ -310,8 +332,24 @@ export async function buildResumeSeed(checkpointRunId: string): Promise<{
     runtime?: Record<string, unknown>
     iterationProgress?: Record<string, IterationProgress>
   }
+  // 迭代控制器不种子化（2026-09-18 测试轮逮出的 P1 缺陷）：控制器被跳过
+  // → runIterationBody 的项级循环机制整个旁路，body 退化为普通节点只跑
+  // 一次。控制器重跑 planning（解析 items），游标让 body 从断点项续。
+  const controllerIds = new Set<string>()
+  const nodes = Array.isArray((flowData as { nodes?: unknown } | undefined)?.nodes)
+    ? ((flowData as { nodes: unknown[] }).nodes as Array<{ id?: unknown; data?: { name?: unknown } }>)
+    : []
+  for (const n of nodes) {
+    if (n?.data?.name === 'iterationAgentflow' && typeof n.id === 'string') {
+      controllerIds.add(n.id)
+    }
+  }
+  const seedOutputs: Record<string, Record<string, unknown>> = {}
+  for (const [id, out] of Object.entries(snap.outputs ?? {})) {
+    if (!controllerIds.has(id)) seedOutputs[id] = out
+  }
   return {
-    seedOutputs: snap.outputs ?? {},
+    seedOutputs,
     seedRuntime: snap.runtime ?? {},
     iterationProgress: snap.iterationProgress,
   }
@@ -345,7 +383,7 @@ export async function answerAwaitingRunForChat(chatId: string, answer: string): 
     const flow = await loadFlowForResume(ckpt.flow_id)
     if (!flow || computeTopoHash(flow.flowData) !== ckpt.topo_hash) return null
 
-    const seed = await buildResumeSeed(runId)
+    const seed = await buildResumeSeed(runId, flow.flowData)
     if (!seed) return null
     const seedRuntime = { ...(seed.seedRuntime ?? {}) }
     const humanInputs = (seedRuntime.humanInputs as Record<string, string> | undefined) ?? {}

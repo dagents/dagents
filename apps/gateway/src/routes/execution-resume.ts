@@ -8,6 +8,7 @@ import { getCheckpoint } from '../repositories/run-checkpoints.repo.js'
 import {
   buildResumeSeed,
   computeTopoHash,
+  claimCheckpointRun,
   startWorkflowExecution,
 } from './resume-execution.js'
 
@@ -93,6 +94,9 @@ runResumeRoutes.post('/runs/:runId/resume', async (c) => {
   if (ckpt.status !== 'resumable') {
     return fail(c, 409, `run is not resumable (checkpoint status: ${ckpt.status})`, { runId: originalRunId })
   }
+  if (!claimCheckpointRun(originalRunId)) {
+    return fail(c, 409, 'a resume of this run is already in flight', { runId: originalRunId })
+  }
 
   const flow = await loadFlow(ckpt.flow_id)
   if (!flow) return fail(c, 404, 'flow not found', { flowId: ckpt.flow_id })
@@ -101,7 +105,7 @@ runResumeRoutes.post('/runs/:runId/resume', async (c) => {
     return fail(c, 422, 'flow topology changed since the run — resume refused', { runId: originalRunId })
   }
 
-  const seed = await buildResumeSeed(originalRunId)
+  const seed = await buildResumeSeed(originalRunId, flow.flowData)
   const newRunId = randomUUID()
   const cwd = await resolveCwd(parsed.directoryId)
   startWorkflowExecution({
@@ -154,7 +158,7 @@ runResumeRoutes.post('/runs/:runId/answer', async (c) => {
     return fail(c, 422, 'flow topology changed — answer cannot resume this run', { runId })
   }
 
-  const seed = await buildResumeSeed(runId)
+  const seed = await buildResumeSeed(runId, flow.flowData)
   if (!seed) return fail(c, 500, 'checkpoint snapshot missing')
   // 应答回填：seedRuntime.humanInputs[prompt] = answer（引擎持久 resolver
   // 命中预供答案即继续）；同 runId 原地续跑（spans 同 run 续写）。
