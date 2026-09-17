@@ -55,7 +55,9 @@ import type {
 import { createLogger } from '@dagents/shared'
 import { writeMcpConfigToTemp } from './mcp-config.js'
 import type { McpConfigFile } from './mcp-config.js'
-import { wireCancellation } from './stream-backend.js'
+// 共享 spawn 原语单源（2026-09-17 评审收敛）：AsyncEventQueue/filterCustomArgs/
+// buildChildEnv 此前在两文件各养一份逐字副本，claude 的修复永远不回流。
+import { wireCancellation, AsyncEventQueue, filterCustomArgs, buildChildEnv } from './stream-backend.js'
 
 // ────────────────────────────────────────────────────────────────────────────
 // argv construction
@@ -135,72 +137,6 @@ const CLAUDE_BLOCKED_ARGS: Record<string, 'value' | 'standalone'> = {
   '--mcp-config': 'value',
 }
 
-/**
- * Remove protocol-critical flags from caller-configured args. Shell quoting
- * is stripped first (users type custom_args with shell syntax like
- * `--flag='v'`; since we spawn directly without a shell, literal quotes would
- * be passed to the child and rejected). Mirrors multica `filterCustomArgs`.
- *
- * When `log` is provided, emits a `warn` for each blocked flag so a caller
- * can see why their custom_arg was dropped (mirrors multica's `logger.Warn`,
- * claude.go:545). Pure unit tests pass `undefined` for `log`.
- */
-function filterCustomArgs(
-  args: string[] | undefined,
-  blocked: Record<string, 'value' | 'standalone'>,
-  log?: Logger,
-): string[] {
-  if (!args || args.length === 0) return []
-  const out: string[] = []
-  let skip = false
-  for (const raw of args) {
-    if (skip) {
-      skip = false
-      continue
-    }
-    const arg = unshellQuote(raw)
-    let flag = arg
-    let inlineValue = false
-    const eq = arg.indexOf('=')
-    if (eq > 0) {
-      flag = arg.slice(0, eq)
-      inlineValue = true
-    }
-    const mode = blocked[flag]
-    if (mode) {
-      // blocked: drop the flag; if it takes a separate value arg, drop that too.
-      log?.warn('custom_args: blocked protocol-critical flag, skipping', { flag })
-      if (mode === 'value' && !inlineValue) skip = true
-      continue
-    }
-    out.push(arg)
-  }
-  return out
-}
-
-/** Strip one layer of surrounding shell quotes from a value or whole arg. */
-function unshellQuote(arg: string): string {
-  if (arg.startsWith('-')) {
-    const eq = arg.indexOf('=')
-    if (eq > 0) {
-      const value = arg.slice(eq + 1)
-      const stripped = stripSurroundingQuotes(value)
-      if (stripped !== null) return arg.slice(0, eq + 1) + stripped
-      return arg
-    }
-  }
-  const stripped = stripSurroundingQuotes(arg)
-  return stripped !== null ? stripped : arg
-}
-
-function stripSurroundingQuotes(s: string): string | null {
-  if (s.length >= 2) {
-    const a = s[0]
-    const b = s[s.length - 1]
-    if ((a === "'" && b === "'") || (a === '"' && b === '"')) return s.slice(1, -1)
-  }
-  return null
-}
 
 // ────────────────────────────────────────────────────────────────────────────
 // stream-json message types (subset of the Claude Code SDK wire format)
@@ -432,37 +368,6 @@ function usageHasTokens(u: ClaudeUsage): boolean {
 // env filtering
 // ────────────────────────────────────────────────────────────────────────────
 
-/**
- * Inherited env vars that are internal Claude Code runtime/session markers.
- * They MUST NOT leak into the spawned child, or the child mistakes itself for
- * a nested or resumed session / inherits the parent's exec path. User-facing
- * `CLAUDE_CODE_*` config (GIT_BASH_PATH, USE_BEDROCK, MAX_OUTPUT_TOKENS, …)
- * is intentionally NOT stripped — callers set those deliberately. Mirrors
- * multica `isFilteredChildEnvKey`.
- */
-function isFilteredChildEnvKey(key: string): boolean {
-  switch (key) {
-    case 'CLAUDECODE':
-    case 'CLAUDE_CODE_ENTRYPOINT':
-    case 'CLAUDE_CODE_EXECPATH':
-    case 'CLAUDE_CODE_SESSION_ID':
-    case 'CLAUDE_CODE_SSE_PORT':
-      return true
-    default:
-      return key.startsWith('CLAUDECODE_')
-  }
-}
-
-function buildChildEnv(extra: Record<string, string> | undefined): Record<string, string> {
-  const env: Record<string, string> = {}
-  for (const entry of Object.entries(process.env)) {
-    const [key, value] = entry
-    if (key === undefined || value === undefined) continue
-    if (isFilteredChildEnvKey(key)) continue
-    env[key] = value
-  }
-  return { ...env, ...(extra ?? {}) }
-}
 
 // ────────────────────────────────────────────────────────────────────────────
 // backend
@@ -472,70 +377,10 @@ const STDERR_TAIL_BYTES = 4 * 1024
 /** Grace period after SIGTERM before escalating to SIGKILL (mirrors multica `cmd.WaitDelay`). */
 const SIGKILL_GRACE_MS = 5_000
 
-/**
- * Single-consumer async queue backing `AgentSession.events`.
- *
- * The run pushes events as they arrive (eagerly, at the agent's own pace); the
- * consumer pulls them via the async iterator. When the run finishes it calls
- * `close()` and the consumer drains the remaining buffer then sees EOF.
- *
- * This decouples `events` from `result`: `result` awaits the run's completion
- * WITHOUT pulling from the queue, so a concurrent `events` consumer never has
- * its items stolen (the bug fixed in review #2 — the prior single-generator
- * design let `result`'s drain and the caller's iteration race on `.next()`).
- * Mirrors multica's separate buffered `msgCh` (events) + `resCh` (result).
- *
- * Single-consumer (like multica's channel): a second iterator over the same
- * queue would interleave with the first. `AgentSession.events` is documented
- * as single-consumer.
- *
- * Unbounded by design: the run must always progress at the agent's pace so the
- * wall-clock timeout is the only thing that can stall it. multica's msgCh is
- * bounded(256) and DROPS under backpressure (final output is accumulated
- * separately in `Result.output`, so only streaming consumers lose data); we
- * keep every event instead, trading memory for no loss — acceptable for the
- * bounded agent runs of this spike.
- */
-class AsyncEventQueue implements AsyncIterable<AgentEvent> {
-  private buf: AgentEvent[] = []
-  private waiters: Array<(done: boolean) => void> = []
-  private closed = false
+// AgentSession.events 的队列与 spawn 原语（filterCustomArgs/buildChildEnv）
+// 单源在 stream-backend.ts —— claude 与其余 11 个适配器共用（2026-09-17 收敛）。
 
-  push(value: AgentEvent): void {
-    if (this.closed) return
-    // Always buffer first, then wake a waiter — the waiter pulls from the
-    // buffer on resume. (Resolving the waiter without buffering loses the
-    // value: the consumer's `next()` would `shift()` an empty buffer.)
-    this.buf.push(value)
-    this.waiters.shift()?.(false)
-  }
-
-  close(): void {
-    if (this.closed) return
-    this.closed = true
-    while (this.waiters.length > 0) {
-      this.waiters.shift()!(true)
-    }
-  }
-
-  async next(): Promise<IteratorResult<AgentEvent>> {
-    if (this.buf.length > 0) {
-      return { value: this.buf.shift()!, done: false }
-    }
-    if (this.closed) {
-      return { value: undefined, done: true }
-    }
-    const done = await new Promise<boolean>((resolve) => this.waiters.push(resolve))
-    if (done) return { value: undefined, done: true }
-    return { value: this.buf.shift()!, done: false }
-  }
-
-  [Symbol.asyncIterator](): AsyncIterator<AgentEvent> {
-    return { next: () => this.next() }
-  }
-}
-
-export function claudeBackend(cfg: BackendConfig): AgentBackend {
+ export function claudeBackend(cfg: BackendConfig): AgentBackend {
   const log: Logger = cfg.logger ?? createLogger({ svc: 'claude-adapter' })
   return {
     execute(prompt: string, opts: ExecOptions): AgentSession {

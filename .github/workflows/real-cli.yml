@@ -1,0 +1,52 @@
+# 适配器真机回归（nightly，2026-09-17 评审搁置项补齐）。
+#
+# 为什么是 nightly + self-hosted：适配器真机回归需要装有真实 CLI
+# （claude/codex/qwen…）且完成登录的机器 —— 托管 runner 没有也不该有。
+# 本 workflow 只在带 `real-cli` 标签的自托管 runner 上实质执行；没有
+# 这样的 runner 时按时跳过（skip 诚实可见），不会伪装成通过。
+#
+# 通过标准：scripts/real-cli-smoke.sh 全 PASS（缺 CLI = SKIP 不算失败）。
+# 通过后把 packages/agent-adapters/src/tiers.ts 的对应 regression 改为
+# verified —— tier 承诺与现实的差距由此收敛。
+
+name: Real CLI smoke
+
+on:
+  schedule:
+    - cron: '17 3 * * *' # 每天一次（UTC 03:17，错峰）
+  workflow_dispatch:
+    inputs:
+      kinds:
+        description: '要冒烟的 CLI（空格分隔，缺省 claude codex qwen copilot opencode）'
+        required: false
+        default: ''
+
+jobs:
+  smoke:
+    name: adapter real-CLI smoke
+    runs-on: [self-hosted, real-cli]
+    timeout-minutes: 15
+    # self-hosted 池不存在时 GitHub 会 queue 而非 fail —— 加 continue-on-error
+    # 会掩盖排队；保留默认（排队 24h 自动取消），状态页可见「没有 runner」。
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: pnpm/action-setup@v4
+
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 22
+          cache: pnpm
+
+      - name: Report CLI availability
+        run: |
+          for c in claude codex qwen copilot opencode; do
+            if command -v "$c" >/dev/null 2>&1; then
+              echo "$c: $(command -v "$c")"
+            else
+              echo "$c: NOT INSTALLED (will SKIP)"
+            fi
+          done
+
+      - name: Run smoke
+        run: bash scripts/real-cli-smoke.sh ${{ github.event.inputs.kinds }}

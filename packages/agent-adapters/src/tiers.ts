@@ -7,7 +7,11 @@
  * sync (update it in the same PR when changing a tier).
  *
  * Tiers:
- *   core       — 保真维护：真机回归 + 取消/超时路径优先支持
+ *   core       — 承诺保真维护：真机回归 + 取消/超时路径优先支持。
+ *                regression 字段是承诺的对账单：core + docs-only = **回归
+ *                欠账**（不要把 core 读成「已验证」——2026-09-17 勘误：
+ *                claude 是唯一 verified 的 core；codex/qwen 的真机回归
+ *                由 .github/workflows/real-cli.yml 在有 CLI 的 runner 上补）
  *   community  — 正常接受 PR，但明示维护等级与实测状态
  *
  * Regression status:
@@ -29,8 +33,16 @@ export interface AdapterTierInfo {
 
 export const ADAPTER_TIERS: Partial<Record<AgentType, AdapterTierInfo>> = {
   claude: { tier: 'core', regression: 'verified' },
-  codex: { tier: 'core', regression: 'docs-only', note: '按官方文档实现，待真机回归（方案 C）' },
-  qwen: { tier: 'core', regression: 'docs-only', note: '按官方文档实现，待真机回归（方案 C）' },
+  codex: {
+    tier: 'core',
+    regression: 'docs-only',
+    note: '按官方文档实现，待真机回归（real-cli workflow）；claude 侧的后续修复（openTurns/usage）尚未回流验证',
+  },
+  qwen: {
+    tier: 'core',
+    regression: 'docs-only',
+    note: '按官方文档实现，待真机回归；自初版适配后零迭代维护（真机回归欠账最重的一项）',
+  },
   copilot: { tier: 'community', regression: 'docs-only' },
   opencode: { tier: 'community', regression: 'docs-only' },
   openclaw: { tier: 'community', regression: 'verified' },
