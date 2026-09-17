@@ -190,11 +190,14 @@ async function shutdown(signal: string, server: ServerType | undefined): Promise
   }
 
   wsHub.shutdown()
-  try {
-    await tracing.shutdown()
-  } catch (err) {
-    log.warn('tracing shutdown error', { error: String(err) })
-  }
+  // trace flush 有界竞赛（≤500ms）：未配置 OTLP 时 NodeSDK.shutdown() 会
+  // 永久挂起（2026-09-17 测试工程师实测定位——此前停机恒撞 3s 看门狗，
+  // 优雅路径实际从未走完）；配置了收集器也只给半秒冲刷预算，收不完
+  // 丢弃 —— 停机确定性优先于遥测完整性。
+  await Promise.race([
+    tracing.shutdown().catch(() => {}),
+    new Promise((resolve) => setTimeout(resolve, 500)),
+  ])
   try {
     await AppDataSource.destroy()
   } catch (err) {

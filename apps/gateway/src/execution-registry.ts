@@ -70,6 +70,9 @@ class ExecutionRegistry {
         previousStartedAt: previous.startedAt,
       })
       previous.abort('superseded by a new execution in this chat')
+      // 旧句柄的 runId 次键一并清除 —— 否则悬空执行残留期间
+      // run-cancel 会 abort 到一个已被替代的死句柄（2026-09-17 测试逮出）
+      if (this.byRun.get(previous.runId) === previous) this.byRun.delete(previous.runId)
     }
     this.byChat.set(handle.chatId, handle)
     this.byRun.set(handle.runId, handle)
