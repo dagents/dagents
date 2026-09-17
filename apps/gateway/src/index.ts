@@ -164,6 +164,12 @@ async function shutdown(signal: string, server: ServerType | undefined): Promise
   if (shuttingDown) return
   shuttingDown = true
   log.warn('gateway shutting down', { signal, activeExecutions: executionRegistry.activeCount() })
+  // 硬退出看门狗：优雅路径任何一步（连接排空/trace flush/池销毁）挂起
+  // 也不能让进程赖着不死 —— tsx watch/编排器的强杀窗口不等人
+  // （2026-09-17 e2e 中途网关死亡事故：SIGTERM 后停机链未在窗口内完成
+  // 被 tsx force kill，整轮 e2e 断流）。
+  const hardExit = setTimeout(() => process.exit(0), 3_000)
+  hardExit.unref?.()
   if (reaperTimer) clearInterval(reaperTimer)
 
   // 停止接受新连接（已有 keep-alive 连接随 server.closeIdleConnections 收敛）
