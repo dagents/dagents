@@ -1,7 +1,7 @@
 # Dagents 架构总览（现状真相源）
 
-> 更新：2026-09-12。本文回答"系统今天长什么样"，决策过程见各专题文档。
-> 分层契约与命令以 `CLAUDE.md` / `AGENTS.md` 为准，本文提供全景与关键链路。
+> 更新：2026-09-17。本文回答"系统今天长什么样"，决策过程见各专题文档。
+> 分层契约与命令以 `AGENTS.md` 为准，本文提供全景与关键链路。
 
 ---
 
@@ -9,12 +9,13 @@
 
 ```
 console (Next.js App Router, :3000)
-   │  /api/* BFF 直转发网关（gateway URL 只在服务端）
+   │  /api/* BFF 直转发网关（gateway URL 只在服务端，单源 lib/gateway-proxy）
    │  自研 Canvas Kit 画布（flow-canvas/）+ 悬浮副驾 FloatingChat
    ▼
 gateway (Hono, :8080)                    装配一切：路由/执行/持久化
-   │  @dagents/workflow DagExecutor      DB-free DAG 引擎
-   │  span-writer 增量节点进度           CLI-first LLM 策略
+   │  routes/ HTTP 关注点 + repositories/ 表访问单源
+   │  @dagents/workflow DagExecutor       DB-free DAG 引擎（executor 已拆解：
+   │  span-writer 增量节点进度           波次调度/迭代体/节点运行为显式方法）
    ▼
 packages/                                contracts · workflow · agent-adapters · db · shared
    │
@@ -23,8 +24,11 @@ packages/                                contracts · workflow · agent-adapters
 ```
 
 - **无登录本机模式**：仅可选 `GATEWAY_API_KEY`（≥16 字符生效）
+- **浏览器 Origin 防线（2026-09-17）**：默认模式也校验 Origin —— 同源/环回
+  （localhost/127.0.0.1/::1）自动放行，其余需 `GATEWAY_ALLOWED_ORIGINS` 白名单；
+  非浏览器客户端（curl/CLI/服务端 fetch）无 Origin 不受影响。WS 握手同款。
 - **CLI 第一性**：无 LLM Provider 配置时，LLM/Agent 节点与聊天全部走本地 CLI（零配置基线）；配了 Provider 则走 HTTP 加速
-- **IA（2026-09-06 定稿）**：`/` = Flows 工作台（Workflow-First）；Chat-First 回滚壳已退役；聊天入口 = 悬浮副驾 + 侧栏会话树
+- **IA（2026-09-06 定稿）**：`/` = Flows 工作台（Workflow-First）；聊天入口 = 悬浮副驾 + 侧栏会话树
 
 ## 2. 执行链路（画布运行全景）
 
@@ -59,6 +63,18 @@ console watchLoop 轮询 GET /runs/:runId/node-spans（700ms）
 
 **兜底**：`apps/console/src/lib/refusal-detect.ts` 识别回复中的权限拒绝话术 → 执行卡/结果面板黄警（done 不伪装成功）。
 
+**spawn 输入面（2026-09-17 收紧）**：`executablePath` 注册与运行时双重校验（绝对路径+存在+普通文件）；agent-invoke 的 `cwd` 只收 `directoryId` 引用；HTTP 节点与 http_request 工具共用 SSRF 守卫（私网/环回/链路本地阻断，逃生门 `DAGENTS_HTTP_ALLOW_PRIVATE=1`，e2e 栈启用）。
+
+## 3.1 进程生命周期（2026-09-17 补齐）
+
+- **优雅停机**：SIGTERM/SIGINT → 停接新连接 → `executionRegistry.abortAll()`（5s 落库预算，各执行自持久化终态）→ WS 全客户端关门通知 → tracing/DB 连接池关闭。
+- **boot sweep**：收敛 `chats`/`runs` 悬空 running、`run_node_spans` 卡 running 行、离线 daemon 的 `dispatch_tasks`（queued 不动，daemon 重连可 claim）；每步独立容错。
+- **错误出口**：`DAGENTS_ERROR_WEBHOOK` 指向 HTTP 端点时，未捕获错误 POST 一条 JSON（fire-and-forget + 窗口内合并计数）；未配置 = 显式 no-op。
+
+## 3.2 dispatch 存留裁决（2026-09-17）
+
+**保留**。理由：daemon 工厂已接通全部适配器（此前 claude-only）、取消链路完整（2s 轮询 + `POST /tasks/:id/cancel`）、有真实入队路径（chat @daemon）与 e2e 覆盖；维护成本与「远程执行」能力的比值已修正。裁决后清理：无消费方的旧读面（dispatch/agents.ts 目录路由）删除，console 一律走 `/api/v1/agents`。
+
 ## 4. 数据模型（核心表）
 
 | 表 | 职责 |
@@ -89,8 +105,9 @@ console watchLoop 轮询 GET /runs/:runId/node-spans（700ms）
 | 层 | 位置 | 说明 |
 |---|---|---|
 | 单测/集成 | 各包 vitest | gateway 打真库但钉 `dagents_gw_test`（不碰 dev 库）；跑前自动建库+迁移 |
-| 执行态 e2e | `apps/console/tests/e2e/` | Playwright + Mock LLM Provider（端口 4010）；专用库 `dagents_e2e` |
-| 契约/冒烟 | 真机 Playwright 脚本 | 本会话惯例：node /tmp/xx.mjs 临时脚本 + 截图取证 |
+| 执行态 e2e | `apps/console/tests/e2e/` | Playwright + Mock LLM Provider（端口 4010）；专用库 `dagents_e2e`；**换网关端口必须同步 `GATEWAY_URL`**（BFF 只认它） |
+| 引擎语义 | `packages/workflow/.../executor-semantics.test.ts` | 并行部分失败/嵌套迭代/取消/截断/合并顺序等脆弱契约的钉子 |
+| 适配器真机 | `scripts/real-cli-smoke.sh` | 本机/自托管 runner 手跑；`.github/workflows/real-cli.yml` nightly（缺 CLI = 如实 SKIP）；claude 已真机 PASS（2026-09-17） |
 
 **开发机注意**：高负载时 jsdom 测试可能超时（已加固 testTimeout=20s）；`pnpm build` 会覆盖 `.next` 致 dev 全站 500（跑过 build 后用 `restart-gateway.sh` 恢复）。
 
