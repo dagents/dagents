@@ -2,6 +2,7 @@ import { Hono } from 'hono'
 import { z } from 'zod'
 import { createLogger } from '@dagents/shared'
 import type { TokenUsage } from '@dagents/contracts'
+import { safeEqual } from '../auth.js'
 import { persistComplete } from './internal-runs-helpers.js'
 
 const log = createLogger({ svc: 'gateway:internal-runs' })
@@ -38,17 +39,17 @@ const completeBodySchema = z.object({
  *
  * Auth: requires x-internal-token header matching INTERNAL_CALLBACK_TOKEN env.
  *
- * ⚠️ Security note: the gateway listens on 0.0.0.0 by default (see index.ts:
- * `serve({ fetch, port })` with no `hostname`), so this endpoint IS externally
- * reachable — `x-internal-token` is the ONLY application-layer protection.
- * Therefore `INTERNAL_CALLBACK_TOKEN` MUST be a strong random secret, and
- * operators SHOULD restrict `/internal/*` at the network layer (firewall /
- * service mesh / reverse-proxy allowlist) in production.
+ * Security note: the gateway binds 127.0.0.1 by default (see index.ts
+ * `GATEWAY_HOST`); only an operator who explicitly sets GATEWAY_HOST=0.0.0.0
+ * exposes this surface beyond localhost — in that case `x-internal-token`
+ * is the only application-layer protection, INTERNAL_CALLBACK_TOKEN MUST be
+ * a strong random secret, and operators SHOULD restrict `/internal/*` at the
+ * network layer (firewall / reverse-proxy allowlist).
  */
 internalRunsRoutes.post('/runs/:runId/complete', async (c) => {
   const token = c.req.header('x-internal-token')
   const expected = process.env.INTERNAL_CALLBACK_TOKEN
-  if (!expected || token !== expected) {
+  if (!expected || !token || !safeEqual(token, expected)) {
     return c.json({ success: false, error: 'unauthorized' }, 401)
   }
 

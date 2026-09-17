@@ -5,6 +5,7 @@ import { ok, fail } from './index.js'
 import { appendAgentDaemonCall } from './runs-usage.js'
 import { cancelDispatchTask } from './service.js'
 import { createLogger } from '@dagents/shared'
+import { safeEqual } from '../../auth.js'
 
 /**
  * Task lifecycle routes (spec §1.5.T5):
@@ -95,7 +96,7 @@ async function requireTaskDaemon(c: Context, taskId: string): Promise<Response |
   }
   const token = c.req.header('authorization')?.replace(/^Bearer\s+/i, '').trim()
   if (!token) return fail(c, 401, 'daemon token required')
-  if (row.token !== token) {
+  if (!safeEqual(row.token, token)) {
     return fail(c, 403, 'invalid daemon token for this task')
   }
   return null
@@ -214,26 +215,27 @@ tasksRoutes.post('/tasks/:id/messages', async (c) => {
   const status = await getTaskStatus(id)
   if (status === null) return fail(c, 404, 'task not found', { taskId: id })
 
-  // Batch-insert with monotonic seq: compute the starting seq once, then emit
-  // one row per message at seq, seq+1, … — order is preserved even under
-  // concurrent batches because the whole insert is one statement on one
-  // connection. Values are bound as parameters, never interpolated.
-  const { records: seqRows } = await runQuery<{ s: string }>(
-    `SELECT COALESCE((SELECT MAX(seq) FROM dispatch_task_events WHERE task_id = $1), 0) AS s`,
-    [id],
-  )
-  let seq = Number(seqRows[0]?.s ?? 0)
-  const params: unknown[] = []
-  const values = parsed.messages
-    .map((m) => {
-      seq += 1
-      const base = params.length
-      params.push(id, 'message', seq, JSON.stringify(m))
-      return `($${base + 1}, $${base + 2}, $${base + 3}, $${base + 4}, NOW())`
+  // Batch-insert with monotonic seq：MAX(seq) 读取折进 INSERT 同一语句（CTE），
+  // 消除此前「先 SELECT MAX 再 INSERT」两个独立连接间的竞态窗口
+  // （2026-09-17 评审修复）。残留：PostgreSQL 快照语义下两条并发 INSERT
+  // 理论上仍可读到同一快照 —— 单 daemon 认领制下同任务只有一个报告方，
+  // 实际不可达；要彻底封死需 (task_id, seq) 唯一索引 + 冲突重试。
+  const params: unknown[] = [id]
+  const incoming = parsed.messages
+    .map((m, i) => {
+      params.push(JSON.stringify(m))
+      return `($1, 'message', $${params.length}::jsonb, ${i + 1})`
     })
     .join(', ')
   await runQuery(
-    `INSERT INTO dispatch_task_events (task_id, kind, seq, payload, created_at) VALUES ${values}`,
+    `WITH base AS (
+       SELECT COALESCE((SELECT MAX(seq) FROM dispatch_task_events WHERE task_id = $1), 0) AS s
+     ), incoming(task_id, kind, payload, idx) AS (
+       VALUES ${incoming}
+     )
+     INSERT INTO dispatch_task_events (task_id, kind, seq, payload, created_at)
+     SELECT i.task_id, i.kind, base.s + i.idx, i.payload, NOW()
+       FROM incoming i CROSS JOIN base`,
     params,
   )
   return c.body(null, 204)

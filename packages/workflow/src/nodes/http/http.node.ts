@@ -1,4 +1,5 @@
 import type { INode, INodeData, INodeOutput, IExecutionContext } from '../../types/index.js'
+import { assertPublicHttpUrl } from './ssrf-guard.js'
 
 /**
  * HTTP Request node — make an HTTP request and return the response.
@@ -58,6 +59,10 @@ export class HttpNode implements INode {
       throw new Error(`HTTP Request only allows http(s) URLs, got: ${parsedUrl.protocol}`)
     }
 
+    // SSRF 防线二：私网/环回/链路本地目标阻断（含云元数据段）。
+    // 逃生门 DAGENTS_HTTP_ALLOW_PRIVATE=1，见 ssrf-guard.ts。
+    assertPublicHttpUrl(parsedUrl)
+
     // Parse headers
     let headers: Record<string, string> = {}
     if (typeof headersInput === 'string' && headersInput.trim() !== '') {
@@ -90,7 +95,31 @@ export class HttpNode implements INode {
       ? AbortSignal.any([options.signal, timeoutSignal])
       : timeoutSignal
 
-    const response = await fetch(parsedUrl.toString(), fetchOpts)
+    // 手动跟随重定向：每一跳都重新过 SSRF 校验，防止公网 URL 302 跳内网。
+    // 303 一律转 GET（语义约定）；307/308 保留原 method/body。
+    fetchOpts.redirect = 'manual'
+    let response = await fetch(parsedUrl.toString(), fetchOpts)
+    let hops = 0
+    while ([301, 302, 303, 307, 308].includes(response.status) && hops < 5) {
+      const location = response.headers.get('location')
+      if (!location) break
+      let nextUrl: URL
+      try {
+        nextUrl = new URL(location, response.url || parsedUrl.toString())
+      } catch {
+        throw new Error(`HTTP Request redirect target is not absolute: ${location}`)
+      }
+      if (nextUrl.protocol !== 'http:' && nextUrl.protocol !== 'https:') {
+        throw new Error(`HTTP Request redirect only allows http(s), got: ${nextUrl.protocol}`)
+      }
+      assertPublicHttpUrl(nextUrl)
+      if (response.status === 303 && method !== 'GET' && method !== 'HEAD') {
+        fetchOpts.method = 'GET'
+        delete fetchOpts.body
+      }
+      response = await fetch(nextUrl.toString(), fetchOpts)
+      hops += 1
+    }
 
     const rawText = await response.text().catch(() => '')
     const MAX_RESPONSE_BYTES = 32 * 1024

@@ -22,7 +22,7 @@ import type { TokenUsage } from '@dagents/contracts'
 import type { IncomingMessage } from 'node:http'
 import type { Duplex } from 'node:stream'
 import type { Server } from 'node:http'
-import { authConfigured, verifyApiKey } from './auth.js'
+import { authConfigured, verifyApiKey, originAllowed } from './auth.js'
 
 const log = createLogger({ svc: 'gateway:ws-hub' })
 
@@ -88,8 +88,14 @@ class WsHub {
 
       // 浏览器 WebSocket 握手不受同源策略约束（cross-site WebSocket
       // hijacking）：本机模式下任何网页都能连 ws://127.0.0.1:8080/ws 偷看
-      // 聊天流。配置了 GATEWAY_API_KEY 时要求 token（query 或 header）+
-      // 同源 Origin，二选一满足即可（非浏览器客户端无 Origin）。
+      // 聊天流。Origin 校验默认模式也生效（同源/环回/GATEWAY_ALLOWED_ORIGINS，
+      // 见 auth.ts originAllowed —— 非浏览器客户端无 Origin 不受影响）；
+      // 配置了 GATEWAY_API_KEY 时额外要求 token（query 或 header）。
+      const origin = req.headers.origin
+      if (origin && !originAllowed(origin, req.headers.host ?? '')) {
+        reject()
+        return
+      }
       if (authConfigured()) {
         const token =
           url.searchParams.get('token') ??
@@ -98,20 +104,6 @@ class WsHub {
         if (!verifyApiKey(token)) {
           reject()
           return
-        }
-        const origin = req.headers.origin
-        if (origin) {
-          let originHost: string | null = null
-          try {
-            originHost = new URL(origin).host
-          } catch {
-            originHost = null
-          }
-          const host = req.headers.host ?? ''
-          if (!originHost || originHost !== host) {
-            reject()
-            return
-          }
         }
       }
 
@@ -194,6 +186,21 @@ class WsHub {
   /** 当前连接数（测试用）。 */
   get clientCount(): number {
     return this.clients.size
+  }
+
+  /** 优雅停机：给每个客户端发一帧关门通知后统一关闭（幂等）。 */
+  shutdown(): void {
+    const bye = JSON.stringify({ type: 'chat:error', chatId: '', role: 'system', content: 'gateway shutting down', error: 'gateway_shutting_down' })
+    for (const conn of this.clients) {
+      try {
+        if (conn.ws.readyState === WebSocket.OPEN) conn.ws.send(bye)
+        conn.ws.terminate()
+      } catch {
+        // best-effort — terminate 本身不抛
+      }
+    }
+    this.clients.clear()
+    this.wss?.close()
   }
 }
 

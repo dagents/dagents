@@ -5,6 +5,8 @@ import { createBackend } from '@dagents/agent-adapters'
 import { runQuery } from '@dagents/db'
 import { createLogger } from '@dagents/shared'
 import type { AgentResult } from '@dagents/contracts'
+import { checkExecutablePath } from '../lib/executable-path.js'
+import { ok, fail } from '../lib/http.js'
 
 /**
  * POST /api/v1/agents/:id/invoke — synchronous one-shot agent invoke.
@@ -19,6 +21,12 @@ import type { AgentResult } from '@dagents/contracts'
  *
  * Mounted alongside the catalogue routes in agents.ts under /api/v1/agents.
  *
+ * Working directory: `directoryId` references a `directories` row — the CLI
+ * runs in that directory's path. Arbitrary `cwd` strings are deliberately
+ * NOT accepted (2026-09-17 security review): combined with default
+ * bypassPermissions CLIs, that was "run a fully-privileged agent anywhere on
+ * this machine" over HTTP.
+ *
  * Timeout: the caller may pass timeoutMs (capped at 180s, default 180s).
  * On timeout we answer 504 immediately; the spawned CLI may finish in the
  * background (AgentSession has no kill hook) — acceptable for local dev.
@@ -28,17 +36,10 @@ export const agentInvokeRoutes = new Hono()
 
 const log = createLogger({ svc: 'gateway:agent-invoke' })
 
-const ok = <T>(c: Context, data: T) => c.json({ success: true, data })
-const fail = (
-  c: Context,
-  status: ContentfulStatusCode,
-  error: string,
-  extra?: Record<string, unknown>,
-) => c.json({ success: false, error, ...extra }, status)
 
 const invokeBodySchema = z.object({
   prompt: z.string().min(1).max(100_000),
-  cwd: z.string().max(1024).optional(),
+  directoryId: z.string().uuid().optional(),
   model: z.string().max(128).optional(),
   timeoutMs: z.number().int().min(1_000).max(180_000).optional(),
 })
@@ -91,6 +92,36 @@ agentInvokeRoutes.post('/:id/invoke', async (c) => {
   if (!SUPPORTED_KINDS.includes(agent.kind)) {
     return fail(c, 400, `unsupported agent kind '${agent.kind}' (supported: ${SUPPORTED_KINDS.join(', ')})`)
   }
+  // Use-time spawn guard: legacy agent_daemons rows may carry arbitrary
+  // executable paths — the registration-time check (agents.ts) only covers
+  // new writes, so re-validate before handing the path to createBackend.
+  if (agent.executablePath) {
+    const check = checkExecutablePath(agent.executablePath)
+    if (!check.ok) {
+      log.warn('invoke rejected: unsafe executablePath', { id, reason: check.reason })
+      return fail(c, 400, 'agent executablePath is invalid', { detail: check.reason })
+    }
+    agent.executablePath = check.path
+  }
+
+  // Resolve the working directory via the directories table (same indirection
+  // the chat path uses) — never trust a raw path over HTTP.
+  let cwd: string | undefined
+  if (parsed.directoryId) {
+    try {
+      const { records } = await runQuery<{ path: string }>(
+        `SELECT path FROM directories WHERE id = $1::uuid`,
+        [parsed.directoryId],
+      )
+      if (!records[0]) {
+        return fail(c, 404, 'directory not found', { directoryId: parsed.directoryId })
+      }
+      cwd = records[0].path
+    } catch (err) {
+      log.error('invoke directory lookup failed', { id, error: String(err) })
+      return fail(c, 502, 'directory lookup failed')
+    }
+  }
 
   const timeoutMs = Math.min(parsed.timeoutMs ?? DEFAULT_TIMEOUT_MS, MAX_TIMEOUT_MS)
   const startedAt = Date.now()
@@ -99,7 +130,7 @@ agentInvokeRoutes.post('/:id/invoke', async (c) => {
   let output = ''
   try {
     const backend = createBackend(agent.kind as never, { executablePath: agent.executablePath, logger: log })
-    const session = backend.execute(parsed.prompt, { cwd: parsed.cwd, model: parsed.model })
+    const session = backend.execute(parsed.prompt, { cwd, model: parsed.model })
     const collect = (async () => {
       for await (const evt of session.events) {
         if (evt.type === 'text') output += evt.content

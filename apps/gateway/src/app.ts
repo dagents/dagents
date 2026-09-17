@@ -21,7 +21,7 @@ import { internalRunsRoutes } from './routes/internal-runs.js'
 import { dispatchRoutes } from './routes/dispatch/index.js'
 import { runQuery } from '@dagents/db'
 import { createLogger } from '@dagents/shared'
-import { requireAuth, verifyApiKey, bearerFromRequest } from './auth.js'
+import { requireAuth, verifyApiKey, bearerFromRequest, originAllowed } from './auth.js'
 
 // `app` is exported separately from the `serve()` entry so tests can drive it
 // via `app.request()` without binding a port. `index.ts` is the only place
@@ -40,16 +40,21 @@ app.get('/health', async (c) => {
 })
 
 /**
- * Gateway auth middleware.
+ * Gateway auth + browser-origin middleware.
  *
  * The gateway is a local-machine service and runs open by default (no login).
  * The only optional gate is `GATEWAY_API_KEY`: when set (16+ chars), every
  * non-public route requires it as a bearer token — for operators who expose
  * the gateway beyond localhost.
  *
- * Public routes (always reachable):
+ * Cross-origin browser guard (ALWAYS on, even in open mode): requests that
+ * carry an `Origin` must be same-origin / loopback / in GATEWAY_ALLOWED_ORIGINS.
+ * Without this, any web page the operator visits could drive the whole API
+ * (simple requests skip CORS preflight; 127.0.0.1 binding does not stop the
+ * operator's browser). Non-browser clients send no Origin and are unaffected.
+ *
+ * Public routes (always reachable, auth not required):
  *   - `/health`
- *   - `/api/v1/llm/*`   (LLM proxy; the upstream provider's own `sk-` token is the auth)
  *
  * NOTE: this middleware must be registered BEFORE any route that should be
  * gated (Hono runs matched handlers in registration order — a route registered
@@ -65,6 +70,14 @@ app.get('/health', async (c) => {
  * falls through to the gateway key like any other route.
  */
 app.use('*', async (c, next) => {
+  const origin = c.req.header('origin')
+  if (origin) {
+    const host = c.req.header('host') ?? ''
+    if (!originAllowed(origin, host)) {
+      return c.json({ success: false, error: 'cross-origin request rejected' }, 403)
+    }
+  }
+
   if (!requireAuth()) {
     await next()
     return
@@ -72,9 +85,7 @@ app.use('*', async (c, next) => {
 
   // API key gate is configured. Check public routes.
   const path = new URL(c.req.url).pathname
-  const isPublic =
-    path === '/health' ||
-    path.startsWith('/api/v1/llm/')        // LLM proxy uses the provider's own API key as auth
+  const isPublic = path === '/health'
   if (isPublic) {
     await next()
     return

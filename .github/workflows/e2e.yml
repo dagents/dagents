@@ -68,7 +68,7 @@ jobs:
       - name: Setup Node
         uses: actions/setup-node@v4
         with:
-          node-version: 20
+          node-version: 22
           cache: pnpm
 
       - name: Install dependencies
@@ -77,7 +77,7 @@ jobs:
       # gateway dev（tsx）import 的 @dagents/* 走各自 dist —— 先构建包；
       # console 本身由 playwright webServer 的 next dev 现编译，无需预构建。
       - name: Build workspace packages
-        run: pnpm exec turbo run build --filter='@dagents/shared' --filter='@dagents/contracts' --filter='@dagents/db' --filter='@dagents/agent-adapters' --filter='@dagents/workflow' --filter='@dagents/agentflow'
+        run: pnpm exec turbo run build --filter='@dagents/shared' --filter='@dagents/contracts' --filter='@dagents/db' --filter='@dagents/agent-adapters' --filter='@dagents/workflow'
 
       - name: Apply DB migrations（专用库从零建表）
         run: pnpm --filter @dagents/db migration:run
@@ -87,6 +87,10 @@ jobs:
 
       - name: Start gateway（指向专用库）
         run: |
+          # DAGENTS_HTTP_ALLOW_PRIVATE=1：e2e 的 HTTP 节点用例（WF-04 等）
+          # 指向 Mock LLM :4010（127.0.0.1）—— SSRF 守卫的官方逃生门，
+          # 仅测试栈启用（守卫语义本身由 workflow 包单测钉住）。
+          DAGENTS_HTTP_ALLOW_PRIVATE=1 \
           nohup pnpm --filter @dagents/gateway dev > /tmp/gateway.log 2>&1 &
           for i in $(seq 1 60); do
             if curl -sf http://127.0.0.1:8080/health > /dev/null; then

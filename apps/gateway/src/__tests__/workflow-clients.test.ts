@@ -55,9 +55,13 @@ beforeAll(async () => {
   await new Promise<void>((resolve) => stubServer.listen(0, '127.0.0.1', resolve))
   const addr = stubServer.address() as AddressInfo
   stubUrl = `http://127.0.0.1:${addr.port}`
+  // http_request 工具的 SSRF 守卫默认拦 127.0.0.1 —— 本测试用本地桩服务器
+  // 验证工具机制本身（SSRF 策略由 security-guards.test.ts 单独钉住），开逃生门。
+  process.env.DAGENTS_HTTP_ALLOW_PRIVATE = '1'
 })
 
 afterAll(async () => {
+  delete process.env.DAGENTS_HTTP_ALLOW_PRIVATE
   await new Promise<void>((resolve) => stubServer.close(() => resolve()))
 })
 

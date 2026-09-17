@@ -30,6 +30,7 @@ import { persistComplete, persistCancelled } from './routes/internal-runs-helper
 import { composeSystemPrompt } from './skill-injection.js'
 import { executionRegistry, type ExecutionHandle } from './execution-registry.js'
 import { computeCost } from './pricing.js'
+import { checkExecutablePath } from './lib/executable-path.js'
 
 const log = createLogger({ svc: 'gateway:inline-executor' })
 
@@ -219,6 +220,21 @@ export async function executeInline(
   }
 
   // spawn agent via factory (supports claude/codex/qwen/copilot/opencode)
+  // Use-time spawn guard: legacy agent_daemons rows may predate the
+  // registration-time check — never hand an arbitrary path to spawn.
+  if (execPath) {
+    const check = checkExecutablePath(execPath)
+    if (!check.ok) {
+      log.warn('inline exec rejected: unsafe executablePath', { chatId, agentId, reason: check.reason })
+      await reportError(
+        chatId,
+        runId,
+        `Agent「${agentName}」配置的可执行路径无效，已拒绝执行：${check.reason}`,
+      )
+      return
+    }
+    execPath = check.path
+  }
   const backend = createBackend(agentKind as AgentType, { executablePath: execPath, logger: log })
 
   // Auto-retry: when the agent process exits with a non-zero code (or the

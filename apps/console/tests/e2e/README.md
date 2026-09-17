@@ -1,8 +1,8 @@
 # Chat-First E2E Test Harness
 
-> **Scope:** Playwright browser e2e for the Chat-First user-facing surface.
-> **Coverage:** 67 user cases from `docs/superpowers/specs/2026-07-25-user-cases-gap-analysis.md`, organized into 10 modules; **plus** the workflow-execution / multi-Agent suite from `docs/e2e-test-plan.md`（spec 11~15，2026-08-19 落地）.
-> **Status:** 36 active + 43 fixme（UC 套件）+ **50 active（执行态套件 11~15，含多 Agent 协作专项）**.
+> **Scope:** Playwright browser e2e for the user-facing surface（Workflow-First IA：`/` = Flows 工作台 + 全局 FAB 副驾）.
+> **Coverage:** UC 用户用例套件（01~10，源自 `docs/archive/specs/2026-07-25-user-cases-gap-analysis.md`，已归档）+ 执行态套件（11~23：工作流执行契约 / 多 Agent 协作 / 聊天触发 / 边界 / UI 旅程 / 人格库 / 模板中心 / IA 冒烟 / 画布布局与直链 / 终端视图 / 可操作终端）+ 视口矩阵.
+> **Status（2026-09-17 重数）:** 23 个编号 spec 共 **123 active** `test()`（其中 CLI-SMOKE 需 `E2E_REAL_CLI=1` 才真正运行）+ **29 fixme** + **2 skip**；另有 `viewport-matrix.spec.ts` 由 1 处循环生成 **90 个用例**（10 屏 × 9 视口）.
 
 This directory holds the **user-case e2e suite** — true end-to-end tests that drive a real browser through the Chat-First UI. They assert what the user sees and what the HTTP contract returns, not internal code behavior. Each test maps to a numbered user case (UC-ID) in the gap analysis.
 
@@ -80,12 +80,18 @@ prompt / 工具是否回灌 / 循环了几轮」的协作证据），不再依�
 完全隔离需要 gateway 也指向它（seed.ts 只控制测试进程的直连读写）：
 
 ```bash
-# 1. gateway 指向专用库重启（GATEWAY_PORT 可换端口并行跑）
+# 1. gateway 指向专用库重启（GATEWAY_PORT 可换端口并行跑）。
+#    DAGENTS_HTTP_ALLOW_PRIVATE=1：HTTP 节点用例指向 Mock :4010，SSRF 守卫
+#    的官方逃生门（CI e2e.yml 同款；守卫语义由 workflow 包单测钉住）。
 POSTGRES_URL=postgresql://dagents:dagents_dev@localhost:15432/dagents_e2e \
+  DAGENTS_HTTP_ALLOW_PRIVATE=1 \
   GATEWAY_PORT=8081 pnpm --filter @dagents/gateway dev &
 
-# 2. 套件指向该 gateway + 专用库
+# 2. 套件指向该 gateway + 专用库。⚠️ 换了网关端口时 GATEWAY_URL 必须同步
+#    （console BFF 只认 GATEWAY_URL，默认 :8080 —— 2026-09-17 全量重跑时
+#    84 例全灭即此因：E2E_GATEWAY_URL 只影响 seed 直连，BFF 路径全 502）。
 POSTGRES_URL=postgresql://dagents:dagents_dev@localhost:15432/dagents_e2e \
+  GATEWAY_URL=http://127.0.0.1:8081 \
   E2E_GATEWAY_URL=http://127.0.0.1:8081 pnpm --filter @dagents/console test:e2e
 ```
 
@@ -101,7 +107,7 @@ Login was removed — the stack runs **auth-free** by design (本机模式). No 
 ## Running the Suite
 
 ```bash
-# Full suite (all 10 spec files, serial — workers:1 in config)
+# Full suite (all 24 spec files, serial — workers:1 in config)
 pnpm --filter @dagents/console test:e2e
 
 # Single spec file
@@ -129,28 +135,36 @@ The config is at [`../playwright.config.ts`](../playwright.config.ts):
 
 ## Test Inventory
 
-10 spec files cover 67 user cases. Each file name is prefixed with its module number for sort order.
+24 spec files（23 个编号 spec + viewport-matrix；18 号编号已退役不再复用）。计数为 `test()` / `test.fixme()` / `test.skip()` 字面出现次数（2026-09-17 grep 核实）。
 
-| File | Module | UC Range | Active | Fixme | Total |
-|------|--------|----------|--------|-------|-------|
-| [`01-chat-home.spec.ts`](01-chat-home.spec.ts) | Chat Home (`/`) | UC-CHAT-01~06 | 5 | 2 | 7 |
-| [`02-chat-detail.spec.ts`](02-chat-detail.spec.ts) | Chat Detail (`/chats/{id}`) | UC-CHAT-07~13 | 5 | 7 | 12 |
-| [`03-directories.spec.ts`](03-directories.spec.ts) | Directories (`/directories`) | UC-DIR-01~05 | 5 | 1 | 6 |
-| [`04-agents.spec.ts`](04-agents.spec.ts) | Agents (`/agents`, `/agents/{id}`) | UC-AGT-01~04 | 3 | 2 | 5 |
-| [`05-agentflows.spec.ts`](05-agentflows.spec.ts) | AgentFlows (`/flows`, `/flows/{id}/edit`) | UC-FLW-01~07 | 4 | 5 | 9 |
-| [`06-daemons.spec.ts`](06-daemons.spec.ts) | Daemons (`/daemons`) | UC-DAE-01~06 | 0 | 6 | 6 |
-| [`07-settings.spec.ts`](07-settings.spec.ts) | Settings (`/settings`) | UC-SET-01~06 | 6 | 0 | 6 |
-| [`08-sidebar-nav.spec.ts`](08-sidebar-nav.spec.ts) | Sidebar navigation | UC-NAV-01~08 | 7 | 2 | 9 |
-| [`09-chat-trigger.spec.ts`](09-chat-trigger.spec.ts) | Chat trigger (@ commands, SSE) | UC-TRG-01~06 | 1 | 6 | 7 |
-| [`10-workflow-engine.spec.ts`](10-workflow-engine.spec.ts) | Workflow engine (arch §9) | UC-WF-01~12 | 0 | 12 | 12 |
-| [`11-workflow-execution.spec.ts`](11-workflow-execution.spec.ts) | 工作流执行契约（Tier A：WF/OB） | WF-01~08, OB-01~06 | 14 | 0 | 14 |
-| [`12-multi-agent.spec.ts`](12-multi-agent.spec.ts) | 多 Agent 协作专项（核心） | MA-01~18 + 冒烟锚 | 19 | 0 | 19 |
-| [`13-chat-flow-trigger.spec.ts`](13-chat-flow-trigger.spec.ts) | 聊天触发 / SSE（Tier B） | TR-01~08 | 8 | 0 | 8 |
-| [`14-workflow-edge.spec.ts`](14-workflow-edge.spec.ts) | 失败与边界（Tier D） | ED-01~07 + CLI-SMOKE | 7 | 2 | 9 |
-| [`15-flows-ui-journey.spec.ts`](15-flows-ui-journey.spec.ts) | 浏览器 UI 旅程（Tier C） | UI-01/02/04/05/08 | 5 | 0 | 5 |
-| **Total** | | | **~92 active** | ~45 | ~137 |
+| File | Module | IDs | Active | Fixme | Skip |
+|------|--------|-----|--------|-------|------|
+| [`01-chat-home.spec.ts`](01-chat-home.spec.ts) | Flows 工作台主页 + FAB 副驾（Workflow-First IA） | UC-CHAT-01~06 | 6 | 0 | 0 |
+| [`02-chat-detail.spec.ts`](02-chat-detail.spec.ts) | Chat Detail (`/chats/{id}`) | UC-CHAT-07~13 | 4 | 9 | 0 |
+| [`03-directories.spec.ts`](03-directories.spec.ts) | Directories（API 契约 + 侧栏分组） | UC-DIR-01~05 | 5 | 1 | 0 |
+| [`04-agents.spec.ts`](04-agents.spec.ts) | Agents (`/agents`, `/agents/{id}`) | UC-AGT-01~04 | 2 | 3 | 0 |
+| [`05-agentflows.spec.ts`](05-agentflows.spec.ts) | Flows 列表 + 画布错误态 | UC-FLW-01~07 | 4 | 5 | 0 |
+| [`06-daemons.spec.ts`](06-daemons.spec.ts) | Daemons (`/daemons`) | UC-DAE-01~06 | 3 | 3 | 0 |
+| [`07-settings.spec.ts`](07-settings.spec.ts) | Settings (`/settings`) | UC-SET-01~05 | 5 | 0 | 0 |
+| [`08-sidebar-nav.spec.ts`](08-sidebar-nav.spec.ts) | 主导航 + 项目维度会话树 | UC-NAV-01~07 | 7 | 0 | 0 |
+| [`09-chat-trigger.spec.ts`](09-chat-trigger.spec.ts) | Chat trigger (@ commands) | UC-TRG-01~05 | 5 | 1 | 0 |
+| [`10-workflow-engine.spec.ts`](10-workflow-engine.spec.ts) | Workflow CRUD API 契约 | UC-WF-01~12 | 5 | 7 | 0 |
+| [`11-workflow-execution.spec.ts`](11-workflow-execution.spec.ts) | 工作流执行契约（Tier A：WF/OB） | WF-01~13, OB-01~06 | 16 | 0 | 0 |
+| [`12-multi-agent.spec.ts`](12-multi-agent.spec.ts) | 多 Agent 协作专项（核心） | MA-01~18 + 冒烟锚 | 16 | 0 | 0 |
+| [`13-chat-flow-trigger.spec.ts`](13-chat-flow-trigger.spec.ts) | 聊天触发 / SSE（Tier B） | TR-01~08 | 8 | 0 | 0 |
+| [`14-workflow-edge.spec.ts`](14-workflow-edge.spec.ts) | 失败与边界（Tier D） | ED-01~07 + CLI-SMOKE | 7 | 0 | 2 |
+| [`15-flows-ui-journey.spec.ts`](15-flows-ui-journey.spec.ts) | 浏览器 UI 旅程（Tier C） | UI-01/02/04/05/08 | 5 | 0 | 0 |
+| [`16-agent-library.spec.ts`](16-agent-library.spec.ts) | Agent 人格库（浏览/启用/漂移/团队场景） | — | 6 | 0 | 0 |
+| [`17-flow-templates.spec.ts`](17-flow-templates.spec.ts) | 流程模板中心（内置/团队/我的） | — | 6 | 0 | 0 |
+| [`19-workflow-first-ia.spec.ts`](19-workflow-first-ia.spec.ts) | Workflow-First IA 冒烟 | IA-01~03 | 3 | 0 | 0 |
+| [`20-canvas-layout-autosave.spec.ts`](20-canvas-layout-autosave.spec.ts) | 画布布局自动保存（CDP 真实拖拽） | CV-LAY-01~03 | 2 | 0 | 0 |
+| [`21-canvas-direct-url.spec.ts`](21-canvas-direct-url.spec.ts) | 画布直链 / 旁观渲染 | CV-01~02 | 2 | 0 | 0 |
+| [`22-run-terminal-view.spec.ts`](22-run-terminal-view.spec.ts) | 运行终端视图（全量事件流） | RT-01~03 | 2 | 0 | 0 |
+| [`23-operable-terminal.spec.ts`](23-operable-terminal.spec.ts) | 可操作终端（重跑/插话/stdin） | OT-01~04 | 4 | 0 | 0 |
+| [`viewport-matrix.spec.ts`](viewport-matrix.spec.ts) | 视口矩阵（1 处循环生成） | 10 屏 × 9 视口 | 90* | 0 | 0 |
+| **Total** | | | **123 + 90\* = 213** | **29** | **2** |
 
-> **Note:** Two pre-existing specs (`v0.3-design.spec.ts`, `viewport-matrix.spec.ts`) cover the older v0.3 design-fidelity scenarios and are not part of the 67-UC matrix. They remain in this directory for continuity.
+> **Note:** `viewport-matrix.spec.ts` 的 90 个用例由 `for (viewport) × for (screen)` 循环从单一 `test()` 调用点生成（无水平滚动契约），上表按生成后的运行时数量计。`14-workflow-edge` 的 2 个 skip：ED-07b（LLM 挂起超时无法确定性 e2e）与 CLI-SMOKE 门（`E2E_REAL_CLI=1` 才放行其后的真实 CLI 冒烟用例）。
 
 ### Status legend
 
@@ -163,7 +177,7 @@ The config is at [`../playwright.config.ts`](../playwright.config.ts):
 
 ### 1. Identify the UC
 
-Find the user case in `docs/superpowers/specs/2026-07-25-user-cases-gap-analysis.md`. Note its UC-ID (e.g. `UC-CHAT-09`) and status (✅ / ⚠️ / ❌).
+Find the user case in `docs/archive/specs/2026-07-25-user-cases-gap-analysis.md`（已归档，快照不再更新）. Note its UC-ID (e.g. `UC-CHAT-09`) and status (✅ / ⚠️ / ❌).
 
 ### 2. Pick the file
 
@@ -250,7 +264,7 @@ DAG 构造辅助（`node`/`edge`/`linearFlow`/`parallelFlow` + 各节点类型�
 
 ### Design notes
 
-- **Dynamic import of `@dagents/db`:** `@dagents/db` is not a declared console dependency (the console app itself never touches the DB layer — only the gateway does). The helpers dynamically import it inside `createSeedContext()` so the console's build graph stays clean. This mirrors the pattern in `v0.3-design.spec.ts`.
+- **Dynamic import of `@dagents/db`:** `@dagents/db` is not a declared console dependency (the console app itself never touches the DB layer — only the gateway does). The helpers dynamically import it inside `createSeedContext()` so the console's build graph stays clean.
 - **`POSTGRES_URL` must be set before the dynamic import:** `AppDataSource` captures the env at module-construction time. `createSeedContext()` sets it on `process.env` *before* `await import('@dagents/db')`.
 - **Cleanup is idempotent:** `dispose()` uses `DELETE ... WHERE id = ANY($1::uuid[])` on each tracked ID array. Empty arrays are skipped. Safe to call multiple times.
 - **FK-safe order:** messages → chats → directories; agent_daemons → daemons.
@@ -345,7 +359,7 @@ pnpm --filter @dagents/console exec playwright test --headed --workers=1
 
 ### When the gap analysis changes
 
-The gap analysis at `docs/superpowers/specs/2026-07-25-user-cases-gap-analysis.md` is the **source of truth** for UC definitions. When it's updated:
+The gap analysis at `docs/archive/specs/2026-07-25-user-cases-gap-analysis.md`（已归档；写作时为 UC 定义的真相源）. If a fixme is activated or UC coverage changes:
 
 1. **UC status changes (⚠️ → ✅):** find the corresponding `test.fixme` in the spec file, remove `.fixme`, verify the body assertions still match the implementation, run the test.
 2. **New UC added:** add a new `test(...)` or `test.fixme(...)` to the relevant spec file. Update the Test Inventory table in this README.
