@@ -4,34 +4,20 @@ import type { ContentfulStatusCode } from 'hono/utils/http-status'
 import { z } from 'zod'
 import { runQuery } from '@dagents/db'
 import { createLogger } from '@dagents/shared'
-import { DagExecutor, NodeRegistry, allNodes, SseStreamer, type FlowData } from '@dagents/workflow'
-import { makeIncrementalSpanWriter } from '../span-writer.js'
+import { SseStreamer, type FlowData } from '@dagents/workflow'
 import { routeMessage } from './chat-execute.js'
 import { enqueueTask, getTask, getTaskEvents } from './dispatch/service.js'
 import { executionRegistry, type ExecutionHandle } from '../execution-registry.js'
 import { persistCancelled } from './internal-runs-helpers.js'
-import {
-  createDefaultLlmClient,
-  createAgentFetcher,
-  createBuiltInToolRegistry,
-  resetProviderCache,
-  sendToRunNode,
-} from './workflow-clients.js'
+import { sendToRunNode } from './workflow-clients.js'
+import { assembleWorkflowEngine, toRunStatus } from './workflow-engine-service.js'
 import { createChatHumanInputResolver, resolvePendingHumanInput } from './human-input.js'
+import { ok, fail, UUID_RE } from '../lib/http.js'
 
 export const chatRoutes = new Hono()
 
 const log = createLogger({ svc: 'gateway:chats' })
 
-const ok = <T>(c: Context, data: T) => c.json({ success: true, data })
-const fail = (
-  c: Context,
-  status: ContentfulStatusCode,
-  error: string,
-  extra?: Record<string, unknown>,
-) => c.json({ success: false, error, ...extra }, status)
-
-const UUID_RE = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i
 
 const listQuerySchema = z.object({
   directory_id: z.string().uuid().optional(),
@@ -720,8 +706,14 @@ async function streamAgentExecution(
     async start(controller) {
       const POLL_INTERVAL = 500
       let terminal = false
+      // 客户端断连（关页/取消）时 request signal 会 abort —— 轮询必须
+      // 跟着退出，否则每条被放弃的会话都变成 500ms 一转的永久后台循环
+      // （2026-09-17 评审修复：daemon 死亡时任务永不终态 + enqueue 抛错被
+      // 吞，这条循环此前无任何退出路径）。
+      const signal = c.req.raw.signal
 
-      while (!terminal) {
+      while (!terminal && !signal.aborted) {
+        let events: Awaited<ReturnType<typeof getTaskEvents>> = []
         try {
           // Check task status (in-process service call)
           const task = await getTask(taskId)
@@ -732,30 +724,41 @@ async function streamAgentExecution(
           }
 
           // Fetch new events since lastSeq (in-process service call)
-          const events = await getTaskEvents(taskId, lastSeq)
-          for (const evt of events) {
-            if (evt.seq <= lastSeq) continue
-            lastSeq = evt.seq
-            const p = (evt.payload ?? {}) as Record<string, unknown>
-            const text =
-              typeof p.content === 'string' ? p.content
-              : typeof p.output === 'string' ? p.output
-              : typeof p.status === 'string' ? p.status
-              : JSON.stringify(p)
-            controller.enqueue(encoder.encode(`event: token\ndata: ${JSON.stringify({ event: 'token', data: text })}\n\n`))
-          }
+          events = await getTaskEvents(taskId, lastSeq)
         } catch (err) {
           log.warn('agent event poll error', { taskId, error: String(err) })
         }
 
-        if (!terminal) {
+        for (const evt of events) {
+          if (evt.seq <= lastSeq) continue
+          lastSeq = evt.seq
+          const p = (evt.payload ?? {}) as Record<string, unknown>
+          const text =
+            typeof p.content === 'string' ? p.content
+            : typeof p.output === 'string' ? p.output
+            : typeof p.status === 'string' ? p.status
+            : JSON.stringify(p)
+          try {
+            controller.enqueue(encoder.encode(`event: token\ndata: ${JSON.stringify({ event: 'token', data: text })}\n\n`))
+          } catch {
+            // 流已关闭（客户端断开）——退出而非把异常当 poll error 吞掉
+            terminal = true
+            break
+          }
+        }
+
+        if (!terminal && !signal.aborted) {
           await new Promise((r) => setTimeout(r, POLL_INTERVAL))
         }
       }
 
-      // Send end event
-      controller.enqueue(encoder.encode(`event: end\ndata: ${JSON.stringify({ event: 'end', data: '[DONE]' })}\n\n`))
-      controller.close()
+      // Send end event (only meaningful when the stream is still open)
+      try {
+        controller.enqueue(encoder.encode(`event: end\ndata: ${JSON.stringify({ event: 'end', data: '[DONE]' })}\n\n`))
+        controller.close()
+      } catch {
+        // client already gone — nothing to flush
+      }
 
       // Update chat status
       try {
@@ -843,7 +846,9 @@ chatRoutes.get('/:id/stream', async (c) => {
     return fail(c, 400, 'invalid flow data', { flowId: chat.flow_id })
   }
 
-  const runId = c.req.header('x-run-id')?.trim() || randomUUID()
+  // 同 workflows.ts：非 UUID 的 x-run-id 会让落库静默失败，直接忽略换新生成
+  const rawChatRunId = c.req.header('x-run-id')?.trim()
+  const runId = rawChatRunId && UUID_RE.test(rawChatRunId) ? rawChatRunId : randomUUID()
   const streamer = new SseStreamer(id)
 
   // Cancellation handle (execution-cancellation spec D4): the SSE flow run
@@ -866,10 +871,6 @@ chatRoutes.get('/:id/stream', async (c) => {
   }
   executionRegistry.register(handle)
 
-  const registry = new NodeRegistry()
-  registry.registerMany(allNodes())
-  const executor = new DagExecutor(registry)
-
   c.header('content-type', 'text/event-stream')
   c.header('cache-control', 'no-cache')
   c.header('x-run-id', runId)
@@ -881,7 +882,6 @@ chatRoutes.get('/:id/stream', async (c) => {
 
   const prompt = lastUserMsg ?? ''
   ;(async () => {
-    resetProviderCache()
     let finalText = ''
     let cancelled = false
     try {
@@ -897,29 +897,21 @@ chatRoutes.get('/:id/stream', async (c) => {
           chatCwd = dirRows[0]?.path ?? undefined
         } catch { /* 目录解析失败回落网关 cwd */ }
       }
-      const llmClient = createDefaultLlmClient('claude', { cwd: chatCwd, runId })
-      const agentFetcher = createAgentFetcher()
-      const toolRegistry = createBuiltInToolRegistry()
+      // 引擎装配单一来源（与画布直跑 / @flow 路径共用）：chat 触发的
+      // 工作流与画布直跑共用同一进度数据源，画布可通过
+      // /workflows/:flowId/canvas?run=<id> 实时旁观 chat 发起的运行。
+      const { executor, baseOptions } = assembleWorkflowEngine({
+        flowData,
+        runId,
+        flowId: chat.flow_id!,
+        cwd: chatCwd,
+        logger: log,
+      })
       // HumanInput nodes park on the user's next message in this chat
       // (see human-input.ts).
       const humanInputResolver = createChatHumanInputResolver({ chatId: id, runId, streamer })
-      // 节点生命周期 → 增量写 run_node_spans：chat 触发的工作流与画布直跑
-      // 共用同一进度数据源，画布可通过 /workflows/:flowId/canvas?run=<id>
-      // 实时旁观 chat 发起的运行。
-      const nodeLabelById = new Map<string, string | null>()
-      const nodeTypeById = new Map<string, string | null>()
-      for (const n of flowData.nodes) {
-        nodeLabelById.set(n.id, (n.data as { label?: string })?.label ?? n.id)
-        nodeTypeById.set(n.id, n.type ?? 'customNode')
-      }
-      const spanWriter = makeIncrementalSpanWriter({
-        runId,
-        flowId: chat.flow_id!,
-        nodeLabelById,
-        nodeTypeById,
-        log,
-      })
       const result = await executor.execute(flowData, prompt, {
+        ...baseOptions,
         chatId: id,
         runId,
         state: {},
@@ -927,13 +919,6 @@ chatRoutes.get('/:id/stream', async (c) => {
         sseStreamer: streamer,
         startInput: prompt,
         signal: abort.signal,
-        onNodeStart: spanWriter.onNodeStart,
-        onNodeEnd: spanWriter.onNodeEnd,
-        // 流式展示（2026-08-30）：节点生成过程增量节流落库（画布旁观可用）
-        onNodeDelta: spanWriter.onNodeDelta,
-        llmClient,
-        agentFetcher,
-        toolRegistry,
         humanInputResolver,
       })
       finalText = extractReplyText(result.finalOutput)
@@ -946,10 +931,7 @@ chatRoutes.get('/:id/stream', async (c) => {
       // runs 行：chat 触发的工作流运行也进 flow 运行历史，且画布旁观
       // （canvas?run=）依赖它判断终态。best-effort —— 失败不影响流。
       try {
-        const runStatus =
-          result.status === 'success' ? 'completed'
-          : result.status === 'cancelled' ? 'cancelled'
-          : 'failed'
+        const runStatus = toRunStatus(result.status)
         await runQuery(
           `INSERT INTO runs (id, identifier, pipeline_id, chat_id, status, input, output, started_at, finished_at, duration_ms, cost)
            VALUES ($1::uuid, $2::text, $3::uuid, $4::text, $5, $6, $7, $8, NOW(), $9, 0)

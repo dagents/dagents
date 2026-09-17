@@ -57,6 +57,20 @@ class ExecutionRegistry {
   private byRun = new Map<string, ExecutionHandle>()
 
   register(handle: ExecutionHandle): void {
+    // One-execution-per-chat 在这里是代码不是注释（2026-09-17 评审修复）：
+    // 同 chat 新执行启动时主动 abort 旧句柄（latest-wins），旧执行自己的
+    // abort 路径负责把终态落库 —— 此前 register 无条件覆盖 Map，旧执行
+    // 既无法取消、落库还照常进行，两份 CLI 子进程并行烧钱。
+    const previous = this.byChat.get(handle.chatId)
+    if (previous) {
+      log.warn('chat already has a live execution — aborting previous (one-execution-per-chat)', {
+        chatId: handle.chatId,
+        previousKind: previous.kind,
+        newKind: handle.kind,
+        previousStartedAt: previous.startedAt,
+      })
+      previous.abort('superseded by a new execution in this chat')
+    }
     this.byChat.set(handle.chatId, handle)
     this.byRun.set(handle.runId, handle)
     log.info('execution registered', { chatId: handle.chatId, runId: handle.runId, kind: handle.kind })
@@ -91,6 +105,22 @@ class ExecutionRegistry {
     const handle = this.byRun.get(runId)
     if (!handle) return { found: false, settled: false }
     return cancelHandle(handle, reason)
+  }
+
+  /**
+   * Abort every live execution (graceful shutdown). Does NOT wait for
+   * settlement here — the caller owns the grace budget; each handle's own
+   * abort path persists its terminal state (cancelled/aborted) before `done`
+   * resolves. Returns the handles so the caller can race them against its
+   * shutdown timeout.
+   */
+  abortAll(reason = 'gateway shutting down'): ExecutionHandle[] {
+    const handles = [...new Set([...this.byChat.values(), ...this.byRun.values()])]
+    for (const handle of handles) handle.abort(reason)
+    if (handles.length > 0) {
+      log.warn('aborted all live executions for shutdown', { count: handles.length, reason })
+    }
+    return handles
   }
 }
 

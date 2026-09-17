@@ -9,12 +9,13 @@
 import { Hono, type Context } from 'hono'
 import type { ContentfulStatusCode } from 'hono/utils/http-status'
 import { runQuery } from '@dagents/db'
+import { createLogger } from '@dagents/shared'
+import { ok, fail, UUID_RE } from '../lib/http.js'
+
+const log = createLogger({ svc: 'gateway:runs' })
 
 export const runsRoutes = new Hono()
 
-const ok = <T>(c: Context, data: T) => c.json({ success: true, data })
-const fail = (c: Context, status: ContentfulStatusCode, error: string) =>
-  c.json({ success: false, error }, status)
 
 /**
  * 输入预览提取：runs.input 是 JSONB —— 运行请求体常见形态
@@ -72,7 +73,7 @@ runsRoutes.get('/', async (c) => {
     params.push(status)
     where.push(`r.status = $${params.length}`)
   }
-  if (flowId && /^[0-9a-f-]{36}$/i.test(flowId)) {
+  if (flowId && UUID_RE.test(flowId)) {
     params.push(flowId)
     where.push(`r.pipeline_id = $${params.length}`)
   }
@@ -114,7 +115,9 @@ runsRoutes.get('/', async (c) => {
       })),
     )
   } catch (err) {
-    return fail(c, 500, `运行历史查询失败：${err instanceof Error ? err.message : String(err)}`)
+    // err.message 可能携带连接串/表名等内部细节 —— 日志留全文，回包只给类别（2026-09-17 评审修复）
+    log.error('runs list query failed', { error: err instanceof Error ? err.message : String(err) })
+    return fail(c, 500, '运行历史查询失败')
   }
 })
 
@@ -136,7 +139,7 @@ runsRoutes.post('/summary', async (c) => {
   if (!Array.isArray(rawIds) || rawIds.length === 0) {
     return fail(c, 400, 'flowIds must be a non-empty array')
   }
-  const flowIds = [...new Set(rawIds.filter((v): v is string => typeof v === 'string' && /^[0-9a-f-]{36}$/i.test(v)))].slice(0, 200)
+  const flowIds = [...new Set(rawIds.filter((v): v is string => typeof v === 'string' && UUID_RE.test(v)))].slice(0, 200)
   if (flowIds.length === 0) return ok(c, { summaries: [] })
 
   try {
@@ -178,6 +181,7 @@ runsRoutes.post('/summary', async (c) => {
       summaries: flowIds.map((id) => byFlow.get(id) ?? { flowId: id, latestStatus: null, latestRunId: null, latestRunAt: null, runCount: 0 }),
     })
   } catch (err) {
-    return fail(c, 500, `运行摘要查询失败：${err instanceof Error ? err.message : String(err)}`)
+    log.error('runs summary query failed', { error: err instanceof Error ? err.message : String(err) })
+    return fail(c, 500, '运行摘要查询失败')
   }
 })
