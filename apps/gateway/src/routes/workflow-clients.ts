@@ -10,7 +10,7 @@
 import { runQuery } from '@dagents/db'
 import { createLogger } from '@dagents/shared'
 import { createBackend } from '@dagents/agent-adapters'
-import type { AgentEvent, AgentSession, AgentType } from '@dagents/contracts'
+import { AgentStatus, type AgentEvent, type AgentSession, type AgentType } from '@dagents/contracts'
 import type { IStreamDelta } from '@dagents/workflow'
 import { decryptSecret } from '../crypto.js'
 import { composeSystemPrompt } from '../skill-injection.js'
@@ -23,6 +23,7 @@ import {
   type IAgentTool,
   type IChatMessage,
   type IChatStreamChunk,
+  assertPublicHttpUrl,
 } from '@dagents/workflow'
 
 const log = createLogger({ svc: 'gateway:workflow-clients' })
@@ -294,7 +295,7 @@ export function createCliLlmClient(kind: AgentType = 'claude', cliCwd?: string, 
           // turn 边界（2026-09-08 可操作终端）：插话前后的 turn 是两段独立
           // 产出，正文拼接必须补分隔符（否则「40我此刻」粘连）；过程流里
           // 记一条可见边界，回放能读出「插话在这里被消化」。
-          if (evt.type === 'status' && evt.status === 'turn-boundary') {
+          if (evt.type === 'status' && evt.status === AgentStatus.TurnBoundary) {
             text += '\n\n'
             params.onDelta?.({
               type: 'activity',
@@ -377,7 +378,7 @@ export function createCliLlmClient(kind: AgentType = 'claude', cliCwd?: string, 
       try {
         for await (const evt of session.events as AsyncIterable<AgentEvent>) {
           // turn 边界：流式路径同样补分隔 delta（chat 与 chatStream 同语义）
-          if (evt.type === 'status' && evt.status === 'turn-boundary') {
+          if (evt.type === 'status' && evt.status === AgentStatus.TurnBoundary) {
             yield { delta: '\n\n' }
             params.onDelta?.({
               type: 'activity',
@@ -781,6 +782,14 @@ export function createBuiltInToolRegistry(): Record<string, IAgentTool> {
       if (!/^https?:\/\//i.test(url)) {
         return 'Error: url must be an absolute http(s) URL'
       }
+      // SSRF 防线：与 HTTP 节点共用同一守卫（私网/环回/链路本地阻断，
+      // 逃生门 DAGENTS_HTTP_ALLOW_PRIVATE=1）。LLM 的工具参数与 flow 文档
+      // 一样是不可信输入。
+      try {
+        assertPublicHttpUrl(new URL(url), 'http_request tool')
+      } catch (err) {
+        return `Error: ${err instanceof Error ? err.message : String(err)}`
+      }
       const method = String(args.method ?? 'GET').toUpperCase()
       const controller = new AbortController()
       const timer = setTimeout(() => controller.abort(), HTTP_TOOL_TIMEOUT_MS)
@@ -793,9 +802,18 @@ export function createBuiltInToolRegistry(): Record<string, IAgentTool> {
           },
           body: args.body !== undefined ? JSON.stringify(args.body) : undefined,
           signal: controller.signal,
+          // 不自动跟随重定向：3xx 直出状态码 + Location，由 LLM 决定是否
+          // 重新发起（下一跳同样过上面的 SSRF 校验）。自动跟随会把
+          // 「公网 URL 校验通过 → 302 跳内网」变成免检通道。
+          redirect: 'manual',
         })
         const text = (await res.text()).slice(0, HTTP_TOOL_MAX_RESPONSE)
-        return JSON.stringify({ status: res.status, body: text })
+        const location = res.headers.get('location')
+        return JSON.stringify({
+          status: res.status,
+          ...(location ? { location } : {}),
+          body: text,
+        })
       } catch (err) {
         return `Error: http_request failed — ${err instanceof Error ? err.message : String(err)}`
       } finally {
