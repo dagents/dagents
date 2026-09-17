@@ -1,11 +1,14 @@
-import { Hono, type Context } from 'hono'
-import type { ContentfulStatusCode } from 'hono/utils/http-status'
+import { Hono } from 'hono'
 import { daemonsRoutes } from './daemons.js'
 import { tasksRoutes } from './tasks.js'
 import { agentsRoutes } from './agents.js'
 import { invokeRoutes } from './invoke.js'
 import { runsUsageRoutes } from './runs-usage-route.js'
 import { fleetStatsRoutes } from './fleet-stats-route.js'
+
+// Single-source envelope helpers (routes/dispatch family re-exports for its
+// subroutes — import from './index.js' as before).
+export { ok, fail } from '../../lib/http.js'
 
 /**
  * Dispatch protocol routes (spec §1.5), merged into gateway (Plan A, 2026-08-01).
@@ -19,18 +22,9 @@ import { fleetStatsRoutes } from './fleet-stats-route.js'
  * network isolation (gateway binds 127.0.0.1) plus per-route daemon tokens
  * rather than session auth (there is no login — 本机模式).
  *
- * Route files use the shared `ok` / `fail` envelope helpers exported below
- * (moved verbatim from the old dispatch `app.ts`).
+ * Route files use the shared `ok` / `fail` envelope helpers re-exported above
+ * (canonical definitions live in src/lib/http.ts).
  */
-
-/** Standard envelope (CLAUDE.md API convention): { success, data?, error? }. */
-export const ok = <T>(c: Context, data: T): Response => c.json({ success: true, data })
-export const fail = (
-  c: Context,
-  status: ContentfulStatusCode,
-  error: string,
-  extra?: Record<string, unknown>,
-): Response => c.json({ success: false, error, ...extra }, status)
 
 export const dispatchRoutes = new Hono()
 

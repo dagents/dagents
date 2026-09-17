@@ -5,20 +5,13 @@ import { runQuery } from '@dagents/db'
 import { createLogger } from '@dagents/shared'
 import { recordAudit } from '../audit.js'
 import { decryptSecret, encrypt, encryptionConfigured } from '../crypto.js'
+import { ok, fail } from '../lib/http.js'
+import { UUID_RE } from '../lib/http.js'
 
 export const llmProviderRoutes = new Hono()
 
 const log = createLogger({ svc: 'gateway:llm-providers' })
 
-const ok = <T>(c: Context, data: T) => c.json({ success: true, data })
-const fail = (
-  c: Context,
-  status: ContentfulStatusCode,
-  error: string,
-  extra?: Record<string, unknown>,
-) => c.json({ success: false, error, ...extra }, status)
-
-const UUID_RE = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i
 
 /** base_url 必须是 http(s) 绝对 URL —— gateway 会向它发请求并附带解密后的 API key。 */
 const baseUrlSchema = z

@@ -20,18 +20,12 @@ import type { ContentfulStatusCode } from 'hono/utils/http-status'
 import { z } from 'zod'
 import { runQuery } from '@dagents/db'
 import { createLogger } from '@dagents/shared'
+import { ok, fail } from '../lib/http.js'
 
 export const usageRoutes = new Hono()
 
 const log = createLogger({ svc: 'gateway:usage' })
 
-const ok = <T>(c: Context, data: T) => c.json({ success: true, data })
-const fail = (
-  c: Context,
-  status: ContentfulStatusCode,
-  error: string,
-  extra?: Record<string, unknown>,
-) => c.json({ success: false, error, ...extra }, status)
 
 const summaryQuerySchema = z.object({
   days: z.coerce.number().int().min(1).max(365).default(30),

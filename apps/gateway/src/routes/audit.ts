@@ -4,6 +4,7 @@ import { z } from 'zod'
 import { runQuery } from '@dagents/db'
 import type { AuditActorType, AuditTargetType } from '@dagents/db'
 import { createLogger } from '@dagents/shared'
+import { ok, fail } from '../lib/http.js'
 
 /**
  * `GET /api/v1/audit` — audit log query endpoint (plan M6.6 / spec §1.4 职责 #5).
@@ -32,13 +33,6 @@ export const auditRoutes = new Hono()
 const log = createLogger({ svc: 'gateway:audit' })
 
 /** Standard envelope helpers (same shape as the rest of the gateway). */
-const ok = <T>(c: Context, data: T) => c.json({ success: true, data })
-const fail = (
-  c: Context,
-  status: ContentfulStatusCode,
-  error: string,
-  extra?: Record<string, unknown>,
-) => c.json({ success: false, error, ...extra }, status)
 
 const querySchema = z.object({
   actorType: z.enum(['user', 'system']).optional(),

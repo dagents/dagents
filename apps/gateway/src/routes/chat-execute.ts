@@ -3,17 +3,12 @@ import type { ContentfulStatusCode } from 'hono/utils/http-status'
 import { randomUUID } from 'node:crypto'
 import { runQuery } from '@dagents/db'
 import { createLogger } from '@dagents/shared'
-import { DagExecutor, NodeRegistry, allNodes, type FlowData } from '@dagents/workflow'
+import { type FlowData } from '@dagents/workflow'
 import { executeInline, INLINE_SUPPORTED_KINDS } from '../inline-executor.js'
 import { persistComplete } from './internal-runs-helpers.js'
 import { enqueueTask } from './dispatch/service.js'
-import {
-  createDefaultLlmClient,
-  createAgentFetcher,
-  createBuiltInToolRegistry,
-  resetProviderCache,
-  sendToRunNode,
-} from './workflow-clients.js'
+import { sendToRunNode } from './workflow-clients.js'
+import { assembleWorkflowEngine } from './workflow-engine-service.js'
 import { generateFlow, attachFlowIdToAttempt } from './flow-generator.js'
 import { executionRegistry, type ExecutionHandle } from '../execution-registry.js'
 import { persistCancelled } from './internal-runs-helpers.js'
@@ -480,29 +475,24 @@ async function routeFlowCommand(
         return
       }
 
-      // Mirror the engine invocation from workflows.ts POST /:id/run —
-      // including the client injection. Without these, LLM/Agent/PlatformAgent
-      // nodes throw "LLM client is not available" and only pure-compute flows
-      // (CustomFunction/DirectReply/…) can run via @flow. e2e TR-02 pins this.
-      resetProviderCache()
-      const llmClient = createDefaultLlmClient('claude', { runId })
-      const agentFetcher = createAgentFetcher()
-      const toolRegistry = createBuiltInToolRegistry()
-
-      const registry = new NodeRegistry()
-      registry.registerMany(allNodes())
-      const executor = new DagExecutor(registry)
+      // 引擎装配单一来源（workflows.ts / chats.ts 同款）—— 此前这里是
+      // 手工镜像副本，漏接了 spanWriter：@flow 触发的运行在画布旁观里
+      // 永远「无进度」。现在与画布直跑同源（2026-09-17 评审修复）。
+      const { executor, baseOptions } = assembleWorkflowEngine({
+        flowData,
+        runId,
+        flowId: flow.id,
+        logger: log,
+      })
 
       const result = await executor.execute(flowData, cmd.message, {
+        ...baseOptions,
         chatId,
         runId,
         state: {},
         isLastNode: true,
         startInput: cmd.message,
         signal: abort.signal,
-        llmClient,
-        agentFetcher,
-        toolRegistry,
       })
 
       const durationMs = Date.now() - startedAt

@@ -34,18 +34,12 @@ import {
 } from '@dagents/workflow'
 import { createCliLlmClient, createLlmClient } from './workflow-clients.js'
 import { skillsRegistry } from '../skills-registry.js'
+import { ok, fail } from '../lib/http.js'
 
 export const flowGeneratorRoutes = new Hono()
 
 const log = createLogger({ svc: 'gateway:flow-generator' })
 
-const ok = <T>(c: Context, data: T) => c.json({ success: true, data })
-const fail = (
-  c: Context,
-  status: ContentfulStatusCode,
-  error: string,
-  extra?: Record<string, unknown>,
-) => c.json({ success: false, error, ...extra }, status)
 
 // ─────────────────────────────────────────────────────────────────────────
 // Prompt（自 chat-execute 迁入，单一真相源）

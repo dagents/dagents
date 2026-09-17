@@ -5,20 +5,13 @@ import { spawn } from 'node:child_process'
 import { platform } from 'node:os'
 import { runQuery } from '@dagents/db'
 import { createLogger } from '@dagents/shared'
+import { ok, fail } from '../lib/http.js'
+import { UUID_RE } from '../lib/http.js'
 
 export const directoryRoutes = new Hono()
 
 const log = createLogger({ svc: 'gateway:directories' })
 
-const ok = <T>(c: Context, data: T) => c.json({ success: true, data })
-const fail = (
-  c: Context,
-  status: ContentfulStatusCode,
-  error: string,
-  extra?: Record<string, unknown>,
-) => c.json({ success: false, error, ...extra }, status)
-
-const UUID_RE = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i
 
 /**
  * Spawn a native OS directory picker and resolve with the chosen absolute

@@ -52,3 +52,44 @@ export async function runQuery<T = Record<string, unknown>>(
     await qr.release()
   }
 }
+
+/**
+ * 多语句原子写（2026-09-17 评审补齐）：回调内的每条语句走同一个
+ * QueryRunner 的显式事务 —— 中途抛错整体回滚，杜绝「消息写进去了、
+ * chat 状态还停在 running」这类半写状态。
+ *
+ * 回调收到一个与 runQuery 同形的 `tx` 函数。注意：不要在回调里再调
+ * runQuery/嵌套 withTransaction（会拿到事务外的连接，破坏原子性）。
+ * 用法：
+ *
+ *   await withTransaction(async (tx) => {
+ *     await tx(`INSERT INTO ...`, [...])
+ *     await tx(`UPDATE ...`, [...])
+ *   })
+ */
+export async function withTransaction<T>(
+  work: (
+    tx: <R = Record<string, unknown>>(
+      sql: string,
+      params?: unknown[],
+    ) => Promise<{ records: R[]; affected: number | null }>,
+  ) => Promise<T>,
+): Promise<T> {
+  const qr = AppDataSource.createQueryRunner()
+  await qr.connect()
+  await qr.startTransaction()
+  const tx = async <R = Record<string, unknown>>(sql: string, params: unknown[] = []) => {
+    const result = await qr.query(sql, params, true)
+    return { records: (result.records ?? []) as R[], affected: result.affected ?? null }
+  }
+  try {
+    const out = await work(tx)
+    await qr.commitTransaction()
+    return out
+  } catch (err) {
+    await qr.rollbackTransaction()
+    throw err
+  } finally {
+    await qr.release()
+  }
+}

@@ -2,9 +2,12 @@ import { Hono, type Context } from 'hono'
 import type { ContentfulStatusCode } from 'hono/utils/http-status'
 import { z } from 'zod'
 import { randomUUID } from 'node:crypto'
-import { runQuery } from '@dagents/db'
+import { runQuery, withTransaction } from '@dagents/db'
 import { createLogger } from '@dagents/shared'
 import { findAgentReferences } from '@dagents/workflow'
+import { checkExecutablePath } from '../lib/executable-path.js'
+import { ok, fail } from '../lib/http.js'
+import { UUID_RE } from '../lib/http.js'
 
 /**
  * `/api/v1/agents/*` — Agent catalogue read API aligned to the v0.3 design
@@ -62,16 +65,8 @@ export const agentsRoutes = new Hono()
 const log = createLogger({ svc: 'gateway:agents' })
 
 /** Standard envelope helpers (same shape as the rest of the gateway). */
-const ok = <T>(c: Context, data: T) => c.json({ success: true, data })
-const fail = (
-  c: Context,
-  status: ContentfulStatusCode,
-  error: string,
-  extra?: Record<string, unknown>,
-) => c.json({ success: false, error, ...extra }, status)
 
 /** UUID shape guard for path ids — 400 on a malformed id, not a 404. */
-const UUID_RE = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i
 
 /** Guard against an unbounded full-table scan if the fleet ever grows. */
 const LIST_LIMIT = 500
@@ -548,16 +543,17 @@ agentsRoutes.delete('/:id', async (c) => {
     return fail(c, 400, 'invalid agent id', { id })
   }
 
-  // Scan flows for Platform Agent nodes referencing this agent. We pull the
-  // minimal columns (id, name, flow_data) and resolve references in app code
-  // — the catalogue of flows is small for MVP, and a jsonb_path_query-based
-  // SQL filter would have to mirror the two storage layouts below, making it
-  // harder to audit than a single typed pass.
+  // Scan flows for Platform Agent nodes referencing this agent. A cheap SQL
+  // LIKE prefilter narrows the scan to flows whose JSONB actually contains the
+  // id（引用必含 id 字面量）—— 全量拉表在 flows 增长后是 O(全库) 的
+  // JSONB 反序列化（2026-09-17 评审修复）。精确判定仍在应用层做
+  // （findAgentReferences 兼容两种存储形态，比镜像一个 jsonb_path_query
+  // 好审计）。
   let flowRows: Array<{ id: string; name: string; flow_data: unknown }>
   try {
     const { records } = await runQuery<{ id: string; name: string; flow_data: unknown }>(
-      `SELECT id, name, flow_data FROM flows`,
-      [],
+      `SELECT id, name, flow_data FROM flows WHERE flow_data::text LIKE '%' || $1 || '%'`,
+      [id],
     )
     flowRows = records
   } catch (err) {
@@ -580,28 +576,25 @@ agentsRoutes.delete('/:id', async (c) => {
     })
   }
 
-  // No references — delete the agent row. RETURNING id lets us distinguish a
-  // genuine 404 (no row) from a successful delete.
+  // No references — delete agent + bridge row atomically（此前两条独立
+  // DELETE，第二条失败会留 agent_daemons 幽灵行，2026-09-17 评审修复）。
+  // RETURNING id lets us distinguish a genuine 404 (no row) from a success.
   try {
-    const { records } = await runQuery<{ id: string }>(
-      `DELETE FROM agents WHERE id = $1 RETURNING id`,
-      [id],
-    )
-    if (!records[0]) {
+    const deleted = await withTransaction(async (tx) => {
+      const { records } = await tx<{ id: string }>(
+        `DELETE FROM agents WHERE id = $1 RETURNING id`,
+        [id],
+      )
+      if (!records[0]) return null
+      await tx(`DELETE FROM agent_daemons WHERE id = $1`, [id])
+      return records[0]
+    })
+    if (!deleted) {
       return fail(c, 404, 'agent not found', { id })
     }
   } catch (err) {
     log.error('agent delete failed', { id, error: String(err) })
     return fail(c, 502, 'agent delete failed')
-  }
-
-  // Also remove the matching agent_daemons row (shared-id bridge) so the
-  // runtime registration does not linger as an orphan after the editor row is
-  // gone. Best-effort: a missing agent_daemons row is not an error.
-  try {
-    await runQuery(`DELETE FROM agent_daemons WHERE id = $1`, [id])
-  } catch (err) {
-    log.warn('agent delete: agent_daemons cleanup failed', { id, error: String(err) })
   }
 
   log.info('agent deleted', { id })
@@ -816,6 +809,18 @@ agentsRoutes.post('/', async (c) => {
     return fail(c, 400, 'invalid create body', { detail: String(err) })
   }
 
+  // Spawn-surface guard: executablePath ends up as the literal exec path the
+  // inline executor / agent-invoke spawn. In default no-auth mode accepting
+  // any string here was "register any binary as an agent, execute on next
+  // trigger". Absolute + existing regular file only (2026-09-17 review).
+  if (parsed.executablePath) {
+    const check = checkExecutablePath(parsed.executablePath)
+    if (!check.ok) {
+      return fail(c, 400, 'invalid executablePath', { detail: check.reason })
+    }
+    parsed.executablePath = check.path
+  }
+
   // When a daemonId is supplied, verify the daemon exists before inserting
   // (the agent_daemons FK would 500 otherwise; we want a clean 404).
   if (parsed.daemonId) {
@@ -834,46 +839,8 @@ agentsRoutes.post('/', async (c) => {
 
   const id = randomUUID()
 
-  try {
-    await runQuery(
-      `INSERT INTO agents (id, workspace_id, name, kind, roles, instructions, skills,
-                           visibility, concurrency, model, runtime, owner_id,
-                           status, availability, activity, summary, input_schema, output_schema,
-                           daemon_id)
-       VALUES ($1, $2, $3, $4, $5::jsonb, $6, $7::jsonb,
-               $8, $9, $10, $11, $12,
-               $13, $14, '[]'::jsonb, $15, $16, $17,
-               $18)`,
-      [
-        id,
-        parsed.workspaceId,
-        parsed.name,
-        parsed.kind,
-        JSON.stringify(parsed.roles),
-        parsed.instructions,
-        JSON.stringify(parsed.skills),
-        parsed.visibility,
-        parsed.concurrency,
-        parsed.model,
-        parsed.runtime,
-        parsed.ownerId,
-        parsed.status,
-        parsed.availability,
-        parsed.summary,
-        parsed.inputSchema,
-        parsed.outputSchema,
-        parsed.daemonId ?? null,
-      ],
-    )
-  } catch (err) {
-    log.error('agent create: agents insert failed', { error: String(err) })
-    return fail(c, 422, 'create failed', { detail: String(err) })
-  }
-
   // Bridge row: register the agent with a daemon under the same id so the
-  // runtime read path (agent_daemons join) lights up immediately. Best-effort
-  // — a failure here does not undo the editor row; the agent is still usable
-  // for flow orchestration (Platform Agent node reads the agents table).
+  // runtime read path (agent_daemons join) lights up immediately.
   //
   // Two paths create the bridge row:
   //   1. daemonId supplied → full registration (daemon-managed agent)
@@ -881,35 +848,18 @@ agentsRoutes.post('/', async (c) => {
   //      (gateway spawns the CLI directly, no daemon process needed).
   //      We create the agent_daemons row WITHOUT a daemon_id so the
   //      inline-executor can find the agent by id + read executable_path.
-  if (parsed.daemonId || parsed.executablePath) {
-    try {
-      const capabilityDescriptor = {
-        name: parsed.name,
-        summary: parsed.summary,
-        tags: parsed.roles,
-        inputSchema: parsed.inputSchema,
-        outputSchema: parsed.outputSchema,
-      }
-      await runQuery(
-        `INSERT INTO agent_daemons (id, name, kind, daemon_id, capability_descriptor,
-                                    executable_path, visibility, workspace_id)
-         VALUES ($1, $2, $3, $4, $5, $6, $7, $8)`,
-        [
-          id,
-          parsed.name,
-          parsed.kind,
-          parsed.daemonId ?? null,
-          JSON.stringify(capabilityDescriptor),
-          parsed.executablePath ?? null,
-          parsed.visibility,
-          parsed.workspaceId,
-        ],
-      )
-    } catch (err) {
-      log.warn('agent create: agent_daemons bridge insert failed', { id, error: String(err) })
-    }
+  //
+  // 原子化（2026-09-17 评审修复）：此前三段 best-effort 独立写，桥接失败
+  // 留下「编辑器有行、运行时没行」的半注册常态 —— 现在整体一个事务，
+  // 桥接失败即整体回滚并如实 502（Platform Agent 场景重试即可）。
+  const needsBridge = Boolean(parsed.daemonId || parsed.executablePath)
+  const capabilityDescriptor = {
+    name: parsed.name,
+    summary: parsed.summary,
+    tags: parsed.roles,
+    inputSchema: parsed.inputSchema,
+    outputSchema: parsed.outputSchema,
   }
-
   // For inline-executor agents (no daemonId but has executablePath), mark
   // availability as 'online' since the gateway can spawn the CLI directly —
   // no daemon process needed.  Without this, the agent shows as 'offline'
@@ -919,12 +869,58 @@ agentsRoutes.post('/', async (c) => {
     : parsed.availability
 
   try {
-    await runQuery(
-      `UPDATE agents SET availability = $1 WHERE id = $2`,
-      [finalAvailability, id],
-    )
-  } catch {
-    // best-effort — the default in the INSERT already covers the offline case
+    await withTransaction(async (tx) => {
+      await tx(
+        `INSERT INTO agents (id, workspace_id, name, kind, roles, instructions, skills,
+                             visibility, concurrency, model, runtime, owner_id,
+                             status, availability, activity, summary, input_schema, output_schema,
+                             daemon_id)
+         VALUES ($1, $2, $3, $4, $5::jsonb, $6, $7::jsonb,
+                 $8, $9, $10, $11, $12,
+                 $13, $14, '[]'::jsonb, $15, $16, $17,
+                 $18)`,
+        [
+          id,
+          parsed.workspaceId,
+          parsed.name,
+          parsed.kind,
+          JSON.stringify(parsed.roles),
+          parsed.instructions,
+          JSON.stringify(parsed.skills),
+          parsed.visibility,
+          parsed.concurrency,
+          parsed.model,
+          parsed.runtime,
+          parsed.ownerId,
+          parsed.status,
+          finalAvailability,
+          parsed.summary,
+          parsed.inputSchema,
+          parsed.outputSchema,
+          parsed.daemonId ?? null,
+        ],
+      )
+      if (needsBridge) {
+        await tx(
+          `INSERT INTO agent_daemons (id, name, kind, daemon_id, capability_descriptor,
+                                      executable_path, visibility, workspace_id)
+           VALUES ($1, $2, $3, $4, $5, $6, $7, $8)`,
+          [
+            id,
+            parsed.name,
+            parsed.kind,
+            parsed.daemonId ?? null,
+            JSON.stringify(capabilityDescriptor),
+            parsed.executablePath ?? null,
+            parsed.visibility,
+            parsed.workspaceId,
+          ],
+        )
+      }
+    })
+  } catch (err) {
+    log.error('agent create failed (rolled back)', { id, error: String(err) })
+    return fail(c, 502, 'agent create failed', { detail: 'insert rolled back — see gateway logs' })
   }
 
   log.info('agent created', { id, daemonId: parsed.daemonId ?? null })

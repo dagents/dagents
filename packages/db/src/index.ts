@@ -1,4 +1,4 @@
-export { AppDataSource, initDb, runQuery } from './data-source.js'
+export { AppDataSource, initDb, runQuery, withTransaction } from './data-source.js'
 export { LlmProvider } from './entities/llm-provider.entity.js'
 export type { LlmProviderStatus } from './entities/llm-provider.entity.js'
 export { Run } from './entities/run.entity.js'

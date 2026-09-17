@@ -18,6 +18,7 @@ import { randomUUID } from 'node:crypto'
 import { runQuery } from '@dagents/db'
 import { createLogger } from '@dagents/shared'
 import { computeCost } from './pricing.js'
+import { UUID_RE } from './lib/http.js'
 
 const log = createLogger({ svc: 'gateway:usage-events' })
 
@@ -38,7 +39,6 @@ export interface UsageEventParams {
   cost?: number | null
 }
 
-const UUID_RE = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i
 
 /** Pass through valid UUIDs; anything else (incl. non-uuid x-run-id) → null. */
 function uuidOrNull(id: string | null | undefined): string | null {

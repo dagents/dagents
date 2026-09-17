@@ -3,36 +3,21 @@ import type { ContentfulStatusCode } from 'hono/utils/http-status'
 import { randomUUID } from 'node:crypto'
 import { z } from 'zod'
 import { runQuery, type NodeSpanStatus } from '@dagents/db'
-import { makeIncrementalSpanWriter } from '../span-writer.js'
 import { createLogger } from '@dagents/shared'
 import { exportRunTraceToLangfuse, isLangfuseConfigured } from '@dagents/shared/langfuse'
-import { DagExecutor, NodeRegistry, allNodes, CANVAS_NODES, type FlowData, type IExecutedNode } from '@dagents/workflow'
-import {
-  createDefaultLlmClient,
-  createAgentFetcher,
-  createBuiltInToolRegistry,
-  resetProviderCache,
-  sendToRunNode,
-  runHasLiveSinks,
-} from './workflow-clients.js'
+import { CANVAS_NODES, type FlowData, type IExecutedNode } from '@dagents/workflow'
+import { sendToRunNode, runHasLiveSinks } from './workflow-clients.js'
+import { assembleWorkflowEngine, toRunStatus } from './workflow-engine-service.js'
 import { createStaticHumanInputResolver } from './human-input.js'
 import { recordAudit } from '../audit.js'
 import { executionRegistry, type ExecutionHandle } from '../execution-registry.js'
 import { aggregateExecutedNodesUsage, recordUsageEvent } from '../usage-events.js'
+import { ok, fail, UUID_RE } from '../lib/http.js'
 
 export const workflowsRoutes = new Hono()
 
 const log = createLogger({ svc: 'gateway:workflows' })
 
-const ok = <T>(c: Context, data: T) => c.json({ success: true, data })
-const fail = (
-  c: Context,
-  status: ContentfulStatusCode,
-  error: string,
-  extra?: Record<string, unknown>,
-) => c.json({ success: false, error, ...extra }, status)
-
-const UUID_RE = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i
 
 const createBodySchema = z.object({
   name: z.string().min(1),
@@ -484,23 +469,16 @@ workflowsRoutes.post('/:id/run', async (c) => {
     return fail(c, 400, 'invalid flow data', { id })
   }
 
+  // x-run-id 必须是 UUID：runs.id 是 UUID 列，任何非 UUID 值都会让 INSERT
+  // 静默失败（被 catch 吞成 warn）——运行历史/取消级联/chat 关联全部失效
+  // 且调用方不知情（2026-09-17 评审修复）。
   const rawRunId = c.req.header('x-run-id')?.trim()
-  const runId = rawRunId && rawRunId.length <= MAX_RUN_ID_LEN ? rawRunId : randomUUID()
+  const runId = rawRunId && UUID_RE.test(rawRunId) ? rawRunId : randomUUID()
+  if (rawRunId && !UUID_RE.test(rawRunId)) {
+    log.warn('ignoring non-UUID x-run-id header (runs.id is a uuid column)', { id, rawRunId })
+  }
   const chatId = data.chatId ?? randomUUID()
   const startInput = typeof data.input === 'string' ? data.input : ''
-
-  const registry = new NodeRegistry()
-  registry.registerMany(allNodes())
-  const executor = new DagExecutor(registry)
-
-  // Build node-label and node-type lookup maps from the DAG so spans carry the
-  // same human-readable metadata the canvas inspector displays.
-  const nodeLabelById = new Map<string, string>()
-  const nodeTypeById = new Map<string, string>()
-  for (const n of flowData.nodes) {
-    nodeLabelById.set(n.id, (n.data as { label?: string })?.label ?? n.id)
-    nodeTypeById.set(n.id, n.type ?? 'customNode')
-  }
 
   // 解析项目目录 → CLI 工作目录（directoryId 缺省/查不到时 CLI 用网关进程 cwd）
   let runCwd: string | undefined
@@ -518,13 +496,14 @@ workflowsRoutes.post('/:id/run', async (c) => {
   }
 
   const startedAt = new Date()
-  // Reset the LLM provider cache so each run picks up the latest config.
-  resetProviderCache()
-  // CLI-first：配了 provider 走 HTTP（加速），否则 LLM/Agent 节点全部
-  // 跑本地 CLI —— 工作流与聊天一样零配置可用。
-  const llmClient = createDefaultLlmClient('claude', { cwd: runCwd, runId })
-  const agentFetcher = createAgentFetcher()
-  const toolRegistry = createBuiltInToolRegistry()
+  // 引擎装配单一来源（与 chat 流式 / @flow 路径共用；此前三处复制漂移）
+  const { executor, spanWriter, nodeLabelById, nodeTypeById, baseOptions } = assembleWorkflowEngine({
+    flowData,
+    runId,
+    flowId: id,
+    cwd: runCwd,
+    logger: log,
+  })
   // Non-interactive run: HumanInput answers must be pre-supplied via the
   // request's state.humanInputs map (keyed by prompt); a missing answer
   // fails the node with guidance to use the chat path instead.
@@ -560,9 +539,6 @@ workflowsRoutes.post('/:id/run', async (c) => {
     done,
   }
   executionRegistry.register(execHandle)
-  // 节点生命周期 → 增量写 run_node_spans（画布实时进度的数据源）。
-  // 共享实现见 span-writer.ts；事后批量落库跳过已增量写过的节点。
-  const spanWriter = makeIncrementalSpanWriter({ runId, flowId: id, nodeLabelById, nodeTypeById, log })
 
   /** 执行 + 全部落库（runs 终态行 / usage / 批量 spans / Langfuse）。
    *  同步路径 await 它；异步路径（?async=1）void 它 —— 客户端靠轮询
@@ -570,22 +546,14 @@ workflowsRoutes.post('/:id/run', async (c) => {
   const runAndPersist = async (): Promise<void> => {
   try {
     result = await executor.execute(flowData, data.input, {
+      ...baseOptions,
       chatId,
       runId,
       state: data.state ?? {},
       isLastNode: true,
       startInput,
       signal: abort.signal,
-      llmClient,
-      agentFetcher,
-      // Built-in tools (http_request / datetime_now) form the base registry
-      // for Agent tool-calling loops.
-      toolRegistry,
       humanInputResolver,
-      onNodeStart: spanWriter.onNodeStart,
-      onNodeEnd: spanWriter.onNodeEnd,
-      // 流式展示（2026-08-30）：节点生成过程中的文本增量节流落库
-      onNodeDelta: spanWriter.onNodeDelta,
     })
   } catch (err) {
     log.error('workflow execution failed', { id, error: String(err) })
@@ -597,8 +565,7 @@ workflowsRoutes.post('/:id/run', async (c) => {
   }
   finishedAt = new Date()
   durationMs = Math.round(finishedAt.getTime() - startedAt.getTime())
-  runStatus =
-    result.status === 'success' ? 'completed' : result.status === 'cancelled' ? 'cancelled' : 'failed'
+  runStatus = toRunStatus(result.status)
 
   // AD-3（方案 D b 路径）：run 级用量聚合 —— sum 各节点 tokens，cost 只在
   // 所有 token 节点都有价格时成立（引擎目前 cost 恒 null → priced=false，

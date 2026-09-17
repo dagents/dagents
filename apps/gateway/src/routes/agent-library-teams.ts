@@ -34,18 +34,12 @@ import {
   insertLibraryAgent,
 } from '../agent-library-instantiate.js'
 import { INLINE_SUPPORTED_KINDS } from '../inline-executor.js'
+import { ok, fail } from '../lib/http.js'
 
 export const agentLibraryTeamRoutes = new Hono()
 
 const log = createLogger({ svc: 'gateway:agent-library-teams' })
 
-const ok = <T>(c: Context, data: T) => c.json({ success: true, data })
-const fail = (
-  c: Context,
-  status: ContentfulStatusCode,
-  error: string,
-  extra?: Record<string, unknown>,
-) => c.json({ success: false, error, ...extra }, status)
 
 export interface TeamStep {
   /** agency-agents frontmatter name —— 实例化时解析。 */

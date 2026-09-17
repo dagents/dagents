@@ -2,6 +2,7 @@ import { Hono } from 'hono'
 import { runQuery } from '@dagents/db'
 import { getRunUsage, aggregateUsage } from './runs-usage.js'
 import { ok, fail } from './index.js'
+import { UUID_RE } from '../../lib/http.js'
 
 /**
  * Run usage read route (plan M6.2 / P1.11.T3): the "usage 可查" acceptance gate.
@@ -24,7 +25,6 @@ import { ok, fail } from './index.js'
  */
 export const runsUsageRoutes = new Hono()
 
-const UUID_RE = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i
 
 /**
  * GET /runs/:runId/usage — a run's agent-daemon-call log + aggregated totals.

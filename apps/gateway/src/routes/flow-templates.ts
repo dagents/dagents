@@ -21,18 +21,12 @@ import {
   type TemplateCategory,
 } from '../flow-template-pipeline.js'
 import { BUILTIN_FLOW_TEMPLATES } from '../flow-templates/builtin/index.js'
+import { ok, fail } from '../lib/http.js'
 
 export const flowTemplateRoutes = new Hono()
 
 const log = createLogger({ svc: 'gateway:flow-templates' })
 
-const ok = <T>(c: Context, data: T) => c.json({ success: true, data })
-const fail = (
-  c: Context,
-  status: ContentfulStatusCode,
-  error: string,
-  extra?: Record<string, unknown>,
-) => c.json({ success: false, error, ...extra }, status)
 
 interface UserTemplateRow {
   id: string

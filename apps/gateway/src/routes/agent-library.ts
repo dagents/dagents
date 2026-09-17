@@ -32,18 +32,12 @@ import {
   sha256Hex,
   type PersonaProfile,
 } from '../persona-compiler.js'
+import { ok, fail } from '../lib/http.js'
 
 export const agentLibraryRoutes = new Hono()
 
 const log = createLogger({ svc: 'gateway:agent-library-routes' })
 
-const ok = <T>(c: Context, data: T) => c.json({ success: true, data })
-const fail = (
-  c: Context,
-  status: ContentfulStatusCode,
-  error: string,
-  extra?: Record<string, unknown>,
-) => c.json({ success: false, error, ...extra }, status)
 
 /** 宿主 kind 白名单 = 可本机执行的 CLI 类型（D2：人格宿主必须有真工具）。 */
 const ALLOWED_KINDS: readonly string[] = INLINE_SUPPORTED_KINDS

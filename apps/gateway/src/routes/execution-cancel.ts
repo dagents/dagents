@@ -15,16 +15,9 @@ import type { ContentfulStatusCode } from 'hono/utils/http-status'
 import { runQuery } from '@dagents/db'
 import { executionRegistry } from '../execution-registry.js'
 import { cancelDispatchTask } from './dispatch/service.js'
+import { ok, fail } from '../lib/http.js'
+import { UUID_RE } from '../lib/http.js'
 
-const UUID_RE = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i
-
-const ok = <T>(c: Context, data: T) => c.json({ success: true, data })
-const fail = (
-  c: Context,
-  status: ContentfulStatusCode,
-  error: string,
-  extra?: Record<string, unknown>,
-) => c.json({ success: false, error, ...extra }, status)
 
 /** Mounted at /api/v1/chats — POST /:id/cancel */
 export const chatCancelRoutes = new Hono()

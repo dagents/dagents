@@ -1,5 +1,5 @@
 import { randomUUID } from 'node:crypto'
-import { runQuery } from '@dagents/db'
+import { runQuery, withTransaction } from '@dagents/db'
 import { createLogger } from '@dagents/shared'
 import { wsHub } from '../ws-hub.js'
 import { recordUsageEvent } from '../usage-events.js'
@@ -52,15 +52,20 @@ export async function persistComplete(params: CompleteParams): Promise<string> {
   if (params.durationMs != null) metadata.durationMs = params.durationMs
   if (params.cost != null) metadata.cost = params.cost
 
-  await runQuery(
-    `INSERT INTO chat_messages (id, chat_id, role, content, run_id, metadata, created_at)
-     VALUES ($1::uuid, $2::uuid, 'assistant', $3, $4::uuid, $5, NOW())`,
-    [messageId, params.chatId, params.output, params.runId, JSON.stringify(metadata)],
-  )
-  await runQuery(
-    `UPDATE chats SET status = 'idle', updated_at = NOW() WHERE id = $1::uuid`,
-    [params.chatId],
-  )
+  // 原子多写（2026-09-17 评审修复）：此前 INSERT 消息 + UPDATE chat 状态
+  // 是两条独立语句，中间崩溃会留下「消息在、chat 永远 running」等 boot
+  // sweep 收尸的半写状态。
+  await withTransaction(async (tx) => {
+    await tx(
+      `INSERT INTO chat_messages (id, chat_id, role, content, run_id, metadata, created_at)
+       VALUES ($1::uuid, $2::uuid, 'assistant', $3, $4::uuid, $5, NOW())`,
+      [messageId, params.chatId, params.output, params.runId, JSON.stringify(metadata)],
+    )
+    await tx(
+      `UPDATE chats SET status = 'idle', updated_at = NOW() WHERE id = $1::uuid`,
+      [params.chatId],
+    )
+  })
 
   wsHub.broadcastChat(params.chatId, {
     type: 'chat:done',

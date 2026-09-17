@@ -15,14 +15,8 @@
 import { Hono, type Context } from 'hono'
 import type { ContentfulStatusCode } from 'hono/utils/http-status'
 import { executionRegistry } from '../execution-registry.js'
+import { ok, fail } from '../lib/http.js'
 
-const ok = <T>(c: Context, data: T) => c.json({ success: true, data })
-const fail = (
-  c: Context,
-  status: ContentfulStatusCode,
-  error: string,
-  extra?: Record<string, unknown>,
-) => c.json({ success: false, error, ...extra }, status)
 
 /** 保险丝（非语义截断）：插话是人打的一句话，32k 字符远超一切正常使用。 */
 const MESSAGE_MAX_CHARS = 32_000
