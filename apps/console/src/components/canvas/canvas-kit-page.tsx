@@ -448,11 +448,13 @@ export function CanvasKitPage({
     async (): Promise<boolean> => {
       if (!watch) return false
       const { runStatus, spans } = await fetchSpans(watch.runId)
-      // 持久挂起（P2）：非终态 —— 面板亮出应答入口，继续轮询等续跑
+      // 持久挂起（P2）：非终态 —— 面板亮出应答入口，继续轮询等续跑。
+      // 必须返回 true：usePolling 只认 restartKey（runId），而应答是同
+      // runId 原地续跑，若在此停轮，应答后的完成态永远无人捕获（2026-09-18）。
       if (runStatus === 'awaiting_input') {
         setRunState('awaiting')
         void refreshCheckpointState(watch.runId)
-        return false
+        return true
       }
       if (runStatus === 'completed' || runStatus === 'failed' || runStatus === 'cancelled') {
         await fetchSpans(watch.runId) // 收尾定格：终态徽章齐全
