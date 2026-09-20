@@ -708,6 +708,15 @@ export function CanvasKitPage({
       }
       const { runStatus, hasRunning, hasSpans } = await fetchSpans(watchRunId)
       if (cancelled) return
+      // 持久挂起（2026-09-19 行为测试逮出）：深链旁观此前把 awaiting_input
+      // 当「运行中」无限转圈 —— 没有任何应答入口，用户只能等超时。与
+      // watchTick 同款：亮应答面板、继续轮询（应答后 submitAnswer 会把
+      // 接力棒交给 watchTick 收尾）。
+      if (runStatus === 'awaiting_input') {
+        setRunState('awaiting')
+        void refreshCheckpointState(watchRunId)
+        return
+      }
       if (runStatus === 'completed' || runStatus === 'failed' || runStatus === 'cancelled') {
         window.clearInterval(pollRef.current)
         summarizeWatch(runStatus)
@@ -857,11 +866,13 @@ export function CanvasKitPage({
       const runLabel =
         runState === 'running'
           ? t('运行中…')
-          : runState === 'done'
-            ? t('▶ 再次运行')
-            : runState === 'failed'
-              ? t('▶ 重试运行')
-              : t('▶ 运行')
+          : runState === 'awaiting'
+            ? t('⏸ 待输入')
+            : runState === 'done'
+              ? t('▶ 再次运行')
+              : runState === 'failed'
+                ? t('▶ 重试运行')
+                : t('▶ 运行')
       return (
         <div className='canvas-header'>
           <span className='canvas-header-title' title={flowName}>

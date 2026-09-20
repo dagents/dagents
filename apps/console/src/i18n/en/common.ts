@@ -220,6 +220,7 @@ export const common = {
   '输入答案后继续': 'Type an answer to continue',
   '继续运行': 'Continue run',
   '提交答案失败': 'Failed to submit answer',
+  '⏸ 待输入': '⏸ Awaiting input',
 
   // ── 终端（ShellTerminal / 浏览器里的真终端）──
   '终端': 'Terminal',
