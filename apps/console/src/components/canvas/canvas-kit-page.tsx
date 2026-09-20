@@ -660,6 +660,24 @@ export function CanvasKitPage({
     setRunPanelOpen(true)
   }, [resumeInfo, runState])
 
+  /** 停止（PM 走查 2026-09-20）：运行结果面板是运行监控中心，此前却没有
+   *  停止入口 —— 想中途放弃只能干等或去别处。POST cancel → 引擎 abort，
+   *  轮询自然收敛为已取消。 */
+  const cancelRun = useCallback(async (): Promise<void> => {
+    if (!activeRunId) return
+    try {
+      const res = await fetch(`/api/workflows/runs/${encodeURIComponent(activeRunId)}/cancel`, { method: 'POST' })
+      const json = (await res.json().catch(() => null)) as { success?: boolean; error?: string } | null
+      if (!res.ok || !json?.success) {
+        toast.error(json?.error ?? t('停止失败'), 6000)
+        return
+      }
+      toast.info(t('已请求停止，等待运行收敛…'), 4000)
+    } catch (err) {
+      toast.error(err instanceof Error ? err.message : String(err), 6000)
+    }
+  }, [activeRunId, toast, t])
+
   /** 应答提交（P2）：同 runId 原地续跑，回到 running 继续旁观。 */
   const submitAnswer = useCallback(async (): Promise<void> => {
     if (!activeRunId || !answerText.trim() || answerBusy) return
@@ -1088,6 +1106,18 @@ export function CanvasKitPage({
               <div className='canvas-run-panel-title'>
                 <span className='canvas-results-title-row'>
                   {t('运行结果')}
+                  {/* 停止（PM 走查 2026-09-20）：监控中心缺停止入口 ——
+                      运行中可在面板内直接中止，轮询收敛为已取消。 */}
+                  {runState === 'running' ? (
+                    <button
+                      type='button'
+                      className='canvas-results-rerun canvas-results-stop'
+                      onClick={() => void cancelRun()}
+                      title={t('中止本次运行')}
+                    >
+                      {t('停止')}
+                    </button>
+                  ) : null}
                   {/* 断点续跑（2026-09-18 §6.6）：失败 + checkpoint resumable →
                       从此处继续（提交走 resume 端点，种子跳过已完成节点）。 */}
                   {runState === 'failed' && resumeInfo ? (
@@ -1154,14 +1184,17 @@ export function CanvasKitPage({
                   ×
                 </button>
               </div>
-              {runState === 'running' ? (
+              {runState === 'running' || runState === 'awaiting' ? (
                 /* 状态行结构化（2026-09-19 走查优化点 1-3）：长句改为指标行
                    「运行中 · n/m · 失败 k · ⏱ 12.4s」+ 迷你进度条 —— 总耗时
                    此前完全缺失，是盯面板用户最想知道的数字；正在执行的节点
-                   名由列表中 running 行的高亮承担，不再重复此处。 */
-                <div className='canvas-results-live'>
+                   名由列表中 running 行的高亮承担，不再重复此处。
+                   2026-09-20：延展到挂起态（待输入 · 进度冻结 · 耗时继续）。 */
+                <div className={`canvas-results-live${runState === 'awaiting' ? ' awaiting' : ''}`}>
                   <div className='canvas-results-live-line'>
-                    <span className='canvas-results-live-state'>{t('运行中')}</span>
+                    <span className='canvas-results-live-state'>
+                      {runState === 'awaiting' ? t('⏸ 待输入') : t('运行中')}
+                    </span>
                     <span className='canvas-results-live-sep'>·</span>
                     {(() => {
                       const doneN = latestSpans.filter(
@@ -1424,7 +1457,7 @@ export function CanvasKitPage({
         </div>
       )
     },
-    [flowName, saveState, readOnly, runState, runSummary, handleRun, t, runPanelOpen, runInput, resultsOpen, latestSpans, saveTplOpen, handleRerun, handleResume, submitAnswer, resumeInfo, awaitingInfo, answerText, answerBusy, handleAddDirectory, firstRunBar, templateParamNames, topoOrder, initialFlow, resultView, switchResultView, ioOpen],
+    [flowName, saveState, readOnly, runState, runSummary, handleRun, t, runPanelOpen, runInput, resultsOpen, latestSpans, saveTplOpen, handleRerun, handleResume, cancelRun, submitAnswer, resumeInfo, awaitingInfo, answerText, answerBusy, handleAddDirectory, firstRunBar, templateParamNames, topoOrder, initialFlow, resultView, switchResultView, ioOpen],
   )
 
   return (

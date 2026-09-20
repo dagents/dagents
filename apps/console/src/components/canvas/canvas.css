@@ -321,6 +321,10 @@
 }
 .canvas-results-live-sep { color: var(--border-strong); }
 .canvas-results-live-fail { color: var(--danger-text); }
+.canvas-results-live.awaiting .canvas-results-live-state::before {
+  animation: none; /* 挂起 = 暂停：点静止转黄，不再是「跑动」语义 */
+  background: var(--warn);
+}
 .canvas-results-live-elapsed {
   font-family: var(--font-mono); font-variant-numeric: tabular-nums; color: var(--fg);
 }

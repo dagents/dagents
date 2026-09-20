@@ -221,6 +221,10 @@ export const common = {
   '继续运行': 'Continue run',
   '提交答案失败': 'Failed to submit answer',
   '⏸ 待输入': '⏸ Awaiting input',
+  '停止': 'Stop',
+  '停止失败': 'Failed to stop',
+  '已请求停止，等待运行收敛…': 'Stop requested — waiting for the run to settle…',
+  '中止本次运行': 'Abort this run',
 
   // ── 终端（ShellTerminal / 浏览器里的真终端）──
   '终端': 'Terminal',
