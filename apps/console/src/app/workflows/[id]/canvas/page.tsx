@@ -67,7 +67,7 @@ export default async function CanvasWorkflowPage({
   }
 
   return (
-    <PageShell fullBleed>
+    <PageShell fullBleed flush>
       {flowError ? (
         <div className="not-found" style={{ gridColumn: '1 / -1' }}>
           <div className="h">{flowError === 'not-found' ? '找不到这个 Flow' : '工作流加载失败'}</div>

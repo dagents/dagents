@@ -16,12 +16,15 @@ export interface PageShellProps {
   /** When true, drop the `.page` padding/max-width and render children raw
    * (for full-bleed layouts like the chat view that manage their own grid). */
   fullBleed?: boolean
+  /** fullBleed + flush：连呼吸边距也归零 —— 无限画布这类「内容即整个视口」
+   * 的沉浸页用（2026-09-19 画布无限化）。默认 fullBleed 保留 16/32/32 呼吸边。 */
+  flush?: boolean
 }
 
-export function PageShell({ crumb, actions, children, fullBleed }: PageShellProps) {
+export function PageShell({ crumb, actions, children, fullBleed, flush }: PageShellProps) {
   if (fullBleed) {
     return (
-      <div className="page" style={{ padding: 'var(--space-4) var(--space-8) var(--space-8)', maxWidth: 'none', marginInline: 0, width: '100%', height: '100%', display: 'flex', flexDirection: 'column', minHeight: 0 }}>
+      <div className="page" style={{ padding: flush ? 0 : 'var(--space-4) var(--space-8) var(--space-8)', maxWidth: 'none', marginInline: 0, width: '100%', height: '100%', display: 'flex', flexDirection: 'column', minHeight: 0 }}>
         {actions ? (
           <div className="page-head" style={{ flexShrink: 0 }}>
             <div className="page-actions">{actions}</div>
