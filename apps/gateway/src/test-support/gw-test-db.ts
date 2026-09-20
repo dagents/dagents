@@ -66,14 +66,14 @@ export default async function setup(): Promise<void> {
  * 启动方式差异），在这里炸成显式失败，而不是把 dev 库真实运行历史
  * 全表清掉（2026-08-29 与 2026-09-20 两次实锤，后者不可恢复）。
  */
-export function assertTestDatabase(dataSource: {
-  options: { url?: string; database?: string }
-}): void {
-  // AppDataSource 走 url 配置 —— 库名在 url 的 pathname 里（options.database 为空）
-  let db = dataSource.options?.database ?? ''
-  if (!db && dataSource.options?.url) {
+export function assertTestDatabase(dataSource: { options: unknown }): void {
+  // options 按 unknown 收窄：TypeORM DataSourceOptions 是驱动联合类型，
+  // url/database 字段在不同驱动档形状不同，窄签名会拒收真实的 DataSource
+  const opts = (dataSource.options ?? {}) as { url?: string; database?: string }
+  let db = opts.database ?? ''
+  if (!db && opts.url) {
     try {
-      db = new URL(dataSource.options.url).pathname.replace(/^\//, '')
+      db = new URL(opts.url).pathname.replace(/^\//, '')
     } catch {
       /* 不可解析按未知处理 */
     }

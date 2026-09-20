@@ -4,9 +4,10 @@
  * events 全量通道上线后 spans 的 JSONB 单行可达 ~1MB —— 无限增长会让
  * 本机库慢慢变沉。按 `DAGENTS_RETENTION_DAYS`（默认 90 天）定期清理：
  *
- *   - 删除 finished_at 早于窗口的 runs（spans / dispatch_task_events 经
- *     run_id 外键或显式删除级联跟随；无外键的按 run_id 手动删）；
- *   - orphan spans / task events（run 行已缺失）一并回收；
+ *   - 删除 finished_at 早于窗口的 runs（spans / checkpoints /
+ *     dispatch_task_events 经 run_id 外键或显式删除级联跟随；无外键的按
+ *     run_id 手动删）；
+ *   - orphan spans / checkpoints / task events（run 行已缺失）一并回收；
  *   - 仍处非终态的 run 不动（boot sweep 才是它们的归宿）。
  *
  * 单机个人工具的取舍：不做分区/归档表，直接删 —— 终态执行轨迹对个人的
@@ -39,15 +40,24 @@ export async function runRetentionSweep(now = new Date()): Promise<number> {
   if (records.length === 0) return 0
   const ids = records.map((r) => r.id)
   await runQuery(`DELETE FROM run_node_spans WHERE run_id = ANY($1::uuid[])`, [ids])
+  await runQuery(`DELETE FROM run_checkpoints WHERE run_id = ANY($1::uuid[])`, [ids])
   await runQuery(`DELETE FROM dispatch_task_events WHERE task_id IN (
       SELECT id FROM dispatch_tasks WHERE run_id = ANY($1::text[])
     )`, [ids])
   await runQuery(`DELETE FROM dispatch_tasks WHERE run_id = ANY($1::text[])`, [ids])
   const { affected } = await runQuery(`DELETE FROM runs WHERE id = ANY($1::uuid[])`, [ids])
 
-  // orphan 轨迹（run 行已不存在）一并回收
+  // orphan 轨迹（run 行已不存在）一并回收 —— 含 checkpoints（2026-09-20
+  // 补：此前 sweep 不覆盖 run_checkpoints，挂起/失败 run 的快照 JSONB
+  // 只进不出，无限堆积）与孤儿 task events
   await runQuery(`DELETE FROM run_node_spans WHERE run_id NOT IN (SELECT id FROM runs)`)
-  await runQuery(`DELETE FROM dispatch_tasks WHERE run_id IS NOT NULL AND run_id NOT IN (SELECT id FROM runs)`)
+  await runQuery(`DELETE FROM run_checkpoints WHERE run_id NOT IN (SELECT id FROM runs)`)
+  await runQuery(`DELETE FROM dispatch_task_events WHERE task_id NOT IN (SELECT id FROM dispatch_tasks)`)
+  // dispatch_tasks.run_id 是 text 列 —— 与 uuid 的 runs.id 比较须同域，
+  // 否则整个 sweep 在此抛错静默失败（2026-09-06 上线起每日如此，测试钉住）
+  await runQuery(
+    `DELETE FROM dispatch_tasks WHERE run_id IS NOT NULL AND run_id NOT IN (SELECT id::text FROM runs)`,
+  )
 
   log.info('retention sweep', { deletedRuns: affected ?? ids.length, cutoff: cutoff.toISOString() })
   return affected ?? ids.length
