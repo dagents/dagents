@@ -4,6 +4,7 @@ import { AppDataSource } from '@dagents/db'
 import { aggregateUsage } from '../../routes/dispatch/runs-usage.js'
 import { windowSince, FLEET_WINDOW_HOURS } from '../../routes/dispatch/fleet-stats.js'
 import { randomUUID } from 'node:crypto'
+import { assertTestDatabase } from '../../test-support/gw-test-db.js'
 
 /**
  * Integration tests for the fleet resource-dashboard aggregation API
@@ -40,6 +41,8 @@ afterAll(async () => {
 })
 
 beforeEach(async () => {
+  // dev 库保险丝：注入失手时在这里炸，绝不带着全表 wipe 打到 dev 库
+  assertTestDatabase(AppDataSource)
   // wipe dispatch + runs state, then seed a daemon / agent_daemon row.
   await AppDataSource.query(`DELETE FROM dispatch_task_events`)
   await AppDataSource.query(`DELETE FROM dispatch_tasks`)

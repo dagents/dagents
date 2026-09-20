@@ -59,3 +59,29 @@ export default async function setup(): Promise<void> {
     if (AppDataSource.isInitialized) await AppDataSource.destroy()
   }
 }
+
+/**
+ * dev 库保险丝（2026-09-20）：凡是 wipe 共享表（runs 等）的集成测试，
+ * beforeEach 动手前先调这个 —— POSTGRES_URL 注入一旦失手（env 时序 /
+ * 启动方式差异），在这里炸成显式失败，而不是把 dev 库真实运行历史
+ * 全表清掉（2026-08-29 与 2026-09-20 两次实锤，后者不可恢复）。
+ */
+export function assertTestDatabase(dataSource: {
+  options: { url?: string; database?: string }
+}): void {
+  // AppDataSource 走 url 配置 —— 库名在 url 的 pathname 里（options.database 为空）
+  let db = dataSource.options?.database ?? ''
+  if (!db && dataSource.options?.url) {
+    try {
+      db = new URL(dataSource.options.url).pathname.replace(/^\//, '')
+    } catch {
+      /* 不可解析按未知处理 */
+    }
+  }
+  if (!db || db === 'dagents') {
+    throw new Error(
+      `[gw-test-db] 拒绝在「${db || '未知'}」库上执行 wipe —— POSTGRES_URL 注入失手，` +
+        '继续跑会清空 dev 库真实数据。请经 apps/gateway 的 vitest 配置启动测试（globalSetup 负责注入 dagents_gw_test）。',
+    )
+  }
+}
