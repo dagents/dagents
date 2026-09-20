@@ -3,7 +3,6 @@ import {
   PrimaryGeneratedColumn,
   Column,
   CreateDateColumn,
-  Index,
   UpdateDateColumn,
 } from 'typeorm'
 
@@ -13,7 +12,6 @@ import {
  * migration 1720000016000）。schema 定义 + 类型来源；热路径 raw SQL。
  */
 @Entity({ name: 'agent_daemons' })
-@Index('idx_agent_daemons_daemon', ['daemonId'])
 export class AgentDaemon {
   @PrimaryGeneratedColumn('uuid')
   id!: string

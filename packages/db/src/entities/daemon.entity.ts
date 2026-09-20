@@ -3,7 +3,6 @@ import {
   PrimaryGeneratedColumn,
   Column,
   CreateDateColumn,
-  Index,
   UpdateDateColumn,
 } from 'typeorm'
 
@@ -18,7 +17,6 @@ import {
 export type DaemonStatus = 'online' | 'offline' | 'draining'
 
 @Entity({ name: 'daemons' })
-@Index('idx_daemons_status', ['status'])
 export class Daemon {
   @PrimaryGeneratedColumn('uuid')
   id!: string

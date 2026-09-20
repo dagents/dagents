@@ -659,6 +659,23 @@ workflowsRoutes.post('/:id/run', async (c) => {
  * 404 for an unknown runId → empty spans (the console degrades to `idle` for
  * every node).
  */
+
+/** node-spans 列表的 input 截头上限（架构优化轮三，2026-09-20）：该端点被
+ *  画布旁观 700ms 轮询，input（回显的提示词/原始数据，实测占载荷 38%）
+ *  只服务「展开输入折叠」这一个低频动作 —— 超限仅回传前段 + 截断标记，
+ *  完整内容以各节点的运行产出为准。output（流式正文/实时 tail）不截。 */
+const NODE_SPANS_INPUT_HEAD = 8 * 1024
+
+function truncateSpanInput(value: unknown, limit = NODE_SPANS_INPUT_HEAD): unknown {
+  if (value == null) return null
+  const text = JSON.stringify(value)
+  if (text.length <= limit) return value
+  return {
+    truncationNotice: `输入体积约 ${Math.round(text.length / 1024)}KB，超出列表携带上限（${limit / 1024}KB）—— 以下仅保留前段。`,
+    head: text.slice(0, limit),
+  }
+}
+
 workflowsRoutes.get('/runs/:runId/node-spans', async (c) => {
   const runId = c.req.param('runId')
   if (runId.length > MAX_RUN_ID_LEN) {
@@ -707,7 +724,7 @@ workflowsRoutes.get('/runs/:runId/node-spans', async (c) => {
       cost: Number.isFinite(cost) ? cost : null,
       error: r.error,
       traceId: r.trace_id,
-      input: r.input ?? null,
+      input: truncateSpanInput(r.input),
       output: r.output ?? null,
     }
   })

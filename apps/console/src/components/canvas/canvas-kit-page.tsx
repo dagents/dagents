@@ -230,14 +230,6 @@ export function CanvasKitPage({
   // 画布直跑接管轮询时，旁观模式（?run=）的自有循环退位 —— 与旧
   // watchLoop 开场 clearInterval 的接管语义等价。
   const manualWatchRef = useRef(false)
-  // 秒级心跳（2026-09-19 结果面板优化）：running 期间每秒强制重渲，
-  // 驱动状态行的实时总耗时与 running 节点的逐秒已耗时。
-  const [, bumpElapsedTick] = useReducer((x: number) => x + 1, 0)
-  useEffect(() => {
-    if (runState !== 'running') return
-    const t = setInterval(() => bumpElapsedTick(), 1000)
-    return () => clearInterval(t)
-  }, [runState])
   // 结果列表跟随（优化点 11）：spans 更新时把 running 节点滚进视口 ——
   // 列表超高后用户不必手动去找「现在跑到哪了」。
   const resultsListRef = useRef<HTMLDivElement | null>(null)
@@ -1201,12 +1193,14 @@ export function CanvasKitPage({
                               </span>
                             </>
                           ) : null}
-                          {elapsedS ? (
+                          {elapsedS && startMs != null ? (
                             <>
                               <span className='canvas-results-live-sep'>·</span>
-                              <span className='canvas-results-live-elapsed tnum'>
-                                ⏱ {elapsedS}s
-                              </span>
+                              <LiveElapsed
+                                startedAt={new Date(startMs).toISOString()}
+                                className='canvas-results-live-elapsed tnum'
+                                prefix='⏱ '
+                              />
                             </>
                           ) : null}
                           <div className='canvas-results-live-bar'>
@@ -1312,19 +1306,19 @@ export function CanvasKitPage({
                               <span className='canvas-result-tokens' title={t('token 用量（输入/输出）')}>{badge}</span>
                             ) : null}
                             <span className='canvas-result-meta'>
-                              {st === 'warn'
-                                ? `⚠ ${t('疑似权限受限')}${sp.durationMs != null ? ` · ${(sp.durationMs / 1000).toFixed(1)}s` : ''}`
-                                : st === 'running'
-                                  ? // 实时已耗时（优化点 2）：逐秒跳动，秒级心跳驱动
-                                    `${t('运行中')} · ${sp.startedAt && !Number.isNaN(Date.parse(sp.startedAt)) ? Math.max(0, (Date.now() - Date.parse(sp.startedAt)) / 1000).toFixed(1) : '0.0'}s`
-                                  : st === 'failed'
-                                    ? `${t('失败')}${sp.durationMs != null ? ` · ${(sp.durationMs / 1000).toFixed(1)}s` : ''}`
-                                    : st === 'done' || st === 'completed'
-                                      ? // done 去冗词（优化点 9）：状态由点色表达，meta 只留时长
-                                        sp.durationMs != null
-                                          ? `${(sp.durationMs / 1000).toFixed(1)}s`
-                                          : t('完成')
-                                      : st}
+                              {st === 'warn' ? (
+                                <>⚠ {t('疑似权限受限')}{sp.durationMs != null ? ` · ${(sp.durationMs / 1000).toFixed(1)}s` : ''}</>
+                              ) : st === 'running' ? (
+                                // 实时已耗时（优化点 2）：LiveElapsed 自带秒级心跳，逐秒跳动
+                                <>{t('运行中')} · <LiveElapsed startedAt={sp.startedAt} /></>
+                              ) : st === 'failed' ? (
+                                <>{t('失败')}{sp.durationMs != null ? ` · ${(sp.durationMs / 1000).toFixed(1)}s` : ''}</>
+                              ) : st === 'done' || st === 'completed' ? (
+                                // done 去冗词（优化点 9）：状态由点色表达，meta 只留时长
+                                sp.durationMs != null ? `${(sp.durationMs / 1000).toFixed(1)}s` : t('完成')
+                              ) : (
+                                st
+                              )}
                             </span>
                           </summary>
                           <div className='canvas-result-body'>
@@ -1444,5 +1438,32 @@ export function CanvasKitPage({
         header={renderHeader}
       />
     </div>
+  )
+}
+
+/** 实时已耗时（走查优化点 1/2 的载体）：自带秒级心跳的叶子组件。
+ *  计时状态局部于本组件 —— 若把心跳放页面级，整棵画布树（React Flow
+ *  图 + 面板）会被拖进每秒重渲（架构自审 2026-09-20）。 */
+function LiveElapsed({
+  startedAt,
+  className,
+  prefix = '',
+}: {
+  startedAt: string | null
+  className?: string
+  prefix?: string
+}): React.ReactElement {
+  const [, tick] = useReducer((x: number) => x + 1, 0)
+  useEffect(() => {
+    const t = setInterval(() => tick(), 1000)
+    return () => clearInterval(t)
+  }, [])
+  const t0 = startedAt ? Date.parse(startedAt) : NaN
+  const s = Number.isNaN(t0) ? '0.0' : Math.max(0, (Date.now() - t0) / 1000).toFixed(1)
+  return (
+    <span className={className}>
+      {prefix}
+      {s}s
+    </span>
   )
 }
