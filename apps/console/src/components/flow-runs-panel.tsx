@@ -114,7 +114,9 @@ export function FlowRunsPanel({ flowId, refreshTick = 0, onRerun }: FlowRunsPane
               role="listitem"
             >
               {/* PX-F08 列契约：状态点+词（88px）→ 触发源 chip → 相对时间 →
-                  输入预览（截 40ch）→ 耗时（tabular-nums 右对齐）→ 旁观。 */}
+                  输入预览（截 40ch）→ 耗时（tabular-nums 右对齐）→ 动作簇
+                  （重跑/旁观/终端，右对齐单行 —— 拆开渲染会挤出隐式第二行
+                  撑高行高，2026-09-19 修复）。 */}
               <div className="flow-runs-row">
                 <span className={`flow-runs-status st-${r.status}`}>
                   <span
@@ -139,33 +141,35 @@ export function FlowRunsPanel({ flowId, refreshTick = 0, onRerun }: FlowRunsPane
                       ? t('进行中')
                       : '—'}
                 </span>
-                {onRerun ? (
-                  <button
-                    type="button"
-                    className="btn btn-ghost btn-sm flow-runs-watch"
-                    title={t('以相同输入重跑（输入可再编辑）')}
-                    onClick={() => onRerun(r.input ?? preview)}
-                  >
-                    {t('重跑')}
-                  </button>
-                ) : null}
-                <Link
-                  href={`/workflows/${r.flowId}/canvas?run=${r.runId}`}
-                  className="btn btn-ghost btn-sm flow-runs-watch"
-                >
-                  {t('画布旁观')}
-                </Link>
-                {/* 双锚点 P1：失败行 + 有目录锚 → 深链终端排查；无目录不渲染
-                    （诚实优先，不回落主目录）。 */}
-                {r.status === 'failed' && r.directoryId ? (
+                <span className="flow-runs-actions">
+                  {onRerun ? (
+                    <button
+                      type="button"
+                      className="btn btn-ghost btn-sm flow-runs-watch"
+                      title={t('以相同输入重跑（输入可再编辑）')}
+                      onClick={() => onRerun(r.input ?? preview)}
+                    >
+                      {t('重跑')}
+                    </button>
+                  ) : null}
                   <Link
-                    href={terminalHrefForDir(r.directoryId)}
+                    href={`/workflows/${r.flowId}/canvas?run=${r.runId}`}
                     className="btn btn-ghost btn-sm flow-runs-watch"
-                    title={t('在项目目录打开终端')}
                   >
-                    {t('终端')}
+                    {t('画布旁观')}
                   </Link>
-                ) : null}
+                  {/* 双锚点 P1：失败行 + 有目录锚 → 深链终端排查；无目录不渲染
+                      （诚实优先，不回落主目录）。 */}
+                  {r.status === 'failed' && r.directoryId ? (
+                    <Link
+                      href={terminalHrefForDir(r.directoryId)}
+                      className="btn btn-ghost btn-sm flow-runs-watch"
+                      title={t('在项目目录打开终端')}
+                    >
+                      {t('终端')}
+                    </Link>
+                  ) : null}
+                </span>
               </div>
               {/* 失败摘要：第二行，--text-xs danger */}
               {r.error ? (

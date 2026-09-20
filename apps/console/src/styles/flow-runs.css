@@ -154,13 +154,27 @@
   font-size: var(--text-2xs);
 }
 
-/* ── 窄屏：列收缩为两行（meta 行 + 预览行），无横向滚动 ── */
+/* 动作簇（重跑/旁观/终端）：末列右对齐单行 —— 行子元素一旦超过网格
+   列数会挤到隐式第二行撑高行高（2026-09-19 修复），故收进单一容器。 */
+.flow-runs-actions {
+  display: flex;
+  align-items: center;
+  gap: var(--space-1);
+  justify-content: flex-end;
+  min-width: 0;
+}
+
+/* ── 窄屏：列收缩为两行（meta 行 + 预览行），无横向滚动；动作簇独占
+    第二行右对齐，不与 meta 抢列 ── */
 @media (max-width: 720px) {
   .flow-runs-row {
     grid-template-columns: 88px max-content minmax(0, 1fr) max-content;
   }
   .flow-runs-time {
     display: none;
+  }
+  .flow-runs-actions {
+    grid-column: 1 / -1;
   }
   .flow-runs-error {
     padding-left: 0;
