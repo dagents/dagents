@@ -186,8 +186,10 @@
   transition: background var(--motion-fast), color var(--motion-fast);
 }
 .chat-nav-browser-add:hover:not(:disabled) {
-  background: var(--surface);
-  color: var(--fg);
+  /* 与项目目录行的 ➕ 悬停同款紫（2026-09-20 用户裁决）：新建动作 =
+     紫色指向，不再是无差别的灰底 */
+  background: var(--accent);
+  color: var(--accent-on);
 }
 .chat-nav-browser-add:disabled {
   cursor: progress;
