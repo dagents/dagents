@@ -9,7 +9,8 @@ import {
 import { executionRegistry, type ExecutionHandle } from '../execution-registry.js'
 import { aggregateExecutedNodesUsage, recordUsageEvent } from '../usage-events.js'
 import { getCheckpoint, updateCheckpointStatus, upsertCheckpoint } from '../repositories/run-checkpoints.repo.js'
-import { assembleWorkflowEngine, toRunStatus } from './workflow-engine-service.js'
+import { persistWorkflowRunRow } from '../repositories/runs.repo.js'
+import { assembleWorkflowEngine } from './workflow-engine-service.js'
 
 const log = createLogger({ svc: 'gateway:resume' })
 
@@ -186,9 +187,29 @@ export function claimCheckpointRun(checkpointRunId: string): boolean {
   return true
 }
 
+/**
+ * 认领的显式释放：路由层在「认领成功 → startWorkflowExecution 接管」之间
+ * 的校验/种子组装失败路径必须调用，否则该 checkpoint 永久 409 直到重启
+ * （架构审计 G1）。接管后由 execute 的 finally 统一释放。
+ */
+export function releaseCheckpointRun(checkpointRunId: string): void {
+  activeResumeCheckpoints.delete(checkpointRunId)
+}
+
 export function startWorkflowExecution(req: RunExecutionInput): RunExecutionHandleResult {
   activeResumeCheckpoints.add(req.checkpointRunId)
-  const { executor, spanWriter, baseOptions } = assembleWorkflowEngine({
+  // 同步装配段（引擎组装 / registry 注册）若抛出（坏 flowData 等）够不到
+  // execute 的 finally —— 显式释放认领再抛（架构审计 G2）。
+  try {
+    return startWorkflowExecutionInner(req)
+  } catch (err) {
+    activeResumeCheckpoints.delete(req.checkpointRunId)
+    throw err
+  }
+}
+
+function startWorkflowExecutionInner(req: RunExecutionInput): RunExecutionHandleResult {
+  const { executor, live, baseOptions } = assembleWorkflowEngine({
     flowData: req.flowData as Parameters<typeof assembleWorkflowEngine>[0]['flowData'],
     runId: req.runId,
     flowId: req.flowId,
@@ -218,31 +239,27 @@ export function startWorkflowExecution(req: RunExecutionInput): RunExecutionHand
   }
   executionRegistry.register(handle)
 
+  // runs 行落库收敛到 repo 单源（架构优化轮）：此前这里是裸 SQL 副本，
+  // runs 表结构知识存在第二处漂移风险；upsert + COALESCE 语义由
+  // persistWorkflowRunRow 统一承载（resumedFromRunId 已并入该 helper）。
   const persistRunRow = async (
     status: string,
-    extra?: { output?: unknown; error?: string; durationMs?: number; resumedFrom?: string },
+    extra?: { output?: unknown; durationMs?: number; resumedFrom?: string },
   ): Promise<void> => {
-    await runQuery(
-      `INSERT INTO runs (id, identifier, pipeline_id, status, input, output, started_at, finished_at, duration_ms, cost, chat_id, resumed_from_run_id)
-       VALUES ($1::uuid, $2::text, $3::uuid, $4, $5, $6, NOW(), NOW(), $7, 0, $8, $9::uuid)
-       ON CONFLICT (id) DO UPDATE SET
-         status = EXCLUDED.status,
-         output = EXCLUDED.output,
-         finished_at = EXCLUDED.finished_at,
-         duration_ms = EXCLUDED.duration_ms,
-         resumed_from_run_id = COALESCE(EXCLUDED.resumed_from_run_id, runs.resumed_from_run_id)`,
-      [
-        req.runId,
-        req.runId,
-        req.flowId,
-        status,
-        JSON.stringify({ input: req.input }),
-        extra?.output ? JSON.stringify(extra.output) : null,
-        extra?.durationMs ?? Date.now() - startedAt,
-        req.chatId || null,
-        extra?.resumedFrom ?? null,
-      ],
-    ).catch((err) => log.warn('resume runs upsert failed', { runId: req.runId, error: String(err) }))
+    await persistWorkflowRunRow({
+      runId: req.runId,
+      flowId: req.flowId,
+      status,
+      inputJson: JSON.stringify({ input: req.input }),
+      outputJson: extra?.output ? JSON.stringify(extra.output) : null,
+      startedAt: new Date(startedAt),
+      finishedAt: new Date(),
+      durationMs: extra?.durationMs ?? Date.now() - startedAt,
+      cost: 0,
+      chatId: req.chatId || null,
+      directoryId: req.directoryId ?? null,
+      resumedFromRunId: extra?.resumedFrom ?? null,
+    }).catch((err) => log.warn('resume runs upsert failed', { runId: req.runId, error: String(err) }))
   }
 
   const execute = async (): Promise<void> => {
@@ -284,11 +301,12 @@ export function startWorkflowExecution(req: RunExecutionInput): RunExecutionHand
       }
 
       const runStatus = result.status === 'success' ? 'completed' : result.status === 'cancelled' ? 'cancelled' : 'failed'
+      // 运行实时终端：续跑 settle 同样上报终态（重开的条目再次收口）。
+      live.finish(runStatus)
       // 终态经钩子串行链（快照 + status 合并一次写；failedAt 由引擎终态快照携带）
       checkpointHook.terminalize(runStatus === 'completed' ? 'terminal' : 'resumable')
       await persistRunRow(runStatus, {
         output: result.finalOutput,
-        error: result.error,
         durationMs: Date.now() - startedAt,
       })
 
@@ -303,7 +321,7 @@ export function startWorkflowExecution(req: RunExecutionInput): RunExecutionHand
     } catch (err) {
       log.error('resume execution crashed', { runId: req.runId, error: String(err) })
       await updateCheckpointStatus(req.checkpointRunId, 'resumable').catch(() => {})
-      await persistRunRow('failed', { error: String(err), durationMs: Date.now() - startedAt })
+      await persistRunRow('failed', { durationMs: Date.now() - startedAt })
     } finally {
       resolveDone()
       executionRegistry.unregister(handle)
@@ -398,6 +416,12 @@ export async function answerAwaitingRunForChat(chatId: string, answer: string): 
     const dirId = (dirRows[0]?.input as { directoryId?: string } | undefined)?.directoryId
     const cwd = dirId ? await resolveDirectoryPath(dirId) : undefined
 
+    // 认领互斥（架构审计 G6）：并发消息只允许一发原地续跑；认领失败说明
+    // 已有 resume/answer 在途 —— 消息回落正常聊天路由。
+    if (!claimCheckpointRun(runId)) {
+      log.info('awaiting run already resuming — message routed normally', { chatId, runId })
+      return null
+    }
     startWorkflowExecution({
       flowId: ckpt.flow_id,
       flowData: flow.flowData,

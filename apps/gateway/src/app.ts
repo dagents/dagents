@@ -10,6 +10,7 @@ import { agentLibraryRoutes } from './routes/agent-library.js'
 import { flowTemplateRoutes } from './routes/flow-templates.js'
 import { flowGeneratorRoutes } from './routes/flow-generator.js'
 import { chatCancelRoutes, runCancelRoutes } from './routes/execution-cancel.js'
+import { runLiveRoutes } from './routes/execution-live.js'
 import { runMessageRoutes } from './routes/execution-message.js'
 import { runResumeRoutes } from './routes/execution-resume.js'
 import { llmProviderRoutes } from './routes/llm-providers.js'
@@ -18,6 +19,7 @@ import { runsRoutes } from './routes/runs.js'
 import { usageRoutes } from './routes/usage.js'
 import { cliRuntimeRoutes } from './routes/cli-runtimes.js'
 import { skillsRoutes } from './routes/skills.js'
+import { shellRoutes } from './routes/shell.js'
 import { internalRunsRoutes } from './routes/internal-runs.js'
 import { dispatchRoutes } from './routes/dispatch/index.js'
 import { runQuery } from '@dagents/db'
@@ -212,6 +214,8 @@ app.route('/api/v1/flow-generator', flowGeneratorRoutes)
 app.route('/api/v1/chats', chatCancelRoutes)
 app.route('/api/v1/workflows', runCancelRoutes)
 app.route('/api/v1/workflows', runMessageRoutes)
+// 运行实时终端（live attach）：GET /runs/:runId/live SSE 帧流
+app.route('/api/v1/workflows', runLiveRoutes)
 // 断点续跑（§6.5）：GET checkpoint / POST resume / POST answer
 app.route('/api/v1/workflows', runResumeRoutes)
 
@@ -253,6 +257,14 @@ app.route('/api/v1/cli-runtimes', cliRuntimeRoutes)
  * filesystem is the source of truth, nothing is persisted.
  */
 app.route('/api/v1/skills', skillsRoutes)
+
+/**
+ * Shell sessions（浏览器里的真终端）：node-pty 起 $SHELL，SSE 推 base64
+ * 输出帧，input/resize/kill 写回 —— 提示符/颜色/交互程序全部原生。
+ * 会话在 shell-registry（进程内，重启即清）；DAGENTS_SHELL_DISABLED=1 可
+ * 整体关闭。安全口径与全站一致（本机开放 / GATEWAY_API_KEY 全局门）。
+ */
+app.route('/api/v1/shell', shellRoutes)
 
 /**
  * Dispatch protocol routes (spec §1.5), merged into gateway (Plan A, 2026-08-01).

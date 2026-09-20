@@ -18,23 +18,28 @@ export interface FlowRow {
   updated_at: Date
 }
 
-function countNodes(flowData: unknown): number {
-  if (flowData && typeof flowData === 'object' && 'nodes' in flowData) {
-    const nodes = (flowData as { nodes?: unknown }).nodes
-    if (Array.isArray(nodes)) {
-      return nodes.length
-    }
-  }
-  return 0
+/**
+ * 列表投影行：不含 flow_data 全文。完整画布文档（节点+边+布局+视口）单份
+ * 可达数十 KB，此前列表查询逐行拖全量 JSONB 进 gateway 仅为数节点数；
+ * 现在节点数在 SQL 侧计算（语义：nodes 缺失或非数组一律计 0）。
+ */
+export interface FlowListItemRow {
+  id: string
+  name: string
+  description: string | null
+  status: string
+  node_count: number
+  created_at: Date
+  updated_at: Date
 }
 
-export function normalizeFlowListItem(r: FlowRow) {
+export function normalizeFlowListItem(r: FlowListItemRow) {
   return {
     id: r.id,
     name: r.name,
     description: r.description,
     status: r.status,
-    nodeCount: countNodes(r.flow_data),
+    nodeCount: r.node_count ?? 0,
     updatedAt: r.updated_at instanceof Date ? r.updated_at.toISOString() : new Date(r.updated_at).toISOString(),
   }
 }
@@ -51,8 +56,13 @@ export function normalizeFlowDetail(r: FlowRow) {
   }
 }
 
-export async function listFlows(status?: string): Promise<FlowRow[]> {
-  let sql = `SELECT id, name, description, flow_data, status, created_at, updated_at
+export async function listFlows(status?: string): Promise<FlowListItemRow[]> {
+  let sql = `SELECT id, name, description, status,
+               CASE WHEN jsonb_typeof(flow_data->'nodes') = 'array'
+                    THEN jsonb_array_length(flow_data->'nodes')
+                    ELSE 0
+               END AS node_count,
+               created_at, updated_at
              FROM flows`
   const params: unknown[] = []
   if (status) {
@@ -60,7 +70,7 @@ export async function listFlows(status?: string): Promise<FlowRow[]> {
     sql += ` WHERE status = $${params.length}`
   }
   sql += ` ORDER BY updated_at DESC`
-  const { records } = await runQuery<FlowRow>(sql, params)
+  const { records } = await runQuery<FlowListItemRow>(sql, params)
   return records
 }
 

@@ -12,6 +12,7 @@ import { sendToRunNode } from './workflow-clients.js'
 import { assembleWorkflowEngine, toRunStatus } from './workflow-engine-service.js'
 import { createChatHumanInputResolver, resolvePendingHumanInput } from './human-input.js'
 import { answerAwaitingRunForChat } from './resume-execution.js'
+import type { RunLiveTap } from '../run-live-registry.js'
 import {
   listChats,
   searchChats,
@@ -650,6 +651,9 @@ chatRoutes.get('/:id/stream', async (c) => {
   ;(async () => {
     let finalText = ''
     let cancelled = false
+    // run-live 收口句柄提到 try 外：外层 catch（装配/执行异常路径）也要关流，
+    // 否则画布旁观者靠 2 分钟 idle 兜底才发现结束（架构审计 G5）。
+    let live: RunLiveTap | undefined
     try {
       // CLI-first：无 provider 时 LLM/Agent 节点跑本地 CLI（零配置基线）。
       // 工作目录 = 会话绑定的项目目录（和聊天 inline 执行一致）。
@@ -662,13 +666,14 @@ chatRoutes.get('/:id/stream', async (c) => {
       // 引擎装配单一来源（与画布直跑 / @flow 路径共用）：chat 触发的
       // 工作流与画布直跑共用同一进度数据源，画布可通过
       // /workflows/:flowId/canvas?run=<id> 实时旁观 chat 发起的运行。
-      const { executor, baseOptions } = assembleWorkflowEngine({
+      const { executor, live: liveTap, baseOptions } = assembleWorkflowEngine({
         flowData,
         runId,
         flowId: chat.flow_id!,
         cwd: chatCwd,
         logger: log,
       })
+      live = liveTap
       // HumanInput nodes park on the user's next message in this chat
       // (see human-input.ts).
       const humanInputResolver = createChatHumanInputResolver({ chatId: id, runId, streamer })
@@ -694,6 +699,8 @@ chatRoutes.get('/:id/stream', async (c) => {
       // （canvas?run=）依赖它判断终态。best-effort —— 失败不影响流。
       try {
         const runStatus = toRunStatus(result.status)
+        // 运行实时终端：chat 流式运行 settle 上报终态（画布旁观者关流）。
+        live.finish(runStatus)
         await upsertChatWorkflowRunRow({
           runId,
           flowId: chat.flow_id!,
@@ -703,11 +710,13 @@ chatRoutes.get('/:id/stream', async (c) => {
           outputJson: JSON.stringify(finalText.slice(0, 500) || null),
           startedAtIso: new Date(handle.startedAt).toISOString(),
           durationMs: Math.max(0, Date.now() - handle.startedAt),
+          directoryId: chat.directory_id ?? null,
         })
       } catch (err) {
         log.warn('chat stream runs row persist failed', { id, runId, error: String(err) })
       }
     } catch (err) {
+      live?.finish('failed')
       log.error('chat stream execution failed', { id, error: String(err) })
       streamer.streamErrorEvent(id, String(err))
     } finally {

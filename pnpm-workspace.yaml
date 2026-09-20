@@ -1,3 +1,7 @@
 packages:
   - 'apps/*'
   - 'packages/*'
+
+# node-pty 的 install 脚本编译 PTY 原生模块（shell 终端功能依赖）
+onlyBuiltDependencies:
+  - node-pty

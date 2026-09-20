@@ -21,6 +21,7 @@ import {
   deleteFlow,
   normalizeFlowListItem,
   normalizeFlowDetail,
+  type FlowListItemRow,
   type FlowRow,
 } from '../repositories/workflows.repo.js'
 import { getDirectoryPath } from '../repositories/directories.repo.js'
@@ -57,7 +58,7 @@ const updateBodySchema = z.object({
 workflowsRoutes.get('/', async (c) => {
   const status = c.req.query('status')
 
-  let rows: FlowRow[]
+  let rows: FlowListItemRow[]
   try {
     rows = await listFlows(status)
   } catch (err) {
@@ -380,7 +381,7 @@ workflowsRoutes.post('/:id/run', async (c) => {
 
   const startedAt = new Date()
   // 引擎装配单一来源（与 chat 流式 / @flow 路径共用；此前三处复制漂移）
-  const { executor, spanWriter, nodeLabelById, nodeTypeById, baseOptions } = assembleWorkflowEngine({
+  const { executor, spanWriter, live, nodeLabelById, nodeTypeById, baseOptions } = assembleWorkflowEngine({
     flowData,
     runId,
     flowId: id,
@@ -474,6 +475,8 @@ workflowsRoutes.post('/:id/run', async (c) => {
   finishedAt = new Date()
   durationMs = Math.round(finishedAt.getTime() - startedAt.getTime())
   runStatus = result.status === 'awaiting' ? 'awaiting_input' : toRunStatus(result.status)
+  // 运行实时终端：settle 即上报终态帧（SSE 观看者收 runEnd 后关流）。
+  live.finish(runStatus)
 
   // AD-3（方案 D b 路径）：run 级用量聚合 —— sum 各节点 tokens，cost 只在
   // 所有 token 节点都有价格时成立（引擎目前 cost 恒 null → priced=false，
@@ -498,6 +501,7 @@ workflowsRoutes.post('/:id/run', async (c) => {
       durationMs,
       cost: usageRollup.cost ?? 0,
       chatId: chatId || null,
+      directoryId: data.directoryId ?? null,
     })
   } catch (err) {
     log.warn('persist runs row failed, spans still written below', { id, runId, error: String(err) })
@@ -596,6 +600,7 @@ workflowsRoutes.post('/:id/run', async (c) => {
         flowId: id,
         inputJson: JSON.stringify(data.input ?? null),
         startedAt,
+        directoryId: data.directoryId ?? null,
       })
     } catch (err) {
       log.warn('async runs row init failed', { id, runId, error: String(err) })
@@ -663,6 +668,7 @@ workflowsRoutes.get('/runs/:runId/node-spans', async (c) => {
   let rows: Awaited<ReturnType<typeof getRunNodeSpans>> = []
   let runStatus: string | null = null
   let runDurationMs: number | null = null
+  let runDirectoryId: string | null = null
   try {
     rows = await getRunNodeSpans(runId)
   } catch (err) {
@@ -671,10 +677,12 @@ workflowsRoutes.get('/runs/:runId/node-spans', async (c) => {
   }
   // 附带 runs 行的状态/耗时 —— 画布旁观（canvas?run=）据此判断终态。
   // 没有 runs 行（老数据 / 尚未落库）时为 null，旁观端回退到启发式判断。
+  // directoryId（2026-09-19 P0）：旁观端「在项目目录打开终端」的目录锚。
   try {
     const runRow = await getRunStatusAndDuration(runId)
     runStatus = runRow?.status ?? null
     runDurationMs = runRow?.duration_ms ?? null
+    runDirectoryId = runRow?.directory_id ?? null
   } catch {
     // runs 查询失败不影响 spans 返回
   }
@@ -709,7 +717,7 @@ workflowsRoutes.get('/runs/:runId/node-spans', async (c) => {
   // 无活会话 → 不可插话，如实禁用不假装）。
   const inputSupported = runHasLiveSinks(runId)
 
-  return ok(c, { runId, runStatus, runDurationMs, inputSupported, spans })
+  return ok(c, { runId, runStatus, runDurationMs, runDirectoryId, inputSupported, spans })
 })
 
 /**

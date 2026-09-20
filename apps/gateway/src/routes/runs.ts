@@ -73,6 +73,7 @@ runsRoutes.get('/', async (c) => {
         inputPreview: extractInputPreview(r.input),
         input: extractInputFull(r.input),
         error: r.first_error,
+        directoryId: r.directory_id ?? null,
         createdAt: r.created_at,
       })),
     )

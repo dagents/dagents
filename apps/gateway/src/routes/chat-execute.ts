@@ -8,6 +8,7 @@ import { sendToRunNode } from './workflow-clients.js'
 import { assembleWorkflowEngine } from './workflow-engine-service.js'
 import { generateFlow, attachFlowIdToAttempt } from './flow-generator.js'
 import { executionRegistry, type ExecutionHandle } from '../execution-registry.js'
+import type { RunLiveTap } from '../run-live-registry.js'
 import { persistCancelled } from './internal-runs-helpers.js'
 import {
   getChatRouting,
@@ -406,6 +407,9 @@ async function routeFlowCommand(
   // HTTP response returns immediately with the ack.
   void (async () => {
     const startedAt = Date.now()
+    // run-live 收口句柄提到 try 外：装配之后任何失败路径（含 catch）都要关流，
+    // 否则画布旁观者靠 2 分钟 idle 兜底才发现结束（架构审计 G4）。
+    let live: RunLiveTap | undefined
     try {
       const flowRow = await getFlowDataById(flowId)
       if (!flowRow) {
@@ -435,12 +439,13 @@ async function routeFlowCommand(
       // 引擎装配单一来源（workflows.ts / chats.ts 同款）—— 此前这里是
       // 手工镜像副本，漏接了 spanWriter：@flow 触发的运行在画布旁观里
       // 永远「无进度」。现在与画布直跑同源（2026-09-17 评审修复）。
-      const { executor, baseOptions } = assembleWorkflowEngine({
+      const { executor, live: liveTap, baseOptions } = assembleWorkflowEngine({
         flowData,
         runId,
         flowId,
         logger: log,
       })
+      live = liveTap
 
       const result = await executor.execute(flowData, cmd.message, {
         ...baseOptions,
@@ -454,6 +459,7 @@ async function routeFlowCommand(
 
       const durationMs = Date.now() - startedAt
       if (result.status === 'cancelled') {
+        live?.finish('cancelled')
         await persistCancelled({
           chatId,
           runId,
@@ -473,6 +479,7 @@ async function routeFlowCommand(
             : out != null
               ? JSON.stringify(out)
               : ''
+        live?.finish('completed')
         await persistComplete({
           chatId,
           runId,
@@ -481,6 +488,7 @@ async function routeFlowCommand(
           durationMs,
         })
       } else {
+        live?.finish('failed')
         await persistComplete({
           chatId,
           runId,
@@ -490,6 +498,7 @@ async function routeFlowCommand(
         })
       }
     } catch (err) {
+      live?.finish('failed')
       log.error('routeFlowCommand execution failed', {
         chatId,
         flowId,

@@ -3,6 +3,7 @@ import { NodeRegistry } from '@dagents/workflow'
 import type { Logger } from '@dagents/shared'
 import { allNodes } from '@dagents/workflow'
 import { makeIncrementalSpanWriter, type IncrementalSpanWriter } from '../span-writer.js'
+import { forRunLive, type RunLiveTap } from '../run-live-registry.js'
 import {
   createDefaultLlmClient,
   createAgentFetcher,
@@ -35,6 +36,9 @@ export interface AssembledWorkflowEngine {
   executor: DagExecutor
   /** 增量节点进度（run_node_spans）；onNodeStart/End/Delta 已并入 baseOptions。 */
   spanWriter: IncrementalSpanWriter
+  /** 运行实时终端的发射入口（与 spanWriter 同源旁路）；执行路径 settle
+   *  时调用 `live.finish(runStatus)` 上报终态（漏报由注册表清扫器兜底）。 */
+  live: RunLiveTap
   /** 节点 label/type 查找表（事后批量落库 spans 时复用）。 */
   nodeLabelById: Map<string, string | null>
   nodeTypeById: Map<string, string | null>
@@ -77,18 +81,34 @@ export function assembleWorkflowEngine(opts: AssembleWorkflowEngineOptions): Ass
     log: opts.logger,
   })
 
+  // 运行实时终端（live attach）：钩子与 span-writer 组合旁路 —— 引擎的
+  // start/end/delta（含插话回显：sink.onDelta 即引擎绑定的 onNodeDelta）
+  // 一份进 DB 节流落库，一份进进程内帧缓冲实时分发。run 的 settle 由各
+  // 执行路径显式 live.finish(status) 上报（漏报由注册表清扫器兜底收敛）。
+  const live = forRunLive(opts.runId, opts.flowId, (nodeId) => nodeTypeById.get(nodeId) ?? null)
+
   return {
     executor,
     spanWriter,
+    live,
     nodeLabelById,
     nodeTypeById,
     baseOptions: {
       llmClient,
       agentFetcher,
       toolRegistry,
-      onNodeStart: spanWriter.onNodeStart,
-      onNodeEnd: spanWriter.onNodeEnd,
-      onNodeDelta: spanWriter.onNodeDelta,
+      onNodeStart: (n) => {
+        spanWriter.onNodeStart(n)
+        live.nodeStart(n)
+      },
+      onNodeEnd: (n) => {
+        spanWriter.onNodeEnd(n)
+        live.nodeEnd(n)
+      },
+      onNodeDelta: (n, chunk) => {
+        spanWriter.onNodeDelta(n, chunk)
+        live.delta(n, chunk)
+      },
     },
   }
 }

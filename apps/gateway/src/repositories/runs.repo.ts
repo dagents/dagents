@@ -67,14 +67,16 @@ export async function getRunNodeSpans(runId: string): Promise<NodeSpanRow[]> {
   return records
 }
 
-/** runs 行的状态/耗时（旁观端终态判断；无行 → null，端侧回退启发式）。 */
+/** runs 行的状态/耗时（旁观端终态判断；无行 → null，端侧回退启发式）。
+ *  2026-09-19 P0：附带 directory_id —— node-spans 响应的目录锚数据源。 */
 export async function getRunStatusAndDuration(
   runId: string,
-): Promise<{ status: string; duration_ms: number | null } | null> {
-  const { records } = await runQuery<{ status: string; duration_ms: number | null }>(
-    `SELECT status, duration_ms FROM runs WHERE id = $1`,
-    [runId],
-  )
+): Promise<{ status: string; duration_ms: number | null; directory_id: string | null } | null> {
+  const { records } = await runQuery<{
+    status: string
+    duration_ms: number | null
+    directory_id: string | null
+  }>(`SELECT status, duration_ms, directory_id FROM runs WHERE id = $1`, [runId])
   return records[0] ?? null
 }
 
@@ -123,6 +125,8 @@ export interface RunHistoryRow {
   chat_id: string | null
   created_at: Date
   first_error: string | null
+  /** 2026-09-19 P0 数据链：运行的项目目录锚（终端入口数据源）。 */
+  directory_id: string | null
 }
 
 /** 跨 Flow 运行历史（Workflow-First 运行页）：可选状态/flow 过滤 + 失败摘要。 */
@@ -148,7 +152,7 @@ export async function listRunsHistory(opts: {
   const { records } = await runQuery<RunHistoryRow>(
     `SELECT r.id, r.pipeline_id AS flow_id, f.name AS flow_name,
             r.status, r.started_at, r.finished_at, r.duration_ms,
-            r.input, r.chat_id, r.created_at,
+            r.input, r.chat_id, r.created_at, r.directory_id,
             (SELECT left(s.error, 160) FROM run_node_spans s
               WHERE s.run_id = r.id AND s.status = 'failed' AND s.error IS NOT NULL
               ORDER BY s.started_at ASC LIMIT 1) AS first_error
@@ -197,24 +201,31 @@ export async function persistWorkflowRunRow(input: {
   flowId: string
   status: string
   inputJson: string
-  outputJson: string
+  /** SQL NULL（无 output）或 JSON 字符串 —— 调用方决定，原样入库。 */
+  outputJson: string | null
   startedAt: Date
   finishedAt: Date
   durationMs: number
   cost: number
   /** 2026-09-18：chat 触发的画布运行也落关联（应答回流 join 依赖）。 */
   chatId?: string | null
+  /** 2026-09-19 P0 数据链：运行的项目目录锚（终端入口「一扇门」的数据源）。 */
+  directoryId?: string | null
+  /** 断点续跑谱系：新 run 行指向原 run（COALESCE 保已存值）。 */
+  resumedFromRunId?: string | null
 }): Promise<void> {
   await runQuery(
-    `INSERT INTO runs (id, identifier, pipeline_id, status, input, output, started_at, finished_at, duration_ms, cost, chat_id)
-     VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11)
+    `INSERT INTO runs (id, identifier, pipeline_id, status, input, output, started_at, finished_at, duration_ms, cost, chat_id, resumed_from_run_id, directory_id)
+     VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12::uuid, $13::uuid)
      ON CONFLICT (id) DO UPDATE SET
        status = EXCLUDED.status,
        output = EXCLUDED.output,
        finished_at = EXCLUDED.finished_at,
        duration_ms = EXCLUDED.duration_ms,
        cost = EXCLUDED.cost,
-       chat_id = COALESCE(EXCLUDED.chat_id, runs.chat_id)`,
+       chat_id = COALESCE(EXCLUDED.chat_id, runs.chat_id),
+       resumed_from_run_id = COALESCE(EXCLUDED.resumed_from_run_id, runs.resumed_from_run_id),
+       directory_id = COALESCE(EXCLUDED.directory_id, runs.directory_id)`,
     [
       input.runId,
       input.runId,
@@ -227,6 +238,8 @@ export async function persistWorkflowRunRow(input: {
       input.durationMs,
       input.cost,
       input.chatId ?? null,
+      input.resumedFromRunId ?? null,
+      input.directoryId ?? null,
     ],
   )
 }
@@ -237,12 +250,13 @@ export async function initAsyncWorkflowRunRow(input: {
   flowId: string
   inputJson: string
   startedAt: Date
+  directoryId?: string | null
 }): Promise<void> {
   await runQuery(
-    `INSERT INTO runs (id, identifier, pipeline_id, status, input, output, started_at, duration_ms, cost)
-     VALUES ($1::uuid, $2::text, $3::uuid, 'running', $4, NULL, $5, NULL, 0)
+    `INSERT INTO runs (id, identifier, pipeline_id, status, input, output, started_at, duration_ms, cost, directory_id)
+     VALUES ($1::uuid, $2::text, $3::uuid, 'running', $4, NULL, $5, NULL, 0, $6::uuid)
      ON CONFLICT (id) DO NOTHING`,
-    [input.runId, input.runId, input.flowId, input.inputJson, input.startedAt],
+    [input.runId, input.runId, input.flowId, input.inputJson, input.startedAt, input.directoryId ?? null],
   )
 }
 
@@ -256,15 +270,18 @@ export async function upsertChatWorkflowRunRow(input: {
   outputJson: string
   startedAtIso: string
   durationMs: number
+  /** 2026-09-19 P0：chat 起源运行的目录锚继承自 chats.directory_id。 */
+  directoryId?: string | null
 }): Promise<void> {
   await runQuery(
-    `INSERT INTO runs (id, identifier, pipeline_id, chat_id, status, input, output, started_at, finished_at, duration_ms, cost)
-     VALUES ($1::uuid, $2::text, $3::uuid, $4::text, $5, $6, $7, $8, NOW(), $9, 0)
+    `INSERT INTO runs (id, identifier, pipeline_id, chat_id, status, input, output, started_at, finished_at, duration_ms, cost, directory_id)
+     VALUES ($1::uuid, $2::text, $3::uuid, $4::text, $5, $6, $7, $8, NOW(), $9, 0, $10::uuid)
      ON CONFLICT (id) DO UPDATE SET
        status = EXCLUDED.status,
        output = EXCLUDED.output,
        finished_at = EXCLUDED.finished_at,
-       duration_ms = EXCLUDED.duration_ms`,
+       duration_ms = EXCLUDED.duration_ms,
+       directory_id = COALESCE(EXCLUDED.directory_id, runs.directory_id)`,
     [
       input.runId,
       input.runId,
@@ -275,6 +292,7 @@ export async function upsertChatWorkflowRunRow(input: {
       input.outputJson,
       input.startedAtIso,
       input.durationMs,
+      input.directoryId ?? null,
     ],
   )
 }
