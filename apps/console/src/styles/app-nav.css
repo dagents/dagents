@@ -140,7 +140,12 @@ body {
   color: var(--meta); border: 1px solid var(--border-soft);
   border-radius: 4px; padding: 1px 4px; background: var(--bg);
 }
-/* 折叠态：只留图标 */
-.chat-nav-sidebar.collapsed .chat-nav-palette-btn { justify-content: center; padding: 6px; }
-.chat-nav-sidebar.collapsed .chat-nav-palette-label,
-.chat-nav-sidebar.collapsed .chat-nav-palette-kbd { display: none; }
+/* 折叠态：只留图标（2026-09-20 修复作用域：collapsed 类在 aside
+   .chat-layout-sidebar 上，.chat-nav-sidebar 根元素从未挂过 —— 旧作用域
+   永不命中，「搜索…/⌘K」在折叠栏里竖排溢出破位） */
+.chat-layout-sidebar.collapsed .chat-nav-palette-btn {
+  width: 36px; height: 36px; justify-content: center; padding: 0;
+  border-radius: var(--radius-md);
+}
+.chat-layout-sidebar.collapsed .chat-nav-palette-label,
+.chat-layout-sidebar.collapsed .chat-nav-palette-kbd { display: none; }
