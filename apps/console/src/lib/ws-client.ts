@@ -53,7 +53,6 @@ type FrameListener = (frame: ConsoleWsFrame) => void
 
 let socket: WebSocket | null = null
 let connected = false
-let connectVersion = 0
 let reconnectTimer: ReturnType<typeof setTimeout> | null = null
 let reconnectAttempt = 0
 let refCount = 0
@@ -69,7 +68,6 @@ function wsUrl(): string {
 }
 
 function notifyStore(): void {
-  connectVersion += 1
   for (const l of storeListeners) l()
 }
 
