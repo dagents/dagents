@@ -217,8 +217,6 @@ export function CanvasKitPage({
   const [answerText, setAnswerText] = useState('')
   const [answerBusy, setAnswerBusy] = useState(false)
   const [runSummary, setRunSummary] = useState<string | null>(null)
-  const pollRef = useRef<number | undefined>(undefined)
-  useEffect(() => () => window.clearInterval(pollRef.current), [])
   // 画布直跑的旁观目标（handleRun 成功后置位）：runId + 起跑时刻。
   // 轮询循环本身走 usePolling（700ms + 可见性暂停），这里只持有目标。
   const [watch, setWatch] = useState<{ runId: string; startedAt: number } | null>(null)
@@ -712,14 +710,15 @@ export function CanvasKitPage({
   }, [])
 
   // ── 旁观模式（canvas?run=<runId>）：自动轮询并点亮节点/连线 ──
-  // 典型来源：chat @flow 触发的运行（chat 面板「在画布中查看」链接）。
-  // 终止条件：runs 行的 runStatus（completed/failed/cancelled）；没有
-  // runs 行时退化为启发式 —— 连续 8 轮无 running span 且已有 span 视为结束。
+  // 典型来源：chat @flow / 运行对话框触发的运行（「画布旁观」链接）。
+  // 2026-09-20 收敛到 usePolling（消除最后一只手写轮询循环，2026-09-17
+  // 的 TODO 兑现）：获得可见性暂停 + 终态即停的统一语义。终止条件不变
+  // —— runs 行终态；无 runs 行时退化为启发式（连续 8 轮无 running span
+  // 且已有 span）；awaiting_input 挂起继续轮询（应答后 watchTick 接管）。
+  const stablePollsRef = useRef(0)
   useEffect(() => {
-    // TODO(轮询收敛,2026-09-17): 本轮未迁移（画布直跑 watchLoop 已迁 usePolling）—— 旁观轮询同款可换 @/lib/use-polling。
     if (!watchRunId) return
-    let stablePolls = 0
-    let cancelled = false
+    stablePollsRef.current = 0
     setActiveRunId(watchRunId)
     setRunState('running')
     setRunSummary(null)
@@ -728,48 +727,46 @@ export function CanvasKitPage({
     setResultsOpen(true)
     manualCollapseRef.current.clear()
     editorRef.current?.clearRunState()
-    const tick = async (): Promise<void> => {
-      // 画布直跑已接管轮询（watchTick 700ms 循环）—— 旁观循环退位
-      if (manualWatchRef.current) {
-        window.clearInterval(pollRef.current)
-        return
-      }
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [watchRunId])
+
+  const spectateTick = useCallback(
+    async (): Promise<boolean> => {
+      // 画布直跑已接管（watchTick 700ms 循环）—— 旁观循环退位
+      if (!watchRunId || manualWatchRef.current) return false
       const { runStatus, hasRunning, hasSpans } = await fetchSpans(watchRunId)
-      if (cancelled) return
-      // 持久挂起（2026-09-19 行为测试逮出）：深链旁观此前把 awaiting_input
-      // 当「运行中」无限转圈 —— 没有任何应答入口，用户只能等超时。与
-      // watchTick 同款：亮应答面板、继续轮询（应答后 submitAnswer 会把
-      // 接力棒交给 watchTick 收尾）。
+      // 持久挂起（2026-09-19 行为测试逮出）：awaiting_input 亮应答面板、
+      // 继续轮询 —— 应答后 submitAnswer 把接力棒交给 watchTick 收尾。
       if (runStatus === 'awaiting_input') {
         setRunState('awaiting')
         void refreshCheckpointState(watchRunId)
-        return
+        return true
       }
       if (runStatus === 'completed' || runStatus === 'failed' || runStatus === 'cancelled') {
-        window.clearInterval(pollRef.current)
         summarizeWatch(runStatus)
-        return
+        return false
       }
       // 启发式（无 runs 行的旧运行 / 查询失败）：已有 span、无 running、
       // 且连续多轮无进展才收尾 —— 有节点在跑（hasRunning）绝不误判。
       if (!runStatus && hasSpans && !hasRunning) {
-        stablePolls += 1
-        if (stablePolls >= 8) {
-          window.clearInterval(pollRef.current)
+        stablePollsRef.current += 1
+        if (stablePollsRef.current >= 8) {
           summarizeWatch(null)
+          return false
         }
       } else {
-        stablePolls = 0
+        stablePollsRef.current = 0
       }
-    }
-    void tick()
-    pollRef.current = window.setInterval(() => void tick(), 900)
-    return () => {
-      cancelled = true
-      window.clearInterval(pollRef.current)
-    }
-    // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [watchRunId])
+      return true
+    },
+    [watchRunId, fetchSpans, summarizeWatch, refreshCheckpointState],
+  )
+
+  usePolling(watchRunId && !manualWatchRef.current ? spectateTick : null, {
+    intervalMs: 900,
+    visibilityPause: true,
+    restartKey: watchRunId,
+  })
 
   // 布局自动保存（2026-09-06 画布优化）：拖拽停/视口停后 FlowEditor debounce
   // 调用 —— 静默 merge 到 flow_data（只动坐标与视口）。失败不打扰：布局
