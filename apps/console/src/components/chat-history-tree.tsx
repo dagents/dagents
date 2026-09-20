@@ -561,7 +561,7 @@ export function ChatHistoryTree(): React.ReactElement {
                     title={t('在「{name}」中新建对话', { name: dir.name })}
                     aria-label={t('在「{name}」中新建对话', { name: dir.name })}
                   >
-                    <Icon name={isCreating ? 'loader' : 'plus'} style={{ width: 12, height: 12 }} />
+                    <Icon name={isCreating ? 'loader' : 'plus'} className="ic-12" />
                   </button>
                 </div>
                 {/* Always-mounted expand container (PX-C09): the 0fr→1fr

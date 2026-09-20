@@ -15,7 +15,7 @@
  * 顶栏容器类从 vendor 的 .agentflow-* 改名 .canvas-header-*。
  */
 
-import { useCallback, useEffect, useMemo, useRef, useState } from 'react'
+import { useCallback, useEffect, useMemo, useReducer, useRef, useState } from 'react'
 import { HumanInputAnswerFields } from '@/components/human-input-answer-fields'
 import { extractHumanInputPrompts, buildHumanInputsState } from '@/lib/flow-human-inputs'
 import type { FlowData } from '@dagents/workflow'
@@ -230,6 +230,17 @@ export function CanvasKitPage({
   // 画布直跑接管轮询时，旁观模式（?run=）的自有循环退位 —— 与旧
   // watchLoop 开场 clearInterval 的接管语义等价。
   const manualWatchRef = useRef(false)
+  // 秒级心跳（2026-09-19 结果面板优化）：running 期间每秒强制重渲，
+  // 驱动状态行的实时总耗时与 running 节点的逐秒已耗时。
+  const [, bumpElapsedTick] = useReducer((x: number) => x + 1, 0)
+  useEffect(() => {
+    if (runState !== 'running') return
+    const t = setInterval(() => bumpElapsedTick(), 1000)
+    return () => clearInterval(t)
+  }, [runState])
+  // 结果列表跟随（优化点 11）：spans 更新时把 running 节点滚进视口 ——
+  // 列表超高后用户不必手动去找「现在跑到哪了」。
+  const resultsListRef = useRef<HTMLDivElement | null>(null)
 
   // 运行输入 + 运行结果：点「▶ 运行」先弹输入面板（作为 {{$start.input}}
   // 传入 —— 没有输入的运行对 LLM/Agent 节点毫无意义）；spans 驱动顶栏的
@@ -280,6 +291,13 @@ export function CanvasKitPage({
   // 「在项目目录打开终端」在非本会话发起的 run 上也能锚定目录。
   const [spectatedRunDirId, setSpectatedRunDirId] = useState<string | null>(null)
   const [latestSpans, setLatestSpans] = useState<RunNodeSpan[]>([])
+  // 结果列表跟随（优化点 11）：spans 更新时把 running 节点滚进视口 ——
+  // 列表超高后用户不必手动去找「现在跑到哪了」。
+  useEffect(() => {
+    resultsListRef.current
+      ?.querySelector('.canvas-result-row.status-running')
+      ?.scrollIntoView({ block: 'nearest' })
+  }, [latestSpans])
   /** 结果面板里手动折叠过的节点（用户显式收起 → 不再自动展开）。 */
   const manualCollapseRef = useRef<Set<string>>(new Set())
   // 摘要视图元数据底行的展开态（2026-09-06）：输入/原始数据一次只开一个
@@ -1145,22 +1163,66 @@ export function CanvasKitPage({
                 </button>
               </div>
               {runState === 'running' ? (
+                /* 状态行结构化（2026-09-19 走查优化点 1-3）：长句改为指标行
+                   「运行中 · n/m · 失败 k · ⏱ 12.4s」+ 迷你进度条 —— 总耗时
+                   此前完全缺失，是盯面板用户最想知道的数字；正在执行的节点
+                   名由列表中 running 行的高亮承担，不再重复此处。 */
                 <div className='canvas-results-live'>
-                  {(() => {
-                    const active = latestSpans.filter((sp) => sp.status === 'running')
-                    const doneN = latestSpans.filter(
-                      (sp) => sp.status === 'done' || sp.status === 'completed',
-                    ).length
-                    const failedN = latestSpans.filter((sp) => sp.status === 'failed').length
-                    // 分母 = 流程总节点数（initialFlow），不是已出现的 span 数 ——
-                    // 早期只有 1-2 个 span，用 span 数会把 5 节点流程显示成「1/2」，
-                    // 跑着跑着分母再变大，非常误导。
-                    const total = initialFlow.nodes.length
-                    const progress = `${doneN}/${total} ${t('完成')}${failedN > 0 ? ` · ${failedN} ${t('失败')}` : ''}`
-                    return active.length > 0
-                      ? `${t('正在执行')}：${active.map((sp) => sp.nodeLabel || sp.nodeId).join('、')}（${progress}）`
-                      : `${doneN >= total ? t('收尾中') : t('准备中')}…（${progress}）`
-                  })()}
+                  <div className='canvas-results-live-line'>
+                    <span className='canvas-results-live-state'>{t('运行中')}</span>
+                    <span className='canvas-results-live-sep'>·</span>
+                    {(() => {
+                      const doneN = latestSpans.filter(
+                        (sp) => sp.status === 'done' || sp.status === 'completed',
+                      ).length
+                      const failedN = latestSpans.filter((sp) => sp.status === 'failed').length
+                      // 分母 = 流程总节点数（initialFlow），不是已出现的 span 数 ——
+                      // 早期只有 1-2 个 span，用 span 数会把 5 节点流程显示成「1/2」，
+                      // 跑着跑着分母再变大，非常误导。
+                      const total = initialFlow.nodes.length
+                      const startMs = latestSpans.reduce<number | null>((acc, sp) => {
+                        const tt = sp.startedAt ? Date.parse(sp.startedAt) : NaN
+                        return Number.isNaN(tt) ? acc : acc == null ? tt : Math.min(acc, tt)
+                      }, null)
+                      const elapsedS =
+                        startMs != null ? ((Date.now() - startMs) / 1000).toFixed(1) : null
+                      const donePct = total > 0 ? (doneN / total) * 100 : 0
+                      const failPct = total > 0 ? (failedN / total) * 100 : 0
+                      return (
+                        <>
+                          <span className='tnum'>
+                            {doneN}/{total}
+                          </span>
+                          {failedN > 0 ? (
+                            <>
+                              <span className='canvas-results-live-sep'>·</span>
+                              <span className='canvas-results-live-fail tnum'>
+                                {t('失败')} {failedN}
+                              </span>
+                            </>
+                          ) : null}
+                          {elapsedS ? (
+                            <>
+                              <span className='canvas-results-live-sep'>·</span>
+                              <span className='canvas-results-live-elapsed tnum'>
+                                ⏱ {elapsedS}s
+                              </span>
+                            </>
+                          ) : null}
+                          <div className='canvas-results-live-bar'>
+                            <div
+                              className='canvas-results-live-bar-done'
+                              style={{ width: `${donePct}%` }}
+                            />
+                            <div
+                              className='canvas-results-live-bar-fail'
+                              style={{ width: `${failPct}%` }}
+                            />
+                          </div>
+                        </>
+                      )
+                    })()}
+                  </div>
                 </div>
               ) : null}
               {resultView === 'terminal' ? (
@@ -1201,7 +1263,7 @@ export function CanvasKitPage({
                   )
                 })()
               ) : (
-              <div className='canvas-results-list'>
+              <div className='canvas-results-list' ref={resultsListRef}>
                 {/* FR-15（PRD 决议 D9）：行序按流程拓扑（initialFlow 节点
                     顺序），不再按 span 返回序（完成时间倒序会把 start 排最后，
                     违背阅读直觉）；未知节点（理论不该有）排在末尾 */}
@@ -1250,8 +1312,19 @@ export function CanvasKitPage({
                               <span className='canvas-result-tokens' title={t('token 用量（输入/输出）')}>{badge}</span>
                             ) : null}
                             <span className='canvas-result-meta'>
-                              {st === 'warn' ? `⚠ ${t('疑似权限受限')}` : st === 'running' ? t('运行中') : st === 'done' || st === 'completed' ? t('完成') : st === 'failed' ? t('失败') : st}
-                              {sp.durationMs != null ? ` · ${(sp.durationMs / 1000).toFixed(1)}s` : ''}
+                              {st === 'warn'
+                                ? `⚠ ${t('疑似权限受限')}${sp.durationMs != null ? ` · ${(sp.durationMs / 1000).toFixed(1)}s` : ''}`
+                                : st === 'running'
+                                  ? // 实时已耗时（优化点 2）：逐秒跳动，秒级心跳驱动
+                                    `${t('运行中')} · ${sp.startedAt && !Number.isNaN(Date.parse(sp.startedAt)) ? Math.max(0, (Date.now() - Date.parse(sp.startedAt)) / 1000).toFixed(1) : '0.0'}s`
+                                  : st === 'failed'
+                                    ? `${t('失败')}${sp.durationMs != null ? ` · ${(sp.durationMs / 1000).toFixed(1)}s` : ''}`
+                                    : st === 'done' || st === 'completed'
+                                      ? // done 去冗词（优化点 9）：状态由点色表达，meta 只留时长
+                                        sp.durationMs != null
+                                          ? `${(sp.durationMs / 1000).toFixed(1)}s`
+                                          : t('完成')
+                                      : st}
                             </span>
                           </summary>
                           <div className='canvas-result-body'>

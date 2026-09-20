@@ -380,7 +380,7 @@ export function AgentsView(): React.ReactElement {
                       router.push(`/agents/${a.id}/edit`)
                     }}
                   >
-                    <Icon name="pencil" style={{ width: 12, height: 12 }} />
+                    <Icon name="pencil" className="ic-12" />
                     {t('编辑')}
                   </button>
                 </div>
