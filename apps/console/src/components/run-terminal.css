@@ -250,21 +250,4 @@
 .rti-disabled { color: var(--meta); }
 .rti-disabled .rti-prompt { color: var(--meta); font-weight: 400; }
 .rti-disabled-text { color: var(--meta); overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
-/* 结束态：原位变重跑入口（就近原则 —— ⬆ 就在原地） */
-.rti-done { color: var(--meta); }
-.rti-done .rti-prompt { color: var(--meta); font-weight: 400; }
-.rti-done-text { flex: 1; color: var(--meta); }
-.rti-rerun {
-  display: inline-flex;
-  align-items: center;
-  gap: 4px;
-  border: 1px solid var(--border);
-  border-radius: var(--radius-xs);
-  background: transparent;
-  color: var(--fg);
-  font-family: var(--font-mono);
-  font-size: var(--text-2xs);
-  padding: 2px 8px;
-  cursor: pointer;
-}
-.rti-rerun:hover { border-color: var(--border-strong); background: var(--bg); }
+/* 结束态底栏已移除（2026-09-20）：重跑唯一入口在面板标题行 */

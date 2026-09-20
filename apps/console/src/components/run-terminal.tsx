@@ -305,7 +305,7 @@ export function TerminalInputBar({
   targets: Array<{ id: string; label: string }>
   onSend: (nodeId: string, text: string) => Promise<TerminalSendResult>
   onRerun?: () => void
-}): React.ReactElement {
+}): React.ReactElement | null {
   const { t } = useI18n()
   const [text, setText] = useState('')
   const [targetId, setTargetId] = useState<string>('')
@@ -326,18 +326,11 @@ export function TerminalInputBar({
   }, [state])
 
   if (!running) {
-    return (
-      <div className='rti-bar rti-done'>
-        <span className='rti-prompt' aria-hidden='true'>❯</span>
-        <span className='rti-done-text'>{t('运行已结束')}</span>
-        {onRerun ? (
-          <button type='button' className='rti-rerun' onClick={onRerun}>
-            <Icon name='refresh' style={{ width: 11, height: 11 }} />
-            {t('重跑')}
-          </button>
-        ) : null}
-      </div>
-    )
+    // 结束态不渲染任何底栏（2026-09-20 用户裁决）：此前的「❯ 运行已结束
+    // ↻重跑」伪终端行与标题行的重跑按钮双入口重复，「运行已结束」也和
+    // 头部「▶ 再次运行」/完成 toast 三重表达 —— 终端底部直接收干净。
+    // 重跑唯一入口 = 标题行「重跑」（打开预填输入面板）。
+    return null
   }
 
   if (!supported || targets.length === 0) {

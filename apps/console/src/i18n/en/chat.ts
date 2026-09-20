@@ -174,7 +174,6 @@ export const chat: Record<string, string> = {
   '复制过程实录': 'Copy process transcript',
 
   // ── 可操作终端：stdin 行（2026-09-08 run-message）──
-  '运行已结束': 'Run finished',
   '重跑': 'Re-run',
   '该运行不可插话 — 仅 CLI Agent 执行支持运行中输入':
     'This run cannot receive input — only CLI Agent executions accept mid-run input',
