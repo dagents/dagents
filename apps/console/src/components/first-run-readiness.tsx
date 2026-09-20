@@ -17,7 +17,7 @@ const DISMISS_KEY = 'dagents.readiness.dismissed.v1'
 
 interface CliRuntimeLike {
   kind?: string
-  installed?: boolean
+  available?: boolean
 }
 
 export function FirstRunReadiness(): React.ReactElement | null {
@@ -39,7 +39,9 @@ export function FirstRunReadiness(): React.ReactElement | null {
         const hasCli = Boolean(
           cliRes?.success &&
           Array.isArray(cliRes.data?.runtimes) &&
-          cliRes.data.runtimes.some((r: CliRuntimeLike) => r.installed),
+          // 字段是 available（2026-09-19 行为测试修正：此前读 r.installed ——
+          // 该字段不存在，恒 undefined → 已装 CLI 也误报「未检测到」）
+          cliRes.data.runtimes.some((r: CliRuntimeLike) => r.available),
         )
         const hasProvider = Boolean(
           provRes?.success &&
