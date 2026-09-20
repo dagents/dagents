@@ -10,8 +10,8 @@
   flex-direction: column;
   flex: 1;
   min-height: 0;
-  border: 1px solid var(--border);
-  border-radius: var(--radius-md);
+  /* 全出血专业终端（2026-09-19）：无卡片边框/圆角，面板铺满视口
+     （PageShell flush），与 IDE 终端面板同形态。 */
   background: var(--surface-sunk);
   overflow: hidden;
 }

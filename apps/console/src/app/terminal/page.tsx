@@ -9,7 +9,7 @@ import { ShellTerminal } from '@/components/shell-terminal'
  */
 export default function TerminalPage(): React.ReactElement {
   return (
-    <PageShell fullBleed>
+    <PageShell fullBleed flush>
       <ShellTerminal />
     </PageShell>
   )
