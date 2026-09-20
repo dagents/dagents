@@ -27,6 +27,8 @@
 | [`product-plan.md`](product-plan.md) | 产品方案（活文档）：@workflow 质量闭环 / 可中断执行 / 成本实测 / 适配器分级等 7 个方案的设计与验收标准 |
 | [`product-architecture.md`](product-architecture.md) | 产品方案架构分析（活文档）：AD-1~AD-6 架构决策、逐方案受力点、BFF 边界规则、里程碑修订 |
 | [`design-run-checkpoint-resume.md`](design-run-checkpoint-resume.md) | 设计：执行状态检查点与断点续跑（2026-09-18 已实施）——失败节点续跑/迭代项级游标/HumanInput 挂起持久化（checkpoint 串行链/resume·answer 端点/e2e RM-01~03 零重跑证明） |
+| [`terminal-architecture.md`](terminal-architecture.md) | 浏览器终端架构（2026-09）：node-pty/SSE 协议契约（@dagents/contracts）、会话生命周期、ADR（SSE vs WS/base64/最小环境）、安全模型、故障模式与演进边界 |
+| [`design-terminal-anchors.md`](design-terminal-anchors.md) | 设计：终端双锚点（2026-09-19 **五项全部实施**）——目录/运行两锚、一扇门原则；P0 运行目录数据链 / P1 三入口 / P2 多标签 / P3 运行实时终端 / P4 交互式 agent 会话 |
 
 ## 流程文档（docs/superpowers/）
 

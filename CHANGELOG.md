@@ -6,6 +6,144 @@ All notable changes to Dagents are documented here. The format follows
 
 ## [Unreleased]
 
+### Added
+
+- **终端双锚点全家桶（P0/P1/P2/P4）** — 设计 `docs/design-terminal-anchors.md` 剩余四项落地：
+  - **P0 运行→目录数据链**：runs 表新增 `directory_id`（迁移 1720000097000），四个写入点
+    （画布直跑/异步先行行/chat 继承/续跑回流）与两个读点（GET /runs、node-spans）全线打通；
+    断点续跑的 `originalDirectoryId()` 收口改读列（原 envelope 读取是无写入方的假设）。
+  - **P1 三入口**：失败运行的「在项目目录打开终端」直达 —— FlowRunsPanel 失败行「终端」按钮、
+    画布失败摘要按钮、Chat 错误卡按钮；href 单源 `terminalHrefForDir`（一扇门原则）；解析不到
+    目录不渲染（不回落主目录）。
+  - **P2 多标签终端**：tab 条（切换/× 关闭/+ 同目录新开）+ tabs 持久化；决策层重写为
+    `planTabsBoot`/`planOpenDir`（同目录复用 tab、活动 tab attach/recreate、旧版单会话 key 迁移）；
+    「入口爆炸后杀旧建新」的取舍就此消解。
+  - **P4 交互式 agent 会话**：终端承载 agent —— registry 支持按命令 spawn（`agt_` 会话 +
+    kind/label 贯穿契约），Agent 详情「交互式会话」经 `/terminal?agent=` 深链直达，人格经
+    `--system-prompt` 注入 claude（v1 唯一支持档，其余 kind 诚实 400 不裸启冒充）。
+- **运行实时终端（live attach）** — 画布终端视图从 700ms 轮询策展快照升级为
+  SSE 实时帧流：引擎钩子（`onNodeStart/End/Delta`，含插话 user_input 回显）在
+  `assembleWorkflowEngine` 单一收口旁路进进程内 `run-live-registry`（per-run
+  帧缓冲，512KB 环形截断 + truncated 标记），`GET /api/v1/workflows/runs/:runId/live`
+  晚订阅者经 `hello.replay` 拿全量前缀再追直播，run settle 发 `runEnd` 关流
+  （三入口显式 finish，清扫器对漏报/网关重启兜底收敛）。断点续跑/HumanInput
+  应答同 runId 重开条目，replay 里的 runEnd 成为阶段边界。协议契约
+  `@dagents/contracts/run-live.ts`（shell.ts 姊妹篇）；404 时 console 诚实回退
+  node-spans 轮询渲染（DB 路径永远在）。设计：`docs/design-terminal-anchors.md` P3。
+
+- **Browser terminal (`/terminal`)** — a real shell in the console, not an
+  agent relaying commands: the gateway spawns the user's `$SHELL` on a true
+  PTY (`node-pty`), streams raw terminal bytes to `xterm.js` over SSE
+  (base64 frames), and pipes keystrokes back to PTY stdin. Native prompt,
+  colors, interactive programs (`top`/`vim`), `Ctrl-C` — everything behaves
+  like the local terminal. Sessions survive page refresh (replay buffer +
+  reconnect by stored session id; orphaned sessions are recycled after
+  10 min with no subscriber). Nav entry「终端」; kill switch
+  `DAGENTS_SHELL_DISABLED=1`, caps via `DAGENTS_SHELL_MAX_SESSIONS` /
+  `DAGENTS_SHELL_ORPHAN_MS`. Note: pnpm unpacks node-pty's prebuilt
+  `spawn-helper` without the exec bit — the gateway self-heals it at
+  startup (chmod), and `pnpm-workspace.yaml` allows its build script.
+- **Terminal × project directories** — the terminal grows into the
+  workbench instead of a standalone toy: a header directory picker
+  (home / registered project dirs / OS-native browse to register a new
+  one) opens the next session directly in that project, remembers the
+  preference per browser, and never disturbs a live session that is
+  already in the target directory. The ⌘K command palette gained a
+  「终端」jump via the shared NAV model.
+
+### Fixed
+
+- **断点续跑认领互斥三处漏洞**（架构审计轮）：① resume 路由认领后、起跑前的
+  失败路径（flow 404 / 拓扑 422 / 种子组装抛错）泄漏进程内认领 —— 该 checkpoint
+  从此 409 直到网关重启；修复为只读校验前置到认领之前 + 失败显式释放。
+  ② `startWorkflowExecution` 同步装配段（坏 flowData 等）够不到 execute 的
+  finally，同样泄漏认领 —— 拆 inner 函数 try/catch 兜底。③ `/runs/:id/answer`
+  此前完全不认领，并发两发应答会各自起跑同 runId；chat 消息回流路径
+  （`answerAwaitingRunForChat`）同步补认领，认领失败回落正常聊天路由。
+- **run-live 收口路径**：`finish()` 幂等化（重复收口不重发 runEnd）；@flow
+  触发的运行（此前把 live 丢给解构）与 chat 流式异常路径（live 不在 catch
+  作用域）现在都显式关流 —— 画布旁观者不再靠 2 分钟 idle 兜底才发现结束。
+
+### Changed
+
+- **设计走查轮五**（异常态审计）：用路由拦截把各视图数据 API 打成 500 /
+  慢网，审计错误态与加载态 —— ① 核心修复：`unwrapEnvelope` 非 2xx 时此前
+  把原始 body 整段塞进错误消息，用户看到 `{"success":false,…}` 这样的 JSON
+  转储（agents / skills 等列表页实测命中）；现解析信封只取 `error` 字段，
+  BFF transformError 包裹的上游原因（`detail`）递归解一层，非 JSON 错误页
+  保留文本摘要，`(status)` 契约不变 —— 一处修复全站错误横幅受益。
+  ② 加载骨架屏（agents 列表）与 flows 居中错误态 + 重试钮实测质量良好，
+  无需改动。③ 新增 2 个 api 契约测试钉住人话化格式。
+
+- **设计走查轮四**（令牌对比度审计 / 品牌细节）：① WCAG 对比度全量审计 ——
+  解析浅/深两套令牌、按实际使用配对（含半透明 soft 底合成）计算对比度：
+  新增状态色「文字档」`--success-text` / `--warn-text` / `--danger-text`
+  （基础档在浅色表面作正文仅 2.03-3.81:1，文字场景 78 处全部切到文字档，
+  保色相压明度后 ≥4.5:1；填充场景——圆点/进度条/徽章底——继续用基础档，
+  深色下文字档别名基础档）；`--meta` 浅色 #85858b→#6c6c71、深色
+  #7f7f86→#88888f（辅助文字此前 3.1-4.0:1 不达标）；`--accent` 浅色
+  #6c5ce7→#6859de（品牌紫压暗 3.7%，卡片上文字 4.46→4.5+，按钮白字
+  4.86→5.17，视觉不可感）。② 品牌一致性：命令面板页脚「DAgent」→
+  「Dagents」；新增 `src/app/icon.svg` favicon（此前浏览器 tab 无站点图标，
+  无 public 目录与 icon 约定文件）。③ reduced-motion 全局兜底与深色令牌
+  全量通过（40/40 配对）。
+
+- **设计走查轮三**（动效可访问性 / 对话框与设置子页 / 窄视口）：① 全局
+  `prefers-reduced-motion` 兜底 —— 此前全仓 74 处 animation + 134 处
+  transition 中只有 5 个组件文件自带减弱动效覆盖，其余对开启「减弱动态」
+  的用户照播不误；现于 shell.css 基础层统一压平时长（入场动画瞬间到终态、
+  spinner 停为静态、平滑滚动改即达），个别组件自己的 reduce 覆盖继续生效；
+  已用 Playwright reduce 仿真实证入场元素不被钉在透明态。② 走查覆盖生成
+  对话框 / 运行对话框 / 新建 Agent / 设置外观·用量·审计子页 / 1280 窄视口
+  —— 三轮修复后未再发现新视觉缺陷；focus-visible 体系（全局 `:focus-ring`
+  + 组件级细化）确认健康。
+
+- **设计走查轮二**（详情页 / 交互态 / CSS 补盲）：① composer 底栏重叠修复 ——
+  悬浮 chat 窄面板下 FlowSelector 芯片与「⏎ 发送」提示文本互相叠压：trailing
+  区从 `flex: none` 改为可收缩、提示文本省略号化、选择器芯片对齐
+  flow-selector 的收缩规范（`min-width: 0` + span ellipsis，含组件包裹层）；
+  宽面板视觉不变。② CSS 硬编码色补盲扫描（上轮只查了 TSX）：清除错误令牌名
+  `var(--warn-border)`（从未定义，靠回退值蒙对便签色 → `var(--note-border)`）、
+  死回退值（`--note-*`/`--success` 旁的过时色值）、模板实例化输入框未定义
+  `--bg-elev`（浅色模式深底深字 → `--surface-warm`）；claude/codex 品牌色相
+  收敛单源为 `--glyph-claude` / `--glyph-codex`（此前 agents.css 与
+  agent-detail.css 各持一份字面值）。hover-card 的常暗设计有文档说明，保留。
+
+- **架构优化轮二**：① `listFlows` 不再逐行拖全量 `flow_data` JSONB —— 完整
+  画布文档单份可达数十 KB，此前工作流列表每次加载都把 N 份文档拽进 gateway
+  仅为数节点数然后丢弃；节点数现于 SQL 侧计算（`jsonb_array_length` +
+  `jsonb_typeof` 守卫，语义与原实现一致），HTTP 响应字节级不变。② resume /
+  answer 路径的 runs 行落库从裸 SQL 收敛到 `persistWorkflowRunRow`（补
+  `resumedFromRunId` 参数 + COALESCE 冲突更新）—— 消除 runs 表结构知识的
+  第二份副本；`runAndPersist` 与 `startWorkflowExecution` 的整体收敛继续
+  留档（同步响应 vs 纯异步、INSERT vs UPSERT、Langfuse/spans 差异是实质性
+  语义，无专属 e2e 回归不合并）。③ fleet 仪表 finished_at 窗口索引
+  （迁移 1720000099000）：`runs (finished_at DESC) INCLUDE (cost)` 部分覆盖
+  索引 + `dispatch_tasks (finished_at DESC)` 部分索引 —— 资源仪表盘 UI
+  轮询的吞吐/成本滚动查询从全表扫变 Index Only Scan（EXPLAIN 实证）。
+
+- **设计走查轮**：机械审计（i18n / 硬编码色 / inline 棘轮 / 可访问性）+ 浅色/深色
+  双主题浏览器逐页走查，修复 —— ① 画布小地图（React Flow minimap）此前白底
+  不跟主题令牌：深色下死白、浅色下与画布无边界，现走 `--surface` /
+  `--border-strong`；② flow 列表头像取字跳过前导标点（「【验收演示】…」头像
+  从悬置的「【」变为「验」）；③ 11 个真实缺译词条补齐（无/今天/已保存/预览/
+  图标/分类/内容/准备中/收尾中/正在执行/产出 —— 此前英文模式回退显示中文，
+  缺译扫描测试因此处于红态）；④ daemon 注册对话框关闭钮补 `aria-label`；
+  ⑤ create-agent 表单提示的 inline 色（含过时回退值 `#b45309`）正式化为
+  `.field-hint` / `.field-hint-warn` 类；⑥ 新增 `.ic-16` 图标定寸工具类，
+  inline 样式棘轮 267 → **265**（只降不升）。
+
+- **热点查询索引补课 + 冗余索引清理**（迁移 1720000098000）：随 runs /
+  dispatch_tasks / chats 线性增长此前全表扫的高频路径补齐 ——
+  `dispatch_tasks(agent_daemon_id, created_at DESC)`（agents 目录页逐行
+  LATERAL 探测 + 最近任务）、`runs(pipeline_id, created_at DESC)`（运行历史 /
+  workflows 页徽标批量汇总）、`runs(created_at DESC)`（默认运行列表）、
+  `chats(updated_at DESC)`（全局会话列表，chats 永不清理）、
+  `runs(agent_daemon_calls) GIN jsonb_path_ops`（agent 详情 / fleet 仪表
+  JSONB 包含查询）；同时删除被同列唯一索引完全遮蔽的
+  `idx_run_node_spans_run_node` —— span-writer 每秒级 upsert 的最热写表
+  停付双倍索引维护。
+
 ## [0.2.0] - 2026-09-04
 
 Workflow-first, and execution you can watch.
