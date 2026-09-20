@@ -30,8 +30,12 @@
 .flow-list-page .flow-glyph { width: 36px; height: 36px; border-radius: var(--radius-sm); background: var(--surface); border: 1px solid var(--border-soft); display: grid; place-items: center; font-family: var(--font-mono); font-size: var(--text-md); font-weight: 600; color: var(--fg); flex-shrink: 0; }
 .flow-list-page .flow-info { flex: 1; min-width: 0; }
 .flow-list-page .flow-info .nm { font-size: var(--text-md); font-weight: 600; color: var(--fg); line-height: 1.4; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
-.flow-list-page .flow-info .sub { font-size: var(--text-xs); color: var(--muted); margin-top: 3px; display: flex; align-items: center; gap: var(--space-2); flex-wrap: wrap; }
+.flow-list-page .flow-info .sub { font-size: var(--text-xs); color: var(--muted); margin-top: 2px; display: flex; align-items: center; gap: var(--space-1); flex-wrap: wrap; }
 .flow-list-page .flow-info .sub .mono { font-family: var(--font-mono); color: var(--meta); }
+/* 删除 = 纯图标紧凑钮（2026-09-19）：28px 方形居中，去横向文字 padding。
+   特异性须压过同文件 .flow-list-page .card-actions .btn-sm 的 12px 横向 padding
+   （否则 28px 盒内只剩 2px 内容宽，图标被压成细条不可见）。 */
+.flow-list-page .card-actions .btn-sm.flow-del-icon { width: 28px; padding: 0; justify-content: center; }
 /* 卡内状态徽章：复用 shell .status（dot+词同基线），字号压到 meta 档 */
 .flow-list-page .flow-info .status { font-size: var(--text-2xs); gap: 5px; }
 .flow-list-page .flow-info .status .dot { width: 6px; height: 6px; }

@@ -671,16 +671,16 @@ export function FlowsView({ home = false }: { home?: boolean }): React.ReactElem
                       </button>
                       <button
                         type="button"
-                        className="btn btn-ghost btn-sm"
+                        className="btn btn-ghost btn-sm flow-del-icon"
                         title={t('删除此 Flow')}
+                        aria-label={t('删除此 Flow')}
                         disabled={deletingFlowPending && deletingFlowId === f.id}
                         onClick={(e) => {
                           e.stopPropagation()
                           setDeletingFlowId(deletingFlowId === f.id ? null : f.id)
                         }}
                       >
-                        <Icon name={deletingFlowPending && deletingFlowId === f.id ? 'loader' : 'close'} style={{ width: 12, height: 12 }} />
-                        <span>{t('删除')}</span>
+                        <Icon name={deletingFlowPending && deletingFlowId === f.id ? 'loader' : 'close'} className="ic-12" />
                       </button>
                     </div>
                   </div>
