@@ -49,9 +49,9 @@
   border-radius: 50%;
   flex-shrink: 0;
 }
-.toast-success .toast-icon { background: var(--success-soft); color: var(--success); }
-.toast-error .toast-icon { background: var(--danger-soft); color: var(--danger); }
-.toast-warning .toast-icon { background: var(--warn-soft); color: var(--warn); }
+.toast-success .toast-icon { background: var(--success-soft); color: var(--success-text); }
+.toast-error .toast-icon { background: var(--danger-soft); color: var(--danger-text); }
+.toast-warning .toast-icon { background: var(--warn-soft); color: var(--warn-text); }
 .toast-info .toast-icon { background: var(--info-soft); color: var(--info); }
 
 .toast-message {

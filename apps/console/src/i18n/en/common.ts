@@ -220,4 +220,37 @@ export const common = {
   '输入答案后继续': 'Type an answer to continue',
   '继续运行': 'Continue run',
   '提交答案失败': 'Failed to submit answer',
+
+  // ── 终端（ShellTerminal / 浏览器里的真终端）──
+  '终端': 'Terminal',
+  '正在连接…': 'Connecting…',
+  '正在启动 shell…': 'Starting shell…',
+  '主目录': 'Home directory',
+  '新会话的工作目录': 'Working directory for new sessions',
+  '会话进行中': 'Session live',
+  '会话已结束': 'Session ended',
+  '连接断开': 'Connection lost',
+  '终端连接失败': 'Terminal connection failed',
+  '重连': 'Reconnect',
+  '新开会话': 'New session',
+  '在项目目录打开终端': 'Open terminal in project directory',
+  '终端标签': 'Terminal tabs',
+  '关闭终端标签': 'Close terminal tab',
+  '新开终端标签': 'New terminal tab',
+  '新开终端标签（与当前标签同目录）': 'New terminal tab (same directory as current)',
+  '交互式会话': 'Interactive session',
+
+  // ── 2026-09-19 设计走查补齐（真实缺口；注意 en 词典存在不带引号的中文键，
+  // 正则扫描需同时匹配两种形态，勿再误报大面积缺失）──
+  '无': 'None',
+  '今天': 'Today',
+  '已保存': 'Saved',
+  '预览': 'Preview',
+  '图标': 'Icon',
+  '分类': 'Category',
+  '内容': 'Content',
+  '准备中': 'Preparing',
+  '收尾中': 'Finalizing',
+  '正在执行': 'Executing',
+  '产出': 'Output',
 } as const

@@ -292,7 +292,7 @@
   gap: 6px;
   padding: 2px var(--space-1);
   margin: 0 calc(var(--space-1) * -1);
-  color: var(--danger);
+  color: var(--danger-text);
   font-size: var(--text-xs);
   font-family: var(--font-body);
 }

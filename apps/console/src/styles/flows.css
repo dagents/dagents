@@ -35,7 +35,7 @@
 /* 卡内状态徽章：复用 shell .status（dot+词同基线），字号压到 meta 档 */
 .flow-list-page .flow-info .status { font-size: var(--text-2xs); gap: 5px; }
 .flow-list-page .flow-info .status .dot { width: 6px; height: 6px; }
-.flow-list-page .flow-info .status.failed { color: var(--danger); }
+.flow-list-page .flow-info .status.failed { color: var(--danger-text); }
 .flow-list-page .flow-info .status.running { color: var(--accent-hover); }
 /* 右侧操作区：卡内 28px 档（不与工具栏 30px 混排——两者不同行）；
    编辑/删除为次要操作，hover/focus 才现（触屏 hover:none 常显） */
@@ -86,7 +86,7 @@
   margin-top: var(--space-1);
   font-size: var(--text-xs);
   line-height: 1.5;
-  color: var(--danger);
+  color: var(--danger-text);
 }
 
 /* PX-F06：prompt 框主视觉 —— 大一档字 + 呼吸式聚焦提示 */
@@ -210,16 +210,16 @@
   gap: 8px;
   margin-bottom: 12px;
   padding: 8px 12px;
-  border: 1px solid var(--warn-border, #e8d89a);
+  border: 1px solid var(--note-border);
   border-radius: var(--radius-md, 8px);
-  background: var(--note-bg, #fef6d8);
-  color: var(--note-text, #4a3f1d);
+  background: var(--note-bg);
+  color: var(--note-text);
   font-size: var(--text-sm);
 }
 .readiness-banner-text { flex: 1; min-width: 0; }
 .readiness-banner svg { width: 14px; height: 14px; flex: none; }
 .readiness-banner-link {
-  color: var(--note-accent, #b08d2e);
+  color: var(--note-accent);
   text-decoration: underline;
   text-underline-offset: 2px;
   white-space: nowrap;

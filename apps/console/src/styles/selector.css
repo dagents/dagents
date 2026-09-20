@@ -80,7 +80,7 @@
 .flow-selector-error {
   padding: 6px 10px;
   font-size: var(--text-xs);
-  color: var(--danger);
+  color: var(--danger-text);
   background: var(--danger-soft);
   border-radius: var(--radius-sm);
   margin: 4px 0;

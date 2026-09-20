@@ -150,7 +150,7 @@
   color: var(--fg);
 }
 .audit-badge-delete {
-  color: var(--danger);
+  color: var(--danger-text);
 }
 
 /* ─── 目标单元格 ─────────────────────────────────────────────── */
@@ -249,7 +249,7 @@
 }
 .audit-load-more-error {
   font-size: var(--text-xs);
-  color: var(--danger);
+  color: var(--danger-text);
   display: flex;
   align-items: center;
 }
@@ -280,7 +280,7 @@
   display: inline-flex;
 }
 .audit-empty-icon-danger {
-  color: var(--danger);
+  color: var(--danger-text);
 }
 .audit-empty-title {
   font-size: var(--text-sm);

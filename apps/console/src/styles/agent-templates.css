@@ -168,7 +168,7 @@
 }
 
 .atg-error {
-  color: var(--danger);
+  color: var(--danger-text);
 }
 
 /* ─── confirm step ──────────────────────────────────────────── */

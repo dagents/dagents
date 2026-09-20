@@ -42,6 +42,19 @@ describe('unwrapEnvelope', () => {
     expect((err as Error).message).toBe('fleet stats failed: upstream error')
   })
 
+  it('非 2xx 信封：只取 error 字段，不再泄漏原始 JSON 转储（走查五）', async () => {
+    const err = await unwrapEnvelope(jsonResponse({ success: false, error: 'mock gateway failure' }, 500), 'agents list').catch((e: unknown) => e)
+    const message = (err as Error).message
+    expect(message).toBe('agents list failed (500): mock gateway failure')
+    expect(message).not.toContain('{"success"')
+  })
+
+  it('BFF transformError 包裹：detail 里的上游信封递归解一层', async () => {
+    const bffBody = { success: false, error: 'agents list failed', status: 500, detail: '{"success":false,"error":"inner gateway reason"}' }
+    const err = await unwrapEnvelope(jsonResponse(bffBody, 500), 'agents list').catch((e: unknown) => e)
+    expect((err as Error).message).toBe('agents list failed (500): inner gateway reason')
+  })
+
   it('非 JSON 的非 2xx：文本 detail 进消息（比丢掉更有诊断价值）', async () => {
     const html = new Response('<html>502 Bad Gateway</html>', { status: 502, headers: { 'content-type': 'text/html' } })
     const err = await unwrapEnvelope(html, 'skills list').catch((e: unknown) => e)

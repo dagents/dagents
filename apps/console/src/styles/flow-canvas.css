@@ -248,17 +248,17 @@
 
 .fc-node-badge.badge-done {
   background: var(--success-soft);
-  color: var(--success);
+  color: var(--success-text);
 }
 
 .fc-node-badge.badge-failed {
   background: var(--danger-soft);
-  color: var(--danger);
+  color: var(--danger-text);
 }
 
 .fc-node-badge.badge-waiting {
   background: var(--warn-soft);
-  color: var(--warn);
+  color: var(--warn-text);
 }
 
 .fc-spin {
@@ -277,7 +277,7 @@
 }
 
 .fc-node.run-failed {
-  border-color: var(--danger);
+  border-color: var(--danger-text);
 }
 
 .fc-node.run-done {
@@ -601,7 +601,7 @@
 }
 
 .fc-field-required {
-  color: var(--danger);
+  color: var(--danger-text);
   margin-left: 2px;
 }
 
@@ -623,7 +623,7 @@
 
 .fc-field-error {
   font-size: var(--text-2xs, 11px);
-  color: var(--danger);
+  color: var(--danger-text);
 }
 
 .fc-input,
@@ -657,7 +657,7 @@
 }
 
 .fc-textarea.is-invalid {
-  border-color: var(--danger);
+  border-color: var(--danger-text);
 }
 
 /* 变量插入器 */
@@ -751,6 +751,17 @@
   overflow: hidden;
   box-shadow: 0 2px 10px rgb(13 13 13 / 0.08);
   margin-bottom: 52px;
+  /* React Flow 默认白底 —— 不跟主题令牌（深色下死白、浅色下与画布无边界），
+     显式覆盖为面板表面色；节点矩形同步走令牌。 */
+  background: var(--surface);
+}
+
+.fc-body .react-flow__minimap-svg {
+  background: var(--surface);
+}
+
+.fc-body .react-flow__minimap-node {
+  fill: var(--border-strong);
 }
 
 .fc-body .react-flow__attribution {

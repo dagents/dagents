@@ -83,7 +83,7 @@
 }
 
 .code-block-copy.copied {
-  color: var(--success);
+  color: var(--success-text);
 }
 
 /* Plain fallback and shiki output share padding / wrap rules. Lines do NOT

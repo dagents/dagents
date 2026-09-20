@@ -40,7 +40,7 @@
   background: color-mix(in srgb, var(--danger) 4%, var(--surface-warm));
 }
 .tool-call-card.tool-call-failed .tool-call-name {
-  color: var(--danger);
+  color: var(--danger-text);
 }
 
 /* Header — full-width clickable button. Mirrors the old
@@ -87,7 +87,7 @@
 }
 
 .tool-call-search .tool-call-name   { color: var(--info); }
-.tool-call-edit .tool-call-name     { color: var(--success); }
+.tool-call-edit .tool-call-name     { color: var(--success-text); }
 .tool-call-terminal .tool-call-name { color: var(--accent); }
 .tool-call-tool .tool-call-name     { color: var(--fg-2); }
 
@@ -350,22 +350,22 @@
 /* Added line — green tint. */
 .file-diff-add {
   background: var(--success-soft);
-  color: var(--success);
+  color: var(--success-text);
 }
 
 .file-call-add .file-diff-marker,
 .file-diff-add .file-diff-marker {
-  color: var(--success);
+  color: var(--success-text);
 }
 
 /* Deleted line — red tint. */
 .file-diff-del {
   background: var(--danger-soft);
-  color: var(--danger);
+  color: var(--danger-text);
 }
 
 .file-diff-del .file-diff-marker {
-  color: var(--danger);
+  color: var(--danger-text);
 }
 
 /* Truncated-too-large notice block. */

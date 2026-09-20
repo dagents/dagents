@@ -32,7 +32,7 @@
   align-items: center;
   gap: var(--space-3);
   padding: var(--space-3) var(--space-4);
-  color: var(--danger);
+  color: var(--danger-text);
   font-size: var(--text-sm);
   margin-bottom: var(--space-4);
 }
@@ -86,14 +86,14 @@
   flex-shrink: 0;
 }
 /* claude/codex 品牌色以 color-mix 挂到主题令牌上 —— 暗色自动变深底浅字，
-   不再是硬编码的亮色块（PX-A01 暗色回归修复）。 */
+   不再是硬编码的亮色块（PX-A01 暗色回归修复）；色相单源 tokens.css。 */
 .agent-glyph.kind-claude {
-  background: color-mix(in srgb, #8b5a2b 14%, var(--surface-sunk));
-  color: color-mix(in srgb, #8b5a2b 60%, var(--fg));
+  background: color-mix(in srgb, var(--glyph-claude) 14%, var(--surface-sunk));
+  color: color-mix(in srgb, var(--glyph-claude) 60%, var(--fg));
 }
 .agent-glyph.kind-codex {
-  background: color-mix(in srgb, #1f6b3f 16%, var(--surface-sunk));
-  color: color-mix(in srgb, #1f6b3f 70%, var(--fg));
+  background: color-mix(in srgb, var(--glyph-codex) 16%, var(--surface-sunk));
+  color: color-mix(in srgb, var(--glyph-codex) 70%, var(--fg));
 }
 .agent-glyph.kind-prompt { background: var(--accent-soft); color: var(--accent-hover); }
 .agent-glyph.kind-remote { background: var(--info-soft); color: var(--info); }

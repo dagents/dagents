@@ -31,6 +31,9 @@ import { SaveFlowTemplateDialog, scanTemplateParamNames } from '@/components/sav
 import { FlowEditor, type FlowEditorHandle, type HeaderSlotProps, type NodeRunStatus } from '@/components/flow-canvas'
 import { RunTerminal, type TerminalSendResult } from '@/components/run-terminal'
 import { spanToTerminalSection, extractOutputText } from '@/lib/run-terminal-format'
+import { terminalHrefForDir } from '@/lib/terminal-links'
+import { useRunLive } from '@/lib/use-run-live'
+import Link from 'next/link'
 import { ResultViewer } from '@/components/result-viewer'
 // .kbd（统一 kbd 键帽，shortcuts.css 单一定义、GL03/GL06 全站共用）
 import '@/styles/shortcuts.css'
@@ -219,6 +222,11 @@ export function CanvasKitPage({
   // 画布直跑的旁观目标（handleRun 成功后置位）：runId + 起跑时刻。
   // 轮询循环本身走 usePolling（700ms + 可见性暂停），这里只持有目标。
   const [watch, setWatch] = useState<{ runId: string; startedAt: number } | null>(null)
+  // 运行实时终端（live attach，2026-09）：运行中订阅 run-live 帧流，终端
+  // 视图直播（执行顺序 + 逐帧到达）；404 / 断流自动回退 node-spans 轮询
+  // 渲染（可用性阶梯见 use-run-live.ts）。应答/续跑回到 running 时重连，
+  // hello.replay 带上挂起前的全部帧（runEnd 成为阶段边界）。
+  const runLive = useRunLive(runState === 'running' ? (watch?.runId ?? null) : null)
   // 画布直跑接管轮询时，旁观模式（?run=）的自有循环退位 —— 与旧
   // watchLoop 开场 clearInterval 的接管语义等价。
   const manualWatchRef = useRef(false)
@@ -268,6 +276,9 @@ export function CanvasKitPage({
   // 插话能力位（node-spans inputSupported）：该 run 当前有活 CLI 会话汇点。
   // undefined（旧网关）按支持处理，发送失败时由回执兜底。
   const [inputSupported, setInputSupported] = useState(true)
+  // 旁观/刷新恢复的 run 目录锚（P0 数据链，node-spans 回传）：失败入口
+  // 「在项目目录打开终端」在非本会话发起的 run 上也能锚定目录。
+  const [spectatedRunDirId, setSpectatedRunDirId] = useState<string | null>(null)
   const [latestSpans, setLatestSpans] = useState<RunNodeSpan[]>([])
   /** 结果面板里手动折叠过的节点（用户显式收起 → 不再自动展开）。 */
   const manualCollapseRef = useRef<Set<string>>(new Set())
@@ -412,6 +423,7 @@ export function CanvasKitPage({
       applySpans(r.spans)
       setLatestSpans(r.spans)
       if (r.inputSupported != null) setInputSupported(r.inputSupported)
+      if (r.runDirectoryId != null) setSpectatedRunDirId(r.runDirectoryId)
       return {
         runStatus: r.runStatus,
         hasRunning: r.spans.some((sp) => (sp.status ?? '') === 'running'),
@@ -1079,6 +1091,17 @@ export function CanvasKitPage({
                       {t('重跑')}
                     </button>
                   ) : null}
+                  {/* 双锚点 P1（2026-09-19）：失败 + 目录锚 → 深链终端排查；
+                      本会话发起用输入面板目录，旁观 run 用 node-spans 回传锚；
+                      解析不到目录不渲染（不回落主目录）。 */}
+                  {runState === 'failed' && (runDirectoryId || spectatedRunDirId) ? (
+                    <Link
+                      href={terminalHrefForDir((runDirectoryId || spectatedRunDirId) as string)}
+                      className='canvas-results-rerun'
+                    >
+                      {t('在项目目录打开终端')}
+                    </Link>
+                  ) : null}
                   <span className='canvas-results-view' role='tablist' aria-label={t('结果视图')}>
                   <button
                     type='button'
@@ -1134,15 +1157,27 @@ export function CanvasKitPage({
                     stdin 行（可操作终端 2026-09-08）：运行中可对 running 节点插话，
                     结束后原位变重跑入口。 */
                 (() => {
-                  const sections = [...latestSpans]
-                    .sort(
-                      (a, b) =>
-                        (topoOrder.get(a.nodeId) ?? 1e9) - (topoOrder.get(b.nodeId) ?? 1e9),
-                    )
-                    .map(spanToTerminalSection)
-                  const activeNodes = latestSpans
-                    .filter((sp) => sp.status === 'running')
-                    .map((sp) => ({ id: sp.nodeId, label: sp.nodeLabel || sp.nodeId || '?' }))
+                  // live 优先（执行序 + 逐帧）；回退 = node-spans 快照（拓扑序）。
+                  // live 内容仅在直播/干净收口时采用 —— connecting/unavailable
+                  // 保持既有渲染，零回归。
+                  const liveActive =
+                    (runLive.mode === 'live' || runLive.mode === 'closed') &&
+                    runLive.sections.length > 0
+                  const sections = liveActive
+                    ? runLive.sections
+                    : [...latestSpans]
+                        .sort(
+                          (a, b) =>
+                            (topoOrder.get(a.nodeId) ?? 1e9) - (topoOrder.get(b.nodeId) ?? 1e9),
+                        )
+                        .map(spanToTerminalSection)
+                  const activeNodes = liveActive
+                    ? runLive.sections
+                        .filter((s) => s.status === 'running')
+                        .map((s) => ({ id: s.id, label: s.title || s.id }))
+                    : latestSpans
+                        .filter((sp) => sp.status === 'running')
+                        .map((sp) => ({ id: sp.nodeId, label: sp.nodeLabel || sp.nodeId || '?' }))
                   return (
                     <RunTerminal
                       sections={sections}

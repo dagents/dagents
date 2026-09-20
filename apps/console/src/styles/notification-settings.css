@@ -76,15 +76,15 @@
 }
 .notif-perm-granted {
   background: var(--success-soft);
-  color: var(--success);
+  color: var(--success-text);
 }
 .notif-perm-denied {
   background: var(--danger-soft);
-  color: var(--danger);
+  color: var(--danger-text);
 }
 .notif-perm-default {
   background: var(--warn-soft);
-  color: var(--warn);
+  color: var(--warn-text);
 }
 /* unsupported falls back to a neutral chip look */
 .notif-perm-badge:not(.notif-perm-granted):not(.notif-perm-denied):not(.notif-perm-default) {

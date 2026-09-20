@@ -162,7 +162,7 @@
 
 .ftpl-save-error {
   font-size: var(--text-xs);
-  color: var(--danger);
+  color: var(--danger-text);
 }
 
 /* 方案 G：模板参数回填表单（实例化确认框内） */
@@ -194,7 +194,7 @@
   padding: 6px 10px;
   border-radius: var(--radius-sm);
   border: 1px solid var(--border);
-  background: var(--bg-elev, #161b26);
+  background: var(--surface-warm);
   color: inherit;
   font-size: var(--text-sm);
 }

@@ -162,7 +162,7 @@
 
 .skill-detail-error {
   font-size: var(--text-xs);
-  color: var(--danger);
+  color: var(--danger-text);
 }
 
 .skills-footer {
@@ -189,7 +189,7 @@
   border: 1px solid color-mix(in srgb, var(--danger) 25%, transparent);
   background: var(--danger-soft);
   border-radius: var(--radius-sm);
-  color: var(--danger);
+  color: var(--danger-text);
   font-size: var(--text-sm);
   margin-bottom: var(--space-4);
 }
@@ -258,7 +258,7 @@
 .skills-add-error {
   width: 100%;
   font-size: var(--text-xs);
-  color: var(--danger);
+  color: var(--danger-text);
   text-align: left;
 }
 
@@ -284,7 +284,7 @@
 
 .skills-root-remove:hover {
   background: var(--danger-soft);
-  color: var(--danger);
+  color: var(--danger-text);
 }
 
 .skills-root-remove svg {

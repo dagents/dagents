@@ -230,7 +230,7 @@
   background: var(--surface-warm);
 }
 .account-menu-logout {
-  color: var(--danger);
+  color: var(--danger-text);
 }
 .account-menu-logout:hover {
   background: var(--danger-soft);

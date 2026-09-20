@@ -132,13 +132,13 @@
 }
 
 .alib-badge-up-to-date {
-  color: var(--success);
+  color: var(--success-text);
   border-color: color-mix(in srgb, var(--success) 33%, transparent);
   background: color-mix(in srgb, var(--success) 8%, transparent);
 }
 
 .alib-badge-upstream-updated {
-  color: var(--warn);
+  color: var(--warn-text);
   border-color: color-mix(in srgb, var(--warn) 33%, transparent);
   background: color-mix(in srgb, var(--warn) 8%, transparent);
 }
@@ -150,7 +150,7 @@
 }
 
 .alib-badge-diverged {
-  color: var(--danger);
+  color: var(--danger-text);
   border-color: color-mix(in srgb, var(--danger) 33%, transparent);
   background: color-mix(in srgb, var(--danger) 8%, transparent);
 }
@@ -320,7 +320,7 @@
 
 .alib-member-chip.missing {
   border-color: color-mix(in srgb, var(--danger) 40%, transparent);
-  color: var(--danger);
+  color: var(--danger-text);
 }
 
 .alib-member-chip em {

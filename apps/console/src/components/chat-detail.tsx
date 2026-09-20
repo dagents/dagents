@@ -42,6 +42,7 @@ import {
 import { formatClock, truncateTitle } from '@/lib/format'
 import { subscribeChatStream } from '@/lib/chat-stream'
 import { fetchDirectory, type Directory } from '@/lib/directories'
+import { terminalHrefForDir } from '@/lib/terminal-links'
 import { useWsChat } from '@/lib/use-ws-chat'
 import { useI18n } from '@/i18n'
 import { useTaskNotification } from '@/lib/use-task-notification'
@@ -967,6 +968,18 @@ export function ChatDetail({ chatId }: ChatDetailProps): React.ReactElement {
                               <Icon name="refresh" style={{ width: 12, height: 12 }} />
                               <span>{t('重试')}</span>
                             </button>
+                          ) : null}
+                          {/* 双锚点 P1（2026-09-19）：会话绑定了项目目录 → 失败
+                              就近深链终端排查；chats.directory_id 今天就有，此入口
+                              不依赖 P0。无目录不渲染（不回落主目录）。 */}
+                          {chat && chat.directoryId ? (
+                            <Link
+                              href={terminalHrefForDir(chat.directoryId)}
+                              className="chat-error-link"
+                            >
+                              <Icon name="terminal" className="ic-12" />
+                              <span>{t('在项目目录打开终端')}</span>
+                            </Link>
                           ) : null}
                           <button
                             type="button"

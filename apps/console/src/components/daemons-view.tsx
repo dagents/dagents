@@ -1143,8 +1143,8 @@ function RegisterDaemonDialog({
         <div className="daemon-dialog-header">
           <Icon name="terminal" style={{ width: 20, height: 20, color: 'var(--accent)' }} />
           <span className="daemon-dialog-title">{t('注册 Daemon')}</span>
-          <button type="button" className="btn btn-ghost btn-sm daemon-dialog-close" onClick={onClose}>
-            <Icon name="close" style={{ width: 16, height: 16 }} />
+          <button type="button" className="btn btn-ghost btn-sm daemon-dialog-close" onClick={onClose} aria-label={t('关闭')}>
+            <Icon name="close" className="ic-16" />
           </button>
         </div>
         <div className="daemon-dialog-body">

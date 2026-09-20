@@ -115,7 +115,7 @@
 .floating-chat-conn-warning {
   padding: var(--space-1) var(--space-3);
   background: var(--warn-soft);
-  color: var(--warn);
+  color: var(--warn-text);
   font-size: var(--text-xs);
   text-align: center;
   flex-shrink: 0;
@@ -241,7 +241,7 @@
 .floating-chat-error {
   padding: var(--space-2) var(--space-3);
   background: var(--danger-soft);
-  color: var(--danger);
+  color: var(--danger-text);
   font-size: var(--text-xs);
   flex-shrink: 0;
 }

@@ -17,6 +17,7 @@ import { useCallback, useState } from 'react'
 import Link from 'next/link'
 import { useI18n } from '@/i18n'
 import { formatDuration, timeAgo, timeTitle } from '@/lib/format'
+import { terminalHrefForDir } from '@/lib/terminal-links'
 import { usePolling } from '@/lib/use-polling'
 import '@/styles/flow-runs.css'
 
@@ -31,6 +32,9 @@ interface RunRow {
   /** 运行输入全文（2026-09-08 可操作终端：重跑预填数据源；旧行可能缺省）。 */
   input?: string | null
   error: string | null
+  /** 运行的项目目录锚（2026-09-19 P0 数据链）：失败行「终端」入口用；
+   *  旧运行 / 未带目录为 null → 入口不渲染（诚实优先，不回落主目录）。 */
+  directoryId?: string | null
   createdAt: string
 }
 
@@ -151,6 +155,17 @@ export function FlowRunsPanel({ flowId, refreshTick = 0, onRerun }: FlowRunsPane
                 >
                   {t('画布旁观')}
                 </Link>
+                {/* 双锚点 P1：失败行 + 有目录锚 → 深链终端排查；无目录不渲染
+                    （诚实优先，不回落主目录）。 */}
+                {r.status === 'failed' && r.directoryId ? (
+                  <Link
+                    href={terminalHrefForDir(r.directoryId)}
+                    className="btn btn-ghost btn-sm flow-runs-watch"
+                    title={t('在项目目录打开终端')}
+                  >
+                    {t('终端')}
+                  </Link>
+                ) : null}
               </div>
               {/* 失败摘要：第二行，--text-xs danger */}
               {r.error ? (

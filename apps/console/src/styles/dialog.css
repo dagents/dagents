@@ -70,7 +70,7 @@
   color: var(--muted);
 }
 .modal-error {
-  color: var(--danger);
+  color: var(--danger-text);
   background: var(--danger-soft);
   border-radius: var(--radius-sm);
   margin-top: var(--space-4);
@@ -90,6 +90,14 @@
   letter-spacing: var(--tracking-label);
   text-transform: uppercase;
   margin-bottom: var(--space-3);
+}
+.field-hint {
+  margin-top: var(--space-2);
+  font-size: var(--text-2xs);
+  color: var(--meta);
+}
+.field-hint-warn {
+  color: var(--warn-text);
 }
 .form-section .field {
   margin-bottom: var(--space-3);

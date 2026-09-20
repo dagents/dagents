@@ -295,7 +295,7 @@ export function CreateAgentDialog({
                   ))}
                 </select>
                 {daemonError ? (
-                  <div className="field-hint" style={{ color: 'var(--warn, #b45309)' }}>
+                  <div className="field-hint field-hint-warn">
                     {t('Daemon 列表加载失败：{error}', { error: daemonError })}{' '}
                     <button type="button" className="btn btn-ghost btn-sm" onClick={() => void loadDaemons()}>
                       {t('重试')}

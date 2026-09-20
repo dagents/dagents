@@ -476,6 +476,13 @@ function Inspector({ model, archiving, onEdit, onArchive, onDelete }: InspectorP
           收进右端、hover danger（确认弹窗在下方）。 */}
       {(onEdit || onArchive || onDelete) && (
         <div className="ins-actions">
+          {/* P4 交互式 agent 会话（2026-09-19）：终端承载 agent —— 人格 CLI
+              托管在 PTY 里，人在环路亲手驱动。经 ?agent= 深链直达终端页；
+              不支持的 runtime 会在终端里收到网关的诚实引导。 */}
+          <Link href={`/terminal?agent=${model.id}`} className="btn btn-ghost btn-sm">
+            <Icon name="terminal" className="ic-12" />
+            <span>{t('交互式会话')}</span>
+          </Link>
           {onEdit && (
             <button type="button" className="btn btn-secondary btn-sm" onClick={onEdit}>
               <Icon name="pencil" className="ic-12" />

@@ -14,7 +14,9 @@
   --fg:   #0d0d0d;
   --fg-2: #1a1a1a;
   --muted: #616165;
-  --meta:  #85858b;
+  /* 2026-09-19 对比度审计：#85858b 在浅色表面上仅 3.1-3.7:1（AA 需 4.5），
+     压暗到最浅表面（--surface-warm）恰好达标。 */
+  --meta:  #6c6c71;
 
   /* ─── Border ───────────────────────────────────────────────────── */
   --border:      #e7e4dd;
@@ -28,7 +30,9 @@
                      in-progress indicators, small icon accents.
      Violet must NOT be used for: button fills, gradient headline text,
      or large-area background fills. */
-  --accent:        #6c5ce7;
+  /* 2026-09-19 对比度审计：#6c5ce7 作为文字落在 surface/sunk 上 4.23-4.46:1
+     （AA 线 4.5），压暗 3.7% 后全表面达标；白字按钮对比 4.86 → 5.17。 */
+  --accent:        #6859de;
   --accent-on:     #ffffff;
   --accent-hover:  #5849c2;
   --accent-active: color-mix(in oklab, var(--accent), black 14%);
@@ -46,6 +50,14 @@
   --danger-soft:  #fdecec;
   --info-soft:    #eaf0fe;
 
+  /* 状态色的「文字档」（2026-09-19 对比度审计）：基础状态色在浅色表面
+     上作为正文时远低于 AA（warn 2.03 / success 3.20 / danger 3.81:1）——
+     文字场景一律用 -text 档（保色相压明度，对含各自 soft 底的最浅背景
+     ≥4.5:1）；填充场景（圆点/进度条/徽章底）继续用基础档。 */
+  --success-text: #0c7c60;
+  --warn-text:    #936415;
+  --danger-text:  #c8363b;
+
   /* 便签（画布 sticky note）语义色 —— 2026-09-17 从 flow-canvas.css 硬编码迁入
      （同值迁令牌，视觉不变）。便签是物理隐喻：明暗两态同色。 */
   --note-bg: #fef6d8;
@@ -53,6 +65,11 @@
   --note-text: #4a3f1d;
   --note-accent: #b08d2e;
   --note-drag-veil: rgb(0 0 0 / 0.05);
+
+  /* Agent 品牌色相（明暗同值；明暗适配由使用处 color-mix 完成）——
+     2026-09-19 从 agents.css / agent-detail.css 的重复字面值收敛单源。 */
+  --glyph-claude: #8b5a2b;
+  --glyph-codex: #1f6b3f;
 
   /* ─── Typography ─────────────────────────────────────────────────
      Using Inter (body) + Source Serif 4 (display) as the primary
@@ -212,7 +229,7 @@
     --fg:   #f0f0f0;
     --fg-2: #e0e0e0;
     --muted: #96969c;
-    --meta:  #7f7f86;
+    --meta:  #88888f;
 
     --border:      #2a2a2a;
     --border-soft: #222222;
@@ -228,6 +245,10 @@
     --warn:    #fbbf24;
     --danger:  #f87171;
     --info:    #60a5fa;
+    /* 深色下基础状态色本身已过 AA（亮色高明度），文字档直接别名基础档 */
+    --success-text: var(--success);
+    --warn-text:    var(--warn);
+    --danger-text:  var(--danger);
 
     --success-soft: rgba(45, 212, 167, 0.12);
     --warn-soft:    rgba(251, 191, 36, 0.12);
@@ -292,7 +313,7 @@
   --fg:   #f0f0f0;
   --fg-2: #e0e0e0;
   --muted: #96969c;
-  --meta:  #7f7f86;
+  --meta:  #88888f;
 
   --border:      #2a2a2a;
   --border-soft: #222222;
@@ -308,6 +329,10 @@
   --warn:    #fbbf24;
   --danger:  #f87171;
   --info:    #60a5fa;
+  /* 深色下基础状态色本身已过 AA（亮色高明度），文字档直接别名基础档 */
+  --success-text: var(--success);
+  --warn-text:    var(--warn);
+  --danger-text:  var(--danger);
 
   --success-soft: rgba(45, 212, 167, 0.12);
   --warn-soft:    rgba(251, 191, 36, 0.12);

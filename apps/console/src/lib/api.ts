@@ -60,7 +60,7 @@ export async function unwrapEnvelope<T>(res: Response, label: string): Promise<T
   if (!res.ok) {
     const detail = await res.text().catch(() => '')
     throw new ApiError(
-      `${label} failed (${res.status})${detail ? `: ${detail.slice(0, 200)}` : ''}`,
+      `${label} failed (${res.status})${detail ? `: ${humanDetail(detail)}` : ''}`,
       res.status,
     )
   }
@@ -69,5 +69,28 @@ export async function unwrapEnvelope<T>(res: Response, label: string): Promise<T
     throw new ApiError(`${label} failed: ${body?.error ?? 'unknown error'}`, res.status)
   }
   return body.data
+}
+
+/**
+ * 错误正文的人类可读化（2026-09-19 设计走查五）：此前非 2xx 时把原始 body
+ * 整段进消息，用户会看到 `{"success":false,"error":…}` 这样的 JSON 转储。
+ * 现在信封是 JSON 就只取 `error` 字段；BFF transformError 把上游原因包在
+ * `detail` 字符串里时递归解一层；非 JSON（代理层 HTML 错误页等）保留文本
+ * 摘要供诊断。`(status)` 字样契约不变（agent-detail 的 404 检测依赖）。
+ */
+function humanDetail(text: string, depth = 0): string {
+  const trimmed = text.trim().slice(0, 200)
+  if (depth < 2 && trimmed.startsWith('{')) {
+    try {
+      const parsed = JSON.parse(trimmed) as { error?: unknown; detail?: unknown }
+      // detail 优先：BFF transformError 把上游根因包在这里（error 此时只是
+      // label 的重复）；纯网关信封只有 error，走下面的分支。
+      if (parsed && typeof parsed.detail === 'string' && parsed.detail) return humanDetail(parsed.detail, depth + 1)
+      if (parsed && typeof parsed.error === 'string' && parsed.error) return parsed.error.slice(0, 200)
+    } catch {
+      /* 非 JSON → 文本摘要 */
+    }
+  }
+  return trimmed
 }
 

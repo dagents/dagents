@@ -44,7 +44,7 @@
 }
 
 .chat-search-status.is-warning {
-  color: var(--danger);
+  color: var(--danger-text);
 }
 
 .chat-search-spinner {

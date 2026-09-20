@@ -94,6 +94,15 @@ interface FlowListResponse {
   error?: string
 }
 /**
+ * 头像取字：跳过前导标点/括号/空白等非文字字符（「【验收演示】…」→ 验），
+ * 全名称无文字字符时回退首字符 —— 避免「【」这类悬置括号出现在头像位。
+ */
+function flowGlyph(name: string): string {
+  const m = name.match(/[A-Za-z0-9\u4e00-\u9fa5]/)
+  return m ? m[0] : name.charAt(0)
+}
+
+/**
  * Map the gateway's list response onto `FlowSummary[]`. The gateway's workflows
  * table has no type/owner/runCount/latestRunId/versionHash columns, so those are
  * defaulted (type='CHATFLOW', status='idle', owner=null, archived=false,
@@ -573,7 +582,7 @@ export function FlowsView({ home = false }: { home?: boolean }): React.ReactElem
                         <path d="m9 18 6-6-6-6" />
                       </svg>
                     </span>
-                    <div className="flow-glyph">{f.name.charAt(0)}</div>
+                    <div className="flow-glyph">{flowGlyph(f.name)}</div>
                     <div className="flow-info">
                       <div className="nm">{f.name}</div>
                       {/* PX-F02：元信息（id/节点/运行数/状态/最近 run）全部归到

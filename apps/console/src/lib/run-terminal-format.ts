@@ -15,6 +15,7 @@
  */
 
 import type { RunNodeSpan } from '@/lib/node-spans'
+import type { RunLiveFrame } from '@dagents/contracts'
 
 /** 终端行类型 —— 与引擎 IStreamActivityKind 对齐。`user_input`（2026-09-08
  *  可操作终端）是插话回写行：label = 消息全文。 */
@@ -203,4 +204,106 @@ export function sectionTranscript(s: TerminalSection): string {
   if (s.error) parts.push(`✗ ${s.error}`)
   if (s.output) parts.push(s.output)
   return parts.join('\n')
+}
+
+/* ── 运行实时终端（live attach，2026-09）：帧 → 段的增量构建器 ──
+ *
+ * 与 spanToTerminalSection 平行的入口：那边吃 DB 的 span 快照（终态/节流
+ * 快照，含 tokens/model 等完整元数据），这边吃 run-live 帧流（执行顺序、
+ * 逐帧到达、只有节点名/类型/耗时）。共享 TerminalSection 形状 —— RunTerminal
+ * 渲染层完全无感数据来自哪条路。
+ *
+ * 语义对齐点：
+ *  - 迭代控制器对同一 nodeId 重发 start/end —— 合并进同一 section，状态取
+ *    最新（running→done→running→…），行与正文跨迭代累积。
+ *  - 未知 kind 的活动帧降级为 log 行（契约 kind 是开放 string，引擎加新
+ *    活动类型时直播先以原文呈现，不丢内容）。
+ *  - runEnd 不产出内容（关流状态机属于 useRunLive）。
+ */
+
+export interface LiveSectionBuilder {
+  push(frame: RunLiveFrame): void
+  /** 当前段序（执行顺序）。返回新数组，段对象稳定原地更新。 */
+  sections(): TerminalSection[]
+}
+
+export function createLiveSectionBuilder(): LiveSectionBuilder {
+  const byId = new Map<string, TerminalSection>()
+  const order: string[] = []
+  // 头部截断标记可能先于任何 nodeStart 到达 —— 挂起，等首段出现时插到段首。
+  let pendingTruncationNote: string | null = null
+
+  const sectionOf = (nodeId: string, nodeName: string, nodeType?: string | null): TerminalSection => {
+    let s = byId.get(nodeId)
+    if (!s) {
+      s = {
+        id: nodeId,
+        title: nodeName || nodeId,
+        status: 'running',
+        durationMs: null,
+        tokensBadge: null,
+        nodeType: nodeType ?? null,
+        command: commandOf(nodeType ?? null, null),
+        lines: [],
+        lineSource: 'events',
+        output: '',
+        rawJson: '',
+        error: null,
+        hasText: false,
+      }
+      byId.set(nodeId, s)
+      order.push(nodeId)
+      if (pendingTruncationNote) {
+        s.lines.push({ kind: 'status', label: pendingTruncationNote })
+        pendingTruncationNote = null
+      }
+    }
+    return s
+  }
+
+  return {
+    push(frame: RunLiveFrame): void {
+      if (frame.type === 'nodeStart') {
+        const s = sectionOf(frame.nodeId, frame.nodeName, frame.nodeType)
+        s.status = 'running'
+        return
+      }
+      if (frame.type === 'nodeEnd') {
+        const s = sectionOf(frame.nodeId, frame.nodeName)
+        s.status = frame.status
+        s.error = frame.error ?? null
+        if (frame.durationMs != null) s.durationMs = frame.durationMs
+        return
+      }
+      if (frame.type === 'delta') {
+        const s = sectionOf(frame.nodeId, frame.nodeName)
+        if (frame.delta.type === 'text') {
+          if (!frame.delta.text) return
+          s.output += frame.delta.text
+          s.hasText = true
+        } else {
+          const kind = (LINE_KINDS as readonly string[]).includes(frame.delta.kind)
+            ? (frame.delta.kind as TerminalLineKind)
+            : 'log'
+          const line: TerminalLine = { kind, label: frame.delta.label, at: new Date().toISOString() }
+          if (frame.delta.detail) line.detail = frame.delta.detail
+          s.lines.push(line)
+        }
+        return
+      }
+      if (frame.type === 'truncated') {
+        pendingTruncationNote = `…（更早的 ${frame.dropped} 帧超出回放上限被截断，全文见运行历史）`
+        // 已有段：把标记补进首段段首（晚到的截断标记较少见，但同样处理）。
+        if (order.length > 0 && pendingTruncationNote) {
+          const first = byId.get(order[0])
+          first?.lines.unshift({ kind: 'status', label: pendingTruncationNote })
+          pendingTruncationNote = null
+        }
+      }
+      // runEnd：无内容产出（关流状态机在 useRunLive）
+    },
+    sections(): TerminalSection[] {
+      return order.map((id) => byId.get(id) as TerminalSection)
+    },
+  }
 }

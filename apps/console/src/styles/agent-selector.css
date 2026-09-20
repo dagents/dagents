@@ -20,6 +20,14 @@
   white-space: nowrap;
   cursor: pointer;
   transition: background var(--motion-fast), color var(--motion-fast);
+  /* 与 flow-selector-trigger 同款收缩语义：窄面板下芯片截断让位 */
+  max-width: 180px;
+  min-width: 0;
+}
+.agent-selector-trigger span {
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
 }
 .agent-selector-trigger:hover { background: var(--surface); color: var(--fg); }
 .agent-selector-trigger:disabled { opacity: 0.5; cursor: not-allowed; }
@@ -88,7 +96,7 @@
 .agent-selector-error {
   padding: 6px 10px;
   font-size: var(--text-xs);
-  color: var(--danger);
+  color: var(--danger-text);
   background: var(--danger-soft);
   border-radius: var(--radius-sm);
   margin: 4px 0;

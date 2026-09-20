@@ -7,7 +7,7 @@
   max-width: 640px;
   overflow: hidden;
 }
-.wf-run-card.failed { border-color: var(--danger); }
+.wf-run-card.failed { border-color: var(--danger-text); }
 .wf-run-card-head {
   display: flex; align-items: center; gap: 8px; width: 100%;
   padding: 7px 10px; border: 0; background: transparent;
@@ -49,12 +49,12 @@
 /* 节点行文字与状态点同色（PX-C06）：完成绿 / 失败红 / 进行中紫 / 待定灰，
    >5 节点的流程可纯扫读。 */
 .wf-tl-label { font-weight: 500; font-family: var(--font-mono); color: var(--muted); }
-.wf-tl-row.status-done .wf-tl-label, .wf-tl-row.status-completed .wf-tl-label { color: var(--success); }
-.wf-tl-row.status-failed .wf-tl-label { color: var(--danger); }
+.wf-tl-row.status-done .wf-tl-label, .wf-tl-row.status-completed .wf-tl-label { color: var(--success-text); }
+.wf-tl-row.status-failed .wf-tl-label { color: var(--danger-text); }
 .wf-tl-row.status-running .wf-tl-label { color: var(--accent); }
 .wf-tl-row.status-warn .wf-tl-label { color: color-mix(in oklab, var(--warn) 72%, var(--fg)); }
 .wf-tl-meta { margin-left: auto; font-size: var(--text-2xs); color: var(--meta); font-variant-numeric: tabular-nums; }
-.wf-tl-error { color: var(--danger); font-size: var(--text-2xs); padding: 0 8px 6px; white-space: pre-wrap; }
+.wf-tl-error { color: var(--danger-text); font-size: var(--text-2xs); padding: 0 8px 6px; white-space: pre-wrap; }
 .wf-tl-text {
   font-size: var(--text-xs); line-height: 1.6; color: var(--fg);
   white-space: pre-wrap; word-break: break-word;
@@ -71,7 +71,7 @@
 .wf-run-card.agent-badge-only .wf-run-card-head { padding: 2px 0; cursor: default; font-size: var(--text-2xs); }
 
 /* 权限拒绝的诚实标注（黄警） */
-.wf-run-card.warn { border-color: var(--warn); }
+.wf-run-card.warn { border-color: var(--warn-text); }
 .wf-run-card.warn .wf-run-card-head { background: var(--warn-soft); }
 .wf-chain-node.dot-warn, .wf-tl-dot.dot-warn { background: var(--warn); }
 .wf-run-warn-flag { font-size: var(--text-2xs); color: color-mix(in oklab, var(--warn) 72%, var(--fg)); font-weight: 600; flex-shrink: 0; }

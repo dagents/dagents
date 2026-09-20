@@ -111,9 +111,18 @@
 .chat-composer-tools {
   gap: 8px;
 }
+/* flex 子项是选择器组件的包裹层：放开 min-width 才能让内部芯片
+   （span 已带 ellipsis）在窄面板下收缩，否则芯片内容溢出压到提示区 */
+.chat-composer-tools > * {
+  min-width: 0;
+}
 
 .chat-composer-trailing {
-  flex: none;
+  /* 可收缩（原 flex:none）：窄面板（悬浮 chat ~380px）下 tools 的
+     选择器芯片 + 本区提示文本总宽超出时，两侧各自优雅让位，
+     而不是提示文本叠到选择器上（2026-09-19 走查修复）。 */
+  flex: 0 1 auto;
+  min-width: 0;
   gap: 12px;
 }
 
@@ -151,6 +160,11 @@
   font-size: var(--text-xs);
   color: var(--meta);
   white-space: nowrap;
+  /* 窄容器下提示让位截断（悬浮 chat 面板），不再与左侧选择器重叠 */
+  flex-shrink: 1;
+  min-width: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
 }
 
 /* Primary action (PX-C02 墨紫契约): one 34px circle, INK fill (--fg —

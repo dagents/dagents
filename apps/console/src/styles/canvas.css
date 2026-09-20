@@ -23,9 +23,9 @@
   gap: 8px;
   margin-bottom: 8px;
   padding: 8px 10px;
-  border: 1px solid var(--warn-border, #e8d89a);
+  border: 1px solid var(--note-border);
   border-radius: var(--radius-md, 8px);
-  background: var(--note-bg, #fef6d8);
+  background: var(--note-bg);
 }
-.canvas-awaiting-prompt { font-size: var(--text-sm); color: var(--note-text, #4a3f1d); flex: none; }
+.canvas-awaiting-prompt { font-size: var(--text-sm); color: var(--note-text); flex: none; }
 .canvas-awaiting-input { flex: 1; min-width: 120px; }

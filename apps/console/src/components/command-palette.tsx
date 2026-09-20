@@ -311,7 +311,7 @@ export function CommandPalette({ open, onClose }: CommandPaletteProps) {
             <kbd className="kbd">⌘K</kbd>
             {t('开合面板')}
           </span>
-          <span className="cmdk-footer-brand">DAgent</span>
+          <span className="cmdk-footer-brand">Dagents</span>
         </div>
       </div>
     </div>

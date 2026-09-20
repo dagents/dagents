@@ -607,7 +607,7 @@
   background: color-mix(in oklab, var(--fg) 6%, transparent);
 }
 .chat-nav-chat-action-danger:hover {
-  color: var(--danger);
+  color: var(--danger-text);
 }
 
 /* Overflow control (deepseek "Show N more") — 30px like every row, with a
@@ -905,7 +905,7 @@
 }
 
 .chat-nav-dir-menu button.danger {
-  color: var(--danger);
+  color: var(--danger-text);
 }
 .chat-nav-dir-menu button.danger:hover {
   background: var(--danger-soft);

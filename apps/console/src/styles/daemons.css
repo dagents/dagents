@@ -254,7 +254,7 @@
 .daemon-card-delete:hover {
   opacity: 1;
   background: var(--danger-soft);
-  color: var(--danger);
+  color: var(--danger-text);
 }
 
 /* ─── delete confirmation dialog ─── */
@@ -346,7 +346,7 @@
   background: var(--danger-soft);
   border: 1px solid color-mix(in srgb, var(--danger) 25%, transparent);
   border-radius: var(--radius-sm);
-  color: var(--danger);
+  color: var(--danger-text);
   font-size: var(--text-sm);
 }
 
@@ -570,7 +570,7 @@
 .timeline-step.queued { color: var(--meta); }
 .timeline-step.running { color: var(--fg); }
 .timeline-step.done { color: var(--fg); }
-.timeline-step.failed { color: var(--danger); }
+.timeline-step.failed { color: var(--danger-text); }
 .timeline-label {
   flex: 1;
 }
@@ -637,7 +637,7 @@
   align-self: center;
 }
 .evt-warn {
-  color: var(--danger);
+  color: var(--danger-text);
 }
 .evt-kind {
   /* 固定 kind 列宽 —— 消息正文起点对齐一条竖线（kind 词长不等不漂移） */
@@ -656,7 +656,7 @@
 }
 .evt-row.evt-error,
 .evt-row.evt-error .evt-kind {
-  color: var(--danger);
+  color: var(--danger-text);
 }
 .evt-repeat {
   flex-shrink: 0;
@@ -829,7 +829,7 @@
 
 .daemon-dialog-error {
   font-size: var(--text-sm);
-  color: var(--danger);
+  color: var(--danger-text);
   padding: 8px 12px;
   background: var(--danger-soft);
   border: 1px solid color-mix(in srgb, var(--danger) 25%, transparent);

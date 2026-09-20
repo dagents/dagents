@@ -49,6 +49,9 @@ export interface NodeSpansEnvelope {
      *  null/undefined）—— 旁观端据此判断轮询何时收尾。 */
     runStatus?: string | null
     runDurationMs?: number | null
+    /** 运行的项目目录锚（2026-09-19 P0 数据链）：失败入口「在项目目录打开
+     *  终端」的数据源；老运行 / 无目录时 null。 */
+    runDirectoryId?: string | null
     /** 运行中插话能力位（2026-09-08 可操作终端）：该 run 当前有活着的
      *  CLI 会话汇点。终端视图 stdin 行据此渲染禁用态。 */
     inputSupported?: boolean
@@ -110,6 +113,8 @@ export interface RunNodeSpansResult {
   runDurationMs: number | null
   /** 插话能力位（undefined = 旧网关，按支持处理，发送失败时由回执兜底）。 */
   inputSupported?: boolean
+  /** 运行的项目目录锚（P0 数据链）；无目录 / 旧网关为 null。 */
+  runDirectoryId: string | null
 }
 
 /**
@@ -123,7 +128,8 @@ export async function fetchRunNodeSpans(runId: string): Promise<RunNodeSpansResu
       headers: { accept: 'application/json' },
       cache: 'no-store',
     })
-    if (!res.ok) return { ok: false, httpStatus: res.status, spans: [], runStatus: null, runDurationMs: null }
+    if (!res.ok)
+      return { ok: false, httpStatus: res.status, spans: [], runStatus: null, runDurationMs: null, runDirectoryId: null }
     const json = (await res.json()) as NodeSpansEnvelope
     const rows = json.data?.spans ?? []
     return {
@@ -132,9 +138,10 @@ export async function fetchRunNodeSpans(runId: string): Promise<RunNodeSpansResu
       spans: rows.map(normalizeRunNodeSpan),
       runStatus: json.data?.runStatus ?? null,
       runDurationMs: json.data?.runDurationMs ?? null,
+      runDirectoryId: json.data?.runDirectoryId ?? null,
       inputSupported: json.data?.inputSupported,
     }
   } catch {
-    return { ok: false, httpStatus: 0, spans: [], runStatus: null, runDurationMs: null }
+    return { ok: false, httpStatus: 0, spans: [], runStatus: null, runDurationMs: null, runDirectoryId: null }
   }
 }

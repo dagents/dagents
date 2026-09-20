@@ -1,0 +1,287 @@
+/* ============================================================
+   terminal.css — ShellTerminal（浏览器里的真终端）
+   绑定 tokens.css 设计变量；令牌契约（docs/design-pixel-polish-plan.md）：
+   圆角走 --radius-*、字阶走 --text-*、间距走 --space-*、
+   紫色 = 状态/指向（进行态点、光标、选区），墨色 = 动作（主按钮）。
+   ============================================================ */
+
+.term-root {
+  display: flex;
+  flex-direction: column;
+  flex: 1;
+  min-height: 0;
+  border: 1px solid var(--border);
+  border-radius: var(--radius-md);
+  background: var(--surface-sunk);
+  overflow: hidden;
+}
+
+.term-header {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: var(--space-3);
+  padding: var(--space-2) var(--space-3);
+  border-bottom: 1px solid var(--border);
+  background: var(--surface-warm);
+  flex-shrink: 0;
+}
+
+.term-status { display: flex; align-items: center; gap: var(--space-2); min-width: 0; }
+
+.term-cwd {
+  font-family: var(--font-mono);
+  font-size: var(--text-2xs);
+  color: var(--meta);
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  padding-left: var(--space-2);
+  border-left: 1px solid var(--border-soft);
+  margin-left: var(--space-1);
+}
+
+.term-status-label {
+  font-size: var(--text-xs);
+  color: var(--muted);
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+
+/* 状态点：与 daemons/flow-runs 的 .n 同族 —— 6px、紫=进行态（墨主紫辅契约） */
+.term-dot {
+  width: 6px;
+  height: 6px;
+  border-radius: 50%;
+  flex-shrink: 0;
+}
+.term-dot-live { background: var(--accent); box-shadow: 0 0 0 2px var(--accent-soft); }
+.term-dot-exited { background: var(--meta); box-shadow: 0 0 0 2px var(--surface); }
+.term-dot-wait { background: var(--warn); box-shadow: 0 0 0 2px var(--warn-soft); animation: term-dot-pulse 1.2s ease-in-out infinite; }
+.term-dot-error { background: var(--danger); box-shadow: 0 0 0 2px var(--danger-soft); }
+
+@keyframes term-dot-pulse {
+  0%, 100% { opacity: 1; }
+  50% { opacity: 0.35; }
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .term-dot-wait { animation: none; }
+}
+
+.term-actions { display: flex; align-items: center; gap: var(--space-1); }
+.term-btn { font-size: var(--text-xs); padding: 4px var(--space-3); }
+
+/* ── 多标签条（P2，2026-09-19）：点击切换 / × 关闭 / + 同目录新开 ── */
+.term-tabs {
+  display: flex;
+  align-items: stretch;
+  gap: var(--space-1);
+  padding: var(--space-1) var(--space-3);
+  border-bottom: 1px solid var(--border);
+  background: var(--surface-warm);
+  flex-shrink: 0;
+  overflow-x: auto;
+}
+
+.term-tab {
+  display: flex;
+  align-items: center;
+  gap: var(--space-1);
+  padding: 2px var(--space-2);
+  border: 1px solid transparent;
+  border-radius: var(--radius-sm);
+  font-size: var(--text-xs);
+  font-family: var(--font-mono);
+  color: var(--muted);
+  cursor: pointer;
+  white-space: nowrap;
+  user-select: none;
+}
+
+.term-tab:hover { border-color: var(--border); color: var(--fg); }
+
+.term-tab.active {
+  border-color: var(--border);
+  background: var(--surface-sunk);
+  color: var(--fg);
+}
+
+.term-tab-label { max-width: 160px; overflow: hidden; text-overflow: ellipsis; }
+
+.term-tab-close {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  width: 14px;
+  height: 14px;
+  border: none;
+  border-radius: var(--radius-sm);
+  background: transparent;
+  color: var(--muted);
+  font-size: 12px;
+  line-height: 1;
+  cursor: pointer;
+  padding: 0;
+}
+
+.term-tab-close:hover { background: var(--border); color: var(--fg); }
+
+.term-tab-new {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  width: 22px;
+  border: 1px dashed var(--border);
+  border-radius: var(--radius-sm);
+  background: transparent;
+  color: var(--muted);
+  font-size: 13px;
+  line-height: 1;
+  cursor: pointer;
+  padding: 0;
+  flex-shrink: 0;
+}
+
+.term-tab-new:hover { border-color: var(--muted); color: var(--fg); }
+
+/* ── 新会话目录选择器（紧凑版 directory-selector：主目录 + 已注册目录 + 浏览） ── */
+.term-dir { position: relative; }
+
+.term-dir-trigger { gap: 6px; color: var(--muted); }
+.term-dir-trigger:hover { color: var(--fg); }
+.term-dir-trigger .icon, .term-dir-trigger span:last-child { color: inherit; }
+
+.term-dir-dropdown {
+  position: absolute;
+  top: calc(100% + 6px);
+  right: 0;
+  z-index: 50;
+  min-width: 280px;
+  max-height: 320px;
+  overflow: auto;
+  display: flex;
+  flex-direction: column;
+  padding: var(--space-1);
+  background: var(--bg);
+  border: 1px solid var(--border);
+  border-radius: var(--radius-md);
+  box-shadow: 0 8px 28px rgba(0, 0, 0, 0.14);
+}
+
+.term-dir-option, .term-dir-browse {
+  display: flex;
+  align-items: center;
+  gap: var(--space-2);
+  width: 100%;
+  padding: 6px var(--space-2);
+  border: none;
+  border-radius: var(--radius-xs);
+  background: none;
+  font-size: var(--text-xs);
+  color: var(--fg-2);
+  text-align: left;
+  cursor: pointer;
+}
+
+.term-dir-option:hover, .term-dir-option.highlighted, .term-dir-browse:hover:not(:disabled) {
+  background: var(--surface);
+}
+
+.term-dir-option.selected { color: var(--accent); font-weight: 550; }
+.term-dir-option-path {
+  margin-left: auto;
+  font-family: var(--font-mono);
+  font-size: var(--text-2xs);
+  color: var(--meta);
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  max-width: 160px;
+}
+
+.term-dir-browse {
+  margin-top: var(--space-1);
+  border-top: 1px solid var(--border-soft);
+  border-radius: 0;
+  padding-top: var(--space-2);
+  color: var(--muted);
+}
+.term-dir-browse:disabled { opacity: 0.6; cursor: default; }
+
+.term-screen-wrap { position: relative; flex: 1; min-height: 0; }
+
+.term-screen {
+  position: absolute;
+  inset: 0;
+  padding: var(--space-2) var(--space-3);
+}
+
+/* xterm 视口填满容器（其内部 .xterm 自身是 height:100% 结构） */
+.term-screen .xterm { height: 100%; }
+.term-screen .xterm-viewport { background-color: transparent !important; }
+
+/* 滚动条主题化：细轨淡滑块，不抢终端内容的视线 */
+.term-screen .xterm-viewport::-webkit-scrollbar { width: 8px; }
+.term-screen .xterm-viewport::-webkit-scrollbar-track { background: transparent; }
+.term-screen .xterm-viewport::-webkit-scrollbar-thumb {
+  background: var(--border-strong);
+  border-radius: var(--radius-pill);
+}
+.term-screen .xterm-viewport::-webkit-scrollbar-thumb:hover { background: var(--meta); }
+
+/* DOM 侧选区兜底（xterm 画布选区走 theme.selectionBackground = 紫 soft） */
+.term-screen ::selection { background: var(--accent-soft); }
+
+/* 首字节前的启动占位 —— zsh login shell 冷启动 2-5s，空屏需要「正在发生什么」 */
+.term-boot {
+  position: absolute;
+  inset: 0;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  pointer-events: none;
+  color: var(--meta);
+  font-family: var(--font-mono);
+  font-size: var(--text-xs);
+}
+
+.term-boot::before {
+  content: '';
+  width: 6px;
+  height: 6px;
+  margin-right: var(--space-2);
+  border-radius: 50%;
+  background: var(--warn);
+  animation: term-dot-pulse 1.2s ease-in-out infinite;
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .term-boot::before { animation: none; }
+}
+
+.term-overlay {
+  position: absolute;
+  inset: 0;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  background: color-mix(in oklab, var(--surface-sunk) 72%, transparent);
+  backdrop-filter: blur(1.5px);
+  z-index: 5;
+}
+
+.term-overlay-card {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  gap: var(--space-3);
+  padding: var(--space-5) var(--space-6);
+  border: 1px solid var(--border);
+  border-radius: var(--radius-md);
+  background: var(--bg);
+  box-shadow: 0 8px 28px rgba(0, 0, 0, 0.12);
+}
+
+.term-overlay-title { font-size: var(--text-sm); color: var(--fg-2); font-family: var(--font-mono); }

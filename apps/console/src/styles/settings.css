@@ -110,8 +110,8 @@
   font-size: var(--text-2xs);
   line-height: 1.4;
 }
-.tk-test-result.ok { color: var(--success); }
-.tk-test-result.err { color: var(--danger); }
+.tk-test-result.ok { color: var(--success-text); }
+.tk-test-result.err { color: var(--danger-text); }
 .tk-test-result .msg {
   min-width: 0;
   overflow: hidden;
@@ -164,7 +164,7 @@
 .settings-note { font-size: var(--text-xs); line-height: 1.6; }
 .settings-table { width: 100%; }
 .settings-empty { padding: var(--space-12); }
-.settings-empty-danger { padding: var(--space-12); color: var(--danger); }
+.settings-empty-danger { padding: var(--space-12); color: var(--danger-text); }
 .settings-mono-url { font-size: var(--text-xs); word-break: break-all; }
 .settings-cell-note { font-size: var(--text-2xs); color: var(--muted); margin-top: 2px; }
 .settings-row-gap { gap: var(--space-3); }

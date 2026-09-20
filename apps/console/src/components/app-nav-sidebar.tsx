@@ -53,6 +53,7 @@ export function AppNavSidebar({
     { href: '/', label: t('工作流'), icon: 'flows', exact: true },
     { href: '/agents', label: t('智能体'), icon: 'agents' },
     { href: '/skills', label: t('技能'), icon: 'zap' },
+    { href: '/terminal', label: t('终端'), icon: 'terminal' },
     { href: '/daemons', label: t('守护进程'), icon: 'daemons' },
   ]
 

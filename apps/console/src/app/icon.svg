@@ -1,0 +1,13 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 32 32">
+  <!-- 品牌图标：与 app-nav-sidebar 侧栏品牌标同款 glyphs（agent 三节点图），
+       底色为品牌紫 --accent（2026-09-19 对比度审计后的 #6859de）。 -->
+  <rect width="32" height="32" rx="7" fill="#6859de"/>
+  <g fill="none" stroke="#ffffff" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
+    <circle cx="10" cy="10" r="2.6" fill="#ffffff" stroke="none"/>
+    <circle cx="22" cy="10" r="2.6"/>
+    <circle cx="16" cy="23" r="2.6" fill="#ffffff" stroke="none"/>
+    <path d="M11.2 11.2 L14.8 20.8"/>
+    <path d="M20.8 11.2 L17.2 20.8"/>
+    <path d="M12.5 10 L19.5 10"/>
+  </g>
+</svg>
