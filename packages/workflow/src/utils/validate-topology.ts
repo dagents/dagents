@@ -51,8 +51,13 @@ const PLATFORM_AGENT_TYPE = 'platformAgentAgentflow'
  * 'agentflowNode'), while console AI-generated flows put the registry name in
  * `type` with flat `data`. `data.name` wins when both exist because that is
  * what the executor dispatches on.
+ *
+ * Exported since 2026-09-22: the gateway span-writer resolves nodeType from
+ * the same rule (single source of truth) — previously it wrote the canvas
+ * render type ('customNode'), so the console terminal `$` hint line degraded
+ * to a meaningless "$ customNode" for canvas-saved flows.
  */
-function resolveNodeType(node: FlowNode): string | undefined {
+export function resolveNodeType(node: FlowNode): string | undefined {
   const fromData = node.data?.name
   if (typeof fromData === 'string' && fromData.length > 0) return fromData
   if (typeof node.type === 'string' && node.type.length > 0) return node.type

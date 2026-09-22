@@ -1,4 +1,4 @@
-import { DagExecutor, type FlowData } from '@dagents/workflow'
+import { DagExecutor, type FlowData, resolveNodeType } from '@dagents/workflow'
 import { NodeRegistry } from '@dagents/workflow'
 import type { Logger } from '@dagents/shared'
 import { allNodes } from '@dagents/workflow'
@@ -67,11 +67,14 @@ export function assembleWorkflowEngine(opts: AssembleWorkflowEngineOptions): Ass
   const toolRegistry = createBuiltInToolRegistry()
 
   // 节点 label/type 查找表：span 携带画布 inspector 同款人类可读元数据。
+  // nodeType 用引擎同款解析（resolveNodeType：data.name 优先、type 回退，
+  // 2026-09-22 单源化）—— 此前直接写画布渲染类型，画布保存的 flow 恒为
+  // 'customNode'，console 终端 `$` 提示行随之退化成无信息的 "$ customNode"。
   const nodeLabelById = new Map<string, string | null>()
   const nodeTypeById = new Map<string, string | null>()
   for (const n of opts.flowData.nodes) {
     nodeLabelById.set(n.id, (n.data as { label?: string })?.label ?? n.id)
-    nodeTypeById.set(n.id, n.type ?? 'customNode')
+    nodeTypeById.set(n.id, resolveNodeType(n) ?? n.type ?? 'customNode')
   }
   const spanWriter = makeIncrementalSpanWriter({
     runId: opts.runId,
