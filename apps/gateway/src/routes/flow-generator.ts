@@ -298,6 +298,16 @@ export interface GeneratorAttemptRow {
   rawOutputPreview: string | null
 }
 
+/**
+ * 双引擎都失败时的合并报错。CLI 是第一性路径，其失败原因必须前置 ——
+ * 只抛 HTTP 的「No active LLM provider configured」会把真正该修的东西
+ * （如 claude CLI 连不上其 API）藏掉，用户会被误导去配 provider。
+ */
+export function combineEngineFailure(cliErr: unknown, httpErr: unknown): Error {
+  const strip = (e: unknown): string => String(e).replace(/^Error:\s*/, '')
+  return new Error(`CLI 生成失败：${strip(cliErr)}；HTTP 兜底也不可用：${strip(httpErr)}`)
+}
+
 /** 默认依赖：DB 清单 + 双引擎调用 + generator_attempts 埋点。 */
 export const defaultGenerateDeps: GenerateDeps = {
   async loadAgents() {
@@ -342,8 +352,12 @@ export const defaultGenerateDeps: GenerateDeps = {
       return { text: result.text, engineUsed: 'cli' }
     } catch (cliErr) {
       log.warn('generation via CLI failed, trying HTTP provider', { error: String(cliErr) })
-      const result = await createLlmClient().chat({ model: '', messages, temperature: 0.7 })
-      return { text: result.text, engineUsed: 'cli-then-http' }
+      try {
+        const result = await createLlmClient().chat({ model: '', messages, temperature: 0.7 })
+        return { text: result.text, engineUsed: 'cli-then-http' }
+      } catch (httpErr) {
+        throw combineEngineFailure(cliErr, httpErr)
+      }
     }
   },
   async recordAttempt(attempt) {

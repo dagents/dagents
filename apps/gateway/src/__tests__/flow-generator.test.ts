@@ -13,6 +13,7 @@ import {
   normalizeToCanonicalFlow,
   parseSelectedModel,
   buildRepairInstruction,
+  combineEngineFailure,
   generateFlow,
   type GenerateDeps,
   type GeneratorAttemptRow,
@@ -259,5 +260,26 @@ describe('generateFlow', () => {
     }
     expect(attempts[0]!.outcome).toBe('llm_error')
     expect(attempts[0]!.engine).toBe('n/a')
+  })
+})
+
+// ── combineEngineFailure ──────────────────────────────────────────────────
+
+describe('combineEngineFailure', () => {
+  it('leads with the CLI root cause and appends the HTTP fallback error', () => {
+    const err = combineEngineFailure(
+      new Error('CLI agent 未完成（failed）：API Error: Unable to connect to API (ConnectionRefused)'),
+      new Error('No active LLM provider configured. Add one in the LLM Providers settings.'),
+    )
+    expect(err.message).toBe(
+      'CLI 生成失败：CLI agent 未完成（failed）：API Error: Unable to connect to API (ConnectionRefused)' +
+        '；HTTP 兜底也不可用：No active LLM provider configured. Add one in the LLM Providers settings.',
+    )
+  })
+
+  it('strips the redundant "Error: " prefix from both messages', () => {
+    const err = combineEngineFailure(new Error('a'), new Error('b'))
+    expect(err.message.startsWith('CLI 生成失败：a；')).toBe(true)
+    expect(err.message).not.toContain('Error:')
   })
 })
