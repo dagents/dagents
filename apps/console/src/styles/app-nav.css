@@ -140,11 +140,15 @@ body {
   color: var(--meta); border: 1px solid var(--border-soft);
   border-radius: 4px; padding: 1px 4px; background: var(--bg);
 }
-/* 折叠态：只留图标（2026-09-20 修复作用域：collapsed 类在 aside
-   .chat-layout-sidebar 上，.chat-nav-sidebar 根元素从未挂过 —— 旧作用域
-   永不命中，「搜索…/⌘K」在折叠栏里竖排溢出破位） */
+/* 折叠态：只留图标，36px 方块在 56px rail 内水平居中（auto margin 抵掉
+   展开态 12px 左右边距 —— 36+24>56 会溢出 4px，按钮偏左与其余居中
+   图标不齐；2026-09-20 那次只修了作用域，漏了这条几何）。
+   margin-bottom 8px：折叠时会话树整体 display:none，展开态靠树撑开的
+   底部呼吸没了，footer 的 border-top 会贴上按钮底边框二线重叠 */
 .chat-layout-sidebar.collapsed .chat-nav-palette-btn {
   width: 36px; height: 36px; justify-content: center; padding: 0;
+  margin-left: auto; margin-right: auto;
+  margin-bottom: var(--space-2);
   border-radius: var(--radius-md);
 }
 .chat-layout-sidebar.collapsed .chat-nav-palette-label,
