@@ -15,7 +15,7 @@
  * 滚动跟随/回到底部交互，收敛两处「看 agent 干活」的体验。
  */
 
-import { useEffect, useRef, useState, type ReactNode, type Ref } from 'react'
+import { useCallback, useEffect, useRef, useState, type ReactNode, type Ref } from 'react'
 import { useI18n } from '@/i18n'
 import { Icon, type IconName } from '@/components/icon'
 import { ResultViewer } from '@/components/result-viewer'
@@ -47,6 +47,14 @@ function prettyJson(s: string): string {
  * 视觉由消费方的 className 决定（画布 .run-terminal / chat 既有样式）。
  * `initialPinned=false` 用于回放已完成的过程（2026-09-06 验收裁决）：
  * 读回放从顶部开始，tail 跟随只属于 live 场景。
+ *
+ * 2026-09-22 修三处「回到最新」逻辑缺陷：
+ *  1. 内容不满一屏（无 overflow）也显示按钮 —— 死按钮；现在以
+ *     overflowing 门槛控制，短内容不渲染可点状态。
+ *  2. 按钮条件卸载造成 24px 布局跳变（scrollHeight 抖动、点击后内容
+ *     跳一下）—— 改为常驻占位 + visibility 隐藏。
+ *  3. surfaceRef（chat ProcessFold 传入）抢占 ref 导致内部滚动检测与
+ *     jumpToLatest 全部拿到 null —— 双 ref 合流到同一节点。
  */
 export function TerminalSurface({
   children,
@@ -65,29 +73,69 @@ export function TerminalSurface({
   const { t } = useI18n()
   const innerRef = useRef<HTMLDivElement>(null)
   const [pinned, setPinned] = useState(initialPinned)
+  const [overflowing, setOverflowing] = useState(false)
+  const lastScrollHRef = useRef(-1)
+  // pinned 的 ref 镜像：measure 回调里读最新值，避免闭包过期
+  const pinnedRef = useRef(initialPinned)
+  const updatePinned = useCallback((v: boolean): void => {
+    pinnedRef.current = v
+    setPinned(v)
+  }, [])
+
+  // 双 ref 合流：消费方 surfaceRef 与内部检测共用同一节点
+  const setRef = useCallback((node: HTMLDivElement | null): void => {
+    innerRef.current = node
+    if (typeof surfaceRef === 'function') surfaceRef(node)
+    else if (surfaceRef) (surfaceRef as { current: HTMLDivElement | null }).current = node
+  }, [surfaceRef])
 
   const onScroll = (): void => {
     const el = innerRef.current
     if (!el) return
-    setPinned(el.scrollHeight - el.scrollTop - el.clientHeight < 24)
+    updatePinned(el.scrollHeight - el.scrollTop - el.clientHeight < 24)
   }
 
-  // 贴底跟随：内容每次变更（父组件重渲染）都检查一次 —— 无依赖数组是有意的
+  const measure = useCallback((): void => {
+    const el = innerRef.current
+    if (!el) return
+    // 阈值 28 吸收按钮行自身占位（~24px），避免「按钮把自己撑出滚动条」
+    setOverflowing(el.scrollHeight > el.clientHeight + 28)
+    if (pinnedRef.current) el.scrollTop = el.scrollHeight
+  }, [])
+
+  // 贴底跟随 + 可滚动性重测（内容增长路径）：仅在内容高度变化时执行 ——
+  // 旧实现无差别每次渲染滚底，用户上翻与父组件重渲染（轮询/展开行）
+  // 竞态时会被拽回底部，覆盖 setPinned(false)。
+  // eslint-disable-next-line react-hooks/exhaustive-deps -- 无依赖是有意的（内容高度只有渲染后才能测量；lastScrollHRef 短路 + setState 相同值 bail-out，不会形成更新环）
   useEffect(() => {
     const el = innerRef.current
-    if (el && pinned) el.scrollTop = el.scrollHeight
+    if (!el || el.scrollHeight === lastScrollHRef.current) return
+    lastScrollHRef.current = el.scrollHeight
+    measure()
   })
+
+  // 容器尺寸变化路径（窗口/面板 resize 改 clientHeight 但不触发渲染）：
+  // ResizeObserver 补齐 —— 与内容路径互补，二者合起来覆盖全部几何变化。
+  useEffect(() => {
+    const el = innerRef.current
+    if (!el || typeof ResizeObserver === 'undefined') return
+    const ro = new ResizeObserver(() => measure())
+    ro.observe(el)
+    return () => ro.disconnect()
+  }, [measure])
 
   const jumpToLatest = (): void => {
     const el = innerRef.current
     if (!el) return
     el.scrollTop = el.scrollHeight
-    setPinned(true)
+    updatePinned(true)
   }
+
+  const jumpActive = !pinned && overflowing
 
   return (
     <div
-      ref={surfaceRef ?? innerRef}
+      ref={setRef}
       className={`terminal-surface${className ? ` ${className}` : ''}`}
       onScroll={onScroll}
       role='log'
@@ -95,14 +143,19 @@ export function TerminalSurface({
       aria-live={pinned ? 'polite' : 'off'}
     >
       {children}
-      {!pinned ? (
-        <div className='rtl-jump-row'>
-          <button type='button' className='rtl-jump' onClick={jumpToLatest}>
-            <Icon name='arrowDown' style={{ width: 11, height: 11 }} />
-            {t('回到最新')}
-          </button>
-        </div>
-      ) : null}
+      {/* 常驻占位 + visibility 切换：条件卸载会让 scrollHeight 抖动
+          （点击后内容跳 24px），占位恒定则无布局反馈环。 */}
+      <div className={`rtl-jump-row${jumpActive ? '' : ' is-hidden'}`} aria-hidden={!jumpActive}>
+        <button
+          type='button'
+          className='rtl-jump'
+          onClick={jumpToLatest}
+          tabIndex={jumpActive ? 0 : -1}
+        >
+          <Icon name='arrowDown' style={{ width: 11, height: 11 }} />
+          {t('回到最新')}
+        </button>
+      </div>
     </div>
   )
 }

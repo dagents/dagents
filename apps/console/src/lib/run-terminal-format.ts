@@ -132,26 +132,47 @@ export function formatTokensBadge(tokens: unknown): string | null {
   return `↑${fmt(u.inputTokens)} ↓${fmt(u.outputTokens)}`
 }
 
-/** 提示行（$ 前缀）：节点类型 × input.model 组合成「这条 CLI 在跑什么」。 */
-function commandOf(nodeType: string | null | undefined, input: RunNodeSpan['input']): string {
+/** 提示行（$ 前缀）：节点类型 × input.model 组合成「这条 CLI 在跑什么」。
+ *  兼容三种存量形态：引擎注册名（'llmAgentflow'，2026-09-22 起 span/live
+ *  统一写这个 —— gateway resolveNodeType 单源）、旧类型名（'llm'，直存
+ *  类型的 flow）、画布渲染类型（'customNode'，旧 run 的 node_type 列）。
+ *  未知类型兜底用节点名（label）—— 旧 run 的 '$ customNode'×N 无区分度
+ *  （用户实测「只看到一个 $」的根源），退到 label 至少每段可辨。 */
+function commandOf(
+  nodeType: string | null | undefined,
+  input: RunNodeSpan['input'],
+  label?: string | null,
+): string {
   const model =
     input && typeof input === 'object' && typeof input.model === 'string' && input.model
       ? input.model
       : ''
-  const base =
-    nodeType === 'platformAgent'
+  // 注册名归一：去 'Agentflow' 后缀（'llmAgentflow' → 'llm'），
+  // 与旧类型名共用同一张映射表
+  const kind = (nodeType ?? '').replace(/Agentflow$/, '')
+  const known =
+    kind === 'platformAgent' || kind === 'llm' || kind === 'directReply' ||
+    kind === 'customFunction' || kind === 'http' || kind === 'humanInput' ||
+    kind === 'start' || kind === 'condition' || kind === 'iteration'
+  const base = known
+    ? kind === 'platformAgent'
       ? 'agent'
-      : nodeType === 'llm'
+      : kind === 'llm'
         ? 'llm'
-        : nodeType === 'directReply'
+        : kind === 'directReply'
           ? 'reply'
-          : nodeType === 'customFunction'
+          : kind === 'customFunction'
             ? 'fn'
-            : nodeType === 'http'
+            : kind === 'http'
               ? 'http'
-              : nodeType === 'humanInput'
+              : kind === 'humanInput'
                 ? 'input'
-                : nodeType || 'node'
+                : kind === 'start'
+                  ? 'start'
+                  : kind === 'condition'
+                    ? 'cond'
+                    : 'loop'
+    : (label && label.trim()) || kind || 'node'
   return `$ ${base}${model ? ` · ${model}` : ''}`
 }
 
@@ -173,7 +194,7 @@ export function spanToTerminalSection(sp: RunNodeSpan): TerminalSection {
     durationMs: sp.durationMs ?? null,
     tokensBadge: formatTokensBadge(sp.tokens),
     nodeType: sp.nodeType ?? null,
-    command: commandOf(sp.nodeType, sp.input),
+    command: commandOf(sp.nodeType, sp.input, sp.nodeLabel),
     lines,
     lineSource,
     output: text ?? '',
@@ -243,7 +264,7 @@ export function createLiveSectionBuilder(): LiveSectionBuilder {
         durationMs: null,
         tokensBadge: null,
         nodeType: nodeType ?? null,
-        command: commandOf(nodeType ?? null, null),
+        command: commandOf(nodeType ?? null, null, nodeName),
         lines: [],
         lineSource: 'events',
         output: '',

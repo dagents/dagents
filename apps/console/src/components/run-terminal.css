@@ -30,6 +30,9 @@
   box-shadow: 0 2px 8px rgba(0, 0, 0, 0.12);
 }
 .rtl-jump:hover { border-color: var(--border-strong); }
+/* 常驻占位 + visibility 切换（2026-09-22 逻辑修复）：条件卸载按钮会让
+ * scrollHeight 抖动（内容跳 24px + pinned 状态反馈环），占位恒定则稳。 */
+.rtl-jump-row.is-hidden { visibility: hidden; }
 
 /* ── 皮肤层：运行终端（画布结果面板终端视图） ──
  * .run-terminal-wrap：终端流 + stdin 行的纵向组合（可操作终端 2026-09-08）*/
@@ -131,11 +134,20 @@
 .rtl-thinking .rtl-detail { color: var(--muted); font-style: normal; }
 .rtl-raw { margin-left: 0; }
 
-/* 成品正文：与摘要视图 .canvas-result-text 同语义（accent 左线），
- * 但不截断高度内滚动、running 带呼吸光标。 */
+/* 成品正文：与摘要视图 .canvas-result-text 同语义，
+ * 但不截断高度内滚动、running 带呼吸光标。
+ * `$` 前缀（2026-09-22 终端化）：回复正文/JSON 产出与命令行同款提示符
+ * —— ::before 实现，不进 ResultViewer 的复制文本（提示符是 UI 装饰）。
+ * 提示符列对齐（真终端 PS1 同列）：cmd 行 / output / raw 的左缘统一
+ * x=0 —— output 不吃左内距、raw 抵消 detail 的缩进。 */
+.rtl-output::before,
+.rtl-raw::before {
+  content: '$ ';
+  color: var(--accent);
+}
 .rtl-output {
   margin-top: 6px;
-  padding: 8px 10px;
+  padding: 8px 0 10px;
   border-left: 2px solid var(--accent);
   background: var(--surface);
   border-radius: 0 var(--radius-xs) var(--radius-xs) 0;
