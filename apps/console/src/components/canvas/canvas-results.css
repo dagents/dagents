@@ -1,0 +1,353 @@
+/* ================================================================
+ * CanvasResultsPanel 样式 —— 随组件走（2026-09-22 架构解耦）。
+ *
+ * 此前面板样式散在 components/canvas/canvas.css 与（从未被加载的）
+ * src/styles/canvas.css 两处，孤儿规则导致「重跑/停止」按钮裸渲染四天
+ * 未被发现。本文件是运行结果面板样式的唯一真相源，由
+ * canvas-results-panel.tsx 显式 import —— 面板相关改动只动这两个文件。
+ *
+ * 依赖说明：@keyframes canvas-run-rotate 与 canvas.css（运行按钮
+ * spinner）同名共享，此处为副本（同内容），两侧独立加载互不依赖。
+ * DOM 类名沿用 .canvas-results-* / .canvas-result-*（e2e 选择器契约）。
+ * ================================================================ */
+
+/* ── 容器（2026-09-22 密度重构：无框浮层）—— border/padding 全数
+ *   拆除（用户裁决），浮层边界交给 elev-overlay 阴影；水平呼吸由
+ *   chrome 条（标题/挂起/live）自带 12px 侧距承担，hairline 结果
+ *   列表通栏贴边（分隔线从面板左缘画到右缘，密度最优）。 */
+.canvas-results-panel {
+  position: absolute;
+  top: calc(100% + 6px);
+  right: 0;
+  z-index: 1200;
+  width: min(480px, 92vw);
+  background: var(--bg);
+  border: none;
+  border-radius: var(--radius-md);
+  box-shadow: var(--elev-overlay);
+  padding: 0;
+}
+/* 标题行（原 .canvas-run-panel-title 的共享规则，类名随组件独立）——
+ * 容器去 padding 后侧距内化 */
+.canvas-results-title {
+  font-size: var(--text-sm); font-weight: 600; color: var(--fg);
+  display: flex; align-items: center; justify-content: space-between;
+  padding: 10px 12px 6px;
+}
+
+.canvas-results-close { border: 0; background: transparent; color: var(--muted); cursor: pointer; font-size: var(--text-md); line-height: 1; }
+.canvas-results-close:hover { color: var(--fg); }
+/* ── 结果列表（2026-09-22 密度重构）：完全平铺 —— 无行分隔线、无展开
+ * 块边框/底色/内距（用户裁决「去框运动」：面板 → 列表 → 行内容逐层
+ * 拆框），行与行只靠状态点 / 状态色轨 / 行高区分，与终端日志同语言。
+ * 每行独立卡片与 hairline 分隔的中间版本见 git 历史。 */
+.canvas-results-list { max-height: 66vh; overflow-y: auto; display: flex; flex-direction: column; padding-bottom: 8px; }
+.canvas-result-row {
+  border: 0; border-radius: 0;
+  background: transparent;
+}
+.canvas-result-row summary {
+  display: flex; align-items: center; gap: 6px; padding: 3px 4px 3px 8px;
+  cursor: pointer; font-size: var(--text-xs); list-style: none; user-select: none;
+}
+.canvas-result-row summary::-webkit-details-marker { display: none; }
+.canvas-result-dot { width: 6px; height: 6px; border-radius: 50%; flex-shrink: 0; }
+.dot-running { background: var(--warn); animation: canvas-run-rotate 1s linear infinite; }
+/* PX-CV02：亮色下 8px 绿点对白底 ≈2.9:1，用加深绿（暗色回退令牌原值） */
+.dot-done, .dot-completed { background: var(--canvas-ok-badge, var(--success)); }
+.dot-failed { background: var(--danger); }
+.dot-unknown { background: var(--meta); }
+.canvas-result-label { font-weight: 500; color: var(--fg); font-family: var(--font-mono); }
+.canvas-result-meta {
+  margin-left: auto; font-size: var(--text-2xs); color: var(--meta);
+  font-variant-numeric: tabular-nums; white-space: nowrap; flex-shrink: 0;
+}
+/* 失败原因上移折叠行（2026-09-22 密度重构）：监控场景第一诉求是
+ * 「哪里错、为什么错」—— 错因首行直接进摘要列（danger 色 mono 截断），
+ * 不必逐行展开；无产出预览的 failed 行受益最大。 */
+.canvas-result-err-inline {
+  flex: 1; min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap;
+  font-size: var(--text-2xs); color: var(--danger-text); font-family: var(--font-mono);
+}
+
+/* 走查优化（2026-09-19）：状态语义左轨 + 密度分层 ——
+   done 降噪（半透明，hover/展开恢复全亮），running 强调（accent 轨 + 微染），
+   failed 强调（danger 轨）。视线自动聚焦在「还在动的」行上。 */
+.canvas-result-row.status-done, .canvas-result-row.status-completed { opacity: 0.62; }
+.canvas-result-row.status-done:hover,
+.canvas-result-row.status-completed:hover,
+.canvas-result-row.status-done[open],
+.canvas-result-row.status-completed[open] { opacity: 1; }
+.canvas-result-row.status-running {
+  border-left: 2px solid var(--accent);
+  background: color-mix(in srgb, var(--accent) 4%, var(--bg));
+}
+.canvas-result-row.status-failed { border-left: 2px solid var(--danger-text); }
+/* 正文区一点点呼吸（2026-09-22 用户裁决）：全平铺后贴边过紧 —— 水平
+ * 8px 与摘要行缩进对齐，底部 4px 收尾；不回框、不回底色。 */
+.canvas-result-body { padding: 0 8px 4px; }
+.canvas-result-error { color: var(--danger); font-size: var(--text-xs); margin-bottom: 4px; white-space: pre-wrap; }
+.canvas-result-io-label { font-size: var(--text-2xs); color: var(--meta); margin-bottom: 2px; }
+.canvas-result-io pre {
+  margin: 0; padding: 0; border-radius: 0; background: none;
+  font-size: var(--text-2xs); line-height: 1.45; white-space: pre-wrap; word-break: break-word;
+  max-height: 180px; overflow-y: auto; color: var(--muted);
+}
+@keyframes canvas-run-rotate { to { transform: rotate(360deg); } }
+
+/* 结果面板：实时执行行（2026-09-19 走查优化点 1-3）：结构化指标行
+   「运行中 · n/m · 失败 k · ⏱ 12.4s」+ 3px 迷你进度条（done 绿 / fail 红）*/
+.canvas-results-live { margin: 0 12px 6px; }
+.canvas-results-live-line {
+  display: flex; align-items: center; gap: 6px;
+  font-size: var(--text-2xs); color: var(--muted); white-space: nowrap; overflow: hidden;
+}
+.canvas-results-live-state {
+  display: inline-flex; align-items: center; gap: 6px;
+  color: var(--accent); font-weight: 500;
+}
+.canvas-results-live-state::before {
+  content: ''; width: 7px; height: 7px; border-radius: 50%;
+  background: var(--accent); animation: canvas-run-rotate 1s linear infinite;
+  display: inline-block; flex-shrink: 0;
+}
+.canvas-results-live-sep { color: var(--border-strong); }
+.canvas-results-live-fail { color: var(--danger-text); }
+.canvas-results-live.awaiting .canvas-results-live-state::before {
+  animation: none; /* 挂起 = 暂停：点静止转黄，不再是「跑动」语义 */
+  background: var(--warn);
+}
+.canvas-results-live-elapsed {
+  font-family: var(--font-mono); font-variant-numeric: tabular-nums; color: var(--fg);
+}
+.canvas-results-live-bar {
+  display: flex; height: 3px; border-radius: 2px; overflow: hidden;
+  background: var(--surface-sunk); margin-top: 4px;
+}
+.canvas-results-live-bar-done { background: var(--canvas-ok-badge, var(--success)); }
+.canvas-results-live-bar-fail { background: var(--danger); }
+
+/* 元数据底行（2026-09-06 PM/设计师裁决）：输入/原始数据统一垫底 —— 成品
+ * 正文优先，调试入口是安静的小链接（mono/meta 色，不与内容抢层级），
+ * 点开才占地方；虚线细分隔把它明确归入「卡片脚注」层。
+ * （旧实现：输入折叠在正文上方、原始数据折叠在正文下方，元数据包夹成品，
+ *  且原始数据是正文的 JSON 复读 —— 已废除。） */
+.canvas-result-meta-row {
+  margin-top: 4px;
+  padding-top: 0;
+  border-top: none;
+}
+.canvas-result-meta-links { display: flex; gap: 14px; }
+.canvas-result-meta-link {
+  border: 0; background: transparent; padding: 0; cursor: pointer;
+  font-family: var(--font-mono); font-size: var(--text-2xs); color: var(--meta);
+  border-radius: var(--radius-xs);
+  transition: color var(--motion-fast) var(--ease-standard);
+}
+.canvas-result-meta-link:hover { color: var(--fg); }
+.canvas-result-meta-link.active { color: var(--accent); }
+.canvas-result-meta-pre {
+  margin: 2px 0 0; padding: 0; border-radius: 0; background: none;
+  font-size: var(--text-2xs); line-height: 1.5; white-space: pre-wrap; word-break: break-word;
+  max-height: 220px; overflow-y: auto; color: var(--fg);
+  animation: canvas-io-reveal var(--motion-fast) var(--ease-standard);
+}
+@keyframes canvas-io-reveal {
+  from { opacity: 0; transform: translateY(-2px); }
+  to { opacity: 1; transform: translateY(0); }
+}
+
+/* 结果行 v2：折叠预览 + tokens 徽章 + 文本直出 */
+.canvas-result-preview {
+  flex: 1; min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap;
+  font-size: var(--text-2xs); color: var(--muted); font-family: inherit;
+}
+.canvas-result-tokens {
+  flex-shrink: 0; font-size: var(--text-2xs); font-family: var(--font-mono);
+  font-variant-numeric: tabular-nums; /* PX-CV03：数字对列，↑/↓ 用量可扫读 */
+  color: var(--meta);
+}
+.canvas-result-text {
+  font-size: var(--text-xs); line-height: 1.6; color: var(--fg);
+  white-space: pre-wrap; word-break: break-word;
+  margin: 2px 0;
+  max-height: 240px; overflow-y: auto;
+}
+/* 正文层去框后（2026-09-22 去框运动终局），streaming 与终态的分层只靠
+ * 色相：streaming 正文 muted（还在写），终态正文 fg（成品）。 */
+.canvas-result-text.streaming {
+  color: var(--muted);
+}
+/* live tail（2026-08-30 流式展示）：running 节点的 partial 正文 ——
+   光标呼吸 + 底部渐隐提示「还在写」。滚动条贴底由渲染方保证
+   （max-height 容器，用户手动上翻不干扰）。 */
+.canvas-result-text.streaming::after {
+  content: '▍';
+  display: inline-block;
+  margin-left: 2px;
+  color: var(--accent);
+  animation: canvas-stream-cursor 1s steps(2) infinite;
+}
+@keyframes canvas-stream-cursor {
+  0%, 100% { opacity: 1; }
+  50% { opacity: 0; }
+}
+.canvas-result-preview-live {
+  color: var(--accent);
+  font-family: var(--font-mono);
+}
+
+.dot-warn { background: var(--warn); }
+
+/* 活动流（2026-08-30 运行中实时进度）：thinking / 工具调用时间线，
+ * 显示在 live 正文上方；终态由全文覆盖、不再渲染。去框后是纯 mono
+ * muted 行流，与正文靠字号/颜色分层。 */
+.canvas-result-activity {
+  display: flex;
+  flex-direction: column;
+  gap: 2px;
+  margin: 2px 0;
+  font-family: var(--font-mono);
+}
+.canvas-act {
+  display: flex;
+  gap: 6px;
+  font-size: var(--text-2xs);
+  color: var(--muted);
+  align-items: baseline;
+}
+.canvas-act-icon { flex-shrink: 0; font-size: var(--text-2xs); }
+.canvas-act-label {
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+.canvas-act.act-tool .canvas-act-label { color: var(--fg); }
+.canvas-act.act-thinking .canvas-act-label { opacity: 0.8; font-style: italic; }
+.canvas-act.act-tool_result .canvas-act-label { color: var(--muted); }
+.canvas-act.act-error .canvas-act-label { color: var(--danger); }
+
+/* 结果面板视图切换（2026-09-06 终端视图 PRD）：摘要（默认）/ 终端 分段器。
+ * 标题行是 space-between —— 标题+切换器包成左组，关闭钮吸右。 */
+.canvas-results-title-row { display: inline-flex; align-items: center; gap: 6px; }
+.canvas-results-view {
+  display: inline-flex;
+  margin-left: 10px;
+  border: 1px solid var(--border);
+  border-radius: var(--radius-xs);
+  overflow: hidden;
+  background: var(--bg);
+}
+.canvas-results-view-btn {
+  border: 0;
+  background: transparent;
+  color: var(--muted);
+  font-size: var(--text-2xs);
+  font-family: var(--font-mono);
+  padding: 2px 10px;
+  cursor: pointer;
+  transition: background var(--motion-fast) var(--ease-standard),
+              color var(--motion-fast) var(--ease-standard);
+}
+.canvas-results-view-btn:hover { color: var(--fg); }
+.canvas-results-view-btn.active {
+  background: var(--surface);
+  color: var(--fg);
+  font-weight: 500;
+}
+
+/* ── 标题行操作 chip：重跑 / 停止 / 从此处继续 / 终端深链 ──────────────
+ * 2026-09-22 修复：这批类原写在 src/styles/canvas.css，但那个文件从未被
+ * 任何组件 import —— 四个入口自上线起一直渲染成浏览器原生按钮（黑粗框
+ * 灰底）。迁入组件样式文件（本文件），并修正 --text 坏 token
+ * （→ --fg/muted）与 margin-left:8px·gap:6px 叠加的间距。间距统一交给
+ * .canvas-results-title-row 的 gap。 */
+.canvas-results-rerun {
+  display: inline-flex;
+  align-items: center;
+  border: 1px solid var(--border);
+  border-radius: var(--radius-sm);
+  background: none;
+  color: var(--muted);
+  font-size: var(--text-xs);
+  font-weight: 500; /* 显式压掉面板标题的 600 继承 */
+  padding: 3px 10px;
+  text-decoration: none; /* 「在项目目录打开终端」是 <Link> */
+  cursor: pointer;
+  transition: background var(--motion-fast) var(--ease-standard),
+              color var(--motion-fast) var(--ease-standard),
+              border-color var(--motion-fast) var(--ease-standard);
+}
+.canvas-results-rerun:hover {
+  background: var(--surface);
+  color: var(--fg);
+  border-color: var(--border-strong);
+}
+/* 停止（运行中）：danger 语义，与 btn-danger 同语言 */
+.canvas-results-stop { color: var(--danger-text); border-color: var(--danger); }
+.canvas-results-stop:hover {
+  background: var(--danger-soft);
+  color: var(--danger-text);
+  border-color: var(--danger);
+}
+/* 从此处继续（断点续跑）：accent 只做指向（边+字），不做填充 */
+.canvas-results-resume { border-color: var(--accent); color: var(--accent); }
+.canvas-results-resume:hover {
+  background: var(--surface);
+  color: var(--accent);
+  border-color: var(--accent);
+}
+
+/* 挂起应答条（HumanInput P2 §6.6）—— prompt + 受控输入 + 继续按钮 */
+.canvas-awaiting-bar {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  margin: 0 12px 8px;
+  padding: 6px 8px;
+  border: 1px solid var(--note-border);
+  border-radius: var(--radius-md);
+  background: var(--note-bg);
+}
+.canvas-awaiting-prompt { font-size: var(--text-sm); color: var(--note-text); flex: none; }
+.canvas-awaiting-input { flex: 1; min-width: 120px; }
+
+/* 终端视图（2026-09-22 去框运动终局 + 密度重构，面板作用域覆盖 ——
+ * run-terminal.css 全局皮肤被 chat ProcessFold 共用，不动它避免跨面
+ * 回归）：终端块自身的边框/圆角/侧距全部拆除，与摘要视图同语言 ——
+ * 通栏平铺，缩进由根内距 8px 提供（与摘要行缩进对齐）；段间距
+ * 16→8、行高 1.6→1.5；detail/output 正文块去框（去底色/左线/圆角）。
+ * stdin 行（rti-bar）保留边框 —— 输入控件的可用性语义，不是内容框。 */
+.canvas-results-panel .run-terminal {
+  margin: 0 0 4px;
+  border: none;
+  border-radius: 0;
+  padding: 0 8px 6px;
+  line-height: 1.5;
+  max-height: 62vh; /* 面板去 padding 后同步略增可视预算 */
+}
+.canvas-results-panel .rtl-section { margin-bottom: 8px; }
+.canvas-results-panel .rtl-sep { margin-bottom: 2px; }
+.canvas-results-panel .rtl-detail {
+  margin: 1px 0 2px 14px;
+  padding: 2px 6px;
+  background: none;
+  border-left: none;
+  border-radius: 0;
+  max-height: 220px;
+}
+/* raw（JSON 产出）带 `$` 提示符 —— 与命令行/正文同列（真终端 PS1
+ * 对齐），抵消上面 detail 的 14px 缩进 */
+.canvas-results-panel .rtl-detail.rtl-raw { margin-left: 0; }
+.canvas-results-panel .rtl-output {
+  margin-top: 2px;
+  padding: 2px 0;
+  border-left: none;
+  background: none;
+  border-radius: 0;
+}
+.canvas-results-panel .rtl-legacy-note {
+  padding: 4px 8px;
+  margin-bottom: 6px;
+}
+.canvas-results-panel .rti-bar { padding: 4px 8px; }

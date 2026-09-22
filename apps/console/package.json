@@ -10,7 +10,7 @@
     "typecheck": "tsc --noEmit",
     "test": "vitest run",
     "test:e2e": "playwright test",
-    "lint": "eslint src --ext .ts,.tsx"
+    "lint": "eslint src --ext .ts,.tsx && node scripts/check-orphan-css.mjs"
   },
   "dependencies": {
     "@dagents/contracts": "workspace:*",
