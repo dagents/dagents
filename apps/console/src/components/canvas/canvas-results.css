@@ -37,6 +37,17 @@
 
 .canvas-results-close { border: 0; background: transparent; color: var(--muted); cursor: pointer; font-size: var(--text-md); line-height: 1; }
 .canvas-results-close:hover { color: var(--fg); }
+/* run 级失败横幅（2026-09-22）：零 span 整体失败（拓扑成环/启动即挂）的
+ * 唯一线索位 —— 标题下、视图体之上，摘要/终端两视图共用。 */
+.canvas-results-run-error {
+  margin: 2px 8px 6px; padding: 8px 10px;
+  border-left: 2px solid var(--danger-text);
+  background: var(--danger-soft);
+  border-radius: var(--radius-sm);
+  display: flex; flex-direction: column; gap: 2px;
+}
+.canvas-results-run-error-head { font-size: var(--text-xs); font-weight: 600; color: var(--danger-text); }
+.canvas-results-run-error-text { font-size: var(--text-xs); color: var(--danger-text); opacity: .92; word-break: break-all; }
 /* ── 结果列表（2026-09-22 密度重构）：完全平铺 —— 无行分隔线、无展开
  * 块边框/底色/内距（用户裁决「去框运动」：面板 → 列表 → 行内容逐层
  * 拆框），行与行只靠状态点 / 状态色轨 / 行高区分，与终端日志同语言。

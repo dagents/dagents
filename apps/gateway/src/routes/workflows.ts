@@ -28,6 +28,7 @@ import { getDirectoryPath } from '../repositories/directories.repo.js'
 import {
   getRunNodeSpans,
   getRunStatusAndDuration,
+  getRunError,
   persistWorkflowRunRow,
   initAsyncWorkflowRunRow,
   insertNodeSpansBatch,
@@ -734,7 +735,15 @@ workflowsRoutes.get('/runs/:runId/node-spans', async (c) => {
   // 无活会话 → 不可插话，如实禁用不假装）。
   const inputSupported = runHasLiveSinks(runId)
 
-  return ok(c, { runId, runStatus, runDurationMs, runDirectoryId, inputSupported, spans })
+  // run 级失败原因（2026-09-22）：零 span 的整体失败（拓扑成环 / 启动即挂）
+  // 只有 checkpoint failedAt 知道 —— 不带出去，前端只见「失败」无从解释。
+  // 只在 failed 终态多查一次（旁观 700ms 轮询不背常驻开销）。
+  let runError: string | null = null
+  if (runStatus === 'failed') {
+    runError = await getRunError(runId).catch(() => null)
+  }
+
+  return ok(c, { runId, runStatus, runDurationMs, runDirectoryId, inputSupported, runError, spans })
 })
 
 /**

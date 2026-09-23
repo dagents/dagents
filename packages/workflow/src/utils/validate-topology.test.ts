@@ -81,6 +81,66 @@ describe('validateFlowTopology', () => {
     }
   })
 
+  // ── cycle detection（2026-09-22：生成器曾产出 condition 回边环，DAG 引擎
+  //    9ms 内零 span 失败且无任何可检视痕迹 —— 环必须在生成校验门拦下）──
+
+  it('errors on a condition back-edge cycle and names the offending path', () => {
+    const result = validateFlowTopology({
+      nodes: [
+        genNode('start', 'startAgentflow'),
+        genNode('fix', 'platformAgentAgentflow', { agentId: 'uuid-1' }),
+        genNode('test', 'platformAgentAgentflow', { agentId: 'uuid-1' }),
+        genNode('cond', 'conditionAgentflow'),
+        genNode('done', 'directReplyAgentflow', { content: 'ok' }),
+      ],
+      edges: [
+        { source: 'start', target: 'fix' },
+        { source: 'fix', target: 'test' },
+        { source: 'test', target: 'cond' },
+        { source: 'cond', target: 'fix' }, // 「直到修完」回边 → 环
+        { source: 'cond', target: 'done' },
+      ],
+    })
+    expect(result.ok).toBe(false)
+    if (!result.ok) {
+      const cycleErr = result.errors.find((e) => /cycle detected/.test(e.message))
+      expect(cycleErr).toBeDefined()
+      expect(cycleErr?.message).toMatch(/iterationAgentflow/) // 修复指引在错误里
+      expect(cycleErr?.message).toMatch(/fix → test → cond → fix|cond → fix → test → cond/)
+    }
+  })
+
+  it('errors on a self-loop', () => {
+    const result = validateFlowTopology({
+      nodes: [genNode('start', 'startAgentflow'), genNode('a', 'llmAgentflow')],
+      edges: [
+        { source: 'start', target: 'a' },
+        { source: 'a', target: 'a' },
+      ],
+    })
+    expect(result.ok).toBe(false)
+    if (!result.ok) {
+      expect(result.errors.some((e) => /cycle detected \(a → a\)/.test(e.message))).toBe(true)
+    }
+  })
+
+  it('accepts a fork/join DAG (no cycle) and a bounded iteration body', () => {
+    const dag = validateFlowTopology({
+      nodes: [
+        genNode('start', 'startAgentflow'),
+        genNode('iter', 'iterationAgentflow', { inputs: { items: '[1, 2, 3]' } }),
+        genNode('body', 'llmAgentflow'),
+        genNode('join', 'directReplyAgentflow', { content: 'done' }),
+      ],
+      edges: [
+        { source: 'start', target: 'iter' },
+        { source: 'iter', target: 'body' },
+        { source: 'body', target: 'join' },
+      ],
+    })
+    expect(dag.ok).toBe(true)
+  })
+
   it('errors when multiple startAgentflow nodes exist', () => {
     const result = validateFlowTopology({
       nodes: [

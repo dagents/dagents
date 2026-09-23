@@ -47,6 +47,9 @@ export interface CanvasResultsPanelProps {
   runState: CanvasRunState
   /** 本轮 run 的节点 spans（增量刷新由页面轮询驱动）。 */
   spans: RunNodeSpan[]
+  /** run 级失败原因（2026-09-22）：零 span 的整体失败（拓扑成环 / 启动即挂）
+   *  唯一的失败线索 —— 顶部横幅展示；成功 / 旧网关为 null。 */
+  runError?: string | null
   /** 流程总节点数（进度分母 —— 早期 span 数少，不能拿 spans.length 当分母）。 */
   totalNodes: number
   /** 拓扑序（initialFlow 节点顺序）—— 行序与终端分段排序用。 */
@@ -202,6 +205,7 @@ function LiveElapsed({
 export function CanvasResultsPanel({
   runState,
   spans,
+  runError,
   totalNodes,
   topoOrder,
   runLive,
@@ -396,6 +400,18 @@ export function CanvasResultsPanel({
           ×
         </button>
       </div>
+      {/* run 级失败横幅（2026-09-22）：零 span 的整体失败（拓扑成环/启动
+          即挂）没有任何节点行可看，这里是失败原因的唯一落点；摘要与终端
+          两个视图共用（置于标题下、视图体之上）。 */}
+      {runError ? (
+        <div className='canvas-results-run-error' role='alert'>
+          <span className='canvas-results-run-error-head'>
+            {t('运行失败')}
+            {latestSpans.length === 0 ? ` · ${t('未执行任何节点')}` : ''}
+          </span>
+          <span className='canvas-results-run-error-text'>{runError}</span>
+        </div>
+      ) : null}
       {runState === 'running' || runState === 'awaiting' ? (
         /* 状态行结构化（2026-09-19 走查优化点 1-3）：长句改为指标行
            「运行中 · n/m · 失败 k · ⏱ 12.4s」+ 迷你进度条 —— 总耗时

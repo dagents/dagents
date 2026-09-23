@@ -104,6 +104,54 @@ function shapeErrors(
 }
 
 /**
+ * Cycle check helper — Kahn's algorithm over the edge set. Returns one
+ * concrete cycle path (first closed walk in the residual subgraph) or null
+ * when acyclic. Edges referencing missing nodes are skipped — those error
+ * separately in the edge check.
+ *
+ * Invariant: any node left with positive in-degree (residual) has at least
+ * one residual successor within a cycle, so the walk below always closes.
+ */
+function detectCycle(nodes: FlowNode[], edges: FlowData['edges']): string[] | null {
+  const ids = new Set(nodes.map((n) => n.id))
+  const indegree = new Map<string, number>(nodes.map((n) => [n.id, 0]))
+  const adjacency = new Map<string, string[]>(nodes.map((n) => [n.id, []]))
+  for (const e of edges) {
+    if (!ids.has(e.source) || !ids.has(e.target)) continue
+    adjacency.get(e.source)!.push(e.target)
+    indegree.set(e.target, (indegree.get(e.target) ?? 0) + 1)
+  }
+  const queue = [...indegree].filter(([, d]) => d === 0).map(([id]) => id)
+  while (queue.length > 0) {
+    const id = queue.shift()!
+    for (const next of adjacency.get(id) ?? []) {
+      const d = (indegree.get(next) ?? 1) - 1
+      indegree.set(next, d)
+      if (d === 0) queue.push(next)
+    }
+  }
+  const residualIds = [...indegree].filter(([, d]) => d > 0).map(([id]) => id)
+  if (residualIds.length === 0) return null
+  const residual = new Set(residualIds)
+  const starts = residualIds.filter((id) =>
+    (adjacency.get(id) ?? []).some((n) => residual.has(n)),
+  )
+  if (starts.length === 0) return residualIds // defensive: report the set
+  const seen = new Map<string, number>()
+  const path: string[] = []
+  let cur = starts[0]!
+  while (!seen.has(cur)) {
+    seen.set(cur, path.length)
+    path.push(cur)
+    cur = (adjacency.get(cur) ?? []).find((n) => residual.has(n))!
+  }
+  // 闭合节点重复一次收尾（a → b → a / 自环 a → a），与引擎报错同格式
+  const cycle = path.slice(seen.get(cur)!)
+  cycle.push(cycle[0]!)
+  return cycle
+}
+
+/**
  * Validate a flow definition (the parsed `flowData` object, not its JSON
  * string) for executability. Always returns; never throws. Warnings are
  * collected even when errors are present so a save-entry can show everything
@@ -185,6 +233,24 @@ export function validateFlowTopology(data: unknown): TopologyResult {
         message: `platform agent node "${node.id}" has no agentId — it will fail when executed`,
       })
     }
+  }
+
+  // Cycle check — the engine is a DAG executor (Kahn's topological sort in
+  // DagExecutor.execute): a single back-edge (e.g. a condition node looping
+  // to an earlier step for "repeat until" semantics) makes the run fail
+  // before any node starts, with zero node spans and nothing to inspect.
+  // Reject the shape at the validation gate — generation's repair loop and
+  // human authors both get the offending path named.
+  const cycle = detectCycle(flow.nodes, flow.edges)
+  if (cycle) {
+    errors.push({
+      node: cycle[0],
+      message:
+        `cycle detected (${cycle.join(' → ')}): the engine executes DAGs only — edges ` +
+        `must never point back to an earlier node; express repetition with an ` +
+        `iterationAgentflow node over a bounded list, or let the agent iterate ` +
+        `internally per its systemPrompt`,
+    })
   }
 
   if (errors.length > 0) return { ok: false, errors, warnings }

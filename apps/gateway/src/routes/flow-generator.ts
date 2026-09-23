@@ -95,6 +95,7 @@ Rules:
 - Every platformAgentAgentflow node MUST set data.inputs.systemPrompt to a concrete, self-contained task instruction for THAT step's role (in the user's language): what this role is responsible for, what input it receives, and what deliverable it must produce. Never rely on the node label alone — the label is display-only and never reaches the model.
 - For LLM nodes (data.name: "llmAgentflow"), set data.model and data.systemPrompt
 - For DirectReply nodes (data.name: "directReplyAgentflow"), set data.content
+- The engine executes flows as a DAG: edges must NEVER point back to an earlier node (no cycles — a condition node looping to an earlier step makes the flow unrunnable). "Repeat until X" has no native loop primitive: either bound it with an iterationAgentflow node (data.inputs.items = a JSON array of rounds, e.g. "[1,2,3]", loop body = the repeated steps downstream), or state the repetition in that step's systemPrompt and let the agent iterate internally until done
 - Position nodes in a left-to-right layout with ~250px spacing
 - Return ONLY the JSON object, no markdown fences, no explanation
 

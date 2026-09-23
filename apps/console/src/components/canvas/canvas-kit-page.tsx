@@ -163,6 +163,10 @@ export function CanvasKitPage({
     [flowId],
   )
   const [resultsOpen, setResultsOpen] = useState(false)
+  /** run 级失败原因（2026-09-22）：零 span 的整体失败（如拓扑成环）没有
+   *  节点可看，唯一线索是它 —— 「运行结果」按钮的存在性也依赖这个而非
+   *  仅 spans 数（否则失败越早、越没有入口，toast 指路成死链）。 */
+  const [runError, setRunError] = useState<string | null>(null)
   // 当前运行（2026-09-08 可操作终端）：stdin 行插话路由的目标 run ——
   // 画布直跑 = handleRun 生成的 runId；旁观 = URL ?run= 的 watchRunId。
   const [activeRunId, setActiveRunId] = useState<string | null>(watchRunId ?? null)
@@ -297,6 +301,7 @@ export function CanvasKitPage({
       if (!r.ok) return { runStatus: null, hasRunning: false, hasSpans: false, spans: [] }
       applySpans(r.spans)
       setLatestSpans(r.spans)
+      setRunError(r.runError ?? null)
       if (r.inputSupported != null) setInputSupported(r.inputSupported)
       if (r.runDirectoryId != null) setSpectatedRunDirId(r.runDirectoryId)
       return {
@@ -387,6 +392,7 @@ export function CanvasKitPage({
       setRunPanelOpen(false)
       setResultsOpen(true)
       setLatestSpans([])
+      setRunError(null)
       editorRef.current?.clearRunState()
       setRunState('running')
       setRunSummary(null)
@@ -398,26 +404,43 @@ export function CanvasKitPage({
       try {
         // 异步模式：立即返回 runId，进度全靠轮询 —— 同步等待会让长流程
         //（如 5-9 分钟的多 Agent 链）撞上代理层 300s 超时，客户端误报失败。
-        const res = await fetch(
-          isResume
-            ? `/api/workflows/runs/${encodeURIComponent(resumeInfo.runId)}/resume`
-            : `/api/workflows/${encodeURIComponent(flowId)}/run?async=1`,
-          {
-            method: 'POST',
-            headers: { 'content-type': 'application/json', ...(!isResume ? { 'x-run-id': clientRunId } : {}) },
-            body: JSON.stringify({
+        //（resumeRunId/skipCount 提前捕获：submit 闭包里 TS 无法维持别名收窄）
+        const resumeRunId = resumeInfo?.runId ?? ''
+        const resumeSkipCount = resumeInfo?.completedCount ?? 0
+        const submit = (asResume: boolean): Promise<Response> =>
+          fetch(
+            asResume
+              ? `/api/workflows/runs/${encodeURIComponent(resumeRunId)}/resume`
+              : `/api/workflows/${encodeURIComponent(flowId)}/run?async=1`,
+            {
+              method: 'POST',
+              headers: { 'content-type': 'application/json', ...(!asResume ? { 'x-run-id': clientRunId } : {}) },
+              body: JSON.stringify({
           ...(input.trim() ? { input: input.trim() } : {}),
           ...(runDirectoryId ? { directoryId: runDirectoryId } : {}),
           // HumanInput 预供答案（2026-09-18）：与列表运行面板同契约
           ...(humanInputs ? { humanInputs } : {}),
         }),
-          },
-        )
-        const json = (await res.json().catch(() => null)) as {
+            },
+          )
+        let asResume = isResume
+        let res = await submit(asResume)
+        let json = (await res.json().catch(() => null)) as {
           success?: boolean
           error?: string
           data?: { runId?: string }
         } | null
+        // 断点已过期（流程拓扑变了，resume 被网关 422 拒）：旧 checkpoint 的
+        // 种子输出指向已不存在的图，续跑唯一正确语义是作废 —— 自动回退
+        // 全新跑一次，不把用户摁死在报错里（2026-09-23：flow 被覆盖/重排
+        // 后点旧「继续/重试」即触发）。
+        if (asResume && res.status === 422 && /topology changed/.test(json?.error ?? '')) {
+          setResumeInfo(null)
+          asResume = false
+          toast.info(t('流程已修改，旧断点失效 —— 已改为全新运行'), 5000)
+          res = await submit(false)
+          json = (await res.json().catch(() => null)) as typeof json
+        }
         if (!res.ok || !json?.success) {
           setRunState('failed')
           const reason = json?.error ?? `HTTP ${res.status}`
@@ -428,9 +451,9 @@ export function CanvasKitPage({
         // resume 端点分配新 runId；直跑沿用客户端预生成 id
         const effectiveRunId = json.data?.runId ?? clientRunId
         setActiveRunId(effectiveRunId)
-        if (isResume) {
+        if (asResume) {
           setResumeInfo(null)
-          toast.info(t('已从断点继续 —— 跳过 {n} 个已完成节点', { n: String(resumeInfo.completedCount) }), 5000)
+          toast.info(t('已从断点继续 —— 跳过 {n} 个已完成节点', { n: String(resumeSkipCount) }), 5000)
         }
         // 画布直跑接管旁观：manualWatchRef 让 ?run= 的自有循环退位
         manualWatchRef.current = true
@@ -786,7 +809,7 @@ export function CanvasKitPage({
                 {runSummary}
               </span>
             ) : null}
-            {latestSpans.length > 0 ? (
+            {latestSpans.length > 0 || runError != null || resumeInfo != null ? (
               <button
                 className='canvas-results-btn'
                 onClick={() => {
@@ -797,7 +820,9 @@ export function CanvasKitPage({
                 }}
                 title={t('查看每个节点的执行状态与产出')}
               >
-                {t('运行结果（{n}）', { n: latestSpans.length })}
+                {latestSpans.length > 0
+                  ? t('运行结果（{n}）', { n: latestSpans.length })
+                  : t('运行结果')}
               </button>
             ) : null}
             <button
@@ -939,11 +964,15 @@ export function CanvasKitPage({
           />
 
           {/* 运行结果面板：独立组件（2026-09-22 解耦）—— 展示态内聚，
-              执行编排经 props 回调；样式自带 canvas-results.css。 */}
-          {resultsOpen && latestSpans.length > 0 ? (
+              执行编排经 props 回调；样式自带 canvas-results.css。
+              挂载条件含 runError / 断点续跑 / 挂起应答：零 span 且无 runError
+              的失败（如错误被后续 resume 抹掉的旧 run）也要有面板承载
+              「从此处继续」等终态动作。 */}
+          {resultsOpen && (latestSpans.length > 0 || runError != null || resumeInfo != null || awaitingInfo != null) ? (
             <CanvasResultsPanel
               runState={runState}
               spans={latestSpans}
+              runError={runError}
               totalNodes={initialFlow.nodes.length}
               topoOrder={topoOrder}
               runLive={runLive}
@@ -962,7 +991,7 @@ export function CanvasKitPage({
         </div>
       )
     },
-    [flowName, saveState, readOnly, runState, runSummary, handleRun, t, runPanelOpen, openRunPanel, runInput, resultsOpen, latestSpans, saveTplOpen, handleRerun, handleResume, cancelRun, submitAnswer, sendMessage, resumeInfo, awaitingInfo, handleAddDirectory, firstRunBar, templateParamNames, topoOrder, initialFlow, runLive, inputSupported, runDirectoryId, spectatedRunDirId],
+    [flowName, saveState, readOnly, runState, runSummary, handleRun, t, runPanelOpen, openRunPanel, runInput, resultsOpen, latestSpans, runError, saveTplOpen, handleRerun, handleResume, cancelRun, submitAnswer, sendMessage, resumeInfo, awaitingInfo, handleAddDirectory, firstRunBar, templateParamNames, topoOrder, initialFlow, runLive, inputSupported, runDirectoryId, spectatedRunDirId],
   )
 
   return (

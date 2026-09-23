@@ -217,6 +217,7 @@ export const common = {
   '跳过 {n} 个节点': 'skip {n} nodes',
   '跳过 {n} 个已完成节点，从失败处继续': 'Skip {n} completed nodes and continue from the failure point',
   '已从断点继续 —— 跳过 {n} 个已完成节点': 'Resumed from checkpoint — skipped {n} completed nodes',
+  '流程已修改，旧断点失效 —— 已改为全新运行': 'Flow topology changed, the old checkpoint is stale — starting a fresh run instead',
   '输入答案后继续': 'Type an answer to continue',
   '继续运行': 'Continue run',
   '提交答案失败': 'Failed to submit answer',

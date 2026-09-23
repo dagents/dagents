@@ -125,6 +125,7 @@ export const chat: Record<string, string> = {
   '开始运行': 'Start run',
   '运行结果': 'Run results',
   '运行结果（{n}）': 'Results ({n})',
+  '未执行任何节点': 'no node was executed',
   '查看每个节点的执行状态与产出': 'Inspect per-node status and output',
   完成: 'Done',
   '（无产出）': '(no output)',
