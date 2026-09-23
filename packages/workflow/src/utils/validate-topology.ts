@@ -109,8 +109,11 @@ function shapeErrors(
  * when acyclic. Edges referencing missing nodes are skipped — those error
  * separately in the edge check.
  *
- * Invariant: any node left with positive in-degree (residual) has at least
- * one residual successor within a cycle, so the walk below always closes.
+ * The residual set (positive in-degree after Kahn) can still carry tail
+ * nodes downstream of a cycle that never reach zero — pruning them first
+ * (iteratively drop residual nodes with no residual out-edge) leaves a set
+ * where every node has a residual successor, so the walk below always
+ * closes on a true cycle.
  */
 function detectCycle(nodes: FlowNode[], edges: FlowData['edges']): string[] | null {
   const ids = new Set(nodes.map((n) => n.id))
@@ -132,14 +135,23 @@ function detectCycle(nodes: FlowNode[], edges: FlowData['edges']): string[] | nu
   }
   const residualIds = [...indegree].filter(([, d]) => d > 0).map(([id]) => id)
   if (residualIds.length === 0) return null
-  const residual = new Set(residualIds)
-  const starts = residualIds.filter((id) =>
-    (adjacency.get(id) ?? []).some((n) => residual.has(n)),
-  )
-  if (starts.length === 0) return residualIds // defensive: report the set
+  let residual = new Set(residualIds)
+  // 剪枝尾巴：环外下游节点留在残余集但无残余出边（如环 a→b 上的 b 挂
+  // b→c 尾巴），游走踏入即死路。反复滤除无残余后继者至收敛——此后集内
+  // 每个节点都有集内后继，游走必闭合且必为真环。
+  let core = residualIds
+  for (;;) {
+    const pruned = core.filter((id) =>
+      (adjacency.get(id) ?? []).some((n) => residual.has(n)),
+    )
+    if (pruned.length === core.length) break
+    core = pruned
+    residual = new Set(core)
+  }
+  if (core.length === 0) return residualIds // defensive: report the unpruned set
   const seen = new Map<string, number>()
   const path: string[] = []
-  let cur = starts[0]!
+  let cur = core[0]!
   while (!seen.has(cur)) {
     seen.set(cur, path.length)
     path.push(cur)

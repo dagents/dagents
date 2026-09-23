@@ -1,6 +1,6 @@
 # Dagents 架构总览（现状真相源）
 
-> 更新：2026-09-17。本文回答"系统今天长什么样"，决策过程见各专题文档。
+> 更新：2026-09-23。本文回答"系统今天长什么样"，决策过程见各专题文档。
 > 分层契约与命令以 `AGENTS.md` 为准，本文提供全景与关键链路。
 
 ---
@@ -43,10 +43,14 @@ gateway 后台执行 DagExecutor（并行波次）
 console watchLoop 轮询 GET /runs/:runId/node-spans（700ms）
    │  ├─ 节点徽章（INPROGRESS 旋转 / FINISHED 绿 / ERROR 红）
    │  ├─ 连线点亮（完成段绿色渐变 / 活动段 dash 流动）
-   │  └─ 结果面板（正文直出 + 预览 + tokens 徽章 + 失败即时检测）
+   │  └─ 结果面板（正文直出 + 预览 + tokens 徽章 + 失败即时检测；
+   │       failed 终态附带 runError —— 源 run_checkpoints.snapshot.failedAt，
+   │       零 span 整体失败如拓扑成环时前端唯一可解释线索）
    ▼
 终态（runs 行 runStatus）→ 执行卡/结果面板定格
 ```
+
+- **DAG 禁环**：引擎是 Kahn 拓扑排序执行器，边不得回指成环——校验门 `validateFlowTopology`（生成/保存同源）拒环并具名路径；「循环直到 X」用 iteration 有界轮次逼近或写进 agent systemPrompt 内部迭代（详见 AGENTS.md 节点体系段）
 
 - **chat 路径同源**：`GET /chats/:id/stream`（SSE）同样注入 span-writer + 会话目录 cwd；聊天内「⚡工作流执行卡」与画布同一数据源
 - **旁观模式**：`/workflows/:id/canvas?run=<runId>` 可旁观任意运行（chat @flow 触发的也行）
@@ -83,6 +87,7 @@ console watchLoop 轮询 GET /runs/:runId/node-spans（700ms）
 | `flows` | 工作流定义（`flow_data` JSONB = nodes/edges/viewport） |
 | `runs` | 运行记录（status/input/output/duration；chat 触发的也写，含 `chat_id`） |
 | `run_node_spans` | 节点级进度（status/tokens/error/input/output；唯一索引 `(run_id,node_id)`） |
+| `run_checkpoints` | 断点续跑控制态（topo_hash/snapshot/awaiting；与 spans 观测态分离，见 §2 runError 来源） |
 | `chats` / `chat_messages` | 会话与消息（消息 `run_id` + `metadata.source='workflow'` 可判别工作流回复） |
 | `llm_providers` | HTTP Provider 配置（key AES-GCM 加密存储） |
 

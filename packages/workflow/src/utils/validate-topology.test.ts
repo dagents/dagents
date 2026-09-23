@@ -110,6 +110,33 @@ describe('validateFlowTopology', () => {
     }
   })
 
+  it('names a true cycle when the residual walk meets a tail dead-end first', () => {
+    // 环 a→b→a + 环外尾巴 b→c，且 b 的出边序把 c 排在 a 前 —— 不剪枝的
+    // 游走会先踏进尾巴死胡同，cur 落 undefined 产出垃圾路径
+    // （架构 review 2026-09-23 不符合 2）。
+    const result = validateFlowTopology({
+      nodes: [
+        genNode('start', 'startAgentflow'),
+        genNode('a', 'llmAgentflow'),
+        genNode('b', 'llmAgentflow'),
+        genNode('c', 'directReplyAgentflow'),
+      ],
+      edges: [
+        { source: 'start', target: 'a' },
+        { source: 'a', target: 'b' },
+        { source: 'b', target: 'c' }, // 边序陷阱：尾巴先行
+        { source: 'b', target: 'a' }, // 回边成环
+      ],
+    })
+    expect(result.ok).toBe(false)
+    if (!result.ok) {
+      const cycleErr = result.errors.find((e) => /cycle detected/.test(e.message))
+      expect(cycleErr).toBeDefined()
+      expect(cycleErr?.node).toBe('a') // 具名路径首节点在环上，不是 undefined
+      expect(cycleErr?.message).toMatch(/cycle detected \(a → b → a\)/)
+    }
+  })
+
   it('errors on a self-loop', () => {
     const result = validateFlowTopology({
       nodes: [genNode('start', 'startAgentflow'), genNode('a', 'llmAgentflow')],

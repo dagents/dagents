@@ -8,7 +8,7 @@ import { CANVAS_NODES, type FlowData, type IExecutedNode, type ExecutionResult }
 import { sendToRunNode, runHasLiveSinks } from './workflow-clients.js'
 import { assembleWorkflowEngine, toRunStatus } from './workflow-engine-service.js'
 import { makePersistentHumanInputResolver, makeCheckpointHook, computeTopoHash } from './resume-execution.js'
-import { getCheckpoint, upsertCheckpoint, updateCheckpointStatus } from '../repositories/run-checkpoints.repo.js'
+import { getCheckpoint, upsertCheckpoint, updateCheckpointStatus, getRunError } from '../repositories/run-checkpoints.repo.js'
 import { recordAudit } from '../audit.js'
 import { executionRegistry, type ExecutionHandle } from '../execution-registry.js'
 import { aggregateExecutedNodesUsage, recordUsageEvent } from '../usage-events.js'
@@ -28,7 +28,6 @@ import { getDirectoryPath } from '../repositories/directories.repo.js'
 import {
   getRunNodeSpans,
   getRunStatusAndDuration,
-  getRunError,
   persistWorkflowRunRow,
   initAsyncWorkflowRunRow,
   insertNodeSpansBatch,
