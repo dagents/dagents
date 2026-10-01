@@ -60,17 +60,6 @@ export async function getCheckpoint(runId: string): Promise<CheckpointRow | null
   return records[0] ?? null
 }
 
-/** run 级失败原因（node-spans 响应的 runError 数据源）：执行器整体失败
- *  （如拓扑成环、启动即挂）不产生任何节点 span，错误只落在 checkpoint
- *  快照的 failedAt —— 不带出来的话，零 span 失败在前端无从解释。 */
-export async function getRunError(runId: string): Promise<string | null> {
-  const { records } = await runQuery<{ error: string | null }>(
-    `SELECT snapshot->'failedAt'->>'error' AS error FROM run_checkpoints WHERE run_id = $1`,
-    [runId],
-  )
-  return records[0]?.error ?? null
-}
-
 export async function updateCheckpointStatus(
   runId: string,
   status: RunCheckpointStatus,
