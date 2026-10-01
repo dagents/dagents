@@ -1,0 +1,23 @@
+{
+  "kind": "codex",
+  "scenario": "usage-multiround",
+  "capturedAt": "2026-09-23T14:48:33.076Z",
+  "cliVersion": "codex-cli 0.156.1",
+  "model": "(cli default)",
+  "sandbox": "full-auto",
+  "os": "Darwin 25.6.0",
+  "exitCode": 0,
+  "lineCount": 6,
+  "prompt": "Run these shell commands as three separate invocations, one at a time: \"echo one\", \"echo two\", \"echo three\". After all three finish, reply with exactly: dagents-codex-usage-ok",
+  "argv": [
+    "exec",
+    "--json",
+    "--skip-git-repo-check",
+    "-s",
+    "workspace-write",
+    "--",
+    "Run these shell commands as three separate invocations, one at a time: \"echo one\", \"echo two\", \"echo three\". After all three finish, reply with exactly: dagents-codex-usage-ok"
+  ],
+  "cwdNote": "非 git 临时目录（--skip-git-repo-check 生效验证）",
+  "stderrTail": "Reading additional input from stdin...\n2026-09-23T14:46:37.766203Z ERROR codex_core::session::session: failed to load skill /Users/rowan/.agents/skills/gstack/openclaw/skills/gstack-openclaw-ceo-review/SKILL.md: invalid YAML: mapping values are not allowed in this context at line 2 column 168\n2026-09-23T14:46:37.766962Z ERROR codex_core::session::session: failed to load skill /Users/rowan/.agents/skills/gstack/openclaw/skills/gstack-openclaw-investigate/SKILL.md: invalid YAML: mapping values are not allowed in this context at line 2 column 77\n2026-09-23T14:46:37.766964Z ERROR codex_core::session::session: failed to load skill /Users/rowan/.agents/skills/gstack/openclaw/skills/gstack-openclaw-office-hours/SKILL.md: invalid YAML: mapping values are not allowed in this context at line 2 column 73\n"
+}

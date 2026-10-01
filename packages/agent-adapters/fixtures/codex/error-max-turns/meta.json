@@ -1,0 +1,23 @@
+{
+  "kind": "codex",
+  "scenario": "error-max-turns",
+  "capturedAt": "2026-09-23T14:50:52.213Z",
+  "cliVersion": "codex-cli 0.156.1",
+  "model": "(cli default)",
+  "sandbox": "full-auto",
+  "os": "Darwin 25.6.0",
+  "exitCode": 0,
+  "lineCount": 6,
+  "prompt": "Run the shell command \"ls\", then run \"pwd\", then reply with exactly: dagents-codex-maxturns-ok",
+  "argv": [
+    "exec",
+    "--json",
+    "--skip-git-repo-check",
+    "-s",
+    "workspace-write",
+    "--",
+    "Run the shell command \"ls\", then run \"pwd\", then reply with exactly: dagents-codex-maxturns-ok"
+  ],
+  "cwdNote": "非 git 临时目录（--skip-git-repo-check 生效验证）",
+  "stderrTail": "Reading additional input from stdin...\n2026-09-23T14:49:54.759221Z ERROR codex_core::session::session: failed to load skill /Users/rowan/.agents/skills/gstack/openclaw/skills/gstack-openclaw-ceo-review/SKILL.md: invalid YAML: mapping values are not allowed in this context at line 2 column 168\n2026-09-23T14:49:54.759768Z ERROR codex_core::session::session: failed to load skill /Users/rowan/.agents/skills/gstack/openclaw/skills/gstack-openclaw-investigate/SKILL.md: invalid YAML: mapping values are not allowed in this context at line 2 column 77\n2026-09-23T14:49:54.759771Z ERROR codex_core::session::session: failed to load skill /Users/rowan/.agents/skills/gstack/openclaw/skills/gstack-openclaw-office-hours/SKILL.md: invalid YAML: mapping values are not allowed in this context at line 2 column 73\n"
+}
