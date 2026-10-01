@@ -152,10 +152,10 @@ describe('AgentsView list-page (M5.1 multica)', () => {
         )
       }
       // /api/agents (list)
-      return new Response(
-        JSON.stringify({ success: true, data: AGENTS_FIXTURE }),
-        { status: 200, headers: { 'content-type': 'application/json' } },
-      )
+      return new Response(JSON.stringify({ success: true, data: AGENTS_FIXTURE }), {
+        status: 200,
+        headers: { 'content-type': 'application/json' },
+      })
     }) as typeof globalThis.fetch
   })
 
@@ -201,9 +201,11 @@ describe('AgentsView list-page (M5.1 multica)', () => {
     // Wait for the fetch to settle so the scope counts populate.
     expect(await within(cardsWrap()).findByText('论文阅读 · reader-04')).toBeInTheDocument()
 
-    const mine = screen.getByRole('tab', { name: /我的/ })
-    const all = screen.getByRole('tab', { name: /全部/ })
-    const archived = screen.getByRole('tab', { name: /已归档/ })
+    // 页级双 tab（我的 Agents / Agent 广场）与 scope tab「我的」同屏——
+    // 锚定行尾的计数，避免 /我的/ 一类正则同时命中「我的 Agents」。
+    const mine = screen.getByRole('tab', { name: /^我的(\s\d+)?$/ })
+    const all = screen.getByRole('tab', { name: /^全部(\s\d+)?$/ })
+    const archived = screen.getByRole('tab', { name: /^已归档(\s\d+)?$/ })
 
     expect(mine).toHaveAttribute('data-scope', 'mine')
     expect(all).toHaveAttribute('data-scope', 'all')
@@ -256,10 +258,18 @@ describe('AgentsView list-page (M5.1 multica)', () => {
   // old tests that pinned `data-dir='asc'` on an Agent button role or a
   // 负载 sortable header no longer map to the rendered DOM.
   // ──────────────────────────────────────────────────────────────
-  it.skip('Agent column header default active sort + 负载 sortable inactive (sort headers removed in multica redesign)')
-  it.skip('clicking a sortable header marks active + sets data-dir (sort headers removed in multica redesign)')
-  it.skip('toggling same header flips direction + reverses row order (sort headers removed in multica redesign)')
-  it.skip('clicking a different header deactivates previous one (sort headers removed in multica redesign)')
+  it.skip(
+    'Agent column header default active sort + 负载 sortable inactive (sort headers removed in multica redesign)',
+  )
+  it.skip(
+    'clicking a sortable header marks active + sets data-dir (sort headers removed in multica redesign)',
+  )
+  it.skip(
+    'toggling same header flips direction + reverses row order (sort headers removed in multica redesign)',
+  )
+  it.skip(
+    'clicking a different header deactivates previous one (sort headers removed in multica redesign)',
+  )
 
   // Role-based filter chips were also removed in the multica redesign. The
   // AgentsView toolbar only exposes kind (提示词/Claude Code/Codex/Remote) and

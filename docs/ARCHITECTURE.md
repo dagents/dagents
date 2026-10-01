@@ -91,7 +91,7 @@ console watchLoop 轮询 GET /runs/:runId/node-spans（700ms）
 | `chats` / `chat_messages` | 会话与消息（消息 `run_id` + `metadata.source='workflow'` 可判别工作流回复） |
 | `llm_providers` | HTTP Provider 配置（key AES-GCM 加密存储） |
 
-**不落库**：人格库与技能库均 registry-not-database（文件系统 = 真相源：`~/.agents/agent-library`、`~/.agents/skills`）。
+**不落库**：人格库与技能库均 registry-not-database（文件系统 = 真相源：`~/.agents/agent-library`、`~/.agents/skills`）。人格库另有 in-repo 双根：`quickstart-library`（rank 50 快速开始）与 `builtin-library`（rank 900 广场精选兜底——50 人格开箱即用，任何用户库同 id 覆盖内置；见 `docs/agent-plaza.md`）。
 
 ## 5. Console 关键模块
 

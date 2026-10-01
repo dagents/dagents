@@ -122,7 +122,9 @@
   font-family: var(--font-body);
   font-size: var(--text-sm, 13px);
   color: var(--fg);
-  transition: border-color 0.12s ease, box-shadow 0.12s ease;
+  transition:
+    border-color 0.12s ease,
+    box-shadow 0.12s ease;
 }
 
 .fc-node:hover {
@@ -220,7 +222,9 @@
   border-radius: 50%;
   border: 1.5px solid var(--border-strong);
   background: var(--bg);
-  transition: border-color 0.12s ease, background 0.12s ease;
+  transition:
+    border-color 0.12s ease,
+    background 0.12s ease;
 }
 
 .react-flow__handle.fc-handle:hover,
@@ -331,7 +335,9 @@
 }
 
 .fc-sticky.is-selected {
-  box-shadow: 0 0 0 2px var(--accent-soft), 0 1px 3px rgb(13 13 13 / 0.08);
+  box-shadow:
+    0 0 0 2px var(--accent-soft),
+    0 1px 3px rgb(13 13 13 / 0.08);
 }
 
 .fc-sticky-drag {
@@ -619,6 +625,16 @@
   font-size: var(--text-2xs, 11px);
   color: var(--meta);
   line-height: 1.5;
+}
+
+/* 字段描述位上的链接（agentId 下拉的「从广场启用」入口） */
+a.fc-field-link {
+  color: var(--accent);
+  text-decoration: none;
+  width: fit-content;
+}
+a.fc-field-link:hover {
+  text-decoration: underline;
 }
 
 .fc-field-error {

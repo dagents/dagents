@@ -119,10 +119,14 @@ function OptionsWidget({ param, value, onChange }: WidgetProps) {
   }, [needsDynamic, param.name])
 
   const current = asString(value)
-  const items: OptionItem[] =
-    needsDynamic
-      ? dynamic ?? (param.name === 'model' ? [FALLBACK_MODEL_OPTION] : current ? [{ value: current, label: current }] : [])
-      : param.options!.map((o) => ({ value: String(o.name), label: String(o.label ?? o.name) }))
+  const items: OptionItem[] = needsDynamic
+    ? (dynamic ??
+      (param.name === 'model'
+        ? [FALLBACK_MODEL_OPTION]
+        : current
+          ? [{ value: current, label: current }]
+          : []))
+    : param.options!.map((o) => ({ value: String(o.name), label: String(o.label ?? o.name) }))
 
   return (
     <div className="fc-field">
@@ -145,6 +149,19 @@ function OptionsWidget({ param, value, onChange }: WidgetProps) {
           <option value={current}>{current}</option>
         )}
       </select>
+      {/* agentId 下拉补充广场入口（docs/agent-plaza.md D4）：画布绑节点不再以
+          「已启用清单」为断头。新标签页打开——不打断画布编辑态；启用后回来
+          重选节点即可刷新下拉。 */}
+      {param.name === 'agentId' && (
+        <a
+          className="fc-field-desc fc-field-link"
+          href="/agents?tab=plaza"
+          target="_blank"
+          rel="noreferrer"
+        >
+          从广场启用 Agent ↗
+        </a>
+      )}
       {param.description && <div className="fc-field-desc">{param.description}</div>}
     </div>
   )
@@ -232,7 +249,12 @@ function VariableButton({
   const [open, setOpen] = useState(false)
   return (
     <div className="fc-varpicker">
-      <button type="button" className="fc-varpicker-btn" title="插入变量" onClick={() => setOpen((v) => !v)}>
+      <button
+        type="button"
+        className="fc-varpicker-btn"
+        title="插入变量"
+        onClick={() => setOpen((v) => !v)}
+      >
         {'{{ }}'}
       </button>
       {open && (

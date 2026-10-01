@@ -50,7 +50,11 @@ interface AgentSelectorProps {
   disabled?: boolean
 }
 
-export function AgentSelector({ value, onChange, disabled }: AgentSelectorProps): React.ReactElement {
+export function AgentSelector({
+  value,
+  onChange,
+  disabled,
+}: AgentSelectorProps): React.ReactElement {
   const { t } = useI18n()
   const toast = useToast()
   const [agents, setAgents] = useState<AgentOption[]>([])
@@ -77,7 +81,9 @@ export function AgentSelector({ value, onChange, disabled }: AgentSelectorProps)
         if (!cancelled) setLoaded(true)
       }
     })()
-    return () => { cancelled = true }
+    return () => {
+      cancelled = true
+    }
   }, [])
 
   // Always fetch CLI runtimes so we can show installed-but-not-created CLIs
@@ -94,7 +100,9 @@ export function AgentSelector({ value, onChange, disabled }: AgentSelectorProps)
         // silent — runtimes stay []
       }
     })()
-    return () => { cancelled = true }
+    return () => {
+      cancelled = true
+    }
   }, [])
 
   /** Set of agent kinds already created in the DB — exact dedup against the
@@ -163,14 +171,12 @@ export function AgentSelector({ value, onChange, disabled }: AgentSelectorProps)
 
   // 共享行为基座（PX-GL08）：开合/外点/键盘 listbox 导航/聚焦。
   // selectIndex 为函数声明，提升可用。打开时高亮播种到当前选中项。
-  const {
-    open, setOpen, highlighted, setHighlighted,
-    ref, triggerRef, listboxId, onKeyDown,
-  } = useSelectorDropdown({
-    optionCount,
-    initialHighlight: value === null ? 0 : agents.findIndex((a) => a.id === value) + 1,
-    onSelectIndex: selectIndex,
-  })
+  const { open, setOpen, highlighted, setHighlighted, ref, triggerRef, listboxId, onKeyDown } =
+    useSelectorDropdown({
+      optionCount,
+      initialHighlight: value === null ? 0 : agents.findIndex((a) => a.id === value) + 1,
+      onSelectIndex: selectIndex,
+    })
 
   function selectIndex(idx: number): void {
     if (idx < 0 || idx >= optionCount) return
@@ -229,7 +235,10 @@ export function AgentSelector({ value, onChange, disabled }: AgentSelectorProps)
             role="option"
             aria-selected={value === null}
             className={`agent-selector-option${value === null ? ' selected' : ''}${highlighted === 0 ? ' highlighted' : ''}`}
-            onClick={() => { onChange(null); setOpen(false) }}
+            onClick={() => {
+              onChange(null)
+              setOpen(false)
+            }}
             onMouseEnter={() => setHighlighted(0)}
           >
             <Icon name="bot" style={{ width: 14, height: 14 }} />
@@ -248,7 +257,10 @@ export function AgentSelector({ value, onChange, disabled }: AgentSelectorProps)
                 role="option"
                 aria-selected={value === a.id}
                 className={`agent-selector-option${value === a.id ? ' selected' : ''}${highlighted === idx ? ' highlighted' : ''}`}
-                onClick={() => { onChange(a.id); setOpen(false) }}
+                onClick={() => {
+                  onChange(a.id)
+                  setOpen(false)
+                }}
                 onMouseEnter={() => setHighlighted(idx)}
               >
                 <Icon name="bot" style={{ width: 14, height: 14 }} />
@@ -308,18 +320,20 @@ export function AgentSelector({ value, onChange, disabled }: AgentSelectorProps)
               <span>{t('未安装')}</span>
             </div>
           )}
-          {runtimes.filter((r) => !r.available).map((cli) => {
-            const meta = AGENT_KINDS.find((k) => k.kind === cli.kind)
-            const lbl = meta?.label ?? cli.kind
-            const glyph = meta?.glyph ?? cli.kind.slice(0, 2).toUpperCase()
-            return (
-              <div key={cli.kind} className="agent-selector-option unavailable">
-                <span className="agent-selector-glyph dim">{glyph}</span>
-                <span>{lbl}</span>
-                <span className="agent-selector-option-hint">{t('未安装')}</span>
-              </div>
-            )
-          })}
+          {runtimes
+            .filter((r) => !r.available)
+            .map((cli) => {
+              const meta = AGENT_KINDS.find((k) => k.kind === cli.kind)
+              const lbl = meta?.label ?? cli.kind
+              const glyph = meta?.glyph ?? cli.kind.slice(0, 2).toUpperCase()
+              return (
+                <div key={cli.kind} className="agent-selector-option unavailable">
+                  <span className="agent-selector-glyph dim">{glyph}</span>
+                  <span>{lbl}</span>
+                  <span className="agent-selector-option-hint">{t('未安装')}</span>
+                </div>
+              )
+            })}
 
           {/* Fallback: no agents + no runtimes detected at all */}
           {showEmptyCreate && installedCLIs.length === 0 && (
@@ -332,6 +346,17 @@ export function AgentSelector({ value, onChange, disabled }: AgentSelectorProps)
               <span>{t('还没有 Agent · 去创建')}</span>
             </Link>
           )}
+
+          {/* 广场入口（docs/agent-plaza.md D4）：库里有 300+ 现成专家人格，
+              不让「没有想要的 Agent」成为对话的断头路。 */}
+          <Link
+            href="/agents?tab=plaza"
+            className="agent-selector-create-link"
+            onClick={() => setOpen(false)}
+          >
+            <Icon name="bot" style={{ width: 12, height: 12 }} />
+            <span>{t('从广场启用 Agent →')}</span>
+          </Link>
         </div>
       )}
     </div>

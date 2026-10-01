@@ -28,7 +28,12 @@ vi.mock('../managed-agent-library-dirs.js', async () => {
 })
 
 import { app } from '../app.js'
-import { AgentLibraryRegistry, type AgentLibraryRoot } from '../agent-library-registry.js'
+import {
+  AgentLibraryRegistry,
+  BUILTIN_LIBRARY_RANK,
+  defaultAgentLibraryRoots,
+  type AgentLibraryRoot,
+} from '../agent-library-registry.js'
 import { sha256Hex } from '../persona-compiler.js'
 import { managedAgentLibraryDirs } from '../managed-agent-library-dirs.js'
 
@@ -52,7 +57,13 @@ function makeRoot(): { dir: string; registry: AgentLibraryRegistry } {
   return { dir, registry }
 }
 
-function writePersona(root: string, division: string, file: string, name: string, description = 'A specialist.'): void {
+function writePersona(
+  root: string,
+  division: string,
+  file: string,
+  name: string,
+  description = 'A specialist.',
+): void {
   mkdirSync(join(root, division), { recursive: true })
   writeFileSync(join(root, division, file), PERSONA(name, description))
 }
@@ -64,9 +75,15 @@ const DIV_B = 'alibtest-beta'
 describe('agent library registry — discovery', () => {
   it('scans division dirs (incl. one nested level) with divisions.json metadata', () => {
     const { dir, registry } = makeRoot()
-    writeFileSync(join(dir, 'divisions.json'), JSON.stringify({
-      divisions: { [DIV_A]: { label: 'Alpha', icon: 'Box', color: '#D946EF' }, [DIV_B]: { label: 'Beta' } },
-    }))
+    writeFileSync(
+      join(dir, 'divisions.json'),
+      JSON.stringify({
+        divisions: {
+          [DIV_A]: { label: 'Alpha', icon: 'Box', color: '#D946EF' },
+          [DIV_B]: { label: 'Beta' },
+        },
+      }),
+    )
     writePersona(dir, DIV_A, 'pm.md', 'Product Manager')
     writePersona(dir, DIV_B, 'architect.md', 'Backend Architect')
     mkdirSync(join(dir, DIV_B, 'nested'))
@@ -74,16 +91,22 @@ describe('agent library registry — discovery', () => {
 
     const entries = registry.list()
     expect(entries.map((e) => e.id).sort()).toEqual([
-      `${DIV_A}/product-manager`, `${DIV_B}/backend-architect`, `${DIV_B}/sre`,
+      `${DIV_A}/product-manager`,
+      `${DIV_B}/backend-architect`,
+      `${DIV_B}/sre`,
     ])
     expect(registry.divisions().find((d) => d.key === DIV_A)).toMatchObject({
-      label: 'Alpha', color: '#D946EF',
+      label: 'Alpha',
+      color: '#D946EF',
     })
   })
 
   it('divisions.json gates the division set (NON_DIVISION dirs never scanned)', () => {
     const { dir, registry } = makeRoot()
-    writeFileSync(join(dir, 'divisions.json'), JSON.stringify({ divisions: { [DIV_A]: { label: 'Alpha' } } }))
+    writeFileSync(
+      join(dir, 'divisions.json'),
+      JSON.stringify({ divisions: { [DIV_A]: { label: 'Alpha' } } }),
+    )
     writePersona(dir, DIV_A, 'pm.md', 'Product Manager')
     mkdirSync(join(dir, 'strategy'))
     writeFileSync(join(dir, 'strategy', 'runbook.md'), PERSONA('Strategy Runbook', 'Not an agent.'))
@@ -123,7 +146,10 @@ describe('agent library registry — discovery', () => {
   it('get() returns the full entry with body + raw sha; emoji/tools ride in metadata', () => {
     const { dir, registry } = makeRoot()
     mkdirSync(join(dir, DIV_A))
-    writeFileSync(join(dir, DIV_A, 'pm.md'), PERSONA('Product Manager', 'A specialist.', 'emoji: 🧭\ntools: WebFetch, WebSearch\n'))
+    writeFileSync(
+      join(dir, DIV_A, 'pm.md'),
+      PERSONA('Product Manager', 'A specialist.', 'emoji: 🧭\ntools: WebFetch, WebSearch\n'),
+    )
     const entry = registry.get(`${DIV_A}/product-manager`)
     expect(entry?.body).toContain('## Identity & Memory')
     expect(entry?.filePath).toContain('pm.md')
@@ -141,7 +167,7 @@ describe('agent library routes — read surface (no DB)', () => {
     process.env.DAGENTS_AGENT_LIBRARY_DIRS = dir
     try {
       const all = await app.request(`/api/v1/agent-library?division=${DIV_A}`)
-      const allJson = await all.json() as { data: { entries: { id: string }[] } }
+      const allJson = (await all.json()) as { data: { entries: { id: string }[] } }
       expect(allJson.data.entries.map((e) => e.id)).toEqual([`${DIV_A}/product-manager`])
     } finally {
       delete process.env.DAGENTS_AGENT_LIBRARY_DIRS
@@ -155,7 +181,9 @@ describe('agent library routes — read surface (no DB)', () => {
     try {
       const res = await app.request(`/api/v1/agent-library/${DIV_A}/product-manager`)
       expect(res.status).toBe(200)
-      const json = await res.json() as { data: { previews: { profile: string }[]; instantiated: unknown } }
+      const json = (await res.json()) as {
+        data: { previews: { profile: string }[]; instantiated: unknown }
+      }
       expect(json.data.previews.map((p) => p.profile)).toEqual(['full', 'slim', 'minimal'])
       expect(json.data.instantiated).toBeNull()
 
@@ -180,10 +208,12 @@ describe('agent library routes — read surface (no DB)', () => {
     expect(managedAgentLibraryDirs.list()).toContain(dir)
 
     const list = await app.request(`/api/v1/agent-library?division=${DIV_A}`)
-    const json = await list.json() as { data: { entries: { id: string }[] } }
+    const json = (await list.json()) as { data: { entries: { id: string }[] } }
     expect(json.data.entries.map((e) => e.id)).toEqual([`${DIV_A}/product-manager`])
 
-    const remove = await app.request(`/api/v1/agent-library/roots?dir=${encodeURIComponent(dir)}`, { method: 'DELETE' })
+    const remove = await app.request(`/api/v1/agent-library/roots?dir=${encodeURIComponent(dir)}`, {
+      method: 'DELETE',
+    })
     expect(remove.status).toBe(200)
     expect(managedAgentLibraryDirs.list()).not.toContain(dir)
   })
@@ -221,27 +251,41 @@ describe('agent library routes — instantiate / drift / reimport (dev Postgres)
 
   async function driftState(): Promise<string> {
     const res = await request('/api/v1/agent-library/drift')
-    const json = await res.json() as { data: { items: { libraryId: string; state: string }[] } }
+    const json = (await res.json()) as { data: { items: { libraryId: string; state: string }[] } }
     return json.data.items.find((i) => i.libraryId === LIB_ID)?.state ?? ''
   }
 
   it('instantiate (slim default) writes an agents row with library_meta provenance', async () => {
-    const res = await request(`/api/v1/agent-library/${DIV_A}/product-manager-e2e-seed/instantiate`, {
-      method: 'POST',
-      headers: { 'content-type': 'application/json' },
-      body: JSON.stringify({}),
-    })
+    const res = await request(
+      `/api/v1/agent-library/${DIV_A}/product-manager-e2e-seed/instantiate`,
+      {
+        method: 'POST',
+        headers: { 'content-type': 'application/json' },
+        body: JSON.stringify({}),
+      },
+    )
     expect(res.status).toBe(201)
-    const json = await res.json() as { data: { id: string; profile: string; kind: string } }
+    const json = (await res.json()) as { data: { id: string; profile: string; kind: string } }
     expect(json.data.profile).toBe('slim')
     expect(json.data.kind).toBe('claude')
     seededAgentIds.push(json.data.id)
 
     const { records } = await runQuery<{
-      name: string; kind: string; instructions: string; summary: string; roles: string[]; library_meta: {
-        id: string; profile: string; source_sha256: string; instructions_sha256_at_import: string
+      name: string
+      kind: string
+      instructions: string
+      summary: string
+      roles: string[]
+      library_meta: {
+        id: string
+        profile: string
+        source_sha256: string
+        instructions_sha256_at_import: string
       }
-    }>(`SELECT name, kind, instructions, summary, roles, library_meta FROM agents WHERE id = $1::uuid`, [json.data.id])
+    }>(
+      `SELECT name, kind, instructions, summary, roles, library_meta FROM agents WHERE id = $1::uuid`,
+      [json.data.id],
+    )
     const row = records[0]
     expect(row.name).toBe('Product Manager E2E Seed')
     expect(row.kind).toBe('claude')
@@ -257,39 +301,54 @@ describe('agent library routes — instantiate / drift / reimport (dev Postgres)
   })
 
   it('instantiate rejects non-CLI kind and 409s on re-enable; drift reads up-to-date', async () => {
-    const badKind = await request(`/api/v1/agent-library/${DIV_A}/product-manager-e2e-seed/instantiate`, {
-      method: 'POST',
-      headers: { 'content-type': 'application/json' },
-      body: JSON.stringify({ kind: 'remote' }),
-    })
+    const badKind = await request(
+      `/api/v1/agent-library/${DIV_A}/product-manager-e2e-seed/instantiate`,
+      {
+        method: 'POST',
+        headers: { 'content-type': 'application/json' },
+        body: JSON.stringify({ kind: 'remote' }),
+      },
+    )
     expect(badKind.status).toBe(400)
 
-    const dupe = await request(`/api/v1/agent-library/${DIV_A}/product-manager-e2e-seed/instantiate`, {
-      method: 'POST',
-      headers: { 'content-type': 'application/json' },
-      body: JSON.stringify({}),
-    })
+    const dupe = await request(
+      `/api/v1/agent-library/${DIV_A}/product-manager-e2e-seed/instantiate`,
+      {
+        method: 'POST',
+        headers: { 'content-type': 'application/json' },
+        body: JSON.stringify({}),
+      },
+    )
     expect(dupe.status).toBe(409)
 
     expect(await driftState()).toBe('up-to-date')
   })
 
   it('reimport requires confirm after a local edit, then overwrites instructions in place', async () => {
-    await runQuery(`UPDATE agents SET instructions = 'hand-edited' WHERE library_meta->>'id' = $1`, [LIB_ID])
+    await runQuery(
+      `UPDATE agents SET instructions = 'hand-edited' WHERE library_meta->>'id' = $1`,
+      [LIB_ID],
+    )
     expect(await driftState()).toBe('locally-modified')
 
-    const blocked = await request(`/api/v1/agent-library/${DIV_A}/product-manager-e2e-seed/reimport`, {
-      method: 'POST',
-      headers: { 'content-type': 'application/json' },
-      body: JSON.stringify({}),
-    })
+    const blocked = await request(
+      `/api/v1/agent-library/${DIV_A}/product-manager-e2e-seed/reimport`,
+      {
+        method: 'POST',
+        headers: { 'content-type': 'application/json' },
+        body: JSON.stringify({}),
+      },
+    )
     expect(blocked.status).toBe(409)
 
-    const confirmed = await request(`/api/v1/agent-library/${DIV_A}/product-manager-e2e-seed/reimport`, {
-      method: 'POST',
-      headers: { 'content-type': 'application/json' },
-      body: JSON.stringify({ confirm: true, profile: 'minimal' }),
-    })
+    const confirmed = await request(
+      `/api/v1/agent-library/${DIV_A}/product-manager-e2e-seed/reimport`,
+      {
+        method: 'POST',
+        headers: { 'content-type': 'application/json' },
+        body: JSON.stringify({ confirm: true, profile: 'minimal' }),
+      },
+    )
     expect(confirmed.status).toBe(200)
     const { records } = await runQuery<{ instructions: string; library_meta: { profile: string } }>(
       `SELECT instructions, library_meta FROM agents WHERE library_meta->>'id' = $1`,
@@ -310,7 +369,11 @@ describe('agent library team templates (dev Postgres)', () => {
     { division: 'marketing', file: 'content-creator.md', name: 'Content Creator' },
     { division: 'marketing', file: 'twitter-engager.md', name: 'Twitter Engager' },
     { division: 'marketing', file: 'instagram-curator.md', name: 'Instagram Curator' },
-    { division: 'marketing', file: 'reddit-community-builder.md', name: 'Reddit Community Builder' },
+    {
+      division: 'marketing',
+      file: 'reddit-community-builder.md',
+      name: 'Reddit Community Builder',
+    },
     { division: 'support', file: 'analytics-reporter.md', name: 'Analytics Reporter' },
   ]
   let teamRoot: string
@@ -344,7 +407,7 @@ describe('agent library team templates (dev Postgres)', () => {
   it('GET /team-templates lists the catalogue with resolved member availability', async () => {
     const res = await teamRequest('/api/v1/agent-library/team-templates')
     expect(res.status).toBe(200)
-    const json = await res.json() as {
+    const json = (await res.json()) as {
       data: {
         templates: {
           id: string
@@ -357,10 +420,19 @@ describe('agent library team templates (dev Postgres)', () => {
       }
     }
     expect(json.data.templates).toHaveLength(9)
-    expect(json.data.templates.map((t) => t.id)).toEqual(expect.arrayContaining([
-      'startup-mvp', 'enterprise-feature', 'marketing-launch', 'paid-media-takeover',
-      'product-discovery', 'campus-twin', 'landing-page-sprint', 'full-agency-discovery', 'book-chapter',
-    ]))
+    expect(json.data.templates.map((t) => t.id)).toEqual(
+      expect.arrayContaining([
+        'startup-mvp',
+        'enterprise-feature',
+        'marketing-launch',
+        'paid-media-takeover',
+        'product-discovery',
+        'campus-twin',
+        'landing-page-sprint',
+        'full-agency-discovery',
+        'book-chapter',
+      ]),
+    )
     // 运行输入引导全量透出（确认步预告 + 运行面板 placeholder 的数据源）。
     for (const t of json.data.templates) {
       expect(typeof t.inputHint).toBe('string')
@@ -374,7 +446,11 @@ describe('agent library team templates (dev Postgres)', () => {
     expect(json.data.templates.find((t) => t.id === 'full-agency-discovery')?.shape).toBe('fan-out')
     const launch = json.data.templates.find((t) => t.id === 'marketing-launch')
     expect(launch?.members.map((m) => m.persona)).toEqual([
-      'Content Creator', 'Twitter Engager', 'Instagram Curator', 'Reddit Community Builder', 'Analytics Reporter',
+      'Content Creator',
+      'Twitter Engager',
+      'Instagram Curator',
+      'Reddit Community Builder',
+      'Analytics Reporter',
     ])
     // fixture 根（rank 300）覆盖真库 → 5 个成员全部解析到 fixture 的库 id。
     for (const m of launch!.members) {
@@ -384,13 +460,16 @@ describe('agent library team templates (dev Postgres)', () => {
   })
 
   it('POST instantiate enables missing members, reuses existing ones, and writes a draft flow', async () => {
-    const res = await teamRequest('/api/v1/agent-library/team-templates/marketing-launch/instantiate', {
-      method: 'POST',
-      headers: { 'content-type': 'application/json' },
-      body: JSON.stringify({}),
-    })
+    const res = await teamRequest(
+      '/api/v1/agent-library/team-templates/marketing-launch/instantiate',
+      {
+        method: 'POST',
+        headers: { 'content-type': 'application/json' },
+        body: JSON.stringify({}),
+      },
+    )
     expect(res.status).toBe(201)
-    const first = await res.json() as {
+    const first = (await res.json()) as {
       data: { flowId: string; members: { persona: string; agentId: string; enabled: boolean }[] }
     }
     seededFlowIds.push(first.data.flowId)
@@ -399,19 +478,20 @@ describe('agent library team templates (dev Postgres)', () => {
     for (const m of first.data.members) seededAgentIds.push(m.agentId)
 
     // members 落库为 library_meta 溯源的 claude agent。
-    const { records } = await runQuery<{ kind: string; library_meta: { id: string; profile: string } }>(
-      `SELECT kind, library_meta FROM agents WHERE id = ANY($1::uuid[])`,
-      [first.data.members.map((m) => m.agentId)],
-    )
+    const { records } = await runQuery<{
+      kind: string
+      library_meta: { id: string; profile: string }
+    }>(`SELECT kind, library_meta FROM agents WHERE id = ANY($1::uuid[])`, [
+      first.data.members.map((m) => m.agentId),
+    ])
     expect(records).toHaveLength(5)
     expect(records.every((r) => r.kind === 'claude')).toBe(true)
     expect(records.every((r) => r.library_meta.profile === 'slim')).toBe(true)
 
     // flow：start + 5 platformAgent + directReply，agentId 绑定真实成员。
-    const { records: flowRows } = await runQuery<{ flow_data: { nodes: { data: { name: string; inputs?: { agentId?: string } } }[] } }>(
-      `SELECT flow_data FROM flows WHERE id = $1::uuid`,
-      [first.data.flowId],
-    )
+    const { records: flowRows } = await runQuery<{
+      flow_data: { nodes: { data: { name: string; inputs?: { agentId?: string } } }[] }
+    }>(`SELECT flow_data FROM flows WHERE id = $1::uuid`, [first.data.flowId])
     const nodes = flowRows[0].flow_data.nodes
     expect(nodes).toHaveLength(7)
     const agentNodes = nodes.filter((n) => n.data.name === 'platformAgentAgentflow')
@@ -420,13 +500,16 @@ describe('agent library team templates (dev Postgres)', () => {
     expect(agentNodes.every((n) => memberIds.has(n.data.inputs!.agentId!))).toBe(true)
 
     // 幂等：再次 instantiate 复用全部成员（enabled: true），新建另一条 flow。
-    const again = await teamRequest('/api/v1/agent-library/team-templates/marketing-launch/instantiate', {
-      method: 'POST',
-      headers: { 'content-type': 'application/json' },
-      body: JSON.stringify({}),
-    })
+    const again = await teamRequest(
+      '/api/v1/agent-library/team-templates/marketing-launch/instantiate',
+      {
+        method: 'POST',
+        headers: { 'content-type': 'application/json' },
+        body: JSON.stringify({}),
+      },
+    )
     expect(again.status).toBe(201)
-    const second = await again.json() as {
+    const second = (await again.json()) as {
       data: { flowId: string; members: { agentId: string; enabled: boolean }[] }
     }
     seededFlowIds.push(second.data.flowId)
@@ -440,19 +523,26 @@ describe('agent library team templates (dev Postgres)', () => {
   it('422 with the missing names when a persona cannot be resolved (no silent skip)', async () => {
     // 注入一个引用不存在人格的测试模板（真库也没有 → 在任何机器上确定性 422）。
     const fake = {
-      id: 'test-missing-persona', name: 'T', description: 't', icon: '🧪', shape: 'linear' as const,
+      id: 'test-missing-persona',
+      name: 'T',
+      description: 't',
+      icon: '🧪',
+      shape: 'linear' as const,
       steps: [{ persona: 'No Such Persona Zzz', label: 'x', task: 'x' }],
     }
     const { TEAM_TEMPLATES } = await import('../routes/agent-library-teams.js')
     TEAM_TEMPLATES.push(fake as never)
     try {
-      const res = await teamRequest('/api/v1/agent-library/team-templates/test-missing-persona/instantiate', {
-        method: 'POST',
-        headers: { 'content-type': 'application/json' },
-        body: JSON.stringify({}),
-      })
+      const res = await teamRequest(
+        '/api/v1/agent-library/team-templates/test-missing-persona/instantiate',
+        {
+          method: 'POST',
+          headers: { 'content-type': 'application/json' },
+          body: JSON.stringify({}),
+        },
+      )
       expect(res.status).toBe(422)
-      const json = await res.json() as { missing: string[] }
+      const json = (await res.json()) as { missing: string[] }
       expect(json.missing).toEqual(['No Such Persona Zzz'])
     } finally {
       TEAM_TEMPLATES.pop()
@@ -503,7 +593,9 @@ describe('agent library routes — roots 错误路径', () => {
       })
       expect(badDir.status).toBe(400)
 
-      const missing = await app.request('/api/v1/agent-library/roots?dir=/also/not/mounted', { method: 'DELETE' })
+      const missing = await app.request('/api/v1/agent-library/roots?dir=/also/not/mounted', {
+        method: 'DELETE',
+      })
       expect(missing.status).toBe(400)
 
       const noDir = await app.request('/api/v1/agent-library/roots', {
@@ -513,7 +605,9 @@ describe('agent library routes — roots 错误路径', () => {
       })
       expect(noDir.status).toBe(400)
     } finally {
-      await app.request(`/api/v1/agent-library/roots?dir=${encodeURIComponent(dir)}`, { method: 'DELETE' })
+      await app.request(`/api/v1/agent-library/roots?dir=${encodeURIComponent(dir)}`, {
+        method: 'DELETE',
+      })
     }
   })
 })
@@ -544,7 +638,7 @@ describe('agent library routes — 生命周期边界（dev Postgres）', () => 
 
   async function driftFor(id: string): Promise<string> {
     const res = await req('/api/v1/agent-library/drift')
-    const json = await res.json() as { data: { items: { libraryId: string; state: string }[] } }
+    const json = (await res.json()) as { data: { items: { libraryId: string; state: string }[] } }
     return json.data.items.find((i) => i.libraryId === id)?.state ?? ''
   }
 
@@ -555,10 +649,11 @@ describe('agent library routes — 生命周期边界（dev Postgres）', () => 
       body: JSON.stringify({ kind: 'codex', name: '自定义名' }),
     })
     expect(res.status).toBe(201)
-    const { data } = await res.json() as { data: { id: string } }
+    const { data } = (await res.json()) as { data: { id: string } }
     seeded.push(data.id)
     const { records } = await runQuery<{ kind: string; name: string }>(
-      `SELECT kind, name FROM agents WHERE id = $1::uuid`, [data.id],
+      `SELECT kind, name FROM agents WHERE id = $1::uuid`,
+      [data.id],
     )
     expect(records[0]).toMatchObject({ kind: 'codex', name: '自定义名' })
   })
@@ -566,11 +661,17 @@ describe('agent library routes — 生命周期边界（dev Postgres）', () => 
   it('detail reports instantiated state; upstream edit → upstream-updated; reimport w/o confirm succeeds', async () => {
     // detail 显示 instantiated + 当前 drift。
     const detail = await req(`/api/v1/agent-library/${EDGE_LIB_ID}`)
-    const detailJson = await detail.json() as { data: { instantiated: { drift: string } | null } }
+    const detailJson = (await detail.json()) as { data: { instantiated: { drift: string } | null } }
     expect(detailJson.data.instantiated?.drift).toBe('up-to-date')
 
     // 上游文件变化（未本地修改）→ upstream-updated，reimport 无需 confirm。
-    writePersona(edgeRoot, DIV_B, 'edge-persona.md', 'Edge Persona', 'Changed upstream description.')
+    writePersona(
+      edgeRoot,
+      DIV_B,
+      'edge-persona.md',
+      'Edge Persona',
+      'Changed upstream description.',
+    )
     expect(await driftFor(EDGE_LIB_ID)).toBe('upstream-updated')
 
     const reimport = await req(`/api/v1/agent-library/${EDGE_LIB_ID}/reimport`, {
@@ -583,7 +684,10 @@ describe('agent library routes — 生命周期边界（dev Postgres）', () => 
   })
 
   it('local edit + upstream edit → diverged; empty registry → missing-upstream', async () => {
-    await runQuery(`UPDATE agents SET instructions = 'hand-edited-again' WHERE library_meta->>'id' = $1`, [EDGE_LIB_ID])
+    await runQuery(
+      `UPDATE agents SET instructions = 'hand-edited-again' WHERE library_meta->>'id' = $1`,
+      [EDGE_LIB_ID],
+    )
     writePersona(edgeRoot, DIV_B, 'edge-persona.md', 'Edge Persona', 'Changed twice upstream.')
     expect(await driftFor(EDGE_LIB_ID)).toBe('diverged')
 
@@ -592,8 +696,12 @@ describe('agent library routes — 生命周期边界（dev Postgres）', () => 
     tmpRoots.push(emptyRoot)
     process.env.DAGENTS_AGENT_LIBRARY_DIRS = emptyRoot
     const drift = await app.request('/api/v1/agent-library/drift')
-    const driftJson = await drift.json() as { data: { items: { libraryId: string; state: string }[] } }
-    expect(driftJson.data.items.find((i) => i.libraryId === EDGE_LIB_ID)?.state).toBe('missing-upstream')
+    const driftJson = (await drift.json()) as {
+      data: { items: { libraryId: string; state: string }[] }
+    }
+    expect(driftJson.data.items.find((i) => i.libraryId === EDGE_LIB_ID)?.state).toBe(
+      'missing-upstream',
+    )
   })
 })
 
@@ -623,8 +731,10 @@ describe('agent library teams — fan-out 与混合复用（dev Postgres）', ()
   })
 
   afterAll(async () => {
-    if (seededFlows.length > 0) await runQuery(`DELETE FROM flows WHERE id = ANY($1::uuid[])`, [seededFlows])
-    if (seededAgents.length > 0) await runQuery(`DELETE FROM agents WHERE id = ANY($1::uuid[])`, [seededAgents])
+    if (seededFlows.length > 0)
+      await runQuery(`DELETE FROM flows WHERE id = ANY($1::uuid[])`, [seededFlows])
+    if (seededAgents.length > 0)
+      await runQuery(`DELETE FROM agents WHERE id = ANY($1::uuid[])`, [seededAgents])
     if (AppDataSource.isInitialized) await AppDataSource.destroy()
     delete process.env.DAGENTS_AGENT_LIBRARY_DIRS
   })
@@ -635,7 +745,11 @@ describe('agent library teams — fan-out 与混合复用（dev Postgres）', ()
     // 共享 dev 库上复用状态不可控；合成模板使混合复用场景完全确定。
     const { TEAM_TEMPLATES } = await import('../routes/agent-library-teams.js')
     TEAM_TEMPLATES.push({
-      id: 'test-fanout', name: 'F', description: 'f', icon: '🛰️', shape: 'fan-out',
+      id: 'test-fanout',
+      name: 'F',
+      description: 'f',
+      icon: '🛰️',
+      shape: 'fan-out',
       steps: [
         { persona: 'Fan Alpha', label: 'a', task: 'do a' },
         { persona: 'Fan Beta', label: 'b', task: 'do b' },
@@ -652,16 +766,19 @@ describe('agent library teams — fan-out 与混合复用（dev Postgres）', ()
         body: JSON.stringify({}),
       })
       expect(pre.status).toBe(201)
-      const preJson = await pre.json() as { data: { id: string } }
+      const preJson = (await pre.json()) as { data: { id: string } }
       seededAgents.push(preJson.data.id)
 
-      const res = await app.request('/api/v1/agent-library/team-templates/test-fanout/instantiate', {
-        method: 'POST',
-        headers: { 'content-type': 'application/json' },
-        body: JSON.stringify({}),
-      })
+      const res = await app.request(
+        '/api/v1/agent-library/team-templates/test-fanout/instantiate',
+        {
+          method: 'POST',
+          headers: { 'content-type': 'application/json' },
+          body: JSON.stringify({}),
+        },
+      )
       expect(res.status).toBe(201)
-      const { data } = await res.json() as {
+      const { data } = (await res.json()) as {
         data: { flowId: string; members: { persona: string; agentId: string; enabled: boolean }[] }
       }
       seededFlows.push(data.flowId)
@@ -673,9 +790,9 @@ describe('agent library teams — fan-out 与混合复用（dev Postgres）', ()
       for (const m of data.members) if (m.agentId !== alpha.agentId) seededAgents.push(m.agentId)
 
       // fan-out 结构：start + 3 agent + llm 汇总 + reply = 6 节点 / 7 边。
-      const { records } = await runQuery<{ flow_data: { nodes: { data: { name: string } }[]; edges: unknown[] } }>(
-        `SELECT flow_data FROM flows WHERE id = $1::uuid`, [data.flowId],
-      )
+      const { records } = await runQuery<{
+        flow_data: { nodes: { data: { name: string } }[]; edges: unknown[] }
+      }>(`SELECT flow_data FROM flows WHERE id = $1::uuid`, [data.flowId])
       const fd = records[0].flow_data
       expect(fd.nodes).toHaveLength(6)
       expect(fd.edges).toHaveLength(7)
@@ -688,9 +805,14 @@ describe('agent library teams — fan-out 与混合复用（dev Postgres）', ()
   it('parallel-head template: heads fan out from start, merge into the linear tail (examples 落地页形态)', async () => {
     const { TEAM_TEMPLATES } = await import('../routes/agent-library-teams.js')
     TEAM_TEMPLATES.push({
-      id: 'test-parallel-head', name: 'P', description: 'p', icon: '🦅', shape: 'parallel-head',
+      id: 'test-parallel-head',
+      name: 'P',
+      description: 'p',
+      icon: '🦅',
+      shape: 'parallel-head',
       parallelCount: 2,
-      inputHint: '测试输入引导', inputExample: '测试输入示例',
+      inputHint: '测试输入引导',
+      inputExample: '测试输入示例',
       steps: [
         { persona: 'Fan Alpha', label: 'a', task: 'do a' },
         { persona: 'Fan Beta', label: 'b', task: 'do b' },
@@ -700,13 +822,18 @@ describe('agent library teams — fan-out 与混合复用（dev Postgres）', ()
     } as never)
     try {
       process.env.DAGENTS_AGENT_LIBRARY_DIRS = fanRoot
-      const res = await app.request('/api/v1/agent-library/team-templates/test-parallel-head/instantiate', {
-        method: 'POST',
-        headers: { 'content-type': 'application/json' },
-        body: JSON.stringify({}),
-      })
+      const res = await app.request(
+        '/api/v1/agent-library/team-templates/test-parallel-head/instantiate',
+        {
+          method: 'POST',
+          headers: { 'content-type': 'application/json' },
+          body: JSON.stringify({}),
+        },
+      )
       expect(res.status).toBe(201)
-      const { data } = await res.json() as { data: { flowId: string; members: { agentId: string }[] } }
+      const { data } = (await res.json()) as {
+        data: { flowId: string; members: { agentId: string }[] }
+      }
       seededFlows.push(data.flowId)
       for (const m of data.members) seededAgents.push(m.agentId)
 
@@ -728,7 +855,8 @@ describe('agent library teams — fan-out 与混合复用（dev Postgres）', ()
       expect(start.data.inputExample).toBeTruthy()
 
       // 拓扑：start 扇出 2 头；两头都汇入首个顺序节点（N 进 1 合并契约）；尾部成链接 reply。
-      const targetsOf = (src: string) => fd.edges.filter((e) => e.source === src).map((e) => e.target)
+      const targetsOf = (src: string) =>
+        fd.edges.filter((e) => e.source === src).map((e) => e.target)
       const heads = targetsOf('node_1')
       expect(heads).toEqual(['node_2', 'node_3'])
       const merge = new Set(fd.edges.filter((e) => heads.includes(e.source)).map((e) => e.target))
@@ -746,13 +874,17 @@ describe('agent library teams — fan-out 与混合复用（dev Postgres）', ()
   it('GET team-templates flags unavailable members (injected template, env-independent)', async () => {
     const { TEAM_TEMPLATES } = await import('../routes/agent-library-teams.js')
     TEAM_TEMPLATES.push({
-      id: 'test-ghost-team', name: 'G', description: 'g', icon: '👻', shape: 'linear',
+      id: 'test-ghost-team',
+      name: 'G',
+      description: 'g',
+      icon: '👻',
+      shape: 'linear',
       steps: [{ persona: 'Ghost Persona Nobody', label: 'x', task: 'x' }],
     } as never)
     try {
       process.env.DAGENTS_AGENT_LIBRARY_DIRS = fanRoot
       const res = await app.request('/api/v1/agent-library/team-templates')
-      const json = await res.json() as {
+      const json = (await res.json()) as {
         data: { templates: { id: string; members: { available: boolean }[] }[] }
       }
       const ghost = json.data.templates.find((t) => t.id === 'test-ghost-team')
@@ -760,5 +892,85 @@ describe('agent library teams — fan-out 与混合复用（dev Postgres）', ()
     } finally {
       TEAM_TEMPLATES.pop()
     }
+  })
+})
+
+describe('agent library — Agent 广场内置精选库（docs/agent-plaza.md）', () => {
+  // 真根集里的内置根（in-repo builtin-library）。隔离于用户根：只挂 builtin。
+  const builtinRoot = defaultAgentLibraryRoots().find(
+    (r) => r.rank === BUILTIN_LIBRARY_RANK && r.dir.endsWith('builtin-library'),
+  )
+  // in-repo 目录必然存在；缺失说明 BUILTIN_LIBRARY_DIR 定位坏了（构建产物路径漂移）。
+  if (!builtinRoot)
+    throw new Error('builtin-library root not discovered — check BUILTIN_LIBRARY_DIR resolution')
+
+  const builtinOnly = new AgentLibraryRegistry(() => [builtinRoot])
+
+  it('内置目录完整：≥50 条目 / 13 个合法分部 / 每条 source=builtin / frontmatter 可解析', () => {
+    const entries = builtinOnly.list()
+    expect(entries.length).toBeGreaterThanOrEqual(50)
+    expect(new Set(entries.map((e) => e.division)).size).toBe(13)
+    // parsePersonaMarkdown 已在扫描层 warn-and-skip，能出现在目录里即有 name/description。
+    for (const e of entries) {
+      expect(e.name).toBeTruthy()
+      expect(e.description).toBeTruthy()
+      expect(e.source).toBe('builtin')
+    }
+    // 全部条目带 vibe/emoji 之一（广场卡片的陈列素材；缺了只是展示降级，不 fail）
+    const withVibe = entries.filter((e) => e.vibe || e.emoji).length
+    expect(withVibe / entries.length).toBeGreaterThan(0.9)
+  })
+
+  it('rank 900 兜底语义：用户根同 id 胜出，仅内置存在时由内置提供', () => {
+    const { dir } = makeRoot()
+    // 用户根里放一个与内置同名的人格（真内置存在的 Product Manager，slug 相同）
+    writePersona(dir, 'product', 'product-manager.md', 'Product Manager', 'User copy wins.')
+    const roots: AgentLibraryRoot[] = [{ source: 'custom', dir, rank: 300 }, builtinRoot]
+    const merged = new AgentLibraryRegistry(() => roots)
+    const pm = merged.list().find((e) => e.id === 'product/product-manager')
+    expect(pm?.description).toBe('User copy wins.')
+    expect(pm?.source).toBe('custom')
+
+    // 仅内置时由内置提供（makeRoot 的 registry 只挂 fixture 根，换 builtin 验证正向）
+    const builtinPm = builtinOnly.get('product/product-manager')
+    expect(builtinPm?.source).toBe('builtin')
+    expect(builtinPm?.body).toContain('Product Manager')
+  })
+
+  it('团队成员零缺失：9 个团队模板 + 内置流程模板 personaName 全部可由内置库解析', async () => {
+    const byName = new Map(builtinOnly.getAll().map((e) => [e.name, e]))
+    const { TEAM_TEMPLATES } = await import('../routes/agent-library-teams.js')
+    const missingTeams = TEAM_TEMPLATES.flatMap((t) =>
+      (t.steps.map((s: { persona: string }) => s.persona) as string[])
+        .filter((n) => !byName.has(n))
+        .map((n) => `${t.id}:${n}`),
+    )
+    expect(missingTeams).toEqual([])
+
+    // 内置流程模板的 personaName（降级升级的触发条件；位于顶层 agentRefs）
+    const { BUILTIN_FLOW_TEMPLATES } = await import('../flow-templates/builtin/index.js')
+    const personaNames = BUILTIN_FLOW_TEMPLATES.flatMap((tpl) =>
+      tpl.agentRefs
+        .map((ref) => ref.personaName)
+        .filter((v): v is string => typeof v === 'string'),
+    )
+    const missingFlow = [...new Set(personaNames)].filter((n) => !byName.has(n))
+    expect(missingFlow).toEqual([])
+  })
+})
+
+describe('agents.visibility archived（1720000101000 migration）', () => {
+  it('归档值通过 CHECK 约束（console 归档 PATCH 的落库路径）', async () => {
+    process.env.POSTGRES_URL ??= PG_URL
+    if (!AppDataSource.isInitialized) await AppDataSource.initialize()
+    const { records } = await runQuery<{ id: string }>(
+      `INSERT INTO agents (id, workspace_id, owner_id, name, kind, visibility, instructions)
+       VALUES (gen_random_uuid(), '00000000-0000-0000-0000-000000000000', 'system', 'alib-visibility-probe', 'claude', 'archived', 'probe')
+       RETURNING id`,
+    )
+    const probeId = records[0].id
+    await runQuery(`DELETE FROM agents WHERE id = $1::uuid`, [probeId])
+    // 能插能删即约束放行（失败会在此之前 throw）
+    expect(probeId).toMatch(/^[0-9a-f-]{36}$/)
   })
 })

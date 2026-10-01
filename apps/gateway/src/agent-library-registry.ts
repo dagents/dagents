@@ -23,15 +23,8 @@ import { homedir } from 'node:os'
 import { dirname, join } from 'node:path'
 import { fileURLToPath } from 'node:url'
 import { createLogger } from '@dagents/shared'
-import {
-  parsePersonaMarkdown,
-  sha256Hex,
-  slugifyPersonaName,
-} from './persona-compiler.js'
-import {
-  expandAgentLibraryHome,
-  managedAgentLibraryDirs,
-} from './managed-agent-library-dirs.js'
+import { parsePersonaMarkdown, sha256Hex, slugifyPersonaName } from './persona-compiler.js'
+import { expandAgentLibraryHome, managedAgentLibraryDirs } from './managed-agent-library-dirs.js'
 
 const log = createLogger({ svc: 'gateway:agent-library' })
 
@@ -39,15 +32,26 @@ const CATALOG_TTL_MS = 60_000
 export const CUSTOM_ROOT_RANK_BASE = 300
 export const MANAGED_ROOT_RANK_BASE = 400
 export const DEFAULT_ROOT_RANK = 500
+/** Agent 广场内置精选库（docs/agent-plaza.md D2）：rank 900「内容兜底」——
+ *  高于一切用户根，同名 id 由任何用户库胜出，内置旧副本永不遮蔽用户的新版本。 */
+export const BUILTIN_LIBRARY_RANK = 900
 /** 嵌套扫描深度上限（division/unity/unity-architect.md 需要 2 层）。 */
 const MAX_WALK_DEPTH = 3
 /** divisions.json 缺失时的兜底排除清单（agency-agents 的非 division 目录）。 */
 const NON_DIVISION_DIRS = new Set([
-  'integrations', 'examples', 'scripts', 'strategy', 'docs', '.github', '.git', 'node_modules',
+  'integrations',
+  'examples',
+  'scripts',
+  'strategy',
+  'docs',
+  '.github',
+  '.git',
+  'node_modules',
 ])
 
 export interface AgentLibraryRoot {
-  source: 'custom' | 'managed' | 'default'
+  /** 'builtin' = in-repo 内容根（quickstart / 广场精选库）；其余为用户根。 */
+  source: 'builtin' | 'custom' | 'managed' | 'default'
   dir: string
   rank: number
 }
@@ -69,6 +73,8 @@ export interface AgentLibraryEntrySummary {
   suggestedModel: string | null
   /** 文件字节数（前端据此提示 token 量级）。 */
   sizeBytes: number
+  /** 提供该条目的根类型 —— 广场据此渲染「内置」角标（builtin = 产品预置内容）。 */
+  source: AgentLibraryRoot['source']
 }
 
 /** `get(id)` 的完整载荷 —— 正文每次从磁盘新读，编辑立即可见。 */
@@ -96,15 +102,23 @@ interface ScannedEntry extends AgentLibraryEntry {
 /** 内置快速开始库根（agent-templates 退役承接，5 个运行时档位人格）。
  *  以本模块相对路径定位 —— dev（tsx 直跑 src）与构建产物均指向
  *  apps/gateway/quickstart-library；目录缺失时静默跳过。 */
-const BUILTIN_QUICKSTART_DIR = join(dirname(fileURLToPath(import.meta.url)), '..', 'quickstart-library')
+const BUILTIN_QUICKSTART_DIR = join(
+  dirname(fileURLToPath(import.meta.url)),
+  '..',
+  'quickstart-library',
+)
 const BUILTIN_QUICKSTART_RANK = 50
+
+/** Agent 广场内置精选库根（docs/agent-plaza.md）：50 个人格 / 13 分部，选自
+ *  agency-agents（MIT）。定位方式同 quickstart；rank 900 兜底语义见常量注释。 */
+const BUILTIN_LIBRARY_DIR = join(dirname(fileURLToPath(import.meta.url)), '..', 'builtin-library')
 
 /** Resolve discovery roots. Evaluated per scan so env changes apply on refresh. */
 export function defaultAgentLibraryRoots(): AgentLibraryRoot[] {
   const roots: AgentLibraryRoot[] = []
   const seen = new Set<string>()
   if (isReadableDir(BUILTIN_QUICKSTART_DIR)) {
-    roots.push({ source: 'custom', dir: BUILTIN_QUICKSTART_DIR, rank: BUILTIN_QUICKSTART_RANK })
+    roots.push({ source: 'builtin', dir: BUILTIN_QUICKSTART_DIR, rank: BUILTIN_QUICKSTART_RANK })
     seen.add(BUILTIN_QUICKSTART_DIR)
   }
   const custom = process.env.DAGENTS_AGENT_LIBRARY_DIRS
@@ -128,6 +142,10 @@ export function defaultAgentLibraryRoots(): AgentLibraryRoot[] {
   const defaultDir = join(homedir(), '.agents', 'agent-library')
   if (!seen.has(defaultDir)) {
     roots.push({ source: 'default', dir: defaultDir, rank: DEFAULT_ROOT_RANK })
+  }
+  // 内置精选垫底（最高 rank = 最低优先级）：任何人库同 id 覆盖内置。
+  if (!seen.has(BUILTIN_LIBRARY_DIR) && isReadableDir(BUILTIN_LIBRARY_DIR)) {
+    roots.push({ source: 'builtin', dir: BUILTIN_LIBRARY_DIR, rank: BUILTIN_LIBRARY_RANK })
   }
   return roots
 }
@@ -197,10 +215,16 @@ function walkMarkdownFiles(dir: string, depth = 0, prefix = ''): string[] {
 
 function toStringArray(v: unknown): string[] | null {
   if (typeof v !== 'string' || !v.trim()) return null
-  return v.split(',').map((s) => s.trim()).filter(Boolean)
+  return v
+    .split(',')
+    .map((s) => s.trim())
+    .filter(Boolean)
 }
 
-function scanRoot(root: AgentLibraryRoot, divisions: Map<string, AgentLibraryDivision>): ScannedEntry[] {
+function scanRoot(
+  root: AgentLibraryRoot,
+  divisions: Map<string, AgentLibraryDivision>,
+): ScannedEntry[] {
   if (!isReadableDir(root.dir)) return []
   const meta = readDivisionsMeta(root.dir)
   const divisionKeys = meta
@@ -244,6 +268,7 @@ function scanRoot(root: AgentLibraryRoot, divisions: Map<string, AgentLibraryDiv
         suggestedKind: typeof md.kind === 'string' && md.kind ? md.kind : null,
         suggestedModel: typeof md.model === 'string' && md.model ? md.model : null,
         sizeBytes: Buffer.byteLength(raw, 'utf-8'),
+        source: root.source,
         body: parsed.body,
         filePath: file,
         rawSha256: sha256Hex(raw),
@@ -271,7 +296,9 @@ export class AgentLibraryRegistry {
       for (const entry of scanRoot(root, divisions)) {
         const existing = byId.get(entry.id)
         if (existing && existing.rootRank <= entry.rootRank) {
-          log.warn(`duplicate agent library id "${entry.id}": root ${root.dir} ignored in favor of lower-rank root`)
+          log.warn(
+            `duplicate agent library id "${entry.id}": root ${root.dir} ignored in favor of lower-rank root`,
+          )
           continue
         }
         byId.set(entry.id, entry)
@@ -285,9 +312,35 @@ export class AgentLibraryRegistry {
     const now = Date.now()
     if (this.cached && this.cachedDivisions && now - this.cachedAt < CATALOG_TTL_MS) return
     const { entries, divisions } = this.scanAll()
-    this.cached = entries.map(({ id, division, name, description, emoji, color, vibe, tools, suggestedKind, suggestedModel, sizeBytes }) => ({
-      id, division, name, description, emoji, color, vibe, tools, suggestedKind, suggestedModel, sizeBytes,
-    }))
+    this.cached = entries.map(
+      ({
+        id,
+        division,
+        name,
+        description,
+        emoji,
+        color,
+        vibe,
+        tools,
+        suggestedKind,
+        suggestedModel,
+        sizeBytes,
+        source,
+      }) => ({
+        id,
+        division,
+        name,
+        description,
+        emoji,
+        color,
+        vibe,
+        tools,
+        suggestedKind,
+        suggestedModel,
+        sizeBytes,
+        source,
+      }),
+    )
     this.cachedDivisions = [...divisions.values()].sort((a, b) => a.key.localeCompare(b.key))
     this.cachedAt = now
   }

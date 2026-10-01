@@ -175,6 +175,7 @@ scripts/import-agency-agents.ts   # 可选：Phase 1 直接用 instantiate API �
 | Phase 1 | registry + compiler + 只读 API + 实例化「架构师/PM/Reality Checker」 | ✅ 完成（见 §8） |
 | Phase 2 | console 库页 + drift + migration + 单测/e2e（spec-16） | ✅ 完成 |
 | Phase 3 | 团队场景 flows 模板 + 双语人格衍生目录 | ✅ 完成（见 §8.1） |
+| Phase 4 | **Agent 广场**：内置精选库（rank 900 兜底）+ `/agents?tab=plaza` 一等页面 + 聊天/画布入口 | ✅ 完成（2026-10-01，设计真相源 `docs/agent-plaza.md`） |
 
 ## 7. 明确不做（Non-Goals）
 

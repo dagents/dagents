@@ -16,6 +16,19 @@
   gap: var(--space-3);
 }
 
+/* 页级 tab（我的 Agents / Agent 广场）下的二级 scope 行 —— 视觉降一级：
+   字号缩到 xs、弱化，页级 tab 才是主导航（docs/agent-plaza.md D4）。 */
+.scope-tabs-secondary button {
+  font-size: var(--text-xs);
+}
+
+/* 空态双动作（新建 / 去广场逛逛）并排。 */
+.empty-state-actions {
+  display: flex;
+  gap: var(--space-2);
+  justify-content: center;
+}
+
 /* ─── toolbar ─── */
 .agents-toolbar {
   display: flex;
@@ -50,7 +63,8 @@
   border-radius: var(--radius-lg);
   padding: var(--space-4) var(--space-5);
   margin-bottom: var(--space-3);
-  transition: box-shadow var(--motion-fast) var(--ease-standard),
+  transition:
+    box-shadow var(--motion-fast) var(--ease-standard),
     border-color var(--motion-fast) var(--ease-standard);
   cursor: pointer;
 }
@@ -95,8 +109,14 @@
   background: color-mix(in srgb, var(--glyph-codex) 16%, var(--surface-sunk));
   color: color-mix(in srgb, var(--glyph-codex) 70%, var(--fg));
 }
-.agent-glyph.kind-prompt { background: var(--accent-soft); color: var(--accent-hover); }
-.agent-glyph.kind-remote { background: var(--info-soft); color: var(--info); }
+.agent-glyph.kind-prompt {
+  background: var(--accent-soft);
+  color: var(--accent-hover);
+}
+.agent-glyph.kind-remote {
+  background: var(--info-soft);
+  color: var(--info);
+}
 
 /* info — title row + description preview */
 .agent-info {
@@ -174,8 +194,12 @@
   border-radius: var(--radius-pill);
   transition: width var(--motion-fast);
 }
-.agent-card .load-fill.warn { background: var(--warn); }
-.agent-card .load-fill.danger { background: var(--danger); }
+.agent-card .load-fill.warn {
+  background: var(--warn);
+}
+.agent-card .load-fill.danger {
+  background: var(--danger);
+}
 .agent-card .load-val {
   font-size: var(--text-2xs);
   color: var(--meta);
@@ -187,8 +211,12 @@
   animation: agent-spin 1s linear infinite;
 }
 @keyframes agent-spin {
-  to { transform: rotate(360deg); }
+  to {
+    transform: rotate(360deg);
+  }
 }
 @media (prefers-reduced-motion: reduce) {
-  .icon-spin { animation: none; }
+  .icon-spin {
+    animation: none;
+  }
 }

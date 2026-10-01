@@ -6,7 +6,6 @@
  * 人格寻址键是 `<division>/<slug>`（gateway 由 frontmatter name slug 化）。
  */
 
-
 import { apiFetch } from '@/lib/api'
 
 export type PersonaProfile = 'full' | 'slim' | 'minimal'
@@ -21,6 +20,8 @@ export interface AgentLibraryEntrySummary {
   vibe: string | null
   tools: string[] | null
   sizeBytes: number
+  /** 提供该条目的根类型（builtin = 产品预置内容，广场渲染「内置」角标）。 */
+  source?: 'builtin' | 'custom' | 'managed' | 'default'
   /** frontmatter 建议运行时（快速开始档位人格锁定 kind/model；instantiate 默认采用）。 */
   suggestedKind?: string | null
   suggestedModel?: string | null
@@ -54,11 +55,7 @@ export interface AgentLibraryDetail extends AgentLibraryEntrySummary {
 }
 
 export type PersonaDriftState =
-  | 'up-to-date'
-  | 'upstream-updated'
-  | 'locally-modified'
-  | 'diverged'
-  | 'missing-upstream'
+  'up-to-date' | 'upstream-updated' | 'locally-modified' | 'diverged' | 'missing-upstream'
 
 export interface AgentLibraryDriftItem {
   agentId: string
@@ -75,21 +72,35 @@ function splitId(id: string): { division: string; slug: string } {
   return { division: id.slice(0, idx), slug: id.slice(idx + 1) }
 }
 
-export async function fetchAgentLibrary(opts: { division?: string; refresh?: boolean } = {}): Promise<AgentLibraryCatalog> {
+export async function fetchAgentLibrary(
+  opts: { division?: string; refresh?: boolean } = {},
+): Promise<AgentLibraryCatalog> {
   const qs = new URLSearchParams()
   if (opts.division) qs.set('division', opts.division)
   if (opts.refresh) qs.set('refresh', 'true')
   const query = qs.toString()
-  return apiFetch<AgentLibraryCatalog>(`/api/agent-library${query ? `?${query}` : ''}`, undefined, '加载人格库')
+  return apiFetch<AgentLibraryCatalog>(
+    `/api/agent-library${query ? `?${query}` : ''}`,
+    undefined,
+    '加载人格库',
+  )
 }
 
 export async function fetchAgentLibraryEntry(id: string): Promise<AgentLibraryDetail> {
   const { division, slug } = splitId(id)
-  return apiFetch<AgentLibraryDetail>(`/api/agent-library/${encodeURIComponent(division)}/${encodeURIComponent(slug)}`, undefined, '加载人格详情')
+  return apiFetch<AgentLibraryDetail>(
+    `/api/agent-library/${encodeURIComponent(division)}/${encodeURIComponent(slug)}`,
+    undefined,
+    '加载人格详情',
+  )
 }
 
 export async function fetchAgentLibraryDrift(): Promise<AgentLibraryDriftItem[]> {
-  const data = await apiFetch<{ items: AgentLibraryDriftItem[] }>('/api/agent-library/drift', undefined, '加载同步状态')
+  const data = await apiFetch<{ items: AgentLibraryDriftItem[] }>(
+    '/api/agent-library/drift',
+    undefined,
+    '加载同步状态',
+  )
   return data.items
 }
 
@@ -104,11 +115,15 @@ export async function instantiateAgentFromLibrary(
   req: InstantiatePersonaRequest = {},
 ): Promise<{ id: string; libraryId: string; kind: string; profile: PersonaProfile }> {
   const { division, slug } = splitId(id)
-  return apiFetch(`/api/agent-library/${encodeURIComponent(division)}/${encodeURIComponent(slug)}/instantiate`, {
-    method: 'POST',
-    headers: { 'content-type': 'application/json' },
-    body: JSON.stringify(req),
-  }, '启用人格')
+  return apiFetch(
+    `/api/agent-library/${encodeURIComponent(division)}/${encodeURIComponent(slug)}/instantiate`,
+    {
+      method: 'POST',
+      headers: { 'content-type': 'application/json' },
+      body: JSON.stringify(req),
+    },
+    '启用人格',
+  )
 }
 
 export async function reimportAgentFromLibrary(
@@ -116,23 +131,35 @@ export async function reimportAgentFromLibrary(
   req: { confirm?: boolean; profile?: PersonaProfile } = {},
 ): Promise<{ id: string; profile: PersonaProfile; fromState: PersonaDriftState }> {
   const { division, slug } = splitId(id)
-  return apiFetch(`/api/agent-library/${encodeURIComponent(division)}/${encodeURIComponent(slug)}/reimport`, {
-    method: 'POST',
-    headers: { 'content-type': 'application/json' },
-    body: JSON.stringify(req),
-  }, '重新导入')
+  return apiFetch(
+    `/api/agent-library/${encodeURIComponent(division)}/${encodeURIComponent(slug)}/reimport`,
+    {
+      method: 'POST',
+      headers: { 'content-type': 'application/json' },
+      body: JSON.stringify(req),
+    },
+    '重新导入',
+  )
 }
 
 export async function addAgentLibraryRoot(dir: string): Promise<{ dir: string }> {
-  return apiFetch('/api/agent-library/roots', {
-    method: 'POST',
-    headers: { 'content-type': 'application/json' },
-    body: JSON.stringify({ dir }),
-  }, '添加挂载目录')
+  return apiFetch(
+    '/api/agent-library/roots',
+    {
+      method: 'POST',
+      headers: { 'content-type': 'application/json' },
+      body: JSON.stringify({ dir }),
+    },
+    '添加挂载目录',
+  )
 }
 
 export async function removeAgentLibraryRoot(dir: string): Promise<{ dir: string }> {
-  return apiFetch(`/api/agent-library/roots?dir=${encodeURIComponent(dir)}`, { method: 'DELETE' }, '移除挂载目录')
+  return apiFetch(
+    `/api/agent-library/roots?dir=${encodeURIComponent(dir)}`,
+    { method: 'DELETE' },
+    '移除挂载目录',
+  )
 }
 
 // ── 团队场景工作流模板（Phase 3） ──────────────────────────────────────
@@ -169,7 +196,11 @@ export interface TeamInstantiateResult {
 }
 
 export async function fetchTeamTemplates(): Promise<TeamTemplateSummary[]> {
-  const data = await apiFetch<{ templates: TeamTemplateSummary[] }>('/api/agent-library/team-templates', undefined, '加载团队场景')
+  const data = await apiFetch<{ templates: TeamTemplateSummary[] }>(
+    '/api/agent-library/team-templates',
+    undefined,
+    '加载团队场景',
+  )
   return data.templates
 }
 
@@ -177,9 +208,13 @@ export async function instantiateTeamTemplate(
   id: string,
   req: { profile?: PersonaProfile; flowName?: string } = {},
 ): Promise<TeamInstantiateResult> {
-  return apiFetch(`/api/agent-library/team-templates/${encodeURIComponent(id)}/instantiate`, {
-    method: 'POST',
-    headers: { 'content-type': 'application/json' },
-    body: JSON.stringify({ profile: req.profile, flow_name: req.flowName }),
-  }, '创建团队工作流')
+  return apiFetch(
+    `/api/agent-library/team-templates/${encodeURIComponent(id)}/instantiate`,
+    {
+      method: 'POST',
+      headers: { 'content-type': 'application/json' },
+      body: JSON.stringify({ profile: req.profile, flow_name: req.flowName }),
+    },
+    '创建团队工作流',
+  )
 }

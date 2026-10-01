@@ -1,0 +1,18 @@
+{
+  "_note": "Agent 广场内置精选库根（docs/agent-plaza.md D1/D2）：rank 900 兜底语义 —— 任何用户库根（env 300 / managed 400 / default 500）同 id 即覆盖内置，内置旧副本永不遮蔽用户的新版本。50 个人格 / 13 个分部，选自 agency-agents（The Agency，MIT），curation 策略见 README.md。上游更新不自动跟进：升级 = 手动重拷 + 提交。",
+  "divisions": {
+    "design": { "label": "Design", "icon": "PenTool", "color": "#EC4899" },
+    "engineering": { "label": "Engineering", "icon": "Code", "color": "#3B82F6" },
+    "gis": { "label": "GIS", "icon": "Map", "color": "#14B8A6" },
+    "marketing": { "label": "Marketing", "icon": "Megaphone", "color": "#F97316" },
+    "paid-media": { "label": "Paid Media", "icon": "Target", "color": "#EAB308" },
+    "product": { "label": "Product", "icon": "Box", "color": "#D946EF" },
+    "project-management": { "label": "Project Management", "icon": "ClipboardList", "color": "#0EA5E9" },
+    "research": { "label": "Research", "icon": "Search", "color": "#7C3AED" },
+    "security": { "label": "Security", "icon": "ShieldCheck", "color": "#EF4444" },
+    "spatial-computing": { "label": "Spatial Computing", "icon": "Boxes", "color": "#06B6D4" },
+    "specialized": { "label": "Specialized", "icon": "Sparkles", "color": "#6366F1" },
+    "support": { "label": "Support", "icon": "LifeBuoy", "color": "#84CC16" },
+    "testing": { "label": "Testing", "icon": "FlaskConical", "color": "#F59E0B" }
+  }
+}
