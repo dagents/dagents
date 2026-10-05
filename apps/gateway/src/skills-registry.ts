@@ -33,6 +33,7 @@ import { join } from 'node:path'
 import { parse as parseYaml, type YAMLParseError } from 'yaml'
 import { createLogger } from '@dagents/shared'
 import { expandHome, managedSkillDirs } from './managed-skill-dirs.js'
+import { splitDirList } from './lib/dir-list.js'
 
 const log = createLogger({ svc: 'gateway:skills' })
 
@@ -76,16 +77,10 @@ export function defaultSkillRoots(): SkillRoot[] {
   const roots: SkillRoot[] = []
   const seen = new Set<string>()
   const custom = process.env.DAGENTS_SKILL_DIRS
-  if (custom) {
-    custom
-      .split(':')
-      .map((d) => d.trim())
-      .filter(Boolean)
-      .forEach((dir, i) => {
-        const expanded = expandHome(dir)
-        roots.push({ source: 'custom', dir: expanded, rank: CUSTOM_ROOT_RANK_BASE + i })
-        seen.add(expanded)
-      })
+  for (const [i, dir] of splitDirList(custom).entries()) {
+    const expanded = expandHome(dir)
+    roots.push({ source: 'custom', dir: expanded, rank: CUSTOM_ROOT_RANK_BASE + i })
+    seen.add(expanded)
   }
   // UI-managed dirs (rank 400+). Env already covers a path → skip (env wins).
   managedSkillDirs

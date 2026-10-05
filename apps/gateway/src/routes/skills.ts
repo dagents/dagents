@@ -27,19 +27,14 @@
 import { Hono } from 'hono'
 import { skillsRegistry } from '../skills-registry.js'
 import { expandHome, managedSkillDirs } from '../managed-skill-dirs.js'
+import { splitDirList } from '../lib/dir-list.js'
 
 export const skillsRoutes = new Hono()
 
 /** Project the registry with the removable flag for UI delete affordances. */
 function catalogPayload(refresh = false) {
   const skills = skillsRegistry.list({ refresh })
-  const envDirs = new Set(
-    (process.env.DAGENTS_SKILL_DIRS ?? '')
-      .split(':')
-      .map((d) => d.trim())
-      .filter(Boolean)
-      .map(expandHome),
-  )
+  const envDirs = new Set(splitDirList(process.env.DAGENTS_SKILL_DIRS).map(expandHome))
   const roots = skillsRegistry.roots().map(({ source, dir, rank }) => ({
     source,
     dir,

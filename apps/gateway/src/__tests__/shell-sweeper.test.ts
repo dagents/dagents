@@ -16,7 +16,8 @@ import { describe, it, expect } from 'vitest'
 
 process.env.DAGENTS_SHELL_SWEEP_INTERVAL_MS = '300'
 process.env.DAGENTS_SHELL_ORPHAN_MS = '1500'
-process.env.SHELL = '/bin/bash'
+// win32 上 node-pty 需要 Windows 可执行文件；/bin/bash 仅在 POSIX 钉。
+if (process.platform !== 'win32') process.env.SHELL = '/bin/bash'
 
 const { app } = await import('../app.js')
 

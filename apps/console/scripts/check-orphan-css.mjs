@@ -33,7 +33,9 @@ const codeText = files
   .join('\n')
 
 const orphans = cssFiles.filter((p) => {
-  const name = p.split('/').pop()
+  // win32 路径分隔符是 \，split('/') 会拿到整条路径当「文件名」——
+  // 每个文件都成了孤儿（真机 Windows 复现）。basename 单源取法：
+  const name = p.split(/[\\/]/).pop()
   if (ORPHAN_CSS_ALLOWLIST.has(name)) return false
   // import 路径可带别名/相对前缀：匹配「/文件名'」或「"文件名"」——
   // 文件名前必须是 / 或引号（路径边界），canvas.css 不会被

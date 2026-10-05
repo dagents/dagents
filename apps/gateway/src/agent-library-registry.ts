@@ -25,6 +25,7 @@ import { fileURLToPath } from 'node:url'
 import { createLogger } from '@dagents/shared'
 import { parsePersonaMarkdown, sha256Hex, slugifyPersonaName } from './persona-compiler.js'
 import { expandAgentLibraryHome, managedAgentLibraryDirs } from './managed-agent-library-dirs.js'
+import { splitDirList } from './lib/dir-list.js'
 
 const log = createLogger({ svc: 'gateway:agent-library' })
 
@@ -122,16 +123,10 @@ export function defaultAgentLibraryRoots(): AgentLibraryRoot[] {
     seen.add(BUILTIN_QUICKSTART_DIR)
   }
   const custom = process.env.DAGENTS_AGENT_LIBRARY_DIRS
-  if (custom) {
-    custom
-      .split(':')
-      .map((d) => d.trim())
-      .filter(Boolean)
-      .forEach((dir, i) => {
-        const expanded = expandAgentLibraryHome(dir)
-        roots.push({ source: 'custom', dir: expanded, rank: CUSTOM_ROOT_RANK_BASE + i })
-        seen.add(expanded)
-      })
+  for (const [i, dir] of splitDirList(custom).entries()) {
+    const expanded = expandAgentLibraryHome(dir)
+    roots.push({ source: 'custom', dir: expanded, rank: CUSTOM_ROOT_RANK_BASE + i })
+    seen.add(expanded)
   }
   managedAgentLibraryDirs
     .list()

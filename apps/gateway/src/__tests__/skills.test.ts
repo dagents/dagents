@@ -143,7 +143,9 @@ describe('skills registry — rank merge and caching', () => {
 
   it('defaultSkillRoots reads DAGENTS_SKILL_DIRS and appends ~/.agents/skills', () => {
     const prev = process.env.DAGENTS_SKILL_DIRS
-    process.env.DAGENTS_SKILL_DIRS = '/tmp/a:/tmp/b'
+    // 分隔符跟平台（splitDirList 契约）：win32 `;`，POSIX `:`
+    const sep = process.platform === 'win32' ? ';' : ':'
+    process.env.DAGENTS_SKILL_DIRS = `/tmp/a${sep}/tmp/b`
     try {
       const roots = defaultSkillRoots()
       expect(roots.map((r) => r.source)).toEqual(['custom', 'custom', 'user-agents'])

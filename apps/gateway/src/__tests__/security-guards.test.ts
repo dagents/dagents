@@ -1,4 +1,5 @@
 import { describe, it, expect, afterEach, beforeEach } from 'vitest'
+import { fileURLToPath } from 'node:url'
 import { originAllowed, safeEqual } from '../auth.js'
 import { checkExecutablePath } from '../lib/executable-path.js'
 import { app } from '../app.js'
@@ -41,7 +42,9 @@ describe('auth: originAllowed (default-mode browser guard)', () => {
 
 describe('lib: checkExecutablePath (spawn surface guard)', () => {
   it('accepts an existing absolute file (this test file itself)', () => {
-    const p = new URL(import.meta.url).pathname
+    // fileURLToPath（不是 URL.pathname）：win32 上 pathname 是 `/C:/...`
+    // 形态，isAbsolute/statSync 都不认 —— 平台无关的正确解法。
+    const p = fileURLToPath(import.meta.url)
     const check = checkExecutablePath(p)
     expect(check.ok).toBe(true)
   })
