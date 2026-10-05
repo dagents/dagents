@@ -153,6 +153,13 @@ export class LLMNode implements INode {
       historySummary: summaryUsed,
     })
 
+    // 实际下发的 user 正文（prompt + 合并上游输入 + 预算截断对账标记）。
+    // span 的 input.prompt 记这个而非裸 resolvedPrompt——2026-08-27 菱形合并
+    // 语义：N 进 1 的 sink 节点 span 必须能看到全部上游简报（轨迹 Inspector
+    // 与 e2e WF-09 都钉这一点）；预算改造把上游从 prompt 拆进 inputText 后，
+    // 裸 resolvedPrompt 只剩节点模板，上游不可见。
+    const effectivePrompt = assembled.userContent
+
     const messages: Array<{ role: string; content: string }> = []
 
     // 两级历史注入（P1b）：摘要块（滚动 checkpoint，宽泛）+ 原文消息
@@ -255,7 +262,7 @@ export class LLMNode implements INode {
               input: {
                 model,
                 systemPrompt: resolvedSystemPrompt,
-                prompt: resolvedPrompt,
+                prompt: effectivePrompt,
                 temperature,
               },
               output: { text, content: text, json: parsed },
@@ -314,7 +321,7 @@ export class LLMNode implements INode {
     return {
       id: nodeData.id,
       name: this.name,
-      input: { model, systemPrompt: resolvedSystemPrompt, prompt: resolvedPrompt, temperature },
+      input: { model, systemPrompt: resolvedSystemPrompt, prompt: effectivePrompt, temperature },
       output: {
         text,
         content: text,
