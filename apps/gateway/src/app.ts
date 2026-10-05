@@ -26,6 +26,7 @@ import { runQuery } from '@dagents/db'
 import { createLogger } from '@dagents/shared'
 import { requireAuth, verifyApiKey, bearerFromRequest, originAllowed } from './auth.js'
 import { reportErrorToSink } from './lib/error-sink.js'
+import { renderMetrics } from './lib/metrics.js'
 
 // `app` is exported separately from the `serve()` entry so tests can drive it
 // via `app.request()` without binding a port. `index.ts` is the only place
@@ -42,6 +43,23 @@ app.get('/health', async (c) => {
     return c.json({ ok: false, svc: 'gateway', db: 'down' }, 503)
   }
 })
+
+/**
+ * Liveness 探针（稳定性专项 2026-10-04）与 /health（readiness，探 DB）分离：
+ * 本机单进程模式下「DB 断连」更该是「进程活着等 DB 回来」而不是「杀实例
+ * 重启」——重启会丢掉全部进程内执行（AD-1 单进程红线）。编排器/脚本用
+ * /livez 判进程存活，/health 判可服务性。
+ */
+app.get('/livez', (c) => c.json({ ok: true, svc: 'gateway' }))
+
+/**
+ * Prometheus 文本格式指标（稳定性专项 2026-10-04）：run 启动/终态计数、
+ * CLI spawn 闸与 run 闸水位、run-live 缓冲截断、熔断器状态、进程基础指标。
+ * 手写注册表（lib/metrics.ts），零依赖；本机 curl 可看，抓取端缺失不报错。
+ */
+app.get('/metrics', (c) =>
+  c.body(renderMetrics(), 200, { 'content-type': 'text/plain; version=0.0.4; charset=utf-8' }),
+)
 
 /**
  * Gateway auth + browser-origin middleware.
@@ -89,7 +107,7 @@ app.use('*', async (c, next) => {
 
   // API key gate is configured. Check public routes.
   const path = new URL(c.req.url).pathname
-  const isPublic = path === '/health'
+  const isPublic = path === '/health' || path === '/livez' || path === '/metrics'
   if (isPublic) {
     await next()
     return

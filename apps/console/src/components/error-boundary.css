@@ -1,0 +1,123 @@
+/*
+ * 错误边界样式（稳定性专项 2026-10-04）——被 error-boundary.tsx 与
+ * app/error.tsx / app/global-error.tsx 显式 import（孤儿 CSS 护栏 + 内联
+ * style 棘轮双合规：错误兜底 UI 也不开内联样式口子）。
+ * 自持原则：只依赖本文件与 tokens 的存在，不依赖全局样式系统——
+ * global-error 渲染时全局 css 正是嫌疑犯。
+ */
+
+.eb-card {
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+  padding: 20px;
+  margin: 16px;
+  border-radius: 10px;
+  border: 1px solid rgba(229, 72, 77, 0.33);
+  background: var(--bg-elevated, #1c1c1f);
+  color: var(--text-primary, inherit);
+  max-width: 640px;
+}
+
+.eb-title {
+  font-weight: 600;
+}
+
+.eb-detail {
+  font-size: 12px;
+  opacity: 0.75;
+  font-family: var(--font-mono, monospace);
+  word-break: break-word;
+}
+
+.eb-actions {
+  display: flex;
+  gap: 8px;
+}
+
+/* ── 路由级（app/error.tsx）：根布局仍在，可借全局 btn 类 ── */
+
+.eb-page {
+  display: flex;
+  flex-direction: column;
+  align-items: flex-start;
+  gap: 12px;
+  padding: 32px;
+  max-width: 640px;
+}
+
+.eb-page h1 {
+  font-size: 20px;
+  font-weight: 600;
+  margin: 0;
+}
+
+.eb-page p {
+  margin: 0;
+  opacity: 0.8;
+}
+
+.eb-pre {
+  margin: 0;
+  padding: 12px;
+  border-radius: 8px;
+  background: var(--bg-elevated, #1c1c1f);
+  font-size: 12px;
+  font-family: var(--font-mono, monospace);
+  white-space: pre-wrap;
+  word-break: break-word;
+  align-self: stretch;
+}
+
+/* ── 全局级（app/global-error.tsx）：替换整个 html 树，零全局依赖 ── */
+
+.eb-global-body {
+  margin: 0;
+  min-height: 100vh;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  background: #111113;
+  color: #ededf0;
+  font-family:
+    -apple-system, BlinkMacSystemFont, 'Segoe UI', 'PingFang SC', 'Hiragino Sans GB', sans-serif;
+}
+
+.eb-global-card {
+  display: flex;
+  flex-direction: column;
+  gap: 12px;
+  padding: 32px;
+  border-radius: 12px;
+  border: 1px solid rgba(229, 72, 77, 0.33);
+  max-width: 560px;
+}
+
+.eb-global-card h1 {
+  font-size: 18px;
+  font-weight: 600;
+  margin: 0;
+}
+
+.eb-global-card p {
+  margin: 0;
+  opacity: 0.75;
+  font-size: 14px;
+  line-height: 1.6;
+}
+
+.eb-btn {
+  padding: 6px 14px;
+  border-radius: 8px;
+  border: 1px solid rgba(255, 255, 255, 0.2);
+  background: rgba(255, 255, 255, 0.08);
+  color: inherit;
+  font-size: 13px;
+  cursor: pointer;
+  text-decoration: none;
+  display: inline-block;
+}
+
+.eb-btn:hover {
+  background: rgba(255, 255, 255, 0.14);
+}

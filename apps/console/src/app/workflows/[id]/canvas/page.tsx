@@ -1,5 +1,6 @@
 import { PageShell } from '@/components/page-shell'
 import { CanvasKitLoader } from '@/components/canvas/canvas-kit-loader'
+import { ErrorBoundary } from '@/components/error-boundary'
 import { gatewayUrl } from '@/lib/config'
 // FR-01（PRD 决议 D1）：本页复用 ftpl-canvas-column / ftpl-canvas-body 布局类，
 // 而这两条规则此前只被 flow-template-gallery.tsx 导入 —— 直接打开 / 刷新 /
@@ -29,6 +30,8 @@ export default async function CanvasWorkflowPage({
     viewport: { x: 0, y: 0, zoom: 1 },
   }
   let flowName = '未命名 Flow'
+  // flow 级上下文（P2a）：画布「上下文」面板的初值
+  let flowContextMd: string | null = null
   // Fetch failure previously rendered an EMPTY editable canvas named
   // "Untitled" — indistinguishable from a brand-new flow, and saving it
   // would blank the real one. Now it's an explicit error state.
@@ -45,13 +48,18 @@ export default async function CanvasWorkflowPage({
         // API 返回结构是 { data: { flow: { flowData: {...}, name: '...' } } }
         // 列表页 flows-view.tsx 的 mapFlowDetail 也按此结构解析
         const flow = (
-          data.data as { flow?: { flowData?: typeof flowData; name?: string } }
+          data.data as {
+            flow?: { flowData?: typeof flowData; name?: string; contextMd?: string | null }
+          }
         ).flow
         if (flow?.flowData) {
           flowData = flow.flowData
         }
         if (flow?.name) {
           flowName = flow.name
+        }
+        if (typeof flow?.contextMd === 'string') {
+          flowContextMd = flow.contextMd
         }
       } else {
         flowError = `HTTP ${res.status}`
@@ -70,13 +78,17 @@ export default async function CanvasWorkflowPage({
     <PageShell fullBleed flush>
       {flowError ? (
         <div className="not-found" style={{ gridColumn: '1 / -1' }}>
-          <div className="h">{flowError === 'not-found' ? '找不到这个 Flow' : '工作流加载失败'}</div>
+          <div className="h">
+            {flowError === 'not-found' ? '找不到这个 Flow' : '工作流加载失败'}
+          </div>
           <div className="d">
             {flowError === 'not-found'
               ? `id “${id}” 不存在，可能已被删除。`
               : `加载失败：${flowError}。请刷新重试。`}
           </div>
-          <a className="btn btn-secondary btn-sm" href="/flows">返回 Flow 列表</a>
+          <a className="btn btn-secondary btn-sm" href="/flows">
+            返回 Flow 列表
+          </a>
         </div>
       ) : (
         <div className="ftpl-canvas-column">
@@ -84,7 +96,18 @@ export default async function CanvasWorkflowPage({
               全部在画布自带 header 里。引擎 = 自研 Canvas Kit（2026-09-05 起，
               vendor/agentflow 已退役，详见 docs/canvas-replacement-architecture.md）。 */}
           <div className="ftpl-canvas-body">
-            <CanvasKitLoader flowId={id} flowName={flowName} initialFlow={flowData} watchRunId={watchRunId} firstRunHint={firstRunHint} />
+            {/* 局部错误边界（稳定性专项 2026-10-04）：画布渲染抛错塌成
+                错误卡而非整页白屏——顶栏/侧栏照常可用。 */}
+            <ErrorBoundary title="画布渲染出错">
+              <CanvasKitLoader
+                flowId={id}
+                flowName={flowName}
+                initialFlow={flowData}
+                watchRunId={watchRunId}
+                firstRunHint={firstRunHint}
+                initialContextMd={flowContextMd}
+              />
+            </ErrorBoundary>
           </div>
         </div>
       )}

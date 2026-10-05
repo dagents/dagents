@@ -79,8 +79,17 @@ export class PlatformAgentNode implements INode {
     const baseInstructions = resolveVariables(agentConfig.instructions, options.state) as string
     // 节点级任务指令：这一步的职责，追加在 Agent 自身 instructions 之后。
     // 没有它，流程里多个节点绑同一个 Agent 时只能靠上游接龙隐式分工。
-    const nodeTask = resolveVariables((nodeData.inputs?.systemPrompt as string) ?? '', options.state) as string
-    const combinedInstructions = [baseInstructions, nodeTask]
+    const nodeTask = resolveVariables(
+      (nodeData.inputs?.systemPrompt as string) ?? '',
+      options.state,
+    ) as string
+    const combinedInstructions = [
+      // flow 级上下文（P2a）：宿主预算预裁后的 context_md——最特定的
+      // 注入块，摆在人格 instructions 之前（dsh 取舍序：特定 > 宽泛）。
+      options.flowContext?.trim() ? `【流程上下文】\n${options.flowContext.trim()}` : '',
+      baseInstructions,
+      nodeTask,
+    ]
       .filter((s) => typeof s === 'string' && s.trim().length > 0)
       .join('\n\n')
     const systemPrompt = this.buildSystemPrompt(combinedInstructions, agentConfig.skills ?? [])
@@ -103,9 +112,8 @@ export class PlatformAgentNode implements INode {
     }
 
     const maxIterationsRaw = (nodeData.inputs?.maxIterations as number) ?? 10
-    const maxIterations = Number.isFinite(maxIterationsRaw) && maxIterationsRaw > 0
-      ? Math.floor(maxIterationsRaw)
-      : 10
+    const maxIterations =
+      Number.isFinite(maxIterationsRaw) && maxIterationsRaw > 0 ? Math.floor(maxIterationsRaw) : 10
 
     // Build the tool schema list from the registry. Only tools present in the
     // registry are exposed; an empty registry yields no tools and the loop
@@ -206,9 +214,7 @@ export class PlatformAgentNode implements INode {
     // 空产出守卫（与 llm.node 一致）：Agent 一轮跑完没有任何正文几乎必然
     // 是异常（CLI 截断、指令与输入错位）。诚实失败优于空壳成功流向下游。
     if (finalText.trim().length === 0) {
-      throw new Error(
-        `Agent 节点「${agentConfig.name}」返回空内容 — 请检查 Agent 指令与上游输入`,
-      )
+      throw new Error(`Agent 节点「${agentConfig.name}」返回空内容 — 请检查 Agent 指令与上游输入`)
     }
 
     return {

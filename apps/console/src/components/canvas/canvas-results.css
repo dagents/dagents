@@ -362,3 +362,9 @@
   margin-bottom: 6px;
 }
 .canvas-results-panel .rti-bar { padding: 4px 8px; }
+
+/* 轨迹视图加宽（2026-10-01）：节点泳道时间线需要横向空间——480px 放不下
+ * 甘特 + 台账 + Inspector；轨迹 tab 激活时面板放宽到 760px（仍守 94vw）。 */
+.canvas-results-panel.wide {
+  width: min(760px, 94vw);
+}

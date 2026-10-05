@@ -38,11 +38,17 @@ import { getFlowDataById } from '../repositories/workflows.repo.js'
 import { getDirectoryPath } from '../repositories/directories.repo.js'
 import { upsertChatWorkflowRunRow, listRunsForChat } from '../repositories/runs.repo.js'
 import { ok, fail, UUID_RE } from '../lib/http.js'
+import {
+  tryAcquireRunSlot,
+  recordRunFinished,
+  runGateStats,
+  MAX_CONCURRENT_RUNS,
+} from '../lib/run-gate.js'
+import { maybeUpdateChatSummary } from '../lib/chat-context-summary.js'
 
 export const chatRoutes = new Hono()
 
 const log = createLogger({ svc: 'gateway:chats' })
-
 
 const listQuerySchema = z.object({
   directory_id: z.string().uuid().optional(),
@@ -72,7 +78,10 @@ const updateBodySchema = z.object({
 
 const createMessageWithExecBodySchema = z.object({
   role: z.enum(['user', 'assistant', 'system', 'tool']).default('user'),
-  content: z.string().min(1).refine((s) => !s.includes('\x00'), 'content must not contain null bytes'),
+  content: z
+    .string()
+    .min(1)
+    .refine((s) => !s.includes('\x00'), 'content must not contain null bytes'),
   runId: z.string().uuid().optional(),
   metadata: z.record(z.string(), z.unknown()).optional(),
   /** Optional agent id — overrides chat.agentId for this message only. */
@@ -164,7 +173,9 @@ chatRoutes.get('/search', async (c) => {
     const before = escapeHtml(raw.slice(0, idx))
     const hit = escapeHtml(raw.slice(idx, idx + needle.length))
     const afterRaw = raw.slice(idx + needle.length)
-    const after = escapeHtml(afterRaw.length > 200 - idx ? afterRaw.slice(0, 200 - idx) + '…' : afterRaw)
+    const after = escapeHtml(
+      afterRaw.length > 200 - idx ? afterRaw.slice(0, 200 - idx) + '…' : afterRaw,
+    )
     return `${leadingEllipsis}${before}<mark>${hit}</mark>${after}`
   }
 
@@ -176,7 +187,10 @@ chatRoutes.get('/search', async (c) => {
       matchType: r.match_type,
       directoryId: r.directory_id,
       directoryName: r.directory_name,
-      createdAt: r.created_at instanceof Date ? r.created_at.toISOString() : new Date(r.created_at).toISOString(),
+      createdAt:
+        r.created_at instanceof Date
+          ? r.created_at.toISOString()
+          : new Date(r.created_at).toISOString(),
     })),
   })
 })
@@ -473,7 +487,10 @@ async function streamAgentExecution(
     taskId = result.taskId
   } catch (err) {
     log.error('dispatch invoke failed', { agentId, error: String(err) })
-    return c.json({ success: false, error: 'dispatch invoke failed', detail: String(err) }, 502 as ContentfulStatusCode)
+    return c.json(
+      { success: false, error: 'dispatch invoke failed', detail: String(err) },
+      502 as ContentfulStatusCode,
+    )
   }
 
   log.info('dispatched agent task', { chatId, agentId, taskId, runId })
@@ -516,12 +533,19 @@ async function streamAgentExecution(
           lastSeq = evt.seq
           const p = (evt.payload ?? {}) as Record<string, unknown>
           const text =
-            typeof p.content === 'string' ? p.content
-            : typeof p.output === 'string' ? p.output
-            : typeof p.status === 'string' ? p.status
-            : JSON.stringify(p)
+            typeof p.content === 'string'
+              ? p.content
+              : typeof p.output === 'string'
+                ? p.output
+                : typeof p.status === 'string'
+                  ? p.status
+                  : JSON.stringify(p)
           try {
-            controller.enqueue(encoder.encode(`event: token\ndata: ${JSON.stringify({ event: 'token', data: text })}\n\n`))
+            controller.enqueue(
+              encoder.encode(
+                `event: token\ndata: ${JSON.stringify({ event: 'token', data: text })}\n\n`,
+              ),
+            )
           } catch {
             // 流已关闭（客户端断开）——退出而非把异常当 poll error 吞掉
             terminal = true
@@ -536,7 +560,11 @@ async function streamAgentExecution(
 
       // Send end event (only meaningful when the stream is still open)
       try {
-        controller.enqueue(encoder.encode(`event: end\ndata: ${JSON.stringify({ event: 'end', data: '[DONE]' })}\n\n`))
+        controller.enqueue(
+          encoder.encode(
+            `event: end\ndata: ${JSON.stringify({ event: 'end', data: '[DONE]' })}\n\n`,
+          ),
+        )
         controller.close()
       } catch {
         // client already gone — nothing to flush
@@ -626,6 +654,15 @@ chatRoutes.get('/:id/stream', async (c) => {
   const done = new Promise<void>((resolve) => {
     resolveDone = resolve
   })
+  // run 并发闸（稳定性专项）：达上限诚实 429——SSE 尚未开流，拒绝不留半状态。
+  const releaseRunSlot = tryAcquireRunSlot()
+  if (!releaseRunSlot) {
+    return fail(c, 429, `并发运行已达上限（${MAX_CONCURRENT_RUNS()}）——请取消闲置运行或稍后重试`, {
+      active: runGateStats().active,
+    })
+  }
+  let finalRunStatus: string | null = null
+
   const handle: ExecutionHandle = {
     chatId: id,
     runId,
@@ -661,17 +698,24 @@ chatRoutes.get('/:id/stream', async (c) => {
       if (chat.directory_id) {
         try {
           chatCwd = (await getDirectoryPath(chat.directory_id)) ?? undefined
-        } catch { /* 目录解析失败回落网关 cwd */ }
+        } catch {
+          /* 目录解析失败回落网关 cwd */
+        }
       }
       // 引擎装配单一来源（与画布直跑 / @flow 路径共用）：chat 触发的
       // 工作流与画布直跑共用同一进度数据源，画布可通过
       // /workflows/:flowId/canvas?run=<id> 实时旁观 chat 发起的运行。
-      const { executor, live: liveTap, baseOptions } = assembleWorkflowEngine({
+      const {
+        executor,
+        live: liveTap,
+        baseOptions,
+      } = assembleWorkflowEngine({
         flowData,
         runId,
         flowId: chat.flow_id!,
         cwd: chatCwd,
         logger: log,
+        flowContextMd: flowRow.context_md ?? null,
       })
       live = liveTap
       // HumanInput nodes park on the user's next message in this chat
@@ -691,9 +735,16 @@ chatRoutes.get('/:id/stream', async (c) => {
       finalText = extractReplyText(result.finalOutput)
       if (result.status === 'cancelled') {
         cancelled = true
+        finalRunStatus = 'cancelled'
         streamer.streamErrorEvent(id, 'Execution cancelled by user')
-      } else if (result.status !== 'success') {
+      } else if (result.status === 'budget_exceeded') {
+        finalRunStatus = 'failed'
+        streamer.streamErrorEvent(id, result.error ?? 'token 预算超限，运行停机')
+      } else if (result.status !== 'success' && result.status !== 'partial_success') {
+        finalRunStatus = 'failed'
         streamer.streamErrorEvent(id, result.error ?? 'workflow execution failed')
+      } else {
+        finalRunStatus = result.status === 'partial_success' ? 'partial_success' : 'completed'
       }
       // runs 行：chat 触发的工作流运行也进 flow 运行历史，且画布旁观
       // （canvas?run=）依赖它判断终态。best-effort —— 失败不影响流。
@@ -733,8 +784,15 @@ chatRoutes.get('/:id/stream', async (c) => {
       // page reload (best-effort — the stream already delivered the text).
       else if (finalText.length > 0) {
         try {
-          await insertAssistantChatMessage(id, finalText, runId, JSON.stringify({ source: 'workflow' }))
+          await insertAssistantChatMessage(
+            id,
+            finalText,
+            runId,
+            JSON.stringify({ source: 'workflow' }),
+          )
           await bumpChatAfterAssistantMessage(id, finalText.slice(0, 200))
+          // 滚动摘要钩子（P1b）：与 persistComplete 同款 fire-and-forget
+          void maybeUpdateChatSummary(id)
         } catch (err) {
           log.warn('persist assistant reply failed', { id, runId, error: String(err) })
         }
@@ -748,11 +806,15 @@ chatRoutes.get('/:id/stream', async (c) => {
       streamer.streamEndEvent(id)
       resolveDone()
       executionRegistry.unregister(handle)
+      releaseRunSlot()
+      recordRunFinished(finalRunStatus ?? 'failed')
     }
   })().catch((err) => {
     log.error('chat stream async loop crashed', { id, runId, error: String(err) })
     resolveDone()
     executionRegistry.unregister(handle)
+    releaseRunSlot()
+    recordRunFinished(finalRunStatus ?? 'failed')
   })
 
   return c.body(streamer.toReadableStream())
@@ -765,9 +827,11 @@ chatRoutes.get('/:id/stream', async (c) => {
 function extractReplyText(finalOutput: Record<string, unknown> | null): string {
   if (!finalOutput) return ''
   const raw =
-    typeof finalOutput.content === 'string' && finalOutput.content ? finalOutput.content
-    : typeof finalOutput.text === 'string' && finalOutput.text ? finalOutput.text
-    : ''
+    typeof finalOutput.content === 'string' && finalOutput.content
+      ? finalOutput.content
+      : typeof finalOutput.text === 'string' && finalOutput.text
+        ? finalOutput.text
+        : ''
   if (!raw) return ''
   const trimmed = raw.trimStart()
   if (trimmed.startsWith('{')) {
@@ -801,8 +865,16 @@ chatRoutes.get('/:id/runs', async (c) => {
     items: rows.map((r) => ({
       id: r.id,
       status: r.status,
-      createdAt: r.created_at instanceof Date ? r.created_at.toISOString() : new Date(r.created_at).toISOString(),
-      finishedAt: r.finished_at instanceof Date ? r.finished_at.toISOString() : (r.finished_at ? new Date(r.finished_at).toISOString() : null),
+      createdAt:
+        r.created_at instanceof Date
+          ? r.created_at.toISOString()
+          : new Date(r.created_at).toISOString(),
+      finishedAt:
+        r.finished_at instanceof Date
+          ? r.finished_at.toISOString()
+          : r.finished_at
+            ? new Date(r.finished_at).toISOString()
+            : null,
       // 执行卡用：流程名 + 耗时（「⚡ 工作流 · Skill测试Flowv4 · 12.8s」）
       durationMs: r.duration_ms ?? null,
       flowId: r.pipeline_id ?? null,

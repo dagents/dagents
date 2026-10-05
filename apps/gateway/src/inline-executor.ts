@@ -31,6 +31,7 @@ import { composeSystemPrompt } from './skill-injection.js'
 import { executionRegistry, type ExecutionHandle } from './execution-registry.js'
 import { computeCost } from './pricing.js'
 import { checkExecutablePath } from './lib/executable-path.js'
+import { acquireCliSlot } from './lib/cli-spawn-gate.js'
 
 const log = createLogger({ svc: 'gateway:inline-executor' })
 
@@ -262,8 +263,12 @@ export async function executeInline(
       log.info('inline execute attempt', { chatId, runId, attempt, maxAttempts: MAX_ATTEMPTS })
 
       // Re-spawn the process for each attempt (not a resume).
+      // CLI spawn 闸（稳定性专项）：每 attempt 一个槽位，随 session.result
+      // settle 释放（重试间隔不占槽）。
       let session: ReturnType<typeof backend.execute> | null = null
+      let releaseSlot: (() => void) | null = null
       try {
+        releaseSlot = await acquireCliSlot(`inline-${String(agentKind)}`)
         session = backend.execute(prompt, {
           cwd: opts.cwd,
           model: opts.model,
@@ -271,7 +276,14 @@ export async function executeInline(
           inactivityTimeoutMs: INLINE_INACTIVITY_TIMEOUT_MS,
           signal: abort.signal,
         })
+        const release = releaseSlot
+        void session.result
+          .finally(() => release())
+          .catch(() => {
+            /* result 契约上不 reject；兜底防迟到异常 */
+          })
       } catch (err) {
+        releaseSlot?.()
         lastError = `spawn failed: ${String(err)}`
         log.warn('inline execute spawn threw', { chatId, runId, attempt, error: lastError })
       }

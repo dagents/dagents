@@ -19,24 +19,46 @@ export class HttpNode implements INode {
   category = 'tools'
   color = '#3b82f6'
   inputs = [
-    { label: 'Method', name: 'method', type: 'options' as const, options: [
-      { label: 'GET', name: 'GET' },
-      { label: 'POST', name: 'POST' },
-      { label: 'PUT', name: 'PUT' },
-      { label: 'DELETE', name: 'DELETE' },
-      { label: 'PATCH', name: 'PATCH' },
-    ], default: 'GET' },
+    {
+      label: 'Method',
+      name: 'method',
+      type: 'options' as const,
+      options: [
+        { label: 'GET', name: 'GET' },
+        { label: 'POST', name: 'POST' },
+        { label: 'PUT', name: 'PUT' },
+        { label: 'DELETE', name: 'DELETE' },
+        { label: 'PATCH', name: 'PATCH' },
+      ],
+      default: 'GET',
+    },
     { label: 'URL', name: 'url', type: 'string' as const, acceptVariable: true, required: true },
-    { label: 'Headers (JSON)', name: 'headers', type: 'json' as const, acceptVariable: true, rows: 4 },
+    {
+      label: 'Headers (JSON)',
+      name: 'headers',
+      type: 'json' as const,
+      acceptVariable: true,
+      rows: 4,
+    },
     { label: 'Body', name: 'body', type: 'string' as const, acceptVariable: true, rows: 4 },
-    { label: 'Body Type', name: 'bodyType', type: 'options' as const, options: [
-      { label: 'None', name: 'none' },
-      { label: 'JSON', name: 'json' },
-      { label: 'Text', name: 'text' },
-    ], default: 'none' },
+    {
+      label: 'Body Type',
+      name: 'bodyType',
+      type: 'options' as const,
+      options: [
+        { label: 'None', name: 'none' },
+        { label: 'JSON', name: 'json' },
+        { label: 'Text', name: 'text' },
+      ],
+      default: 'none',
+    },
   ]
 
-  async run(nodeData: INodeData, _input: unknown, options: IExecutionContext): Promise<INodeOutput> {
+  async run(
+    nodeData: INodeData,
+    _input: unknown,
+    options: IExecutionContext,
+  ): Promise<INodeOutput> {
     const method = (nodeData.inputs?.method as string) ?? 'GET'
     const url = nodeData.inputs?.url as string
     // headers 兼容两种形态：字符串 JSON（AI 生成的平铺 flow）或对象
@@ -124,10 +146,18 @@ export class HttpNode implements INode {
     const rawText = await response.text().catch(() => '')
     const MAX_RESPONSE_BYTES = 32 * 1024
     const truncated = rawText.length > MAX_RESPONSE_BYTES
-    const text = truncated ? rawText.slice(0, MAX_RESPONSE_BYTES) : rawText
+    // 保尾截断（2026-10-04 P1a）：JSON 错误/构建输出的判决常在末尾，
+    // 纯保头会切掉——保头 60% + 对账标记 + 保尾 40%（openworker 洞察）。
+    const text = truncated
+      ? rawText.slice(0, Math.floor(MAX_RESPONSE_BYTES * 0.6)) +
+        `\n[响应截断：全文 ${rawText.length} 字符，上限 ${MAX_RESPONSE_BYTES}——中间省略]\n` +
+        rawText.slice(rawText.length - Math.floor(MAX_RESPONSE_BYTES * 0.4))
+      : rawText
 
     if (!response.ok) {
-      throw new Error(`HTTP ${response.status} ${response.statusText}${text ? `: ${text.slice(0, 200)}` : ''}`)
+      throw new Error(
+        `HTTP ${response.status} ${response.statusText}${text ? `: ${text.slice(0, 200)}` : ''}`,
+      )
     }
 
     // Auto-detect JSON vs text

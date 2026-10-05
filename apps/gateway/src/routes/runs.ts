@@ -8,13 +8,16 @@
  */
 import { Hono } from 'hono'
 import { createLogger } from '@dagents/shared'
-import { listRunsHistory, summarizeRunsByFlow, type RunHistoryRow } from '../repositories/runs.repo.js'
+import {
+  listRunsHistory,
+  summarizeRunsByFlow,
+  type RunHistoryRow,
+} from '../repositories/runs.repo.js'
 import { ok, fail, UUID_RE } from '../lib/http.js'
 
 const log = createLogger({ svc: 'gateway:runs' })
 
 export const runsRoutes = new Hono()
-
 
 /**
  * 输入预览提取：runs.input 是 JSONB —— 运行请求体常见形态
@@ -54,7 +57,10 @@ runsRoutes.get('/', async (c) => {
 
   try {
     const records: RunHistoryRow[] = await listRunsHistory({
-      status: status && ['completed', 'failed', 'cancelled', 'running'].includes(status) ? status : undefined,
+      status:
+        status && ['completed', 'failed', 'cancelled', 'running'].includes(status)
+          ? status
+          : undefined,
       flowId: flowId && UUID_RE.test(flowId) ? flowId : undefined,
       limit,
     })
@@ -75,6 +81,8 @@ runsRoutes.get('/', async (c) => {
         error: r.first_error,
         directoryId: r.directory_id ?? null,
         createdAt: r.created_at,
+        // 谱系（2026-10-04）：断点续跑/应答回流的母 run id——无 = 根运行。
+        resumedFromRunId: r.resumed_from_run_id ?? null,
       })),
     )
   } catch (err) {
@@ -102,7 +110,9 @@ runsRoutes.post('/summary', async (c) => {
   if (!Array.isArray(rawIds) || rawIds.length === 0) {
     return fail(c, 400, 'flowIds must be a non-empty array')
   }
-  const flowIds = [...new Set(rawIds.filter((v): v is string => typeof v === 'string' && UUID_RE.test(v)))].slice(0, 200)
+  const flowIds = [
+    ...new Set(rawIds.filter((v): v is string => typeof v === 'string' && UUID_RE.test(v))),
+  ].slice(0, 200)
   if (flowIds.length === 0) return ok(c, { summaries: [] })
 
   try {
@@ -120,10 +130,21 @@ runsRoutes.post('/summary', async (c) => {
       ]),
     )
     return ok(c, {
-      summaries: flowIds.map((id) => byFlow.get(id) ?? { flowId: id, latestStatus: null, latestRunId: null, latestRunAt: null, runCount: 0 }),
+      summaries: flowIds.map(
+        (id) =>
+          byFlow.get(id) ?? {
+            flowId: id,
+            latestStatus: null,
+            latestRunId: null,
+            latestRunAt: null,
+            runCount: 0,
+          },
+      ),
     })
   } catch (err) {
-    log.error('runs summary query failed', { error: err instanceof Error ? err.message : String(err) })
+    log.error('runs summary query failed', {
+      error: err instanceof Error ? err.message : String(err),
+    })
     return fail(c, 500, '运行摘要查询失败')
   }
 })

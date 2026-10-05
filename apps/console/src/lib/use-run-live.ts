@@ -19,15 +19,20 @@
 import { useEffect, useRef, useState } from 'react'
 import { createRunLiveParser } from '@/lib/run-live-protocol'
 import { createLiveSectionBuilder, type TerminalSection } from '@/lib/run-terminal-format'
+import { createLiveTraceBuilder, type RunTraceModel } from '@/lib/run-trace-model'
 
 export type RunLiveMode = 'off' | 'connecting' | 'live' | 'closed' | 'unavailable'
 
 export function useRunLive(runId: string | null): {
   mode: RunLiveMode
   sections: TerminalSection[]
+  /** 轨迹投影模型（2026-10-01 轨迹视图）：与 sections 同一帧流驱动，双
+   *  builder 单次解析——终端/轨迹两个视图是同一事件流的两个投影。 */
+  trace: RunTraceModel | null
 } {
   const [mode, setMode] = useState<RunLiveMode>('off')
   const [sections, setSections] = useState<TerminalSection[]>([])
+  const [trace, setTrace] = useState<RunTraceModel | null>(null)
   const modeRef = useRef<RunLiveMode>('off')
 
   useEffect(() => {
@@ -35,14 +40,17 @@ export function useRunLive(runId: string | null): {
       modeRef.current = 'off'
       setMode('off')
       setSections([])
+      setTrace(null)
       return
     }
     modeRef.current = 'connecting'
     setMode('connecting')
     setSections([])
+    setTrace(null)
 
     const controller = new AbortController()
     const builder = createLiveSectionBuilder()
+    const traceBuilder = createLiveTraceBuilder()
     const parser = createRunLiveParser()
     let sawRunEnd = false
 
@@ -76,16 +84,21 @@ export function useRunLive(runId: string | null): {
           if (events.length === 0) continue
           for (const evt of events) {
             if (evt.event === 'hello') {
-              for (const f of evt.hello.replay) builder.push(f)
+              for (const f of evt.hello.replay) {
+                builder.push(f)
+                traceBuilder.push(f)
+              }
               modeRef.current = 'live'
               setMode('live')
               if (evt.hello.ended) sawRunEnd = true
             } else {
               builder.push(evt.frame)
+              traceBuilder.push(evt.frame)
               if (evt.frame.type === 'runEnd') sawRunEnd = true
             }
           }
           setSections(builder.sections())
+          setTrace(traceBuilder.model())
           if (sawRunEnd) break
         }
       } catch {
@@ -109,5 +122,5 @@ export function useRunLive(runId: string | null): {
     }
   }, [runId])
 
-  return { mode, sections }
+  return { mode, sections, trace }
 }

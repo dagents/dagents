@@ -42,7 +42,13 @@ llm_providers 表 → OpenAI 兼容 API     Agent (CLI)（platformAgent）节点
 - **Loop / Iteration 真执行**：执行器识别 loop 控制节点，抽取从 `loop` / `iteration` 输出锚点可达的子图作为循环体，逐轮执行（旧单锚点图兼容：全部出边视为循环体）：
   - **Loop**：循环 `loopCount`/`maxIterations` 次（上限 `MAX_LOOP_COUNT`，默认 10；env 配成非数字时回落 10），每轮把上一轮的最终输出喂给下一轮；可选 `condition`（对 `$flow.state` 求值的 JS 表达式）提前跳出
   - **Iteration**：对 `items` JSON 数组逐项执行（上限 100 项，超出截断），每轮种子是当前项；`iterationIndex` / `iterationItem` / `iterationCount` 写入运行时状态，模板变量可引用
+  - **有界并发（2026-10-04）**：iteration 节点 `concurrency` 输入（默认 1 = 串行；1-8）逐项并行——每项独立 runtime 覆盖层 + executedNodes 收集器，完成后按项序归并（确定性保持）；断点游标只沿连续完成前缀推进；体内嵌套迭代自动回退串行
+  - **whileCondition 提前收敛（2026-10-04）**：iteration 节点可选 JS 表达式（经 `user-code-exec` worker 硬化求值，`$input`/`$inputText`/`$flow` 作用域）——每项完成后求值，真值即停止剩余项（「循环直到 X」的原生表达，仍受上限保护）；聚合输出带 `earlyExit` 标记；声明 whileCondition 时强制串行
+  - **⚠️ 循环体内取当前项的正确姿势（2026-10-04 e2e 实弹）**：body 首节点单入边拿到的是**content 字符串**（引擎既有合并约定），`$input.item` 恒 undefined——当前项经 `$flow.state.iterationItem`（customFunction）或模板 `{{iterationItem}}`（prompt）取用；whileCondition 的 `$input` 则是 body 最深节点的输出对象（`$inputText` 其 content）
   - 聚合输出 `{ iterations, completedIterations, content }` 经 `result` 锚点流向下流（聚合输出无 `selected`/`result` 键，result 锚点边默认激活）
+- **失败分支隔离（2026-10-04）**：任意节点可声明 `isolateFailure: true`——失败只塌缩本分支（下游因拿不到输出走 skipped 剪枝），run 不中断，终态 `partial_success`（有产出 + 带失败节点）；未声明的失败保持「整 run 失败」默认语义
+- **显式最终输出（2026-10-04）**：节点声明 `finalOutput: true` 压过「拓扑最深节点」默认；多个显式节点并存时拓扑更深者胜
+- **run 级 token 预算（2026-10-04）**：`POST /workflows/:id/run` body 可带 `tokenBudget`——波次结算后对账，越线即停，终态 `budget_exceeded`（产出截至停机点，错误消息带对账数字）
 
 ### 4. Agent (CLI) 节点与内联工具
 
@@ -94,12 +100,45 @@ llm_providers 表 → OpenAI 兼容 API     Agent (CLI)（platformAgent）节点
 
 > 这一节记录的是**仍真实存在的设计取舍**及其升级路径——不是待办清单。已修复的问题会从这里移除。
 
-- **JS 执行（CustomFunction 已硬化，2026-09-06）**：CustomFunction 改在 worker_threads 执行（`user-code-exec.ts`）—— 超时强杀（默认 5s，`CUSTOM_FN_TIMEOUT_MS`）、AbortSignal 贯穿、危险全局（require/process/globalThis/fetch/Worker）形参遮蔽。**这是隔离不是沙箱**：刻意逃逸（constructor 链）拦不住；多用户化之前需换 isolated-vm/子进程级真沙箱。Tool 节点 handler 与 Loop break condition 仍是同步 `new Function`（待同样处理）
-- **Retriever 目前是关键词检索**（当前会话的 chat_messages ILIKE），不是向量 RAG；接向量库时替换 gateway 的 `historyRetriever` 实现即可，节点契约不变
-- **HumanInput 的挂起状态在 gateway 内存里**（单进程本机模式）：gateway 重启会丢挂起中的输入（流随超时失败）；boot 清扫把悬空 chats/runs 收敛为 failed + 留 system 提示，**且 2026-09-06 起 boot 会把「聊天最后一条是 human_input 提示」的会话补一条中断说明**（历史不说谎）；挂起中的 run 本身不可恢复（恢复 = 持久化整个 DAG 执行态，单机不立项）。前端暂未渲染 `custom:human_input` 专用输入框，但系统消息 + 聊天回复已构成完整可用闭环
+- **JS 执行（CustomFunction 已硬化，2026-09-06；2026-10-04 纠偏）**：CustomFunction 在 worker_threads 执行（`user-code-exec.ts`）—— 超时强杀（默认 5s，`CUSTOM_FN_TIMEOUT_MS`）、AbortSignal 贯穿、危险全局（require/process/globalThis/fetch/Worker）形参遮蔽。**这是隔离不是沙箱**：刻意逃逸（constructor 链）拦不住；多用户化之前需换 isolated-vm/子进程级真沙箱。（旧条目称「Tool handler 与 Loop condition 仍是同步 new Function」已过时——Tool/Loop/conditionAgent/retriever 节点随 D8 精简删除，仓内唯一用户 JS 是 CustomFunction；2026-10-04 起 iteration 的 whileCondition 求值也走 user-code-exec 硬化路径）
+- **Retriever 已随 D8 删除（2026-10-04 补位）**：会话上下文改为 LLM 节点 `includeChatHistory` 输入——宿主注入的 `historyRetriever`（`workflow-engine-service.ts`）做「关键词命中 ×3 + 时间衰减 ×2 + 同会话 +2」混合排序，作用域 = 当前会话 + 同目录其他会话（近 7 天）。接向量库时替换该实现即可（节点契约不变）
+- **HumanInput 的挂起状态在 gateway 内存里**（单进程本机模式）：gateway 重启会丢挂起中的输入（流随超时失败）；boot 清扫把悬空 chats/runs 收敛为 failed + 留 system 提示，**且 2026-09-06 起 boot 会把「聊天最后一条是 human_input 提示」的会话补一条中断说明**（历史不说谎）；挂起中的 run 本身不可恢复（恢复 = 持久化整个 DAG 执行态，单机不立项）。（旧条目称「前端暂未渲染专用输入框」已过时——悬浮副驾 F6 早有内联应答条，2026-10-04 聊天详情页对齐补齐：SSE `custom:human_input` 事件清 sending + 末条为 human_input 提示时输入区上方常驻应答条）
 - **Langfuse 需手工申请 keys**；未配置时导出静默关闭，不影响 run
 - **LLM 请求与 CLI 执行的超时与显式取消**（2026-08-22 执行取消 spec；2026-08-27 修订超时策略）：HTTP 调用带 `LLM_HTTP_TIMEOUT_MS`（默认 120s，流式为空闲看门狗）；CLI 执行**不设墙钟上限**（Agent 自主长跑是常态——曾有 4 路并行 Agent 在 180s 墙被截断成「部分文本 + done」的假成功），全部 CLI 路径只保留静默看门狗：inline 聊天 `INLINE_INACTIVITY_TIMEOUT_MS`、工作流节点 `WORKFLOW_CLI_INACTIVITY_TIMEOUT_MS`（均默认 300s，逐行输出即重置）；看门狗触发或显式取消 → 非完成状态一律抛错（节点 failed、span 记录原因与已产生 tokens）。用户显式取消经 `POST /chats/:id/cancel` / `POST /workflows/runs/:runId/cancel` → 内存执行注册表 → AbortSignal → adapter SIGTERM/SIGKILL；**dispatch/daemon 远程任务取消已补齐（2026-09-06，spec §7 还债）**——chat/run 取消级联名下非终态任务（queued/claimed 直接终态、running 打 `cancel_requested_at` 标记），daemon 事件流循环 2s 轮询发现即 abort 子进程并以 failTask('cancelled') 收尾；@daemon 命令现在落真实 runs 行（取消可级联、boot 可收敛、usage rollup 不再跳过）。仍存的取舍：SSE/WS 掉线**不**隐式取消（显式取消才停）
 - **普通 Agent 节点无工具循环**：`agentAgentflow` 是单次 LLM 调用（不读 tools/maxIterations）；需要工具循环用 `platformAgentAgentflow`
+
+## 2026-10-04 多人格优化轮（12 项）
+
+> 十二个人格视角（内置人格库选角）对工作流系统的专项优化；引擎语义改动均有
+> `executor-v2-semantics.test.ts`（17 例）钉死。
+
+| # | 人格 | 交付 |
+|---|---|---|
+| 1 | Backend Architect | 失败分支隔离（`isolateFailure` → `partial_success`）+ 显式 `finalOutput` 指定 |
+| 2 | Prompt Engineer | LLM 节点 `outputSchema` 输出契约（schema 编入 system + 解析校验 + 一轮修复重试 + `json` 字段供 `{{id.json}}`）+ 多入边合并 64KB 截断（`DAGENTS_MERGE_CONTENT_CAP`，保头尾+省略标记） |
+| 3 | AI Engineer | `includeChatHistory` 混合会话检索（关键词×3 + 时间衰减×2 + 同会话+2；pgvector 升级路径=换 `historyRetriever` 实现） |
+| 4 | Reality Checker | golden/property 测试网：`executor-v2-semantics.test.ts` 钉新语义 |
+| 5 | AppSec Engineer | 诚实清单纠偏（Tool/Loop 已删，唯一用户 JS 已硬化）+ whileCondition 求值复用 user-code-exec |
+| 6 | DevOps Automator | iteration `concurrency`（1-8 有界并行，项序归并保确定性）+ run 级 `tokenBudget`（→ `budget_exceeded`） |
+| 7 | Frontend Developer | 校验错误画布高亮（`applyRunStates` 标红问题节点 + 悬停错误）；子图折叠待立项（需产品/设计输入） |
+| 8 | Analytics Reporter | `GET /workflows/:id/analytics`（节点类型×执行/失败率/平均/P95/tokens + 近 30 run 趋势）+ FlowRunsPanel「节点画像」表 |
+| 9 | Product Manager | iteration `whileCondition`（「循环直到 X」原生表达）+ 生成器词汇更新 |
+| 10 | UX Researcher | 聊天详情页 HITL 应答条（对齐悬浮副驾 F6） |
+| 11 | Codebase Archaeologist | `flow_versions` 版本快照链（结构保存自动存档近 20 版、回滚先存档可撤销）+ 画布「版本」面板 |
+| 12 | Agents Orchestrator | `executeFlowAgentflow` 子流程一等节点复活（引擎 DB-free，宿主注入 `flowExecutor`；同 runId 子引擎 spans 并入父 run；深度上限 3 + 祖先链防环）；运行谱系——runs 列表带 `resumedFromRunId`，FlowRunsPanel 续跑行缩进 + ↩ chip |
+
+**端到端验证（2026-10-04，dev 网关黑盒 16 断言全过）**：子流程执行/输出承接、迭代并发聚合、
+失败隔离（partial_success + 下游剪枝 + runs 可见）、whileCondition 提前收敛（earlyExit）、
+finalOutput 指定、版本快照/回滚往返（回滚先存档）、analytics 出数。过程中实弹逮出两处：
+`runs_status_chk` 约束缺新终态（迁移 1720000103000 放宽）与循环体取项陷阱（见上）。
+
+**大图导航纠偏**：画布 MiniMap（可平移缩放）+ Controls 早已在位（flow-editor.tsx）——
+「50+ 节点无导航」的旧印象不实；真正缺的只有子图折叠（需产品裁决折叠态是否持久化、
+引擎如何对待折叠组，暂不立项）。
+
+新终态语义（runs.status / 引擎 ExecutionStatus）：`partial_success`（有产出 + 隔离失败记账）、
+`budget_exceeded`（预算停机，产出截至停机点）——chat 路径分别映射为「完成 + 提示行」与
+「停机消息」；画布直跑 200 + 显式 status 字段。
 
 ## 关键文件索引
 

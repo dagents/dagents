@@ -91,6 +91,7 @@ jobs:
           # 指向 Mock LLM :4010（127.0.0.1）—— SSRF 守卫的官方逃生门，
           # 仅测试栈启用（守卫语义本身由 workflow 包单测钉住）。
           DAGENTS_HTTP_ALLOW_PRIVATE=1 \
+          DAGENTS_DISABLE_LLM_FALLBACK=1 \
           nohup pnpm --filter @dagents/gateway dev > /tmp/gateway.log 2>&1 &
           for i in $(seq 1 60); do
             if curl -sf http://127.0.0.1:8080/health > /dev/null; then

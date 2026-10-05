@@ -18,6 +18,7 @@
 | [`ARCHITECTURE.md`](ARCHITECTURE.md) | **架构总览（现状真相源）**：分层/执行链路全景/权限模型/数据模型/console 模块地图/测试体系 |
 | [`agent-dev-guide.md`](agent-dev-guide.md) | **Agent 开发手册（cookbook）**：开发红线 + 常见任务（加文案/加页面/改引擎/加 CLI 适配器/技能人格库/聊天执行）|
 | [`workflow-engine.md`](workflow-engine.md) | 工作流引擎：执行模型（并行波次/条件路由/循环）、流式、人机协同、子流程、Langfuse、已知限制 |
+| [`context-management-research.md`](context-management-research.md) | 上下文管理调研：五层心智模型 + deepseek-harness/everything-claude-code/AgentSpace/openworker 方案对比 + dagents 落地建议（P0 聊天会话连续性…） |
 | [`skills-registry.md`](skills-registry.md) | 技能运行时注册表：发现根/rank、API、Agent 挂载、system prompt 注入 |
 | [`agent-library.md`](agent-library.md) | Agent 人格库（2026-08-19）：registry-not-database 挂载 agency-agents 类人格库、启用/drift 同步、团队场景模板、中文衍生目录 |
 | [`flow-templates.md`](flow-templates.md) | 流程模板中心（2026-08-20）：内置/我的模板、画布「另存为模板」、personaName 重绑与 LLM 降级 |

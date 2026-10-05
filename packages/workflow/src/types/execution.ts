@@ -9,8 +9,20 @@
 import type { IServerSideEventStreamer } from './stream.js'
 
 /** Execution status for a node or the overall flow run. */
-/** 'awaiting'：HumanInput 持久挂起（断点续跑 §6.3）—— 非终态，可应答回流续跑。 */
-export type ExecutionStatus = 'idle' | 'running' | 'success' | 'failed' | 'cancelled' | 'awaiting'
+/** 'awaiting'：HumanInput 持久挂起（断点续跑 §6.3）—— 非终态，可应答回流续跑。
+ *  'partial_success'（2026-10-04 失败分支隔离）：声明了 isolateFailure 的节点
+ *  失败后下游剪枝、其余分支照常完成——run 有产出但带失败节点，不是纯成功。
+ *  'budget_exceeded'（2026-10-04 run 级 token 预算）：累计用量越过
+ *  tokenBudget，调度器主动停机——区别于失败：产出截至停机点，根因明确。 */
+export type ExecutionStatus =
+  | 'idle'
+  | 'running'
+  | 'success'
+  | 'failed'
+  | 'cancelled'
+  | 'awaiting'
+  | 'partial_success'
+  | 'budget_exceeded'
 
 /** Token usage reported by an LLM call. */
 export interface ITokenUsage {
@@ -97,13 +109,7 @@ export interface IChatStreamChunk {
  *  送达后经 onNodeDelta 回写（同一条节点绑定通道），审计「谁在何时对哪个
  *  节点说了什么」。 */
 export type IStreamActivityKind =
-  | 'thinking'
-  | 'tool'
-  | 'tool_result'
-  | 'status'
-  | 'log'
-  | 'error'
-  | 'user_input'
+  'thinking' | 'tool' | 'tool_result' | 'status' | 'log' | 'error' | 'user_input'
 
 /**
  * 节点增量产出载荷（onNodeDelta / llmClient.chat.onDelta，2026-08-30）：
@@ -180,6 +186,14 @@ export interface IExecutionContext {
        * Agent 边干边说的 live tail。
        */
       onDelta?: (chunk: IStreamDelta) => void
+      /**
+       * 输出契约（2026-10-04 结构化输出）：JSON Schema 子集。宿主把它编进
+       * system prompt（要求只输出符合 schema 的 JSON），并在响应侧做一轮
+       * 「校验 + 格式修复重试」；命中后返回的 text 是模型原始输出，节点侧
+       * 解析后的对象挂在输出的 `json` 字段（下游模板 `{{id.json}}`）。
+       * 声明了 responseSchema 的调用不走流式（修复重试无法撤回已推增量）。
+       */
+      responseSchema?: Record<string, unknown>
     }): Promise<{ text: string; tool_calls?: IToolCall[]; usage?: ITokenUsage }>
     /**
      * Streamed variant of `chat` — yields incremental deltas. Optional: when
@@ -202,6 +216,34 @@ export interface IExecutionContext {
   agentFetcher?: (agentId: string) => Promise<PlatformAgentConfig | null>
   /** Human input resolver for HumanInputNode. */
   humanInputResolver?: (prompt: string, inputType: string, options?: unknown[]) => Promise<string>
+  /**
+   * 会话上下文检索器（2026-10-04 混合检索；P1b 升级两级契约）：
+   * `summary` = 滚动会话摘要（更早对话的浓缩 checkpoint，可空）；
+   * `messages` = 按相关性排序的近期原文消息。引擎只定义契约，排序/摘要
+   * 策略在宿主（gateway）。
+   */
+  historyRetriever?: (
+    query: string,
+    opts: { chatId: string; limit: number },
+  ) => Promise<{
+    summary?: string | null
+    messages: Array<{ role: string; content: string; createdAt?: string }>
+  }>
+  /**
+   * flow 级上下文文件（P2a，2026-10-04）：宿主把 flows.context_md 按字节
+   * 预算预裁后注入——LLM/Agent 节点编进 system 前部（特定上下文，牺牲序
+   * 仅次于常驻）。引擎不感知存储。
+   */
+  flowContext?: string
+  /**
+   * 子流程执行器（2026-10-04 ExecuteFlow 一等节点）：引擎 DB-free——加载
+   * 目标 flow 并以父 run 的同一套上下文执行由宿主注入。返回子流程 finalOutput。
+   */
+  flowExecutor?: (
+    flowId: string,
+    input: unknown,
+    opts: { signal?: AbortSignal },
+  ) => Promise<{ output: Record<string, unknown>; status: string }>
 }
 
 /** Platform agent configuration — fetched by PlatformAgentNode via `agentFetcher`. */

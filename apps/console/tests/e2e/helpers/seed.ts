@@ -68,7 +68,10 @@ export interface SeedContext {
    *  depend on `@dagents/db`'s `DataSource` type — callers `await` it for its side
    *  effect and ignore the returned handle). */
   db: {
-    runQuery: <T = Record<string, unknown>>(sql: string, params?: unknown[]) => Promise<{ records: T[] }>
+    runQuery: <T = Record<string, unknown>>(
+      sql: string,
+      params?: unknown[],
+    ) => Promise<{ records: T[] }>
     initDb: () => Promise<unknown>
   }
   /** Dispose all seeded rows. Safe to call multiple times. */
@@ -84,6 +87,13 @@ export async function createSeedContext(): Promise<SeedContext> {
   process.env.POSTGRES_URL = E2E_POSTGRES_URL
   const { initDb, runQuery } = await import('@dagents/db')
   await initDb()
+
+  // 前置残留清扫（稳定性专项 2026-10-04）：dispose 尾部的同款兜底只在
+  // 「spec 正常结束」时执行——上一轮中途被强杀（Ctrl-C / CI 超时截断）时
+  // 残留的 active `e2e-mock-%` 行会活到本轮，把未 seed mock 的 spec 的
+  // 真实 LLM 调用指向死 :4010。每个 spec 的 beforeAll 都过这里，首个
+  // spec 就能把尸体清掉；正常轮次里这是无操作。
+  await runQuery(`DELETE FROM llm_providers WHERE name LIKE 'e2e-mock-%'`)
 
   const ctx: SeedContext = {
     directoryIds: [],
@@ -137,7 +147,9 @@ export async function createSeedContext(): Promise<SeedContext> {
         await runQuery(`DELETE FROM workspaces WHERE id = ANY($1::uuid[])`, [this.workspaceIds])
       }
       if (this.insertedProviderIds.length) {
-        await runQuery(`DELETE FROM llm_providers WHERE id = ANY($1::uuid[])`, [this.insertedProviderIds])
+        await runQuery(`DELETE FROM llm_providers WHERE id = ANY($1::uuid[])`, [
+          this.insertedProviderIds,
+        ])
       }
       // 兜底扫残留（2026-09-06）：spec 中途被强杀时 tracked id 清理不会执行，
       // `e2e-mock-%` 行残留会把真实 LLM 调用指向死 mock —— 任何 spec 正常
@@ -186,7 +198,13 @@ export async function seedChat(
   const id = randomUUID()
   await ctx.db.runQuery(
     `INSERT INTO chats (id, directory_id, title, agent_id, flow_id) VALUES ($1, $2, $3, $4, $5)`,
-    [id, opts.directoryId, opts.title ?? `E2E Chat ${id.slice(0, 8)}`, opts.agentId ?? null, opts.flowId ?? null],
+    [
+      id,
+      opts.directoryId,
+      opts.title ?? `E2E Chat ${id.slice(0, 8)}`,
+      opts.agentId ?? null,
+      opts.flowId ?? null,
+    ],
   )
   ctx.chatIds.push(id)
   return id
@@ -210,7 +228,14 @@ export async function seedMessage(
   await ctx.db.runQuery(
     `INSERT INTO chat_messages (id, chat_id, role, content, run_id, metadata)
      VALUES ($1, $2, $3, $4, $5, $6)`,
-    [id, opts.chatId, opts.role, opts.content, opts.runId ?? null, JSON.stringify(opts.metadata ?? {})],
+    [
+      id,
+      opts.chatId,
+      opts.role,
+      opts.content,
+      opts.runId ?? null,
+      JSON.stringify(opts.metadata ?? {}),
+    ],
   )
   ctx.messageIds.push(id)
   return id
@@ -338,7 +363,13 @@ export async function seedMockLlmProvider(
   await ctx.db.runQuery(
     `INSERT INTO llm_providers (id, name, provider_type, base_url, api_key, default_model, models, status)
      VALUES ($1, $2, 'openai_compatible', $3, $4, $5, '[]'::jsonb, 'active')`,
-    [id, `e2e-mock-${id.slice(0, 8)}`, MOCK_LLM_URL, Buffer.from('e2e-key').toString('base64'), opts.defaultModel ?? 'e2e-mock'],
+    [
+      id,
+      `e2e-mock-${id.slice(0, 8)}`,
+      MOCK_LLM_URL,
+      Buffer.from('e2e-key').toString('base64'),
+      opts.defaultModel ?? 'e2e-mock',
+    ],
   )
   ctx.insertedProviderIds.push(id)
   return id

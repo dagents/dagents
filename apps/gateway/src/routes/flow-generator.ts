@@ -29,6 +29,7 @@ import {
   CANVAS_NODES,
   validateFlowTopology,
   isPrivateHttpHost,
+  applyAutoLayout,
   type FlowData,
   type TopologyError,
   type TopologyWarning,
@@ -40,7 +41,6 @@ import { ok, fail } from '../lib/http.js'
 export const flowGeneratorRoutes = new Hono()
 
 const log = createLogger({ svc: 'gateway:flow-generator' })
-
 
 // ─────────────────────────────────────────────────────────────────────────
 // Prompt（自 chat-execute 迁入，单一真相源）
@@ -69,11 +69,21 @@ export function buildWorkflowGeneratorPrompt(
   const listedAgents = agents.slice(0, MAX_GENERATOR_AGENTS)
   const omittedAgents = agents.length - listedAgents.length
   const agentLines = listedAgents.length
-    ? listedAgents.map((a) => `- ${a.name} | kind=${a.kind} | id=${a.id}${a.summary ? ` | ${a.summary.slice(0, 80)}` : ''}`).join('\n') +
-      (omittedAgents > 0 ? `\n(... ${omittedAgents} more agents omitted — pick from the list above only)` : '')
+    ? listedAgents
+        .map(
+          (a) =>
+            `- ${a.name} | kind=${a.kind} | id=${a.id}${a.summary ? ` | ${a.summary.slice(0, 80)}` : ''}`,
+        )
+        .join('\n') +
+      (omittedAgents > 0
+        ? `\n(... ${omittedAgents} more agents omitted — pick from the list above only)`
+        : '')
     : '(no agents registered — do not use platformAgentAgentflow)'
   const skillLines = skills.length
-    ? skills.slice(0, 40).map((s) => `- ${s.name}: ${s.description.slice(0, 80)}`).join('\n')
+    ? skills
+        .slice(0, 40)
+        .map((s) => `- ${s.name}: ${s.description.slice(0, 80)}`)
+        .join('\n')
     : '(no skills installed)'
   return `You are a workflow designer for the Dagents platform.
 Given a user's description, generate a valid FlowData JSON object with "nodes" and "edges" arrays.
@@ -95,8 +105,12 @@ Rules:
 - Every platformAgentAgentflow node MUST set data.inputs.systemPrompt to a concrete, self-contained task instruction for THAT step's role (in the user's language): what this role is responsible for, what input it receives, and what deliverable it must produce. Never rely on the node label alone — the label is display-only and never reaches the model.
 - For LLM nodes (data.name: "llmAgentflow"), set data.model and data.systemPrompt
 - For DirectReply nodes (data.name: "directReplyAgentflow"), set data.content
-- The engine executes flows as a DAG: edges must NEVER point back to an earlier node (no cycles — a condition node looping to an earlier step makes the flow unrunnable). "Repeat until X" has no native loop primitive: either bound it with an iterationAgentflow node (data.inputs.items = a JSON array of rounds, e.g. "[1,2,3]", loop body = the repeated steps downstream), or state the repetition in that step's systemPrompt and let the agent iterate internally until done
-- Position nodes in a left-to-right layout with ~250px spacing
+- The engine executes flows as a DAG: edges must NEVER point back to an earlier node (no cycles — a condition node looping to an earlier step makes the flow unrunnable). "Repeat until X": use an iterationAgentflow node with data.inputs.items = a JSON array of rounds (e.g. "[1,2,3]", loop body = the repeated steps downstream) and optionally data.inputs.whileCondition = a JS expression over $input (e.g. "$input.approved === true") to stop remaining rounds early, or state the repetition in that step's systemPrompt and let the agent iterate internally until done
+- iterationAgentflow also accepts data.inputs.concurrency (integer 1-8, default 1) to run items in parallel
+- For structured output from an LLM node, set data.inputs.outputSchema to a JSON Schema object — the node then returns a parsed object available to downstream templates as {{<node_id>.json}}
+- To run another flow as a subflow step, use an executeFlowAgentflow node with data.inputs.targetFlowId (only when the user explicitly references another existing flow)
+- Optional node-level flags: data.inputs.isolateFailure = true lets this node fail without failing the whole run (its branch is pruned, run ends as partial_success); data.inputs.finalOutput = true makes this node's output the run's final output
+- Position nodes in a left-to-right layout with ~250px spacing (positions are placeholders — the platform re-lays out nodes deterministically from the graph topology; array order breaks ties)
 - Return ONLY the JSON object, no markdown fences, no explanation
 
 User description:
@@ -200,7 +214,10 @@ function canonicalType(raw: unknown): string | null {
  * Vendor-shape output (`type` IS the agentflow name) and canonical-shape input
  * (`type: 'customNode'` + `data.name`) are both accepted.
  */
-export function normalizeToCanonicalFlow(raw: unknown): { flowData: FlowData; droppedNodes: string[] } {
+export function normalizeToCanonicalFlow(raw: unknown): {
+  flowData: FlowData
+  droppedNodes: string[]
+} {
   const obj = (raw ?? {}) as { nodes?: unknown; edges?: unknown }
   const rawNodes = Array.isArray(obj.nodes) ? (obj.nodes as Array<Record<string, unknown>>) : []
 
@@ -278,7 +295,10 @@ export interface GeneratorAgentRow {
 export interface GenerateDeps {
   loadAgents(): Promise<GeneratorAgentRow[]>
   loadSkills(): Promise<{ name: string; description: string }[]>
-  callEngine(engine: GeneratorEngineChoice, messages: { role: string; content: string }[]): Promise<{
+  callEngine(
+    engine: GeneratorEngineChoice,
+    messages: { role: string; content: string }[],
+  ): Promise<{
     text: string
     engineUsed: string
   }>
@@ -330,10 +350,11 @@ export const defaultGenerateDeps: GenerateDeps = {
       return { text: result.text, engineUsed: 'http' }
     }
     if (engine.kind === 'agent') {
-      const { records } = await runQuery<{ name: string; kind: string; instructions: string | null }>(
-        `SELECT name, kind, instructions FROM agents WHERE id = $1::uuid`,
-        [engine.agentId],
-      )
+      const { records } = await runQuery<{
+        name: string
+        kind: string
+        instructions: string | null
+      }>(`SELECT name, kind, instructions FROM agents WHERE id = $1::uuid`, [engine.agentId])
       const agent = records[0]
       if (!agent) throw new Error(`agent ${engine.agentId} not found`)
       // Agent instructions become an extra system message ahead of the generator
@@ -384,7 +405,10 @@ export const defaultGenerateDeps: GenerateDeps = {
         ],
       )
     } catch (err) {
-      log.warn('generator attempt telemetry insert failed', { attemptId: attempt.attemptId, error: String(err) })
+      log.warn('generator attempt telemetry insert failed', {
+        attemptId: attempt.attemptId,
+        error: String(err),
+      })
     }
   },
 }
@@ -475,7 +499,11 @@ export async function generateFlow(
     while (!verdict.ok && repairRounds < MAX_REPAIR_ROUNDS) {
       repairRounds++
       validationErrors = verdict.ok ? [] : errorStrings(verdict.errors)
-      log.info('generation repair round', { attemptId, round: repairRounds, errors: validationErrors })
+      log.info('generation repair round', {
+        attemptId,
+        round: repairRounds,
+        errors: validationErrors,
+      })
       messages = [
         ...messages,
         { role: 'assistant', content: rawText.slice(0, 8000) },
@@ -491,7 +519,10 @@ export async function generateFlow(
     if (verdict.ok) {
       const result: GenerateFlowResult = {
         status: 'success',
-        flowData: normalized.flowData,
+        // LLM 坐标不可信（分叉挤同 y / 直接叠放是常态）——成功产物一律按
+        // 拓扑确定性重排（@dagents/workflow applyAutoLayout），chat 与
+        // canvas 两个入口在此统一收口。
+        flowData: applyAutoLayout(normalized.flowData),
         warnings: verdict.warnings,
         droppedNodes: normalized.droppedNodes,
         engineUsed: engineUsed ?? 'n/a',
@@ -561,7 +592,9 @@ export function scanGeneratedFlowRisks(flow: FlowData): TopologyWarning[] {
       })
       const code = flat?.functionCode ?? flat?.code
       if (typeof code === 'string' && code.length > 16_384) {
-        warnings.push({ message: `节点「${node.id}」的 functionCode 超过 16KB —— 异常庞大，建议人工复核` })
+        warnings.push({
+          message: `节点「${node.id}」的 functionCode 超过 16KB —— 异常庞大，建议人工复核`,
+        })
       }
     }
     if (name === 'httpAgentflow') {
@@ -578,7 +611,9 @@ export function scanGeneratedFlowRisks(flow: FlowData): TopologyWarning[] {
             })
           }
         } catch {
-          warnings.push({ message: `节点「${node.id}」的 URL 不是合法绝对地址（${String(url).slice(0, 80)}）` })
+          warnings.push({
+            message: `节点「${node.id}」的 URL 不是合法绝对地址（${String(url).slice(0, 80)}）`,
+          })
         }
       }
     }
@@ -586,9 +621,11 @@ export function scanGeneratedFlowRisks(flow: FlowData): TopologyWarning[] {
   return warnings
 }
 
-function validate(
-  normalized: { flowData: FlowData; droppedNodes: string[]; parseFailed: boolean },
-):
+function validate(normalized: {
+  flowData: FlowData
+  droppedNodes: string[]
+  parseFailed: boolean
+}):
   | { ok: true; warnings: TopologyWarning[] }
   | { ok: false; errors: TopologyError[]; warnings: TopologyWarning[] } {
   if (normalized.parseFailed) {
@@ -607,10 +644,10 @@ function validate(
 /** chat 路径持久化 flow 后回填埋点（canvas 路径不落库，attempt 保持 flow_id 空）。 */
 export async function attachFlowIdToAttempt(attemptId: string, flowId: string): Promise<void> {
   try {
-    await runQuery(
-      `UPDATE generator_attempts SET flow_id = $2::uuid WHERE id = $1::uuid`,
-      [attemptId, flowId],
-    )
+    await runQuery(`UPDATE generator_attempts SET flow_id = $2::uuid WHERE id = $1::uuid`, [
+      attemptId,
+      flowId,
+    ])
   } catch (err) {
     log.warn('attach flow to attempt failed', { attemptId, flowId, error: String(err) })
   }
@@ -663,7 +700,8 @@ flowGeneratorRoutes.post('/generate', async (c) => {
       bindings: {
         agentNodeCount: agentNodes.length,
         unboundAgentNodeCount: agentNodes.filter(
-          (n) => !(n.data?.agentId ?? (n.data?.inputs as Record<string, unknown> | undefined)?.agentId),
+          (n) =>
+            !(n.data?.agentId ?? (n.data?.inputs as Record<string, unknown> | undefined)?.agentId),
         ).length,
         note:
           agentNodes.length === 0

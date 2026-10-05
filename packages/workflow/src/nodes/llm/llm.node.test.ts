@@ -208,12 +208,15 @@ describe('LLMNode', () => {
     expect(node.type).toBe('LLM')
     expect(node.category).toBe('agent')
     expect(node.color).toBe('#8b5cf6')
-    expect(node.inputs).toHaveLength(4)
+    expect(node.inputs).toHaveLength(7)
     expect(node.inputs.map((i) => i.name)).toEqual([
       'model',
       'systemPrompt',
       'prompt',
       'temperature',
+      'outputSchema',
+      'includeChatHistory',
+      'contextCap',
     ])
   })
 })

@@ -23,6 +23,7 @@ import path from 'node:path'
 import { createRequire } from 'node:module'
 import { spawn as ptySpawn, type IPty } from 'node-pty'
 import { createLogger } from '@dagents/shared'
+import { declareGauge } from './lib/metrics.js'
 
 const log = createLogger({ svc: 'gateway:shell' })
 
@@ -108,6 +109,12 @@ export function shellDisabled(): boolean {
 }
 
 const sessions = new Map<string, ShellSession>()
+
+// 水位指标（稳定性专项 2026-10-04）：PTY 会话数靠近上限 8 = 孤儿回收
+//（默认 10 分钟）跟不上开洞速度的信号，/metrics 一眼可见。
+declareGauge('dagents_shell_sessions_active', 'Active PTY shell sessions (cap: 8)', {
+  collect: () => sessions.size,
+})
 
 export function listSessions(): Array<
   Pick<ShellSession, 'id' | 'cwd' | 'createdAt' | 'exited' | 'kind' | 'label'>

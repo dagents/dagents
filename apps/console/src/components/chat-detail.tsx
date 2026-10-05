@@ -101,9 +101,12 @@ export function ChatDetail({ chatId }: ChatDetailProps): React.ReactElement {
     }, ms)
     timersRef.current.push(id)
   }, [])
-  useEffect(() => () => {
-    for (const id of timersRef.current) window.clearTimeout(id)
-  }, [])
+  useEffect(
+    () => () => {
+      for (const id of timersRef.current) window.clearTimeout(id)
+    },
+    [],
+  )
 
   // First-reply celebration — fire a toast the first time an assistant
   // message appears in this chat. The hook self-guards with localStorage so
@@ -287,8 +290,7 @@ export function ChatDetail({ chatId }: ChatDetailProps): React.ReactElement {
       return
     }
     programmaticTopRef.current = null
-    atBottomRef.current =
-      el.scrollHeight - el.scrollTop - el.clientHeight < FOLLOW_THRESHOLD
+    atBottomRef.current = el.scrollHeight - el.scrollTop - el.clientHeight < FOLLOW_THRESHOLD
     setShowScrollBtn(!atBottomRef.current)
   }, [])
 
@@ -335,7 +337,9 @@ export function ChatDetail({ chatId }: ChatDetailProps): React.ReactElement {
     const handler = (e: Event) => {
       const detail = (e as CustomEvent).detail as { chatId: string }
       if (detail.chatId !== chatId) return
-      void fetchChat(chatId).then(setChat).catch(() => {})
+      void fetchChat(chatId)
+        .then(setChat)
+        .catch(() => {})
     }
     window.addEventListener('chat-updated', handler)
     return () => window.removeEventListener('chat-updated', handler)
@@ -382,143 +386,157 @@ export function ChatDetail({ chatId }: ChatDetailProps): React.ReactElement {
 
   // Receives chat:message / chat:done / chat:error frames from the gateway's
   // InlineAgentExecutor and patches the trailing assistant bubble.
-  const handleWsFrame = useCallback((frame: ChatWsFrame) => {
-    // If the user stopped the run, ignore further streaming frames — the
-    // bubble was already sealed by handleStop with a "(已停止)" marker.
-    // chat:cancelled still passes through so the locally-sealed bubble can
-    // adopt the gateway's persisted terminal content.
-    if (stoppedRef.current && frame.type !== 'chat:error' && frame.type !== 'chat:cancelled') return
-    if (frame.type === 'chat:message') {
-      // Pure updater: find the streaming bubble by `stream-` id prefix.
-      // Safe under StrictMode double-invoke (no side effects inside).
-      setMessages((prev) => {
-        const existing = prev.find((m) => m.id.startsWith('stream-'))
-        if (existing) {
-          return prev.map((m) =>
-            m.id === existing.id ? { ...m, content: m.content + frame.content } : m,
-          )
-        }
-        return [
-          ...prev,
-          {
-            id: `stream-${Date.now()}`,
-            chatId,
-            role: 'assistant',
-            content: frame.content,
-            runId: frame.runId ?? null,
-            metadata: {},
-            createdAt: new Date().toISOString(),
-          },
-        ]
-      })
-      setSending(false) // first chunk arrived — request succeeded
-    } else if (frame.type === 'chat:done') {
-      // Carry the run's telemetry (tokens / duration / cost) on the message's
-      // metadata so the usage footer renders without a follow-up REST fetch.
-      // The gateway's persistComplete already broadcasts these on the WS frame.
-      const doneMetadata: Record<string, unknown> = {}
-      if (frame.usage) doneMetadata.usage = frame.usage
-      if (frame.durationMs != null) doneMetadata.durationMs = frame.durationMs
-      if (frame.cost != null) doneMetadata.cost = frame.cost
-      // Seal the streaming bubble under a `done-` id (computed outside the
-      // updater so it stays pure under StrictMode). handleSend's cleanup
-      // only drops `stream-` bubbles — without this rename a COMPLETED
-      // live-streamed reply keeps its `stream-` id and vanishes from the
-      // UI on the next send (it stays in the DB and only returns on the
-      // next full fetch).
-      const doneId = `done-${Date.now()}`
-      // 工作流执行卡：终态后刷新 runs 映射（流程名/耗时）
-      void loadRuns()
-      const doneAt = new Date().toISOString()
-      setMessages((prev) => {
-        const existing = prev.find((m) => m.id.startsWith('stream-'))
-        if (existing) {
-          return prev.map((m) =>
-            m.id === existing.id
-              ? { ...m, id: doneId, content: frame.content || m.content, metadata: { ...m.metadata, ...doneMetadata } }
-              : m,
-          )
-        }
-        // No streaming bubble (executor finished before any chunk) — append.
-        return [
-          ...prev,
-          {
-            id: doneId,
-            chatId,
-            role: 'assistant',
-            content: frame.content,
-            runId: frame.runId ?? null,
-            metadata: doneMetadata,
-            createdAt: doneAt,
-          },
-        ]
-      })
-      setSending(false)
-      setReconnecting(false)
-      // Success — clear the retry counter so the next prompt starts fresh.
-      retryCountRef.current = 0
-      setRetryExhausted(false)
-      setChat((prev) => (prev ? { ...prev, status: 'done' } : prev))
-    } else if (frame.type === 'chat:error') {
-      setReconnecting(false)
-      const errorMessage = frame.error ?? frame.content
-      setMessages((prev) => {
-        const existing = prev.find((m) => m.id.startsWith('stream-'))
-        if (existing) {
-          return prev.map((m) =>
-            m.id === existing.id
-              ? {
-                  ...m,
-                  content: frame.content || m.content,
-                  // Tag the bubble as an error card with a timestamp so the
-                  // renderer can show a structured card instead of red text.
-                  metadata: { ...m.metadata, isError: true, errorAt: new Date().toISOString(), errorMessage },
-                }
-              : m,
-          )
-        }
-        return [
-          ...prev,
-          {
-            id: `err-${Date.now()}`,
-            chatId,
-            role: 'assistant',
-            content: frame.content,
-            runId: frame.runId ?? null,
-            metadata: { isError: true, errorAt: new Date().toISOString(), errorMessage },
-            createdAt: new Date().toISOString(),
-          },
-        ]
-      })
-      setError(errorMessage)
-      setSending(false)
-      setChat((prev) => (prev ? { ...prev, status: 'failed' } : prev))
-    } else if (frame.type === 'chat:cancelled') {
-      // User-initiated cancel settled on the backend (execution-cancellation
-      // spec D6): the CLI child / in-flight fetch was actually stopped and a
-      // cancelled assistant message was persisted. Seal the bubble with the
-      // gateway's terminal content.
-      setSending(false)
-      setReconnecting(false)
-      setMessages((prev) => {
-        const target = prev.find((m) => m.id.startsWith('stream-') || m.id.startsWith('stopped-'))
-        if (target) {
-          return prev.map((m) =>
-            m.id === target.id
-              ? {
-                  ...m,
-                  id: m.id.startsWith('stream-') ? `cancelled-${Date.now()}` : m.id,
-                  content: frame.content || m.content,
-                  metadata: { ...m.metadata, cancelled: true, reason: frame.reason },
-                }
-              : m,
-          )
-        }
-        return prev
-      })
-      setChat((prev) => (prev ? { ...prev, status: 'idle' } : prev))
-    }
-  }, [chatId, loadRuns])
+  const handleWsFrame = useCallback(
+    (frame: ChatWsFrame) => {
+      // If the user stopped the run, ignore further streaming frames — the
+      // bubble was already sealed by handleStop with a "(已停止)" marker.
+      // chat:cancelled still passes through so the locally-sealed bubble can
+      // adopt the gateway's persisted terminal content.
+      if (stoppedRef.current && frame.type !== 'chat:error' && frame.type !== 'chat:cancelled')
+        return
+      if (frame.type === 'chat:message') {
+        // Pure updater: find the streaming bubble by `stream-` id prefix.
+        // Safe under StrictMode double-invoke (no side effects inside).
+        setMessages((prev) => {
+          const existing = prev.find((m) => m.id.startsWith('stream-'))
+          if (existing) {
+            return prev.map((m) =>
+              m.id === existing.id ? { ...m, content: m.content + frame.content } : m,
+            )
+          }
+          return [
+            ...prev,
+            {
+              id: `stream-${Date.now()}`,
+              chatId,
+              role: 'assistant',
+              content: frame.content,
+              runId: frame.runId ?? null,
+              metadata: {},
+              createdAt: new Date().toISOString(),
+            },
+          ]
+        })
+        setSending(false) // first chunk arrived — request succeeded
+      } else if (frame.type === 'chat:done') {
+        // Carry the run's telemetry (tokens / duration / cost) on the message's
+        // metadata so the usage footer renders without a follow-up REST fetch.
+        // The gateway's persistComplete already broadcasts these on the WS frame.
+        const doneMetadata: Record<string, unknown> = {}
+        if (frame.usage) doneMetadata.usage = frame.usage
+        if (frame.durationMs != null) doneMetadata.durationMs = frame.durationMs
+        if (frame.cost != null) doneMetadata.cost = frame.cost
+        // Seal the streaming bubble under a `done-` id (computed outside the
+        // updater so it stays pure under StrictMode). handleSend's cleanup
+        // only drops `stream-` bubbles — without this rename a COMPLETED
+        // live-streamed reply keeps its `stream-` id and vanishes from the
+        // UI on the next send (it stays in the DB and only returns on the
+        // next full fetch).
+        const doneId = `done-${Date.now()}`
+        // 工作流执行卡：终态后刷新 runs 映射（流程名/耗时）
+        void loadRuns()
+        const doneAt = new Date().toISOString()
+        setMessages((prev) => {
+          const existing = prev.find((m) => m.id.startsWith('stream-'))
+          if (existing) {
+            return prev.map((m) =>
+              m.id === existing.id
+                ? {
+                    ...m,
+                    id: doneId,
+                    content: frame.content || m.content,
+                    metadata: { ...m.metadata, ...doneMetadata },
+                  }
+                : m,
+            )
+          }
+          // No streaming bubble (executor finished before any chunk) — append.
+          return [
+            ...prev,
+            {
+              id: doneId,
+              chatId,
+              role: 'assistant',
+              content: frame.content,
+              runId: frame.runId ?? null,
+              metadata: doneMetadata,
+              createdAt: doneAt,
+            },
+          ]
+        })
+        setSending(false)
+        setReconnecting(false)
+        // Success — clear the retry counter so the next prompt starts fresh.
+        retryCountRef.current = 0
+        setRetryExhausted(false)
+        setChat((prev) => (prev ? { ...prev, status: 'done' } : prev))
+      } else if (frame.type === 'chat:error') {
+        setReconnecting(false)
+        const errorMessage = frame.error ?? frame.content
+        setMessages((prev) => {
+          const existing = prev.find((m) => m.id.startsWith('stream-'))
+          if (existing) {
+            return prev.map((m) =>
+              m.id === existing.id
+                ? {
+                    ...m,
+                    content: frame.content || m.content,
+                    // Tag the bubble as an error card with a timestamp so the
+                    // renderer can show a structured card instead of red text.
+                    metadata: {
+                      ...m.metadata,
+                      isError: true,
+                      errorAt: new Date().toISOString(),
+                      errorMessage,
+                    },
+                  }
+                : m,
+            )
+          }
+          return [
+            ...prev,
+            {
+              id: `err-${Date.now()}`,
+              chatId,
+              role: 'assistant',
+              content: frame.content,
+              runId: frame.runId ?? null,
+              metadata: { isError: true, errorAt: new Date().toISOString(), errorMessage },
+              createdAt: new Date().toISOString(),
+            },
+          ]
+        })
+        setError(errorMessage)
+        setSending(false)
+        setChat((prev) => (prev ? { ...prev, status: 'failed' } : prev))
+      } else if (frame.type === 'chat:cancelled') {
+        // User-initiated cancel settled on the backend (execution-cancellation
+        // spec D6): the CLI child / in-flight fetch was actually stopped and a
+        // cancelled assistant message was persisted. Seal the bubble with the
+        // gateway's terminal content.
+        setSending(false)
+        setReconnecting(false)
+        setMessages((prev) => {
+          const target = prev.find((m) => m.id.startsWith('stream-') || m.id.startsWith('stopped-'))
+          if (target) {
+            return prev.map((m) =>
+              m.id === target.id
+                ? {
+                    ...m,
+                    id: m.id.startsWith('stream-') ? `cancelled-${Date.now()}` : m.id,
+                    content: frame.content || m.content,
+                    metadata: { ...m.metadata, cancelled: true, reason: frame.reason },
+                  }
+                : m,
+            )
+          }
+          return prev
+        })
+        setChat((prev) => (prev ? { ...prev, status: 'idle' } : prev))
+      }
+    },
+    [chatId, loadRuns],
+  )
 
   // Task-completion notifications: wraps the WS frame handler so terminal
   // events (chat:done / chat:error) fire desktop + sound notifications when
@@ -558,10 +576,24 @@ export function ChatDetail({ chatId }: ChatDetailProps): React.ReactElement {
           // 从 t=0 开始轮询点亮节点链。否则首个 token 要等第一个 LLM 节点
           // 跑完才到（CLI 兜底是单发块），live 窗口就没了。
           if (pumpRunId) {
-            handleWsFrame({ type: 'chat:message', chatId, role: 'assistant', content: '', streaming: true, runId: pumpRunId })
+            handleWsFrame({
+              type: 'chat:message',
+              chatId,
+              role: 'assistant',
+              content: '',
+              streaming: true,
+              runId: pumpRunId,
+            })
           }
         } else if (ev.event === 'token') {
-          handleWsFrame({ type: 'chat:message', chatId, role: 'assistant', content: ev.data, streaming: true, runId: pumpRunId ?? undefined })
+          handleWsFrame({
+            type: 'chat:message',
+            chatId,
+            role: 'assistant',
+            content: ev.data,
+            streaming: true,
+            runId: pumpRunId ?? undefined,
+          })
         } else if (ev.event === 'custom' && ev.rawEvent === 'custom:human_input') {
           // The run is PARKED waiting for the user's answer — not busy. Clear
           // `sending` so the composer re-enables and the user can type the
@@ -573,17 +605,34 @@ export function ChatDetail({ chatId }: ChatDetailProps): React.ReactElement {
           try {
             const fresh = await fetchMessages(chatId)
             setMessages((prev) => {
-              const transient = prev.filter((m) => m.id.startsWith('stream-') || m.id.startsWith('done-'))
+              const transient = prev.filter(
+                (m) => m.id.startsWith('stream-') || m.id.startsWith('done-'),
+              )
               return transient.length ? [...fresh, ...transient] : fresh
             })
           } catch {
             // best-effort — the system message shows on the next navigation
           }
         } else if (ev.event === 'error') {
-          handleWsFrame({ type: 'chat:error', chatId, role: 'assistant', content: '', streaming: false, error: ev.data, runId: pumpRunId ?? undefined })
+          handleWsFrame({
+            type: 'chat:error',
+            chatId,
+            role: 'assistant',
+            content: '',
+            streaming: false,
+            error: ev.data,
+            runId: pumpRunId ?? undefined,
+          })
           return
         } else if (ev.event === 'end') {
-          handleWsFrame({ type: 'chat:done', chatId, role: 'assistant', content: '', streaming: false, runId: pumpRunId ?? undefined })
+          handleWsFrame({
+            type: 'chat:done',
+            chatId,
+            role: 'assistant',
+            content: '',
+            streaming: false,
+            runId: pumpRunId ?? undefined,
+          })
           return
         }
       }
@@ -601,108 +650,109 @@ export function ChatDetail({ chatId }: ChatDetailProps): React.ReactElement {
 
   /** Returns false while busy or on failure — the composer then keeps the
    *  draft instead of silently discarding what the user typed. */
-  const handleSend = useCallback(async (text: string): Promise<boolean> => {
-    if (sending) return false
-    setSending(true)
-    setError(null)
-    // Remember the text so the retry button can re-send on failure, and
-    // clear the stopped flag so WS frames flow into the new bubble.
-    lastSentTextRef.current = text
-    stoppedRef.current = false
-    // A fresh (non-retry) send resets the consecutive-retry counter and
-    // drops stale transient bubbles (in-flight `stream-` zombies, `err-`
-    // error cards) so the new run starts from a clean slate. Completed
-    // replies survive: the chat:done handler renames them to `done-` ids,
-    // which this filter keeps.
-    retryCountRef.current = 0
-    setRetryExhausted(false)
-    setReconnecting(false)
-    setMessages((prev) =>
-      prev.filter((m) => !m.id.startsWith('err-') && !m.id.startsWith('stream-')),
-    )
-
-    // Optimistic user message
-    const optimisticId = `opt-${Date.now()}`
-    const optimisticMsg: ChatMessage = {
-      id: optimisticId,
-      chatId,
-      role: 'user',
-      content: text,
-      runId: null,
-      metadata: {},
-      createdAt: new Date().toISOString(),
-    }
-    setMessages((prev) => [...prev, optimisticMsg])
-
-    // Mark chat running immediately for breadcrumb + context panel
-    setChat((prev) => (prev ? { ...prev, status: 'running' } : prev))
-
-    try {
-      // createMessage writes the user row + triggers routeMessage. For
-      // agent-bound chats it returns mode='json' and assistant tokens arrive
-      // via WS. For flow-bound chats it returns mode='stream' — the gateway
-      // only executes the flow once /api/chats/:id/stream is pulled, so we
-      // open that SSE pump and translate frames into the same handlers the
-      // WS path uses (without this, flow chats send a message and then wait
-      // on WS forever — the flow never runs).
-      const routed = await sendMessageRouted(chatId, {
-        content: text,
-        ...(selectedAgentId ? { agentIdOverride: selectedAgentId } : {}),
-      })
-
-      // Replace optimistic with persisted user message
+  const handleSend = useCallback(
+    async (text: string): Promise<boolean> => {
+      if (sending) return false
+      setSending(true)
+      setError(null)
+      // Remember the text so the retry button can re-send on failure, and
+      // clear the stopped flag so WS frames flow into the new bubble.
+      lastSentTextRef.current = text
+      stoppedRef.current = false
+      // A fresh (non-retry) send resets the consecutive-retry counter and
+      // drops stale transient bubbles (in-flight `stream-` zombies, `err-`
+      // error cards) so the new run starts from a clean slate. Completed
+      // replies survive: the chat:done handler renames them to `done-` ids,
+      // which this filter keeps.
+      retryCountRef.current = 0
+      setRetryExhausted(false)
+      setReconnecting(false)
       setMessages((prev) =>
-        prev.map((m) => (m.id === optimisticId ? routed.message : m)),
+        prev.filter((m) => !m.id.startsWith('err-') && !m.id.startsWith('stream-')),
       )
 
-      setStreamIsWorkflow(routed.mode === 'stream')
-      if (routed.mode === 'stream') {
-        void pumpChatSse()
+      // Optimistic user message
+      const optimisticId = `opt-${Date.now()}`
+      const optimisticMsg: ChatMessage = {
+        id: optimisticId,
+        chatId,
+        role: 'user',
+        content: text,
+        runId: null,
+        metadata: {},
+        createdAt: new Date().toISOString(),
       }
+      setMessages((prev) => [...prev, optimisticMsg])
 
-      // @-commands (@flow / @daemon / @agent / @workflow) get a system ack
-      // written to the DB by the gateway's routeCommand, but no WS frame
-      // carries it (WS only streams assistant tokens). Refetch so the ack
-      // surfaces in-chat in the same session instead of waiting for the next
-      // navigation. Preserve any in-flight streaming assistant bubble that
-      // may have arrived via WS.
-      if (
-        text.startsWith('@flow ') ||
-        text.startsWith('@daemon ') ||
-        text.startsWith('@agent ') ||
-        text.startsWith('@workflow ')
-      ) {
-        try {
-          const fresh = await fetchMessages(chatId)
-          setMessages((prev) => {
-            const transient = prev.filter(
-              (m) => m.id.startsWith('stream-') || m.id.startsWith('done-'),
-            )
-            return transient.length ? [...fresh, ...transient] : fresh
-          })
-        } catch {
-          // best-effort — the ack will appear on next navigation
+      // Mark chat running immediately for breadcrumb + context panel
+      setChat((prev) => (prev ? { ...prev, status: 'running' } : prev))
+
+      try {
+        // createMessage writes the user row + triggers routeMessage. For
+        // agent-bound chats it returns mode='json' and assistant tokens arrive
+        // via WS. For flow-bound chats it returns mode='stream' — the gateway
+        // only executes the flow once /api/chats/:id/stream is pulled, so we
+        // open that SSE pump and translate frames into the same handlers the
+        // WS path uses (without this, flow chats send a message and then wait
+        // on WS forever — the flow never runs).
+        const routed = await sendMessageRouted(chatId, {
+          content: text,
+          ...(selectedAgentId ? { agentIdOverride: selectedAgentId } : {}),
+        })
+
+        // Replace optimistic with persisted user message
+        setMessages((prev) => prev.map((m) => (m.id === optimisticId ? routed.message : m)))
+
+        setStreamIsWorkflow(routed.mode === 'stream')
+        if (routed.mode === 'stream') {
+          void pumpChatSse()
         }
-      }
 
-      // If WS is disconnected, the assistant bubble may never arrive via
-      // WS. Clear `sending` after a short timeout so the user can retry
-      // or navigate. The next WS reconnect will pick up in-flight frames.
-      if (!connected) {
-        trackTimeout(() => setSending(false), 1500)
+        // @-commands (@flow / @daemon / @agent / @workflow) get a system ack
+        // written to the DB by the gateway's routeCommand, but no WS frame
+        // carries it (WS only streams assistant tokens). Refetch so the ack
+        // surfaces in-chat in the same session instead of waiting for the next
+        // navigation. Preserve any in-flight streaming assistant bubble that
+        // may have arrived via WS.
+        if (
+          text.startsWith('@flow ') ||
+          text.startsWith('@daemon ') ||
+          text.startsWith('@agent ') ||
+          text.startsWith('@workflow ')
+        ) {
+          try {
+            const fresh = await fetchMessages(chatId)
+            setMessages((prev) => {
+              const transient = prev.filter(
+                (m) => m.id.startsWith('stream-') || m.id.startsWith('done-'),
+              )
+              return transient.length ? [...fresh, ...transient] : fresh
+            })
+          } catch {
+            // best-effort — the ack will appear on next navigation
+          }
+        }
+
+        // If WS is disconnected, the assistant bubble may never arrive via
+        // WS. Clear `sending` after a short timeout so the user can retry
+        // or navigate. The next WS reconnect will pick up in-flight frames.
+        if (!connected) {
+          trackTimeout(() => setSending(false), 1500)
+        }
+        // Note: `sending` is cleared on the first WS chunk (or chat:done /
+        // chat:error). Don't clear it here — the user should see the
+        // "executing…" state while the agent runs.
+        return true
+      } catch (err) {
+        setError(err instanceof Error ? err.message : String(err))
+        setMessages((prev) => prev.filter((m) => m.id !== optimisticId))
+        setChat((prev) => (prev ? { ...prev, status: 'failed' } : prev))
+        setSending(false)
+        return false
       }
-      // Note: `sending` is cleared on the first WS chunk (or chat:done /
-      // chat:error). Don't clear it here — the user should see the
-      // "executing…" state while the agent runs.
-      return true
-    } catch (err) {
-      setError(err instanceof Error ? err.message : String(err))
-      setMessages((prev) => prev.filter((m) => m.id !== optimisticId))
-      setChat((prev) => (prev ? { ...prev, status: 'failed' } : prev))
-      setSending(false)
-      return false
-    }
-  }, [chatId, sending, selectedAgentId, connected, trackTimeout, pumpChatSse])
+    },
+    [chatId, sending, selectedAgentId, connected, trackTimeout, pumpChatSse],
+  )
 
   // Stop the in-flight run: FIRST ask the gateway to actually cancel it
   // (execution-cancellation spec D5/D6 — kills the CLI child / aborts the
@@ -721,18 +771,14 @@ export function ChatDetail({ chatId }: ChatDetailProps): React.ReactElement {
     })
     setMessages((prev) =>
       prev.map((m) =>
-        m.id.startsWith('stream-')
-          ? { ...m, content: m.content + '\n\n' + t('_(已停止)_') }
-          : m,
+        m.id.startsWith('stream-') ? { ...m, content: m.content + '\n\n' + t('_(已停止)_') } : m,
       ),
     )
     // The stream- id is now a sealed message; rename it so a later run's
     // stream- bubble doesn't collide (and so the stopped bubble stops being
     // treated as the streaming target by handleWsFrame's find).
     setMessages((prev) =>
-      prev.map((m) =>
-        m.id.startsWith('stream-') ? { ...m, id: `stopped-${Date.now()}` } : m,
-      ),
+      prev.map((m) => (m.id.startsWith('stream-') ? { ...m, id: `stopped-${Date.now()}` } : m)),
     )
   }, [t, chatId, toast])
 
@@ -793,69 +839,72 @@ export function ChatDetail({ chatId }: ChatDetailProps): React.ReactElement {
 
   // Copy an assistant message's raw content to the clipboard. Shows a
   // transient check mark for 1.5s so the user knows it landed.
-  const handleCopy = useCallback(async (id: string, content: string) => {
-    try {
-      await navigator.clipboard.writeText(content)
-      setCopiedId(id)
-      trackTimeout(() => setCopiedId((cur) => (cur === id ? null : cur)), 1500)
-    } catch {
-      // clipboard may be unavailable (non-secure context) — silent fail
-    }
-  }, [trackTimeout])
+  const handleCopy = useCallback(
+    async (id: string, content: string) => {
+      try {
+        await navigator.clipboard.writeText(content)
+        setCopiedId(id)
+        trackTimeout(() => setCopiedId((cur) => (cur === id ? null : cur)), 1500)
+      } catch {
+        // clipboard may be unavailable (non-secure context) — silent fail
+      }
+    },
+    [trackTimeout],
+  )
 
   // Persist flow selection to the backend when the user changes it via the
   // composer's FlowSelector. Updates local state immediately for snappy UX,
   // rolls back + toasts if the persist fails (previously the UI kept showing
   // a binding the backend never accepted).
-  const handleFlowChange = useCallback(async (flowId: string | null) => {
-    const prev = selectedFlowId
-    setSelectedFlowId(flowId)
-    if (!chat) return
-    try {
-      await updateChat(chat.id, { flowId })
-      window.dispatchEvent(new CustomEvent('chat-updated', { detail: { chatId: chat.id } }))
-    } catch (err) {
-      setSelectedFlowId(prev)
-      toast.error(t('Flow 绑定更新失败'))
-      console.warn('flow update failed', err)
-    }
-  }, [chat, selectedFlowId, toast, t])
+  const handleFlowChange = useCallback(
+    async (flowId: string | null) => {
+      const prev = selectedFlowId
+      setSelectedFlowId(flowId)
+      if (!chat) return
+      try {
+        await updateChat(chat.id, { flowId })
+        window.dispatchEvent(new CustomEvent('chat-updated', { detail: { chatId: chat.id } }))
+      } catch (err) {
+        setSelectedFlowId(prev)
+        toast.error(t('Flow 绑定更新失败'))
+        console.warn('flow update failed', err)
+      }
+    },
+    [chat, selectedFlowId, toast, t],
+  )
 
   // Persist the composer's agent selection — previously it was a send-time
   // override only, so a refresh (or another surface) silently lost it.
-  const handleAgentChange = useCallback(async (agentId: string | null) => {
-    const prev = selectedAgentId
-    setSelectedAgentId(agentId)
-    if (!chat) return
-    try {
-      await updateChat(chat.id, { agentId })
-      window.dispatchEvent(new CustomEvent('chat-updated', { detail: { chatId: chat.id } }))
-    } catch (err) {
-      setSelectedAgentId(prev)
-      toast.error(t('Agent 绑定更新失败'))
-      console.warn('agent update failed', err)
-    }
-  }, [chat, selectedAgentId, toast, t])
+  const handleAgentChange = useCallback(
+    async (agentId: string | null) => {
+      const prev = selectedAgentId
+      setSelectedAgentId(agentId)
+      if (!chat) return
+      try {
+        await updateChat(chat.id, { agentId })
+        window.dispatchEvent(new CustomEvent('chat-updated', { detail: { chatId: chat.id } }))
+      } catch (err) {
+        setSelectedAgentId(prev)
+        toast.error(t('Agent 绑定更新失败'))
+        console.warn('agent update failed', err)
+      }
+    },
+    [chat, selectedAgentId, toast, t],
+  )
 
   return (
     <div className="chat-detail-body">
       {/* Breadcrumb — 各部分都有 ellipsis + tooltip，长 title/path 不挤 status */}
       <div className="chat-detail-breadcrumb">
         {directory && (
-          <span
-            className="chat-detail-breadcrumb-dir"
-            title={directory.path ?? directory.name}
-          >
+          <span className="chat-detail-breadcrumb-dir" title={directory.path ?? directory.name}>
             <Icon name="folder" style={{ width: 14, height: 14 }} />
             <span className="chat-detail-breadcrumb-dir-name">{directory.name}</span>
           </span>
         )}
         {directory && <span className="chat-detail-breadcrumb-sep">/</span>}
-        <span
-          className="chat-detail-breadcrumb-title"
-          title={loading ? undefined : chat?.title}
-        >
-          {loading ? t('加载中…') : (truncateTitle(chat?.title, 60) || t('对话'))}
+        <span className="chat-detail-breadcrumb-title" title={loading ? undefined : chat?.title}>
+          {loading ? t('加载中…') : truncateTitle(chat?.title, 60) || t('对话')}
         </span>
         {chat && (
           <span className={`chat-detail-breadcrumb-status status-${chat.status}`}>
@@ -887,202 +936,210 @@ export function ChatDetail({ chatId }: ChatDetailProps): React.ReactElement {
       {/* Main: messages + composer (no side panel — flow & agent selectors
           live in the composer's bottom bar) */}
       <div className="chat-detail-conversation">
-          <div
-            className="chat-detail-messages"
-            ref={messagesScrollRef}
-            onScroll={handleScroll}
-          >
-            {loading ? (
-              <ChatDetailSkeleton />
-            ) : error && messages.length === 0 ? (
-              <div className="chat-detail-empty" style={{ color: 'var(--danger)' }}>
-                <div>{t('加载失败：{error}', { error })}</div>
-                <button
-                  type="button"
-                  className="chat-error-retry"
-                  onClick={() => void loadChat()}
-                  style={{ marginTop: 'var(--space-3)' }}
+        <div className="chat-detail-messages" ref={messagesScrollRef} onScroll={handleScroll}>
+          {loading ? (
+            <ChatDetailSkeleton />
+          ) : error && messages.length === 0 ? (
+            <div className="chat-detail-empty" style={{ color: 'var(--danger)' }}>
+              <div>{t('加载失败：{error}', { error })}</div>
+              <button
+                type="button"
+                className="chat-error-retry"
+                onClick={() => void loadChat()}
+                style={{ marginTop: 'var(--space-3)' }}
+              >
+                <Icon name="refresh" style={{ width: 12, height: 12 }} />
+                <span>{t('重试')}</span>
+              </button>
+            </div>
+          ) : messages.length === 0 ? (
+            <div className="chat-detail-empty">
+              <div className="chat-detail-empty-title">{t('开始对话')}</div>
+              <div className="chat-detail-empty-desc">{t('发送消息，或试试以下建议：')}</div>
+              {/* Same suggestion component as the home page — one visual
+               * language, one dynamic data source (previously two disjoint
+               * hand-rolled chip sets). */}
+              <SuggestionCards disabled={sending} onPick={(s) => void handleSend(s)} />
+            </div>
+          ) : (
+            messages.map((m) => {
+              const isStreaming = m.id.startsWith('stream-')
+              // An error card is either an err- bubble (terminal error) or a
+              // stream- bubble that got tagged with isError metadata when
+              // chat:error sealed a partially-streamed run.
+              const isErrorCard = m.id.startsWith('err-') || m.metadata?.isError === true
+              const errorMeta = isErrorCard
+                ? {
+                    message:
+                      (m.metadata?.errorMessage as string | undefined) ??
+                      m.content ??
+                      t('未知错误'),
+                    at: (m.metadata?.errorAt as string | undefined) ?? m.createdAt,
+                  }
+                : null
+              return (
+                <div
+                  key={m.id}
+                  className={`chat-msg chat-msg-${m.role}${m.role === 'assistant' ? ' chat-msg-flat' : ''}`}
                 >
-                  <Icon name="refresh" style={{ width: 12, height: 12 }} />
-                  <span>{t('重试')}</span>
-                </button>
-              </div>
-            ) : messages.length === 0 ? (
-              <div className="chat-detail-empty">
-                <div className="chat-detail-empty-title">{t('开始对话')}</div>
-                <div className="chat-detail-empty-desc">
-                  {t('发送消息，或试试以下建议：')}
-                </div>
-                {/* Same suggestion component as the home page — one visual
-                 * language, one dynamic data source (previously two disjoint
-                 * hand-rolled chip sets). */}
-                <SuggestionCards disabled={sending} onPick={(s) => void handleSend(s)} />
-              </div>
-            ) : (
-              messages.map((m) => {
-                const isStreaming = m.id.startsWith('stream-')
-                // An error card is either an err- bubble (terminal error) or a
-                // stream- bubble that got tagged with isError metadata when
-                // chat:error sealed a partially-streamed run.
-                const isErrorCard =
-                  m.id.startsWith('err-') || m.metadata?.isError === true
-                const errorMeta = isErrorCard
-                  ? {
-                      message: (m.metadata?.errorMessage as string | undefined) ??
-                        m.content ??
-                        t('未知错误'),
-                      at: (m.metadata?.errorAt as string | undefined) ?? m.createdAt,
-                    }
-                  : null
-                return (
-                  <div
-                    key={m.id}
-                    className={`chat-msg chat-msg-${m.role}${m.role === 'assistant' ? ' chat-msg-flat' : ''}`}
-                  >
-                    {isErrorCard && errorMeta ? (
-                      // Structured error card — distinct from a normal
-                      // assistant message. Shows the error message, a
-                      // timestamp, a primary retry button (or a "check agent
-                      // config" link after retries are exhausted), and a
-                      // secondary "复制错误信息" action.
-                      <div className="chat-error-card" role="alert">
-                        <div className="chat-error-card-header">
-                          <Icon name="alertTriangle" style={{ width: 16, height: 16 }} />
-                          <span className="chat-error-card-title">{t('执行失败')}</span>
-                          <span className="chat-error-card-time">{formatClock(errorMeta.at)}</span>
-                        </div>
-                        <div className="chat-error-card-message">{errorMeta.message}</div>
-                        <div className="chat-error-actions">
-                          {retryExhausted ? (
-                            <Link href="/agents" className="chat-error-link chat-error-link-primary">
-                              <Icon name="agents" style={{ width: 12, height: 12 }} />
-                              <span>{t('检查 Agent 配置')}</span>
-                            </Link>
-                          ) : lastSentTextRef.current ? (
-                            <button
-                              type="button"
-                              className="chat-error-retry"
-                              onClick={() => void handleRetry()}
-                              disabled={sending}
-                            >
-                              <Icon name="refresh" style={{ width: 12, height: 12 }} />
-                              <span>{t('重试')}</span>
-                            </button>
-                          ) : null}
-                          {/* 双锚点 P1（2026-09-19）：会话绑定了项目目录 → 失败
-                              就近深链终端排查；chats.directory_id 今天就有，此入口
-                              不依赖 P0。无目录不渲染（不回落主目录）。 */}
-                          {chat && chat.directoryId ? (
-                            <Link
-                              href={terminalHrefForDir(chat.directoryId)}
-                              className="chat-error-link"
-                            >
-                              <Icon name="terminal" className="ic-12" />
-                              <span>{t('在项目目录打开终端')}</span>
-                            </Link>
-                          ) : null}
+                  {isErrorCard && errorMeta ? (
+                    // Structured error card — distinct from a normal
+                    // assistant message. Shows the error message, a
+                    // timestamp, a primary retry button (or a "check agent
+                    // config" link after retries are exhausted), and a
+                    // secondary "复制错误信息" action.
+                    <div className="chat-error-card" role="alert">
+                      <div className="chat-error-card-header">
+                        <Icon name="alertTriangle" style={{ width: 16, height: 16 }} />
+                        <span className="chat-error-card-title">{t('执行失败')}</span>
+                        <span className="chat-error-card-time">{formatClock(errorMeta.at)}</span>
+                      </div>
+                      <div className="chat-error-card-message">{errorMeta.message}</div>
+                      <div className="chat-error-actions">
+                        {retryExhausted ? (
+                          <Link href="/agents" className="chat-error-link chat-error-link-primary">
+                            <Icon name="agents" style={{ width: 12, height: 12 }} />
+                            <span>{t('检查 Agent 配置')}</span>
+                          </Link>
+                        ) : lastSentTextRef.current ? (
                           <button
                             type="button"
-                            className="chat-error-link"
-                            onClick={() => void handleCopy(`err-copy-${m.id}`, errorMeta.message)}
+                            className="chat-error-retry"
+                            onClick={() => void handleRetry()}
+                            disabled={sending}
                           >
-                            <Icon name={copiedId === `err-copy-${m.id}` ? 'check' : 'copy'} style={{ width: 12, height: 12 }} />
-                            <span>{copiedId === `err-copy-${m.id}` ? t('已复制') : t('复制错误信息')}</span>
+                            <Icon name="refresh" style={{ width: 12, height: 12 }} />
+                            <span>{t('重试')}</span>
                           </button>
-                        </div>
+                        ) : null}
+                        {/* 双锚点 P1（2026-09-19）：会话绑定了项目目录 → 失败
+                              就近深链终端排查；chats.directory_id 今天就有，此入口
+                              不依赖 P0。无目录不渲染（不回落主目录）。 */}
+                        {chat && chat.directoryId ? (
+                          <Link
+                            href={terminalHrefForDir(chat.directoryId)}
+                            className="chat-error-link"
+                          >
+                            <Icon name="terminal" className="ic-12" />
+                            <span>{t('在项目目录打开终端')}</span>
+                          </Link>
+                        ) : null}
+                        <button
+                          type="button"
+                          className="chat-error-link"
+                          onClick={() => void handleCopy(`err-copy-${m.id}`, errorMeta.message)}
+                        >
+                          <Icon
+                            name={copiedId === `err-copy-${m.id}` ? 'check' : 'copy'}
+                            style={{ width: 12, height: 12 }}
+                          />
+                          <span>
+                            {copiedId === `err-copy-${m.id}` ? t('已复制') : t('复制错误信息')}
+                          </span>
+                        </button>
                       </div>
-                    ) : (
-                      <>
-                        {m.role === 'system' && (
-                          <div className="chat-msg-system-icon">
-                            <Icon name="zap" style={{ width: 12, height: 12 }} />
+                    </div>
+                  ) : (
+                    <>
+                      {m.role === 'system' && (
+                        <div className="chat-msg-system-icon">
+                          <Icon name="zap" style={{ width: 12, height: 12 }} />
+                        </div>
+                      )}
+                      {m.role === 'assistant' ? (
+                        <div className="chat-msg-assistant-wrapper">
+                          <div className="chat-msg-avatar" aria-hidden="true">
+                            <Icon name="agents" style={{ width: 12, height: 12 }} />
                           </div>
-                        )}
-                        {m.role === 'assistant' ? (
-                          <div className="chat-msg-assistant-wrapper">
-                            <div className="chat-msg-avatar" aria-hidden="true">
-                              <Icon name="agents" style={{ width: 12, height: 12 }} />
-                            </div>
-                            {/* Column keeps the footer (time + copy) aligned
+                          {/* Column keeps the footer (time + copy) aligned
                                 with the content, not under the avatar. */}
-                            <div className="chat-msg-assistant-col">
-                              {(() => {
-                                // 工作流执行卡：历史消息看 metadata.source；
-                                // 本轮直播气泡（stream-/done-）看 mode=stream 标记。
-                                const isWf =
-                                  m.metadata?.source === 'workflow' ||
-                                  (streamIsWorkflow && !!m.runId && (m.id.startsWith('stream-') || m.id.startsWith('done-')))
-                                if (isWf && m.runId) {
-                                  const run = runsInfo[m.runId]
-                                  const fid = run?.flowId ?? chat?.flowId ?? null
-                                  const fname = run?.flowName ?? (fid ? flowNameById[fid] : null) ?? null
-                                  return (
-                                    <WorkflowRunCard
-                                      key={`${m.runId}-${m.id.startsWith('stream-') ? 'live' : 'static'}`}
-                                      runId={m.runId}
-                                      flowName={fname}
-                                      flowId={fid}
-                                      live={m.id.startsWith('stream-')}
-                                      onTerminal={loadRuns}
-                                      defaultOpen
-                                    />
-                                  )
-                                }
-                                if (!isWf) return <AgentSourceBadge />
-                                return null
-                              })()}
-                              <AssistantContent
-                                content={m.content}
-                                streaming={isStreaming}
-                                meta={extractMeta(m.metadata)}
+                          <div className="chat-msg-assistant-col">
+                            {(() => {
+                              // 工作流执行卡：历史消息看 metadata.source；
+                              // 本轮直播气泡（stream-/done-）看 mode=stream 标记。
+                              const isWf =
+                                m.metadata?.source === 'workflow' ||
+                                (streamIsWorkflow &&
+                                  !!m.runId &&
+                                  (m.id.startsWith('stream-') || m.id.startsWith('done-')))
+                              if (isWf && m.runId) {
+                                const run = runsInfo[m.runId]
+                                const fid = run?.flowId ?? chat?.flowId ?? null
+                                const fname =
+                                  run?.flowName ?? (fid ? flowNameById[fid] : null) ?? null
+                                return (
+                                  <WorkflowRunCard
+                                    key={`${m.runId}-${m.id.startsWith('stream-') ? 'live' : 'static'}`}
+                                    runId={m.runId}
+                                    flowName={fname}
+                                    flowId={fid}
+                                    live={m.id.startsWith('stream-')}
+                                    onTerminal={loadRuns}
+                                    defaultOpen
+                                  />
+                                )
+                              }
+                              if (!isWf) return <AgentSourceBadge />
+                              return null
+                            })()}
+                            <AssistantContent
+                              content={m.content}
+                              streaming={isStreaming}
+                              meta={extractMeta(m.metadata)}
+                            />
+                            {!isStreaming ? (
+                              <div className="chat-msg-footer">
+                                <span className="chat-msg-meta">{formatClock(m.createdAt)}</span>
+                                <button
+                                  type="button"
+                                  className="chat-msg-copy"
+                                  onClick={() => void handleCopy(m.id, m.content)}
+                                  title={t('复制')}
+                                  aria-label={t('复制回复内容')}
+                                >
+                                  <Icon
+                                    name={copiedId === m.id ? 'check' : 'copy'}
+                                    style={{ width: 12, height: 12 }}
+                                  />
+                                  <span>{copiedId === m.id ? t('已复制') : t('复制')}</span>
+                                </button>
+                              </div>
+                            ) : null}
+                          </div>
+                        </div>
+                      ) : m.role === 'user' ? (
+                        // User message — deepseek-harness pattern: a soft
+                        // neutral right-aligned bubble with a hover-revealed
+                        // time + copy action row tucked under it.
+                        <div className="chat-msg-user-stack">
+                          <div className="chat-msg-user-bubble">{m.content}</div>
+                          <div className="chat-msg-user-actions">
+                            <span className="chat-msg-meta">{formatClock(m.createdAt)}</span>
+                            <button
+                              type="button"
+                              className="chat-msg-copy chat-msg-copy-icon"
+                              onClick={() => void handleCopy(m.id, m.content)}
+                              title={t('复制')}
+                              aria-label={t('复制消息')}
+                            >
+                              <Icon
+                                name={copiedId === m.id ? 'check' : 'copy'}
+                                style={{ width: 12, height: 12 }}
                               />
-                              {!isStreaming ? (
-                                <div className="chat-msg-footer">
-                                  <span className="chat-msg-meta">{formatClock(m.createdAt)}</span>
-                                  <button
-                                    type="button"
-                                    className="chat-msg-copy"
-                                    onClick={() => void handleCopy(m.id, m.content)}
-                                    title={t('复制')}
-                                    aria-label={t('复制回复内容')}
-                                  >
-                                    <Icon name={copiedId === m.id ? 'check' : 'copy'} style={{ width: 12, height: 12 }} />
-                                    <span>{copiedId === m.id ? t('已复制') : t('复制')}</span>
-                                  </button>
-                                </div>
-                              ) : null}
-                            </div>
+                            </button>
                           </div>
-                        ) : m.role === 'user' ? (
-                          // User message — deepseek-harness pattern: a soft
-                          // neutral right-aligned bubble with a hover-revealed
-                          // time + copy action row tucked under it.
-                          <div className="chat-msg-user-stack">
-                            <div className="chat-msg-user-bubble">{m.content}</div>
-                            <div className="chat-msg-user-actions">
-                              <span className="chat-msg-meta">{formatClock(m.createdAt)}</span>
-                              <button
-                                type="button"
-                                className="chat-msg-copy chat-msg-copy-icon"
-                                onClick={() => void handleCopy(m.id, m.content)}
-                                title={t('复制')}
-                                aria-label={t('复制消息')}
-                              >
-                                <Icon name={copiedId === m.id ? 'check' : 'copy'} style={{ width: 12, height: 12 }} />
-                              </button>
-                            </div>
-                          </div>
-                        ) : (
-                          <div className="chat-msg-content">{m.content}</div>
-                        )}
-                      </>
-                    )}
-                  </div>
-                )
-              })
-            )}
+                        </div>
+                      ) : (
+                        <div className="chat-msg-content">{m.content}</div>
+                      )}
+                    </>
+                  )}
+                </div>
+              )
+            })
+          )}
 
-            {/* Turn status row (deepseek TurnStatus): shimmer from send to
+          {/* Turn status row (deepseek TurnStatus): shimmer from send to
                 done — "正在思考…" before the first chunk, "正在执行…" for the
                 rest of the run. Elapsed clock appears after 15s so long
                 silent tool work still reads as alive. The avatar renders only
@@ -1091,57 +1148,75 @@ export function ChatDetail({ chatId }: ChatDetailProps): React.ReactElement {
                 here read as two simultaneous AI messages. A same-width spacer
                 keeps the status text aligned with the bubble's content
                 column. */}
-            {!loading && runInProgress && messages.length > 0 ? (
-              <div className="chat-msg chat-msg-flat assistant-pending-row" role="status" aria-live="polite">
-                <div className="chat-msg-assistant-wrapper">
-                  {hasStreamBubble ? (
-                    <span className="assistant-pending-spacer" aria-hidden="true" />
-                  ) : (
-                    <div className="chat-msg-avatar" aria-hidden="true">
-                      <Icon name="agents" style={{ width: 12, height: 12 }} />
-                    </div>
-                  )}
-                  <div className="assistant-pending">
-                    <span className="assistant-pending-text">
-                      {hasStreamBubble ? t('正在执行…') : t('正在思考…')}
-                    </span>
-                    {elapsedSec >= 15 ? (
-                      <span className="assistant-pending-clock">{elapsedSec}s</span>
-                    ) : null}
+          {!loading && runInProgress && messages.length > 0 ? (
+            <div
+              className="chat-msg chat-msg-flat assistant-pending-row"
+              role="status"
+              aria-live="polite"
+            >
+              <div className="chat-msg-assistant-wrapper">
+                {hasStreamBubble ? (
+                  <span className="assistant-pending-spacer" aria-hidden="true" />
+                ) : (
+                  <div className="chat-msg-avatar" aria-hidden="true">
+                    <Icon name="agents" style={{ width: 12, height: 12 }} />
                   </div>
+                )}
+                <div className="assistant-pending">
+                  <span className="assistant-pending-text">
+                    {hasStreamBubble ? t('正在执行…') : t('正在思考…')}
+                  </span>
+                  {elapsedSec >= 15 ? (
+                    <span className="assistant-pending-clock">{elapsedSec}s</span>
+                  ) : null}
                 </div>
               </div>
-            ) : null}
-            {/* Scroll-to-bottom — a zero-height sticky slot centered above the
+            </div>
+          ) : null}
+          {/* Scroll-to-bottom — a zero-height sticky slot centered above the
                 composer (deepseek toBottomSlot pattern). Sticking inside the
                 scroller means the button can never overlap the composer's
                 send/stop button, which the old absolutely-positioned variant
                 did. */}
-            <div className="chat-detail-scroll-slot">
-              {showScrollBtn ? (
-                <button
-                  type="button"
-                  className="chat-detail-scroll-btn"
-                  onClick={scrollToBottom}
-                  aria-label={t('滚动到最新消息')}
-                  title={t('滚动到最新消息')}
-                >
-                  <Icon name="arrowDown" style={{ width: 16, height: 16 }} />
-                </button>
-              ) : null}
-            </div>
+          <div className="chat-detail-scroll-slot">
+            {showScrollBtn ? (
+              <button
+                type="button"
+                className="chat-detail-scroll-btn"
+                onClick={scrollToBottom}
+                aria-label={t('滚动到最新消息')}
+                title={t('滚动到最新消息')}
+              >
+                <Icon name="arrowDown" style={{ width: 16, height: 16 }} />
+              </button>
+            ) : null}
           </div>
-          <ChatComposer
-            onSend={handleSend}
-            onStop={handleStop}
-            stopping={sending}
-            disabled={loading}
-            autoFocus
-            agentId={selectedAgentId}
-            onAgentChange={handleAgentChange}
-            flowId={selectedFlowId}
-            onFlowChange={handleFlowChange}
-          />
+        </div>
+        {/* HITL 应答条（2026-10-04 对齐 floating-chat F6）：末条为
+         * human_input 系统消息 = 流程挂起等输入——聊天详情页此前只有
+         * 系统消息本身，副驾窗口有条、主页反而没有。应答 = 直接在下方
+         * 输入框发送（ack 路由语义唯一）。 */}
+        {messages[messages.length - 1]?.role === 'system' &&
+        (messages[messages.length - 1]?.metadata as { type?: string } | undefined)?.type ===
+          'human_input' &&
+        !sending ? (
+          <div className="fab-hitl-bar" role="status">
+            <span className="fab-hitl-label">
+              ⏸ {t('流程在等待你的输入 — 在下方输入并发送即可继续')}
+            </span>
+          </div>
+        ) : null}
+        <ChatComposer
+          onSend={handleSend}
+          onStop={handleStop}
+          stopping={sending}
+          disabled={loading}
+          autoFocus
+          agentId={selectedAgentId}
+          onAgentChange={handleAgentChange}
+          flowId={selectedFlowId}
+          onFlowChange={handleFlowChange}
+        />
       </div>
     </div>
   )

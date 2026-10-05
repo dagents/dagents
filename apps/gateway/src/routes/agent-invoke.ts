@@ -4,6 +4,7 @@ import { createBackend } from '@dagents/agent-adapters'
 import { createLogger } from '@dagents/shared'
 import type { AgentResult } from '@dagents/contracts'
 import { checkExecutablePath } from '../lib/executable-path.js'
+import { acquireCliSlot } from '../lib/cli-spawn-gate.js'
 import { getAgentKind } from '../repositories/agents.repo.js'
 import { getAgentDaemonRuntime } from '../repositories/agent-daemons.repo.js'
 import { getDirectoryPath } from '../repositories/directories.repo.js'
@@ -120,6 +121,9 @@ agentInvokeRoutes.post('/:id/invoke', async (c) => {
   let output = ''
   try {
     const backend = createBackend(agent.kind as never, { executablePath: agent.executablePath, logger: log })
+    // CLI spawn 闸（稳定性专项）：与工作流节点/聊天 inline 同一总量护栏；
+    // 槽位随 collect 结算释放（timeout race 之后 collect 仍会自然结算）。
+    const releaseSlot = await acquireCliSlot(`invoke-${String(agent.kind)}`)
     const session = backend.execute(parsed.prompt, { cwd, model: parsed.model })
     const collect = (async () => {
       for await (const evt of session.events) {
@@ -127,6 +131,7 @@ agentInvokeRoutes.post('/:id/invoke', async (c) => {
       }
       return session.result
     })()
+    collect.finally(() => releaseSlot())
     // 超时后 race 已结算，但 collect 仍在跑；它随后 reject 会变成 unhandled
     // rejection 直接杀死整个 gateway 进程。挂一个兜底 catch 吞掉迟到的错误。
     collect.catch((err) => {

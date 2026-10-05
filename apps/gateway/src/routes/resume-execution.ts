@@ -10,6 +10,7 @@ import { executionRegistry, type ExecutionHandle } from '../execution-registry.j
 import { aggregateExecutedNodesUsage, recordUsageEvent } from '../usage-events.js'
 import { getCheckpoint, updateCheckpointStatus, upsertCheckpoint } from '../repositories/run-checkpoints.repo.js'
 import { persistWorkflowRunRow } from '../repositories/runs.repo.js'
+import { tryAcquireRunSlot, recordRunFinished } from '../lib/run-gate.js'
 import { assembleWorkflowEngine } from './workflow-engine-service.js'
 
 const log = createLogger({ svc: 'gateway:resume' })
@@ -208,7 +209,20 @@ export function startWorkflowExecution(req: RunExecutionInput): RunExecutionHand
   }
 }
 
+/** run 并发闸满载（稳定性专项）：路由层捕获后映射 429。 */
+export class RunGateFullError extends Error {
+  constructor(message = 'concurrent run cap reached') {
+    super(message)
+    this.name = 'RunGateFullError'
+  }
+}
+
 function startWorkflowExecutionInner(req: RunExecutionInput): RunExecutionHandleResult {
+  // run 并发闸（稳定性专项）：满载抛 RunGateFullError —— 上层 startWorkflowExecution
+  // 的 catch 会释放认领，路由层映射 429。release 挂 execute 的 finally。
+  const releaseRunSlot = tryAcquireRunSlot()
+  if (!releaseRunSlot) throw new RunGateFullError()
+
   const { executor, live, baseOptions } = assembleWorkflowEngine({
     flowData: req.flowData as Parameters<typeof assembleWorkflowEngine>[0]['flowData'],
     runId: req.runId,
@@ -265,6 +279,7 @@ function startWorkflowExecutionInner(req: RunExecutionInput): RunExecutionHandle
   const execute = async (): Promise<void> => {
     // 先落一行 running（旁观端立即有终态可查）；resume 首次也先翻 running
     await persistRunRow('running', { resumedFrom: req.resumedFromRunId })
+    let finalStatus = 'failed'
     try {
       const result = await executor.execute(
         req.flowData as Parameters<typeof executor.execute>[0],
@@ -297,10 +312,21 @@ function startWorkflowExecutionInner(req: RunExecutionInput): RunExecutionHandle
         const deadlineAt = new Date(Date.now() + AWAITING_TIMEOUT_MS).toISOString()
         checkpointHook.suspend({ ...result.awaiting, deadlineAt })
         await persistRunRow('awaiting_input')
+        finalStatus = 'awaiting_input'
         return
       }
 
-      const runStatus = result.status === 'success' ? 'completed' : result.status === 'cancelled' ? 'cancelled' : 'failed'
+      const runStatus =
+        result.status === 'success'
+          ? 'completed'
+          : result.status === 'cancelled'
+            ? 'cancelled'
+            : result.status === 'partial_success'
+              ? 'partial_success'
+              : result.status === 'budget_exceeded'
+                ? 'budget_exceeded'
+                : 'failed'
+      finalStatus = runStatus
       // 运行实时终端：续跑 settle 同样上报终态（重开的条目再次收口）。
       live.finish(runStatus)
       // 终态经钩子串行链（快照 + status 合并一次写；failedAt 由引擎终态快照携带）
@@ -326,6 +352,8 @@ function startWorkflowExecutionInner(req: RunExecutionInput): RunExecutionHandle
       resolveDone()
       executionRegistry.unregister(handle)
       activeResumeCheckpoints.delete(req.checkpointRunId)
+      releaseRunSlot()
+      recordRunFinished(finalStatus)
     }
   }
 

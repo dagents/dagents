@@ -54,6 +54,7 @@ console watchLoop 轮询 GET /runs/:runId/node-spans（700ms）
 
 - **chat 路径同源**：`GET /chats/:id/stream`（SSE）同样注入 span-writer + 会话目录 cwd；聊天内「⚡工作流执行卡」与画布同一数据源
 - **旁观模式**：`/workflows/:id/canvas?run=<runId>` 可旁观任意运行（chat @flow 触发的也行）
+- **实时直播 + 轨迹时间线（2026-10-01）**：引擎钩子在 `assembleWorkflowEngine` 收口旁路进 `run-live-registry`，`GET /runs/:runId/live` SSE 帧流（hello.replay 前缀 + 直播帧，runEnd 关流，断点续跑同 runId 重开）；帧带服务端 `at` 时间戳（registry `emit()` 单点打点）。结果面板三视图：摘要 / 终端 / **轨迹**——`lib/run-trace-model.ts` 纯函数层把直播帧与 DB spans 两路数据收敛为同一 `RunTraceModel`（三投影 sequence/duration/actual），`canvas-trace-view.tsx` 渲染节点泳道甘特 + 事件台账 + Inspector（详见 AGENTS.md 轨迹视图段）
 - **项目目录语境**：run body `directoryId` → 解析 `directories.path` → CLI client 闭包注入 cwd（Agent 在选定项目里干活）
 
 ## 3. 权限模型（非交互 CLI 授权）
@@ -99,6 +100,8 @@ console watchLoop 轮询 GET /runs/:runId/node-spans（700ms）
 |---|---|---|
 | Canvas Kit | `components/flow-canvas/` | 自研画布（kit/model/palette/registry/inspector）；替换记录见 `canvas-replacement-architecture.md` |
 | 画布页装配 | `components/canvas/canvas-kit-page.tsx` | 运行输入面板/进度轮询/结果面板/未保存守卫 |
+| 结果面板 | `components/canvas/canvas-results-panel.tsx` | 摘要/终端/轨迹三视图（2026-10-01 起含轨迹） |
+| 轨迹投影 + 视图 | `lib/run-trace-model.ts` + `components/canvas/canvas-trace-view.tsx` | 帧流/spans → 统一 `RunTraceModel`（纯函数+单测）；节点泳道甘特/事件台账/Inspector |
 | 聊天详情 | `components/chat-detail.tsx` | WS+SSE 双通道、工作流执行卡（`workflow-run-card.tsx`） |
 | 悬浮副驾 | `components/floating-chat.tsx` | 全局聊天（目录/Agent/Flow 三选择器） |
 | 执行 hook | `lib/use-chat-execution.ts` | F0 单一实现（resolveDirectoryId/AgentId/FlowId） |

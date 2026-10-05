@@ -11,7 +11,18 @@ import {
   claimCheckpointRun,
   releaseCheckpointRun,
   startWorkflowExecution,
+  RunGateFullError,
 } from './resume-execution.js'
+import { runGateStats, MAX_CONCURRENT_RUNS } from '../lib/run-gate.js'
+
+/** run 并发闸满载 → 429（claim 已由 startWorkflowExecution 的 catch 释放）。 */
+const gateFull = (c: Parameters<typeof fail>[0]) =>
+  fail(
+    c,
+    429,
+    `并发运行已达上限（${MAX_CONCURRENT_RUNS()}）——请取消闲置运行或稍后重试`,
+    { active: runGateStats().active },
+  )
 
 /**
  * 断点续跑路由（design-run-checkpoint-resume.md §6.5）：
@@ -118,25 +129,30 @@ runResumeRoutes.post('/runs/:runId/resume', async (c) => {
   const newRunId = randomUUID()
   const resumeDirectoryId = parsed.directoryId ?? (await originalDirectoryId(originalRunId))
   const cwd = await resolveCwd(resumeDirectoryId ?? undefined)
-  startWorkflowExecution({
-    flowId: ckpt.flow_id,
-    flowData: flow.flowData,
-    runId: newRunId,
-    chatId: (await originalChatId(originalRunId)) ?? newRunId,
-    input: parsed.input ?? '',
-    directoryId: resumeDirectoryId ?? undefined,
-    humanInputs: parsed.humanInputs ?? {},
-    resume: seed
-      ? {
-          seedOutputs: seed.seedOutputs,
-          seedRuntime: seed.seedRuntime,
-          ...(seed.iterationProgress ? { iterationProgress: seed.iterationProgress } : {}),
-        }
-      : undefined,
-    checkpointRunId: originalRunId,
-    resumedFromRunId: originalRunId,
-    cwd,
-  })
+  try {
+    startWorkflowExecution({
+      flowId: ckpt.flow_id,
+      flowData: flow.flowData,
+      runId: newRunId,
+      chatId: (await originalChatId(originalRunId)) ?? newRunId,
+      input: parsed.input ?? '',
+      directoryId: resumeDirectoryId ?? undefined,
+      humanInputs: parsed.humanInputs ?? {},
+      resume: seed
+        ? {
+            seedOutputs: seed.seedOutputs,
+            seedRuntime: seed.seedRuntime,
+            ...(seed.iterationProgress ? { iterationProgress: seed.iterationProgress } : {}),
+          }
+        : undefined,
+      checkpointRunId: originalRunId,
+      resumedFromRunId: originalRunId,
+      cwd,
+    })
+  } catch (err) {
+    if (err instanceof RunGateFullError) return gateFull(c)
+    throw err
+  }
   log.info('run resumed', { originalRunId, newRunId, flowId: ckpt.flow_id })
   return ok(c, { runId: newRunId, resumedFrom: originalRunId })
 })
@@ -192,22 +208,27 @@ runResumeRoutes.post('/runs/:runId/answer', async (c) => {
   const chatId = (await originalChatId(runId)) ?? runId
   const answerDirectoryId = parsed.directoryId ?? (await originalDirectoryId(runId))
   const cwd = await resolveCwd(answerDirectoryId ?? undefined)
-  startWorkflowExecution({
-    flowId: ckpt.flow_id,
-    flowData: flow.flowData,
-    runId,
-    chatId,
-    input: '',
-    directoryId: answerDirectoryId ?? undefined,
-    humanInputs,
-    resume: {
-      seedOutputs: seed.seedOutputs,
-      seedRuntime,
-      ...(seed.iterationProgress ? { iterationProgress: seed.iterationProgress } : {}),
-    },
-    checkpointRunId: runId,
-    cwd,
-  })
+  try {
+    startWorkflowExecution({
+      flowId: ckpt.flow_id,
+      flowData: flow.flowData,
+      runId,
+      chatId,
+      input: '',
+      directoryId: answerDirectoryId ?? undefined,
+      humanInputs,
+      resume: {
+        seedOutputs: seed.seedOutputs,
+        seedRuntime,
+        ...(seed.iterationProgress ? { iterationProgress: seed.iterationProgress } : {}),
+      },
+      checkpointRunId: runId,
+      cwd,
+    })
+  } catch (err) {
+    if (err instanceof RunGateFullError) return gateFull(c)
+    throw err
+  }
   log.info('awaiting run answered — resuming in place', { runId, nodeId: ckpt.awaiting.nodeId })
   return ok(c, { runId, resumed: true })
 })

@@ -16,8 +16,16 @@
  *     secondary key used by workflow-run cancels.
  */
 import { createLogger } from '@dagents/shared'
+import { declareGauge } from './lib/metrics.js'
 
 const log = createLogger({ svc: 'gateway:execution-registry' })
+
+// 执行水位（稳定性专项 2026-10-04）：与 run-gate 的准入水位对照——
+// 两者长期相等，偏差 = 有执行未走闸（值得追）。collect 在渲染时才求值，
+// 前向引用文件底部的单例是安全的。
+declareGauge('dagents_executions_active', 'Live executions registered in the in-process registry (by chat)', {
+  collect: () => executionRegistry.activeCount(),
+})
 
 export type ExecutionKind = 'chat-agent' | 'chat-flow' | 'chat-stream' | 'workflow-run'
 

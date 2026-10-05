@@ -110,9 +110,9 @@ describe('FlowEditor', () => {
     expect(fab).toBeTruthy()
     fireEvent.click(fab)
     const count = document.querySelectorAll('.fc-palette-item').length
-    // 9 类引擎节点 + 画布便签
+    // 10 类引擎节点（2026-10-04 复活 executeFlow 子流程）+ 画布便签
     expect(count).toBe(NODE_SPECS.length + 1)
-    expect(count).toBe(10)
+    expect(count).toBe(11)
   })
 
   it('readOnly：无节点面板 FAB、无检查器', () => {

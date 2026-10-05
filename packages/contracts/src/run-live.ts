@@ -14,7 +14,9 @@
  * per-run frame buffer; late subscribers get the whole buffered prefix as
  * replay, then live frames. This is a mirror of the structured event stream
  * (text/activity deltas, no raw terminal bytes, no ANSI) — terminal *look*
- * is a client rendering concern.
+ * is a client rendering concern. Every non-marker frame carries `at` (server
+ * append time) so trace timelines position live and replayed events on the
+ * same wall clock.
  *
  * Frame order contract:
  *   1. `hello` — exactly once, first frame. Replay snapshot (full frame
@@ -42,10 +44,18 @@ export type RunLiveDelta =
   | { type: 'text'; text: string }
   | { type: 'activity'; kind: string; label: string; detail?: string }
 
+/** Server-side stamp moment (ISO) — set by the registry at buffer-append time
+ *  (2026-10-01 trace timeline). Optional so old gateways / buffered frames
+ *  stay readable; clients fall back to receive time when absent. NOT set on
+ *  `truncated` (a replay-only marker, not a real event). */
+export interface RunLiveAt {
+  at?: string
+}
+
 /** Buffered / streamed frame. `nodeStart` carries `nodeType` (canvas lookup
  *  table enrichment) so the client can render the `$ command` hint line. */
 export type RunLiveFrame =
-  | { type: 'nodeStart'; nodeId: string; nodeName: string; nodeType?: string | null }
+  | ({ type: 'nodeStart'; nodeId: string; nodeName: string; nodeType?: string | null } & RunLiveAt)
   | {
       type: 'nodeEnd'
       nodeId: string
@@ -53,11 +63,11 @@ export type RunLiveFrame =
       status: 'done' | 'failed'
       error?: string
       durationMs?: number
-    }
-  | { type: 'delta'; nodeId: string; nodeName: string; delta: RunLiveDelta }
+    } & RunLiveAt
+  | { type: 'delta'; nodeId: string; nodeName: string; delta: RunLiveDelta } & RunLiveAt
   /** Run settled (status as written to the runs row, e.g. completed / failed /
    *  cancelled / awaiting_input). Sweeper-forced ends use 'unknown'. */
-  | { type: 'runEnd'; status: string }
+  | ({ type: 'runEnd'; status: string } & RunLiveAt)
   /** Buffer head was trimmed (replay-only marker, never streamed live): the
    *  oldest `dropped` frames are gone from the replay prefix. */
   | { type: 'truncated'; dropped: number }

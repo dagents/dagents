@@ -38,7 +38,9 @@ test.describe('Agent Library (spec-16)', () => {
     await ctx?.dispose()
   })
 
-  test('catalogue lists the fixture division + entry with three profile previews', async ({ request }) => {
+  test('catalogue lists the fixture division + entry with three profile previews', async ({
+    request,
+  }) => {
     const listRes = await request.get(`/api/agent-library?division=e2elib`)
     expect(listRes.ok()).toBe(true)
     const list = (await listRes.json()) as {
@@ -61,37 +63,41 @@ test.describe('Agent Library (spec-16)', () => {
     expect(detail.data.instantiated).toBeNull()
   })
 
-  test('UI journey: browse → enable → lands on the new agent with slim persona', async ({ page }) => {
-    await page.goto('/agents')
-    await page.getByRole('button', { name: '从人格库启用' }).click()
+  test('UI journey: browse → enable → lands on the new agent with slim persona', async ({
+    page,
+  }) => {
+    // 2026-10-04 广场 IA（commit 4470a3b）：人格库从 modal 升格一等页面
+    // tab——spec 随新 IA 对齐（旧「从人格库启用」按钮已不存在）。
+    await page.goto('/agents?tab=plaza')
+    await expect(page.getByRole('tab', { name: '人格' })).toBeVisible()
 
-    const dialog = page.getByRole('dialog', { name: '从人格库启用 Agent' })
-    await expect(dialog).toBeVisible()
-    await expect(dialog.getByRole('tab', { name: 'E2E Library' })).toBeVisible()
+    await page.getByLabel('搜索人格库').fill(PERSONA_NAME)
 
-    await dialog.getByLabel('搜索人格库').fill(PERSONA_NAME)
-
-    // PX-A03 起人格卡是整卡可点的 div（不再是「查看人格 X」按钮），卡上
-    // 「启用」按钮与整卡点击同走 openDetail 确认步。
-    const card = dialog.locator('.atg-card', { hasText: PERSONA_NAME })
+    // 人格卡是整卡可点的 div，卡上「启用」按钮走 openDetail 确认步。
+    const card = page.locator('.atg-card.alib-card', { hasText: PERSONA_NAME })
     await expect(card).toBeVisible()
     await card.locator('button', { hasText: '启用' }).click()
 
     // 确认步：三档单选 + slim 默认选中，直接启用（scope 到 .alib-confirm，
     // 卡片列表里也有同名「启用」按钮）。
-    await expect(dialog.getByText('导入档位（systemPrompt 体积）')).toBeVisible()
-    await dialog.locator('.modal-foot').getByRole('button', { name: '启用', exact: true }).click()
+    await expect(page.getByText('导入档位（systemPrompt 体积）')).toBeVisible()
+    await page
+      .locator('.alib-confirm-actions')
+      .getByRole('button', { name: '启用', exact: true })
+      .click()
 
     await page.waitForURL(/\/agents\/[0-9a-f-]{36}$/, { timeout: 15_000 })
     instantiatedAgentId = page.url().split('/').pop() ?? ''
 
     // DB 断言：slim 编译（剥 Deliverables）+ 语言包络 + library_meta 溯源。
     const { records } = await ctx!.db.runQuery<{
-      name: string; kind: string; instructions: string; library_meta: { id: string; profile: string }
-    }>(
-      `SELECT name, kind, instructions, library_meta FROM agents WHERE id = $1::uuid`,
-      [instantiatedAgentId],
-    )
+      name: string
+      kind: string
+      instructions: string
+      library_meta: { id: string; profile: string }
+    }>(`SELECT name, kind, instructions, library_meta FROM agents WHERE id = $1::uuid`, [
+      instantiatedAgentId,
+    ])
     const row = records[0]
     expect(row.name).toBe(PERSONA_NAME)
     expect(row.kind).toBe('claude')
@@ -118,34 +124,31 @@ test.describe('Agent Library (spec-16)', () => {
   // Phase 3：团队场景 tab。成员可解析性取决于挂载的库（本机真库 vs CI 无库），
   // 断言只锁环境无关的渲染结构：模板卡片、成员 chips、确认步成员清单。
   test('team scenarios tab renders template cards and member list', async ({ page }) => {
-    await page.goto('/agents')
-    await page.getByRole('button', { name: '从人格库启用' }).click()
+    await page.goto('/agents?tab=plaza')
+    await page.getByRole('tab', { name: '团队场景' }).click()
 
-    const dialog = page.getByRole('dialog', { name: '从人格库启用 Agent' })
-    await dialog.getByRole('tab', { name: '团队场景' }).click()
-
-    const card = dialog.getByRole('button', { name: '查看团队场景 创业 MVP 构建' })
+    const card = page.getByRole('button', { name: '查看团队场景 创业 MVP 构建' })
     await expect(card).toBeVisible()
     await expect(card.locator('.alib-member-chip', { hasText: '上线质检' })).toBeVisible() // 成员 chip
 
     await card.click()
-    await expect(dialog.getByText('成员按顺序执行，上游产出作为下游输入。')).toBeVisible()
+    await expect(page.getByText('成员按顺序执行，上游产出作为下游输入。')).toBeVisible()
     // 确认步列出全部成员行（名字 + 职责标签 + 状态角标）。创业 MVP 模板
     // 2026-08-31 扩为 7 人格（冲刺规划∥用户验证并行发现头）。
-    const members = dialog.locator('.alib-team-member')
+    const members = page.locator('.alib-team-member')
     await expect(members).toHaveCount(7)
-    await expect(dialog.locator('.alib-team-member').filter({ hasText: 'Backend Architect' })).toBeVisible()
+    await expect(
+      page.locator('.alib-team-member').filter({ hasText: 'Backend Architect' }),
+    ).toBeVisible()
   })
 
   // ── 测试工程师补口（2026-08-20）────────────────────────────────────────
 
   // 顺序依赖：上方 UI journey 已启用 E2E Persona One（spec 内按序执行）。
   test('enabled persona carries its drift badge on the card', async ({ page }) => {
-    await page.goto('/agents')
-    await page.getByRole('button', { name: '从人格库启用' }).click()
-    const dialog = page.getByRole('dialog', { name: '从人格库启用 Agent' })
-    await dialog.getByLabel('搜索人格库').fill('E2E Persona One')
-    const card = dialog.locator('.atg-card', { hasText: 'E2E Persona One' })
+    await page.goto('/agents?tab=plaza')
+    await page.getByLabel('搜索人格库').fill('E2E Persona One')
+    const card = page.locator('.atg-card.alib-card', { hasText: 'E2E Persona One' })
     await expect(card.locator('.alib-badge-up-to-date')).toHaveText('已启用')
   })
 
@@ -153,20 +156,24 @@ test.describe('Agent Library (spec-16)', () => {
   // shadow / CI 唯一来源，两端都确定可解析）→ 团队 tab → 确认步 → 创建
   // 工作流 → 落在画布。清理删除本次 flow 与成员 agents（这些 library id
   // 只可能来自本 spec —— 成员人格随时可在库页一键重启用）。
-  test('team scenario full journey: create workflow and land on canvas', async ({ page, request }) => {
+  test('team scenario full journey: create workflow and land on canvas', async ({
+    page,
+    request,
+  }) => {
     const teamFixture = join(__dirname, 'fixtures', 'agent-library-teams')
     await request.delete(`/api/agent-library/roots?dir=${encodeURIComponent(teamFixture)}`)
     const mount = await request.post('/api/agent-library/roots', { data: { dir: teamFixture } })
     expect(mount.ok(), `mount team fixture: ${await mount.text()}`).toBe(true)
 
     try {
-      await page.goto('/agents')
-      await page.getByRole('button', { name: '从人格库启用' }).click()
-      const dialog = page.getByRole('dialog', { name: '从人格库启用 Agent' })
-      await dialog.getByRole('tab', { name: '团队场景' }).click()
-      await dialog.getByRole('button', { name: '查看团队场景 营销活动发布' }).click()
-      await expect(dialog.locator('.alib-team-member')).toHaveCount(5)
-      await dialog.getByRole('button', { name: '创建工作流', exact: true }).click()
+      await page.goto('/agents?tab=plaza')
+      await page.getByRole('tab', { name: '团队场景' }).click()
+      await page.getByRole('button', { name: '查看团队场景 营销活动发布' }).click()
+      await expect(page.locator('.alib-team-member')).toHaveCount(5)
+      await page
+        .locator('.alib-confirm-actions')
+        .getByRole('button', { name: '创建工作流', exact: true })
+        .click()
 
       await page.waitForURL(/\/workflows\/[0-9a-f-]{36}\/canvas$/, { timeout: 30_000 })
 
@@ -174,21 +181,28 @@ test.describe('Agent Library (spec-16)', () => {
       const memberRows = await ctx!.db.runQuery<{ count: string }>(
         `SELECT count(*)::text AS count FROM agents
           WHERE library_meta->>'id' = ANY($1::text[])`,
-        [[
-          'marketing/content-creator', 'marketing/twitter-engager', 'marketing/instagram-curator',
-          'marketing/reddit-community-builder', 'support/analytics-reporter',
-        ]],
+        [
+          [
+            'marketing/content-creator',
+            'marketing/twitter-engager',
+            'marketing/instagram-curator',
+            'marketing/reddit-community-builder',
+            'support/analytics-reporter',
+          ],
+        ],
       )
       expect(Number(memberRows.records[0].count)).toBeGreaterThanOrEqual(5)
 
       await ctx!.db.runQuery(`DELETE FROM flows WHERE id = $1::uuid`, [flowId])
-      await ctx!.db.runQuery(
-        `DELETE FROM agents WHERE library_meta->>'id' = ANY($1::text[])`,
-        [[
-          'marketing/content-creator', 'marketing/twitter-engager', 'marketing/instagram-curator',
-          'marketing/reddit-community-builder', 'support/analytics-reporter',
-        ]],
-      )
+      await ctx!.db.runQuery(`DELETE FROM agents WHERE library_meta->>'id' = ANY($1::text[])`, [
+        [
+          'marketing/content-creator',
+          'marketing/twitter-engager',
+          'marketing/instagram-curator',
+          'marketing/reddit-community-builder',
+          'support/analytics-reporter',
+        ],
+      ])
     } finally {
       await request.delete(`/api/agent-library/roots?dir=${encodeURIComponent(teamFixture)}`)
     }

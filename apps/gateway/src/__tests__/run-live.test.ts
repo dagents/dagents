@@ -210,6 +210,42 @@ describe('run-live registry（帧缓冲与订阅）', () => {
     expect(end.error).toBe('boom')
     expect(end.durationMs).toBeGreaterThanOrEqual(1400)
   })
+
+  it('帧携带服务端 at 时间戳（轨迹时间线）；truncated 不带', () => {
+    setEnv('DAGENTS_RUNLIVE_BUFFER_BYTES', '2048')
+    const tap = forRunLive(RUN, FLOW)
+    tap.nodeStart({ nodeId: 'n1', nodeName: 'A' })
+    tap.delta({ nodeId: 'n1', nodeName: 'A' }, { type: 'activity', kind: 'tool', label: 'bash' })
+    tap.nodeEnd({
+      nodeId: 'n1',
+      nodeName: 'A',
+      startedAt: new Date().toISOString(),
+      endedAt: new Date().toISOString(),
+      status: 'success',
+      input: {},
+      output: {},
+    })
+    for (let i = 0; i < 200; i++) {
+      tap.delta({ nodeId: 'n1', nodeName: 'A' }, { type: 'text', text: `chunk-${i}-`.repeat(8) })
+    }
+    tap.finish('completed')
+
+    const att = attachRunLive(RUN, () => {})
+    const ISO_RE = /^\d{4}-\d{2}-\d{2}T\d{2}:\d{2}:\d{2}/
+    let prev = 0
+    for (const f of att!.hello.replay) {
+      if (f.type === 'truncated') {
+        expect((f as { at?: string }).at).toBeUndefined()
+        continue
+      }
+      const at = (f as { at?: string }).at
+      expect(at).toMatch(ISO_RE)
+      // 同流单调不减：时间线投影依赖帧序 = 时间序
+      const ms = Date.parse(at!)
+      expect(ms).toBeGreaterThanOrEqual(prev)
+      prev = ms
+    }
+  })
 })
 
 describe('run-live sweeper（收敛与回收）', () => {

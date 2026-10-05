@@ -22,6 +22,8 @@ import { detectRefusal } from '@/lib/refusal-detect'
 import type { RunNodeSpan } from '@/lib/node-spans'
 import { RunTerminal, type TerminalSendResult } from '@/components/run-terminal'
 import { spanToTerminalSection, extractOutputText, type TerminalSection } from '@/lib/run-terminal-format'
+import { buildTraceFromSpans, type RunTraceModel } from '@/lib/run-trace-model'
+import { CanvasTraceView } from '@/components/canvas/canvas-trace-view'
 import type { RunLiveMode } from '@/lib/use-run-live'
 import { terminalHrefForDir } from '@/lib/terminal-links'
 import { ResultViewer } from '@/components/result-viewer'
@@ -55,7 +57,7 @@ export interface CanvasResultsPanelProps {
   /** 拓扑序（initialFlow 节点顺序）—— 行序与终端分段排序用。 */
   topoOrder: Map<string, number>
   /** live 直播帧流（useRunLive）；回退 node-spans 快照渲染。 */
-  runLive: { mode: RunLiveMode; sections: TerminalSection[] }
+  runLive: { mode: RunLiveMode; sections: TerminalSection[]; trace: RunTraceModel | null }
   /** 运行中插话能力位（node-spans inputSupported）。 */
   inputSupported: boolean
   /** 失败深链终端的目录锚（本会话发起或旁观回传），null 不渲染入口。 */
@@ -245,19 +247,20 @@ export function CanvasResultsPanel({
   }, [runState])
   // 摘要视图元数据底行的展开态（2026-09-06）：输入/原始数据一次只开一个
   const [ioOpen, setIoOpen] = useState<{ id: string; kind: 'input' | 'raw' } | null>(null)
-  // 结果面板视图（2026-09-06 终端视图 PRD）：摘要（默认，策展卡片）/
-  // 终端（保真回放 —— span-writer events 全量过程日志的单流渲染）。
-  // 用户裁决：切换式而非替换默认；记忆在 localStorage。
-  const [resultView, setResultView] = useState<'summary' | 'terminal'>(() => {
+  // 结果面板视图（2026-09-06 终端视图 PRD；2026-10-01 增轨迹视图）：
+  // 摘要（默认，策展卡片）/ 终端（保真回放，span-writer events 全量过程
+  // 日志的单流渲染）/ 轨迹（节点泳道时间线 + 事件台账 + Inspector，参考
+  // deepseek-harness Trajectory）。用户裁决：切换式而非替换默认；记忆在
+  // localStorage。
+  const [resultView, setResultView] = useState<'summary' | 'terminal' | 'trace'>(() => {
     try {
-      return window.localStorage.getItem('dagents.canvas.resultView') === 'terminal'
-        ? 'terminal'
-        : 'summary'
+      const v = window.localStorage.getItem('dagents.canvas.resultView')
+      return v === 'terminal' || v === 'trace' ? v : 'summary'
     } catch {
       return 'summary'
     }
   })
-  const switchResultView = useCallback((v: 'summary' | 'terminal'): void => {
+  const switchResultView = useCallback((v: 'summary' | 'terminal' | 'trace'): void => {
     setResultView(v)
     try {
       window.localStorage.setItem('dagents.canvas.resultView', v)
@@ -279,7 +282,11 @@ export function CanvasResultsPanel({
 
   const latestSpans = spans
   return (
-    <div className='canvas-results-panel' role='region' aria-label={t('运行结果')}>
+    <div
+      className={`canvas-results-panel${resultView === 'trace' ? ' wide' : ''}`}
+      role='region'
+      aria-label={t('运行结果')}
+    >
       {/* 持久挂起应答（P2 §6.6）：prompt + 输入/选择 + 提交 →
           同 runId 原地续跑（聊天里直接回复也可）。 */}
       {runState === 'awaiting' && awaitingInfo ? (
@@ -380,14 +387,24 @@ export function CanvasResultsPanel({
             {t('摘要')}
           </button>
           <button
-            type='button'
-            role='tab'
+            type="button"
+            role="tab"
             aria-selected={resultView === 'terminal'}
             className={`canvas-results-view-btn${resultView === 'terminal' ? ' active' : ''}`}
             onClick={() => switchResultView('terminal')}
             title={t('以终端形式查看完整过程（thinking/工具调用/输出全文）')}
           >
             {t('终端')}
+          </button>
+          <button
+            type="button"
+            role="tab"
+            aria-selected={resultView === 'trace'}
+            className={`canvas-results-view-btn${resultView === 'trace' ? ' active' : ''}`}
+            onClick={() => switchResultView('trace')}
+            title={t('节点泳道时间线 + 事件台账：按时间轴查看执行轨迹与过程事件')}
+          >
+            {t('轨迹')}
           </button>
           </span>
         </span>
@@ -480,7 +497,26 @@ export function CanvasResultsPanel({
           </div>
         </div>
       ) : null}
-      {resultView === 'terminal' ? (
+      {resultView === 'trace' ? (
+        /* 轨迹视图（2026-10-01）：节点泳道时间线 + 事件台账 + Inspector。
+            数据源与终端视图同款降级阶梯——live 帧模型优先（执行序 + 帧
+            级 at 时间戳），否则 DB spans 快照推导。 */
+        (() => {
+          const liveTrace =
+            runLive.mode === 'live' || runLive.mode === 'closed' ? runLive.trace : null
+          const traceModel =
+            liveTrace != null && liveTrace.nodes.length > 0
+              ? liveTrace
+              : buildTraceFromSpans(latestSpans)
+          return (
+            <CanvasTraceView
+              runState={runState}
+              model={traceModel}
+              spans={latestSpans}
+            />
+          )
+        })()
+      ) : resultView === 'terminal' ? (
         /* 终端视图：全量过程日志单流分段（拓扑序同摘要视图），保真回放。
             stdin 行（可操作终端 2026-09-08）：运行中可对 running 节点插话，
             结束后原位变重跑入口。 */

@@ -16,6 +16,8 @@ export interface FlowRow {
   status: string
   created_at: Date
   updated_at: Date
+  /** flow 级上下文文件（P2a，2026-10-04）：注入 LLM/Agent 节点 system。 */
+  context_md?: string | null
 }
 
 /**
@@ -40,7 +42,10 @@ export function normalizeFlowListItem(r: FlowListItemRow) {
     description: r.description,
     status: r.status,
     nodeCount: r.node_count ?? 0,
-    updatedAt: r.updated_at instanceof Date ? r.updated_at.toISOString() : new Date(r.updated_at).toISOString(),
+    updatedAt:
+      r.updated_at instanceof Date
+        ? r.updated_at.toISOString()
+        : new Date(r.updated_at).toISOString(),
   }
 }
 
@@ -51,8 +56,15 @@ export function normalizeFlowDetail(r: FlowRow) {
     description: r.description,
     flowData: r.flow_data,
     status: r.status,
-    createdAt: r.created_at instanceof Date ? r.created_at.toISOString() : new Date(r.created_at).toISOString(),
-    updatedAt: r.updated_at instanceof Date ? r.updated_at.toISOString() : new Date(r.updated_at).toISOString(),
+    contextMd: r.context_md ?? null,
+    createdAt:
+      r.created_at instanceof Date
+        ? r.created_at.toISOString()
+        : new Date(r.created_at).toISOString(),
+    updatedAt:
+      r.updated_at instanceof Date
+        ? r.updated_at.toISOString()
+        : new Date(r.updated_at).toISOString(),
   }
 }
 
@@ -76,7 +88,7 @@ export async function listFlows(status?: string): Promise<FlowListItemRow[]> {
 
 export async function getFlowById(id: string): Promise<FlowRow | null> {
   const { records } = await runQuery<FlowRow>(
-    `SELECT id, name, description, flow_data, status, created_at, updated_at
+    `SELECT id, name, description, flow_data, status, created_at, updated_at, context_md
        FROM flows
        WHERE id = $1`,
     [id],
@@ -85,9 +97,11 @@ export async function getFlowById(id: string): Promise<FlowRow | null> {
 }
 
 /** 只取 flow_data（chat 流式 / @flow 执行的轻量读取）。 */
-export async function getFlowDataById(flowId: string): Promise<{ flow_data: unknown } | null> {
-  const { records } = await runQuery<{ flow_data: unknown }>(
-    `SELECT flow_data FROM flows WHERE id = $1::uuid`,
+export async function getFlowDataById(
+  flowId: string,
+): Promise<{ flow_data: unknown; context_md: string | null } | null> {
+  const { records } = await runQuery<{ flow_data: unknown; context_md: string | null }>(
+    `SELECT flow_data, context_md FROM flows WHERE id = $1::uuid`,
     [flowId],
   )
   return records[0] ?? null
@@ -103,18 +117,17 @@ export async function createFlow(input: {
     `INSERT INTO flows (name, description, flow_data, status)
      VALUES ($1, $2, $3, $4)
      RETURNING id, name, description, flow_data, status, created_at, updated_at`,
-    [
-      input.name,
-      input.description ?? null,
-      input.flowDataJson,
-      input.status ?? 'draft',
-    ],
+    [input.name, input.description ?? null, input.flowDataJson, input.status ?? 'draft'],
   )
   return records[0] ?? null
 }
 
 /** 模板 / @workflow / 团队场景共用的 draft 落库（返回新 flow id）。 */
-export async function insertDraftFlow(name: string, description: string, flowDataJson: string): Promise<string> {
+export async function insertDraftFlow(
+  name: string,
+  description: string,
+  flowDataJson: string,
+): Promise<string> {
   const { records } = await runQuery<{ id: string }>(
     `INSERT INTO flows (name, description, flow_data, status)
      VALUES ($1, $2, $3, 'draft')
@@ -127,7 +140,13 @@ export async function insertDraftFlow(name: string, description: string, flowDat
 /** PATCH 动态更新：只写提供的列（name → description → flowData → status）。 */
 export async function updateFlowFields(
   id: string,
-  patch: { name?: string; description?: string; flowDataJson?: string; status?: string },
+  patch: {
+    name?: string
+    description?: string
+    flowDataJson?: string
+    status?: string
+    contextMd?: string | null
+  },
 ): Promise<FlowRow | null> {
   const sets: string[] = []
   const params: unknown[] = []
@@ -143,6 +162,10 @@ export async function updateFlowFields(
   if (patch.flowDataJson !== undefined) {
     params.push(patch.flowDataJson)
     sets.push(`flow_data = $${params.length}`)
+  }
+  if (patch.contextMd !== undefined) {
+    params.push(patch.contextMd)
+    sets.push(`context_md = $${params.length}`)
   }
   if (patch.status !== undefined) {
     params.push(patch.status)
@@ -191,7 +214,9 @@ export async function findRunnableFlowIdByName(name: string): Promise<string | n
  * Agent 删除的引用预筛：flow_data 里出现该 id 字面量的 flow（LIKE 预筛，
  * 精确判定由应用层 findAgentReferences 做 —— 兼容两种存储形态）。
  */
-export async function listFlowsContainingText(id: string): Promise<Array<{ id: string; name: string; flow_data: unknown }>> {
+export async function listFlowsContainingText(
+  id: string,
+): Promise<Array<{ id: string; name: string; flow_data: unknown }>> {
   const { records } = await runQuery<{ id: string; name: string; flow_data: unknown }>(
     `SELECT id, name, flow_data FROM flows WHERE flow_data::text LIKE '%' || $1 || '%'`,
     [id],
@@ -203,9 +228,10 @@ export async function listFlowsContainingText(id: string): Promise<Array<{ id: s
 export async function getFlowForTemplateExtract(
   flowId: string,
 ): Promise<{ name: string; description: string | null; flow_data: unknown } | null> {
-  const { records } = await runQuery<{ name: string; description: string | null; flow_data: unknown }>(
-    `SELECT name, description, flow_data FROM flows WHERE id = $1::uuid`,
-    [flowId],
-  )
+  const { records } = await runQuery<{
+    name: string
+    description: string | null
+    flow_data: unknown
+  }>(`SELECT name, description, flow_data FROM flows WHERE id = $1::uuid`, [flowId])
   return records[0] ?? null
 }

@@ -13,7 +13,7 @@
  * 收尾。轮询走 usePolling（2026-09-17 收敛）：延续判定基于每轮刚拉到的
  * 行（此前按挂载时的首拨行决定，全部到终态后仍无限空转）。
  */
-import { useCallback, useState } from 'react'
+import { useCallback, useEffect, useState } from 'react'
 import Link from 'next/link'
 import { useI18n } from '@/i18n'
 import { formatDuration, timeAgo, timeTitle } from '@/lib/format'
@@ -36,6 +36,8 @@ interface RunRow {
    *  旧运行 / 未带目录为 null → 入口不渲染（诚实优先，不回落主目录）。 */
   directoryId?: string | null
   createdAt: string
+  /** 谱系（2026-10-04）：从哪个 run 断点续跑/应答回流（无 = 根运行）。 */
+  resumedFromRunId?: string | null
 }
 
 const STATUS_LABEL: Record<string, string> = {
@@ -44,6 +46,20 @@ const STATUS_LABEL: Record<string, string> = {
   cancelled: '已取消',
   running: '运行中',
   pending: '排队中',
+  // 2026-10-04 引擎新终态：失败分支隔离 / token 预算停机
+  partial_success: '部分成功',
+  budget_exceeded: '预算停机',
+  awaiting_input: '等待输入',
+}
+
+/** 节点类型画像（/api/workflows/:id/analytics 的 nodeTypes 行）。 */
+interface NodeTypeStat {
+  nodeType: string
+  executions: number
+  failures: number
+  avgMs: number | null
+  p95Ms: number | null
+  tokens: number
 }
 
 /** gateway inputPreview 可能是 JSONB 对象（{"input":"…"}）—— 解包成文本。 */
@@ -62,7 +78,11 @@ export interface FlowRunsPanelProps {
   onRerun?: (input: string | null) => void
 }
 
-export function FlowRunsPanel({ flowId, refreshTick = 0, onRerun }: FlowRunsPanelProps): React.ReactElement {
+export function FlowRunsPanel({
+  flowId,
+  refreshTick = 0,
+  onRerun,
+}: FlowRunsPanelProps): React.ReactElement {
   const { t } = useI18n()
   const [runs, setRuns] = useState<RunRow[]>([])
   const [loading, setLoading] = useState(true)
@@ -90,6 +110,34 @@ export function FlowRunsPanel({ flowId, refreshTick = 0, onRerun }: FlowRunsPane
   // 挂载 / refreshTick bump 立即拉一轮；有活跃行才 3s 轮询，全部终态即停
   usePolling(load, { intervalMs: 3000, visibilityPause: true, restartKey: refreshTick })
 
+  // ── 节点类型画像（2026-10-04 用量分析）：与运行历史同数据源（spans），
+  //    拉一次静态聚合即可（刷新随 refreshTick）；无数据/失败静默收起。
+  const [typeStats, setTypeStats] = useState<NodeTypeStat[] | null>(null)
+  const [showInsights, setShowInsights] = useState(false)
+  useEffect(() => {
+    let cancelled = false
+    void (async () => {
+      try {
+        const res = await fetch(`/api/workflows/${encodeURIComponent(flowId)}/analytics`, {
+          cache: 'no-store',
+        })
+        const json = (await res.json()) as {
+          success: boolean
+          data?: { nodeTypes?: NodeTypeStat[] }
+          error?: string
+        }
+        if (!cancelled && res.ok && json.success) {
+          setTypeStats(json.data?.nodeTypes?.filter((s) => s.executions > 0) ?? [])
+        }
+      } catch {
+        if (!cancelled) setTypeStats(null)
+      }
+    })()
+    return () => {
+      cancelled = true
+    }
+  }, [flowId, refreshTick])
+
   if (loading && runs.length === 0) {
     return (
       <div className="flow-runs">
@@ -98,8 +146,54 @@ export function FlowRunsPanel({ flowId, refreshTick = 0, onRerun }: FlowRunsPane
     )
   }
 
+  const totalTokens = (typeStats ?? []).reduce((n, s) => n + s.tokens, 0)
+
   return (
     <div className="flow-runs" role="list" aria-label={t('运行记录')}>
+      {typeStats && typeStats.length > 0 ? (
+        <div className="flow-runs-insights">
+          <button
+            type="button"
+            className="flow-runs-insights-toggle"
+            onClick={() => setShowInsights((v) => !v)}
+            aria-expanded={showInsights}
+          >
+            {showInsights ? '▾' : '▸'} {t('节点画像')}
+            <span className="flow-runs-insights-summary tnum">
+              {' '}
+              · {typeStats.length} {t('类节点')} · {totalTokens.toLocaleString()} tokens
+            </span>
+          </button>
+          {showInsights ? (
+            <table className="flow-runs-insights-table">
+              <thead>
+                <tr>
+                  <th>{t('节点类型')}</th>
+                  <th className="tnum">{t('执行')}</th>
+                  <th className="tnum">{t('失败率')}</th>
+                  <th className="tnum">{t('平均')}</th>
+                  <th className="tnum">P95</th>
+                  <th className="tnum">{t('tokens')}</th>
+                </tr>
+              </thead>
+              <tbody>
+                {typeStats.map((s) => (
+                  <tr key={s.nodeType}>
+                    <td>{s.nodeType}</td>
+                    <td className="tnum">{s.executions}</td>
+                    <td className={`tnum${s.failures > 0 ? ' danger' : ''}`}>
+                      {s.executions > 0 ? `${Math.round((s.failures / s.executions) * 100)}%` : '—'}
+                    </td>
+                    <td className="tnum">{s.avgMs != null ? formatDuration(s.avgMs) : '—'}</td>
+                    <td className="tnum">{s.p95Ms != null ? formatDuration(s.p95Ms) : '—'}</td>
+                    <td className="tnum">{s.tokens > 0 ? s.tokens.toLocaleString() : '—'}</td>
+                  </tr>
+                ))}
+              </tbody>
+            </table>
+          ) : null}
+        </div>
+      ) : null}
       {runs.length === 0 ? (
         <div className="flow-runs-empty">{t('暂无运行记录 — 点「运行」或到画布中触发')}</div>
       ) : (
@@ -107,10 +201,11 @@ export function FlowRunsPanel({ flowId, refreshTick = 0, onRerun }: FlowRunsPane
           const active = r.status === 'running' || r.status === 'pending'
           const timeStr = r.startedAt ?? r.createdAt
           const preview = previewText(r.inputPreview)
+          const isResume = !!r.resumedFromRunId
           return (
             <div
               key={r.runId}
-              className={`flow-runs-item${r.status === 'failed' ? ' failed' : ''}`}
+              className={`flow-runs-item${r.status === 'failed' ? ' failed' : ''}${isResume ? ' resumed' : ''}`}
               role="listitem"
             >
               {/* PX-F08 列契约：状态点+词（88px）→ 触发源 chip → 相对时间 →
@@ -128,6 +223,14 @@ export function FlowRunsPanel({ flowId, refreshTick = 0, onRerun }: FlowRunsPane
                 <span className="chip chip-outline flow-runs-source">
                   {r.source === 'chat' ? t('聊天') : t('画布')}
                 </span>
+                {isResume ? (
+                  <span
+                    className="chip chip-outline flow-runs-lineage"
+                    title={t('从断点续跑：{id}', { id: r.resumedFromRunId!.slice(0, 8) })}
+                  >
+                    ↩ {t('续跑')}
+                  </span>
+                ) : null}
                 <span className="flow-runs-time" title={timeTitle(timeStr)}>
                   {timeAgo(timeStr, t)}
                 </span>
@@ -135,11 +238,7 @@ export function FlowRunsPanel({ flowId, refreshTick = 0, onRerun }: FlowRunsPane
                   {preview ? preview.slice(0, 40) : '—'}
                 </span>
                 <span className="flow-runs-duration tnum">
-                  {r.durationMs != null
-                    ? formatDuration(r.durationMs)
-                    : active
-                      ? t('进行中')
-                      : '—'}
+                  {r.durationMs != null ? formatDuration(r.durationMs) : active ? t('进行中') : '—'}
                 </span>
                 <span className="flow-runs-actions">
                   {onRerun ? (
@@ -184,4 +283,3 @@ export function FlowRunsPanel({ flowId, refreshTick = 0, onRerun }: FlowRunsPane
     </div>
   )
 }
-

@@ -1,0 +1,86 @@
+/* 画布「历史版本」面板（2026-10-04 版本化回滚）——被 flow-versions-dialog.tsx 显式 import */
+
+.flow-versions-panel {
+  position: absolute;
+  top: 52px;
+  right: 16px;
+  z-index: 30;
+  width: 320px;
+  max-height: 60vh;
+  overflow-y: auto;
+  background: var(--bg-elevated, #1c1c1f);
+  border: 1px solid var(--border-subtle, rgba(255, 255, 255, 0.08));
+  border-radius: 10px;
+  padding: 10px 12px;
+  box-shadow: 0 8px 28px rgba(0, 0, 0, 0.35);
+}
+
+.flow-versions-head {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  margin-bottom: 6px;
+}
+
+.flow-versions-title {
+  font-size: var(--text-sm, 13px);
+  font-weight: 600;
+}
+
+.flow-versions-close {
+  background: none;
+  border: none;
+  color: var(--text-secondary);
+  font-size: 16px;
+  cursor: pointer;
+  padding: 0 4px;
+}
+.flow-versions-close:hover {
+  color: var(--text-primary);
+}
+
+.flow-versions-notice {
+  font-size: var(--text-xs, 12px);
+  color: var(--success, #30a46c);
+  margin-bottom: 6px;
+}
+
+.flow-versions-empty {
+  font-size: var(--text-xs, 12px);
+  color: var(--text-tertiary);
+  padding: 8px 0;
+}
+
+.flow-versions-list {
+  list-style: none;
+  margin: 0;
+  padding: 0;
+}
+
+.flow-versions-item {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 8px;
+  padding: 6px 0;
+  border-bottom: 1px solid var(--border-subtle, rgba(255, 255, 255, 0.06));
+}
+.flow-versions-item:last-child {
+  border-bottom: none;
+}
+
+.flow-versions-meta {
+  display: flex;
+  flex-direction: column;
+  gap: 1px;
+  min-width: 0;
+}
+
+.flow-versions-time {
+  font-size: var(--text-xs, 12px);
+}
+
+.flow-versions-nodes {
+  font-size: var(--text-2xs, 11px);
+  color: var(--text-tertiary);
+}

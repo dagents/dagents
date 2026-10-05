@@ -14,6 +14,15 @@ import { AgentStatus, type AgentEvent, type AgentSession, type AgentType } from 
 import type { IStreamDelta } from '@dagents/workflow'
 import { decryptSecret } from '../crypto.js'
 import { composeSystemPrompt } from '../skill-injection.js'
+import { fetchWithRetry, isRetryableStatus } from '../lib/fetch-retry.js'
+import {
+  countLlmFallback,
+  isLlmCircuitOpen,
+  recordLlmFailure,
+  recordLlmSuccess,
+} from '../lib/llm-breaker.js'
+import { acquireCliSlot } from '../lib/cli-spawn-gate.js'
+import { declareCounter } from '../lib/metrics.js'
 import {
   type IExecutionContext,
   type PlatformAgentConfig,
@@ -27,6 +36,12 @@ import {
 } from '@dagents/workflow'
 
 const log = createLogger({ svc: 'gateway:workflow-clients' })
+
+const llmHttpTotal = declareCounter(
+  'dagents_llm_http_requests_total',
+  'HTTP LLM calls by outcome (ok / transient_error / config_error / fallback)',
+  ['result'],
+)
 
 // ────────────────────────────────────────────────────────────────────────────
 // 运行中节点会话汇点（2026-09-08 可操作终端 PRD，docs/prd-operable-terminal.md）
@@ -228,7 +243,12 @@ function forwardActivityDelta(
     }
     case 'tool-result':
       if (evt.output) {
-        onDelta({ type: 'activity', kind: 'tool_result', label: evt.tool || 'tool', detail: evt.output })
+        onDelta({
+          type: 'activity',
+          kind: 'tool_result',
+          label: evt.tool || 'tool',
+          detail: evt.output,
+        })
       }
       break
     case 'status':
@@ -260,28 +280,42 @@ const CLI_TEXT_MODE_ARGS = [
 ]
 
 export function createCliLlmClient(kind: AgentType = 'claude', cliCwd?: string, runId?: string) {
-  /** 共享：为本次执行创建 backend session（chat 与 chatStream 同款启动）。 */
-  const startSession = (params: CliChatParams) => {
+  /** 共享：为本次执行创建 backend session（chat 与 chatStream 同款启动）。
+   *  CLI spawn 闸（稳定性专项）：子进程总量护栏——并发 run × 分支并行时
+   *  按 FIFO 排队而非打爆本机；槽位随 session.result settle 释放。 */
+  const startSession = async (params: CliChatParams) => {
     const { systemPrompt, prompt } = buildCliMessages(params.messages)
     const agentToolsDeclared = Array.isArray(params.tools) && params.tools.length > 0
     // 文本档仅对 claude 生效（--disallowedTools 是 claude CLI 旗标；其他
     // 适配器无对应机制，保持原行为 —— 与 D4「非 claude 标注未真机」一致）
     const textModeArgs = kind === 'claude' && !agentToolsDeclared ? CLI_TEXT_MODE_ARGS : undefined
-    const backend = createBackend(kind, { executablePath: '', logger: log })
-    return backend.execute(prompt, {
-      systemPrompt,
-      inactivityTimeoutMs: CLI_INACTIVITY_TIMEOUT_MS,
-      signal: params.signal,
-      // 工作目录 = 项目目录：Agent/LLM 节点的 CLI 在选定项目里干活
-      //（读写文件、跑命令都基于它）。缺省回落 gateway 进程 cwd。
-      cwd: cliCwd,
-      // 文本档：无工具声明的调用禁用全部内建工具（见 CLI_TEXT_MODE_ARGS）
-      ...(textModeArgs ? { extraArgs: textModeArgs } : {}),
-    })
+    const release = await acquireCliSlot(`${kind}-node`)
+    try {
+      const backend = createBackend(kind, { executablePath: '', logger: log })
+      const session = backend.execute(prompt, {
+        systemPrompt,
+        inactivityTimeoutMs: CLI_INACTIVITY_TIMEOUT_MS,
+        signal: params.signal,
+        // 工作目录 = 项目目录：Agent/LLM 节点的 CLI 在选定项目里干活
+        //（读写文件、跑命令都基于它）。缺省回落 gateway 进程 cwd。
+        cwd: cliCwd,
+        // 文本档：无工具声明的调用禁用全部内建工具（见 CLI_TEXT_MODE_ARGS）
+        ...(textModeArgs ? { extraArgs: textModeArgs } : {}),
+      })
+      void session.result
+        .finally(() => release())
+        .catch(() => {
+          /* result 契约上不 reject；兜底吞掉避免迟到异常变 unhandled */
+        })
+      return session
+    } catch (err) {
+      release()
+      throw err
+    }
   }
   return {
     async chat(params: CliChatParams): Promise<{ text: string; usage?: ITokenUsage }> {
-      const session = startSession(params)
+      const session = await startSession(params)
       // 插话汇点登记（2026-09-08）：节点上报 nodeId + 客户端持有 runId 才
       // 登记 —— chat 与 chatStream 同款。收尾注销（PlatformAgent 工具循环
       // 换新会话时 unregister 的 same-sink 守卫不误删后继）。
@@ -327,7 +361,8 @@ export function createCliLlmClient(kind: AgentType = 'claude', cliCwd?: string, 
             let usageIn = 0
             let usageOut = 0
             for (const m of models) {
-              const u = result.usage![m] as { inputTokens?: number; outputTokens?: number } | undefined
+              const u = result.usage![m] as
+                { inputTokens?: number; outputTokens?: number } | undefined
               usageIn += u?.inputTokens ?? 0
               usageOut += u?.outputTokens ?? 0
             }
@@ -350,14 +385,21 @@ export function createCliLlmClient(kind: AgentType = 'claude', cliCwd?: string, 
           let input = 0
           let output = 0
           for (const m of models) {
-            const u = result.usage![m] as { inputTokens?: number; outputTokens?: number } | undefined
+            const u = result.usage![m] as
+              { inputTokens?: number; outputTokens?: number } | undefined
             input += u?.inputTokens ?? 0
             output += u?.outputTokens ?? 0
           }
           // 双命名（ITokenUsage 是 prompt_tokens 命名 + 开放索引；结果面板
           // 的 tokensBadge 读 inputTokens/outputTokens）。此前 completion_tokens
           // 误写成 input（笔误），输出侧用量被夸大。
-          usage = { prompt_tokens: input, completion_tokens: output, total_tokens: input + output, inputTokens: input, outputTokens: output }
+          usage = {
+            prompt_tokens: input,
+            completion_tokens: output,
+            total_tokens: input + output,
+            inputTokens: input,
+            outputTokens: output,
+          }
         }
         return { text: text || result.output || '', usage }
       } finally {
@@ -370,7 +412,7 @@ export function createCliLlmClient(kind: AgentType = 'claude', cliCwd?: string, 
      * 同款（result 兜底校验）。
      */
     async *chatStream(params: CliChatParams): AsyncGenerator<IChatStreamChunk> {
-      const session = startSession(params)
+      const session = await startSession(params)
       const sink =
         runId && params.nodeId
           ? registerRunNodeSink(runId, params.nodeId, session, params.onDelta)
@@ -404,11 +446,18 @@ export function createCliLlmClient(kind: AgentType = 'claude', cliCwd?: string, 
           let input = 0
           let output = 0
           for (const m of models) {
-            const u = result.usage![m] as { inputTokens?: number; outputTokens?: number } | undefined
+            const u = result.usage![m] as
+              { inputTokens?: number; outputTokens?: number } | undefined
             input += u?.inputTokens ?? 0
             output += u?.outputTokens ?? 0
           }
-          usage = { prompt_tokens: input, completion_tokens: output, total_tokens: input + output, inputTokens: input, outputTokens: output }
+          usage = {
+            prompt_tokens: input,
+            completion_tokens: output,
+            total_tokens: input + output,
+            inputTokens: input,
+            outputTokens: output,
+          }
         }
         if (usage) yield { usage }
       } finally {
@@ -427,6 +476,12 @@ export function createCliLlmClient(kind: AgentType = 'claude', cliCwd?: string, 
  * `chatStream` streams real deltas both ways: provider path parses SSE
  * frames; CLI path consumes AgentSession.events (2026-08-30 —— 此前 CLI
  * 退化为 result 后一次性吐全文，画布/详情旁观看不到生成过程).
+ *
+ * 熔断降级（稳定性专项 2026-10-04）：HTTP provider 持续瞬时故障（网络/
+ * 超时/429/5xx，重试耗尽）时按 lib/llm-breaker 计数——熔断开启期间与单次
+ * 瞬时失败都直接降级本地 CLI（HTTP 是加速器，加速器坏了回基线，不是回
+ * 失败）。配置错误（401/404 等 4xx）保持诚实抛出——静默换 CLI 只会掩盖
+ * 需要人修的坏配置。降级在过程流里留一条可见活动（终端/轨迹可审计）。
  */
 export function createDefaultLlmClient(
   kind: AgentType = 'claude',
@@ -434,19 +489,128 @@ export function createDefaultLlmClient(
 ) {
   const http = createLlmClient()
   const cli = createCliLlmClient(kind, opts.cwd, opts.runId)
+
+  // e2e 确定性总闸（2026-10-04）：mock provider 用 error 规则钉「节点失败」
+  // 断言时，CLI 降级会把确定性失败变成真 claude 慢成功（15s+ 且烧 token）。
+  // DAGENTS_DISABLE_LLM_FALLBACK=1 关闭熔断降级与瞬时降级（HTTP 故障诚实
+  // 抛出）——e2e/CI 环境专用（见 tests/e2e/README），生产默认不设。
+  const fallbackDisabled = process.env.DAGENTS_DISABLE_LLM_FALLBACK === '1'
+
+  /** 瞬时故障 → 记熔断 + 降级 CLI；配置错误 → 原样抛。附状态码/无状态码
+   *  （网络错误）判定瞬时；降级前在过程流留痕。调用前 providerKey 已被
+   *  chat 主路径按当次 provider 设置。 */
+  const fallbackOrRethrow = (
+    err: unknown,
+    params: CliChatParams,
+  ): Promise<{ text: string; tool_calls?: IToolCall[]; usage?: ITokenUsage }> => {
+    const status = (err as { status?: number } | null)?.status
+    const transient = status == null || isRetryableStatus(status)
+    if (!transient || fallbackDisabled) {
+      llmHttpTotal.inc(1, { result: transient ? 'transient_error' : 'config_error' })
+      if (transient) recordLlmFailure(providerKey())
+      throw err
+    }
+    recordLlmFailure(providerKey())
+    llmHttpTotal.inc(1, { result: 'transient_error' })
+    log.warn('llm http call failed transiently — falling back to CLI', {
+      providerId: providerKey(),
+      status: status ?? null,
+      error: err instanceof Error ? err.message : String(err),
+    })
+    params.onDelta?.({
+      type: 'activity',
+      kind: 'status',
+      label: '── LLM Provider 瞬时故障，本次调用降级本地 CLI ──',
+    })
+    return cli.chat(params)
+  }
+
+  let providerKey = (): string => 'default'
+
   return {
-    async chat(params: CliChatParams): Promise<{ text: string; tool_calls?: IToolCall[]; usage?: ITokenUsage }> {
+    async chat(
+      params: CliChatParams,
+    ): Promise<{ text: string; tool_calls?: IToolCall[]; usage?: ITokenUsage }> {
       const provider = await getActiveProvider()
-      if (provider) return http.chat(params)
-      return cli.chat(params)
+      if (!provider) return cli.chat(params)
+      providerKey = () => provider.id
+      if (!fallbackDisabled && isLlmCircuitOpen(provider.id)) {
+        countLlmFallback(provider.id)
+        llmHttpTotal.inc(1, { result: 'fallback' })
+        log.warn('llm breaker open — serving this chat from CLI', { providerId: provider.id })
+        params.onDelta?.({
+          type: 'activity',
+          kind: 'status',
+          label: '── LLM Provider 熔断中，本节点走本地 CLI ──',
+        })
+        return cli.chat(params)
+      }
+      try {
+        const out = await http.chat(params)
+        recordLlmSuccess(provider.id)
+        llmHttpTotal.inc(1, { result: 'ok' })
+        return out
+      } catch (err) {
+        return fallbackOrRethrow(err, params)
+      }
     },
     async *chatStream(params: CliChatParams): AsyncGenerator<IChatStreamChunk> {
       const provider = await getActiveProvider()
-      if (provider) {
-        yield* http.chatStream(params)
+      if (!provider) {
+        yield* cli.chatStream(params)
         return
       }
-      yield* cli.chatStream(params)
+      providerKey = () => provider.id
+      if (!fallbackDisabled && isLlmCircuitOpen(provider.id)) {
+        countLlmFallback(provider.id)
+        llmHttpTotal.inc(1, { result: 'fallback' })
+        log.warn('llm breaker open — serving this stream from CLI', { providerId: provider.id })
+        params.onDelta?.({
+          type: 'activity',
+          kind: 'status',
+          label: '── LLM Provider 熔断中，本节点走本地 CLI ──',
+        })
+        yield* cli.chatStream(params)
+        return
+      }
+      // 已 yield 过增量后失败不可降级（CLI 重跑会重复输出）——诚实抛错；
+      // 首 chunk 前的失败与 chat 同款降级 CLI。
+      let yielded = false
+      try {
+        for await (const chunk of http.chatStream(params)) {
+          yielded = true
+          yield chunk
+        }
+        recordLlmSuccess(provider.id)
+        llmHttpTotal.inc(1, { result: 'ok' })
+      } catch (err) {
+        const status = (err as { status?: number } | null)?.status
+        const transient = status == null || isRetryableStatus(status)
+        if (!transient) {
+          llmHttpTotal.inc(1, { result: 'config_error' })
+          throw err
+        }
+        recordLlmFailure(provider.id)
+        llmHttpTotal.inc(1, { result: 'transient_error' })
+        if (yielded) {
+          log.warn('llm http stream failed mid-flight (partial output) — honest rethrow', {
+            providerId: provider.id,
+            status: status ?? null,
+          })
+          throw err
+        }
+        if (fallbackDisabled) throw err
+        log.warn('llm http stream failed before first chunk — falling back to CLI', {
+          providerId: provider.id,
+          status: status ?? null,
+        })
+        params.onDelta?.({
+          type: 'activity',
+          kind: 'status',
+          label: '── LLM Provider 瞬时故障，本次生成降级本地 CLI ──',
+        })
+        yield* cli.chatStream(params)
+      }
     },
   }
 }
@@ -485,7 +649,9 @@ function decodeApiKey(encoded: string): string {
  * `http.chatStream(params)` 报「possibly undefined」）。
  */
 interface HttpLlmClient {
-  chat(params: Parameters<NonNullable<IExecutionContext['llmClient']>['chat']>[0]): ReturnType<NonNullable<IExecutionContext['llmClient']>['chat']>
+  chat(
+    params: Parameters<NonNullable<IExecutionContext['llmClient']>['chat']>[0],
+  ): ReturnType<NonNullable<IExecutionContext['llmClient']>['chat']>
   chatStream(params: {
     model: string
     messages: IChatMessage[]
@@ -500,18 +666,32 @@ export function createLlmClient(
   return {
     async chat(params) {
       const { url, headers, body } = await prepareRequest(params, false, override)
-      const res = await fetch(url, {
-        method: 'POST',
-        headers,
-        body,
-        signal: params.signal
-          ? AbortSignal.any([AbortSignal.timeout(LLM_HTTP_TIMEOUT_MS), params.signal])
-          : AbortSignal.timeout(LLM_HTTP_TIMEOUT_MS),
-      })
+      // 瞬时故障重试（稳定性专项 2026-10-04）：429/5xx/网络抖动带退避重试
+      //（LLM_HTTP_RETRY_ATTEMPTS 可调，默认 3 次；Retry-After 被尊重），
+      // 配置错误 4xx 与外部取消直通。耗尽后仍 5xx 的 Response 原样返回，
+      // 由下方非 ok 分支统一抛错。
+      const res = await fetchWithRetry(
+        url,
+        {
+          method: 'POST',
+          headers,
+          body,
+        },
+        {
+          timeoutMs: LLM_HTTP_TIMEOUT_MS,
+          signal: params.signal,
+          onRetry: ({ attempt, delayMs, reason }) =>
+            log.warn('llm http chat retrying', { attempt, delayMs, reason, url }),
+        },
+      )
 
       if (!res.ok) {
         const errText = await res.text().catch(() => '')
-        throw new Error(`LLM API error ${res.status}: ${errText.slice(0, 500)}`)
+        const err = new Error(`LLM API error ${res.status}: ${errText.slice(0, 500)}`)
+        // 状态挂在错误上：调用侧（createDefaultLlmClient 的熔断决策）据此
+        // 区分「瞬时故障可降级」与「配置错误须诚实抛」。
+        ;(err as Error & { status?: number }).status = res.status
+        throw err
       }
 
       const json = (await res.json()) as {
@@ -537,9 +717,10 @@ export function createLlmClient(
       // Normalise tool calls: present only when the model actually requested
       // one, so callers can treat a missing `tool_calls` as "final answer".
       const rawToolCalls = message?.tool_calls
-      const tool_calls: IToolCall[] | undefined = Array.isArray(rawToolCalls) && rawToolCalls.length > 0
-        ? rawToolCalls.map((tc) => ({ id: tc.id, function: tc.function }))
-        : undefined
+      const tool_calls: IToolCall[] | undefined =
+        Array.isArray(rawToolCalls) && rawToolCalls.length > 0
+          ? rawToolCalls.map((tc) => ({ id: tc.id, function: tc.function }))
+          : undefined
       const usage: ITokenUsage | undefined = json.usage
         ? {
             prompt_tokens: json.usage.prompt_tokens,
@@ -568,21 +749,36 @@ export function createLlmClient(
       armIdle() // covers time-to-headers — a hung upstream never sends headers
       let res: Response
       try {
-        res = await fetch(url, {
-          method: 'POST',
-          headers,
-          body,
-          signal: params.signal
-            ? AbortSignal.any([controller.signal, params.signal])
-            : controller.signal,
-        })
+        // 取 headers 阶段带重试（稳定性专项）：网络抖动 / 5xx / 429 在第一
+        // 字节产出之前都可安全重试；idle 看门狗 controller.signal 作为外部
+        // signal 传入——abort 即真断流，不重试。headers 之后的流式阶段绝不
+        // 重试（已 yield 的增量无法撤回）。
+        res = await fetchWithRetry(
+          url,
+          {
+            method: 'POST',
+            headers,
+            body,
+          },
+          {
+            signal: params.signal
+              ? AbortSignal.any([controller.signal, params.signal])
+              : controller.signal,
+            onRetry: ({ attempt, delayMs, reason }) => {
+              log.warn('llm http stream retrying (pre-headers)', { attempt, delayMs, reason, url })
+              armIdle() // 重试期间保持防挂死武装
+            },
+          },
+        )
       } finally {
         if (idleTimer) clearTimeout(idleTimer)
       }
 
       if (!res.ok) {
         const errText = await res.text().catch(() => '')
-        throw new Error(`LLM API error ${res.status}: ${errText.slice(0, 500)}`)
+        const err = new Error(`LLM API error ${res.status}: ${errText.slice(0, 500)}`)
+        ;(err as Error & { status?: number }).status = res.status
+        throw err
       }
       if (!res.body) {
         throw new Error('LLM API returned no stream body')
@@ -614,7 +810,11 @@ export function createLlmClient(
             try {
               const frame = JSON.parse(payload) as {
                 choices?: Array<{ delta?: { content?: string | null } }>
-                usage?: { prompt_tokens?: number; completion_tokens?: number; total_tokens?: number }
+                usage?: {
+                  prompt_tokens?: number
+                  completion_tokens?: number
+                  total_tokens?: number
+                }
               }
               const delta = frame.choices?.[0]?.delta?.content
               if (typeof delta === 'string' && delta.length > 0) {
@@ -668,9 +868,7 @@ async function prepareRequest(
     provider = await getActiveProvider()
   }
   if (!provider) {
-    throw new Error(
-      'No active LLM provider configured. Add one in the LLM Providers settings.',
-    )
+    throw new Error('No active LLM provider configured. Add one in the LLM Providers settings.')
   }
 
   const model = override.model || params.model || provider.default_model
@@ -807,7 +1005,14 @@ export function createBuiltInToolRegistry(): Record<string, IAgentTool> {
           // 「公网 URL 校验通过 → 302 跳内网」变成免检通道。
           redirect: 'manual',
         })
-        const text = (await res.text()).slice(0, HTTP_TOOL_MAX_RESPONSE)
+        // 保尾截断（2026-10-04 P1a）：与 http 节点同款——判决常在末尾。
+        const raw = await res.text()
+        const text =
+          raw.length > HTTP_TOOL_MAX_RESPONSE
+            ? raw.slice(0, Math.floor(HTTP_TOOL_MAX_RESPONSE * 0.6)) +
+              `\n[响应截断：全文 ${raw.length} 字符，上限 ${HTTP_TOOL_MAX_RESPONSE}——中间省略]\n` +
+              raw.slice(raw.length - Math.floor(HTTP_TOOL_MAX_RESPONSE * 0.4))
+            : raw
         const location = res.headers.get('location')
         return JSON.stringify({
           status: res.status,

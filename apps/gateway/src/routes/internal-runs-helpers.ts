@@ -2,6 +2,7 @@ import { randomUUID } from 'node:crypto'
 import { runQuery, withTransaction } from '@dagents/db'
 import { createLogger } from '@dagents/shared'
 import { wsHub } from '../ws-hub.js'
+import { maybeUpdateChatSummary } from '../lib/chat-context-summary.js'
 import { recordUsageEvent } from '../usage-events.js'
 import { exportRunTraceToLangfuse } from '@dagents/shared/langfuse'
 import type { TokenUsage } from '@dagents/contracts'
@@ -62,10 +63,9 @@ export async function persistComplete(params: CompleteParams): Promise<string> {
        VALUES ($1::uuid, $2::uuid, 'assistant', $3, $4::uuid, $5, NOW())`,
       [messageId, params.chatId, params.output, params.runId, JSON.stringify(metadata)],
     )
-    await tx(
-      `UPDATE chats SET status = 'idle', updated_at = NOW() WHERE id = $1::uuid`,
-      [params.chatId],
-    )
+    await tx(`UPDATE chats SET status = 'idle', updated_at = NOW() WHERE id = $1::uuid`, [
+      params.chatId,
+    ])
   })
 
   wsHub.broadcastChat(params.chatId, {
@@ -82,6 +82,10 @@ export async function persistComplete(params: CompleteParams): Promise<string> {
   })
 
   log.info('persistComplete ok', { runId: params.runId, chatId: params.chatId, messageId })
+
+  // 滚动会话摘要（2026-10-04 P1b 两级历史）：助手消息落库后 fire-and-forget
+  // 折叠检查——阈值未到 / 无 provider / 并发锁住时静默跳过，任何失败不外抛。
+  void maybeUpdateChatSummary(params.chatId)
 
   // AD-3（方案 D a 路径）：chat 终态带 usage 时追加一条 usage_events
   // （source='chat'）。recordUsageEvent 内部自行跳过全空 usage、吞掉 DB
@@ -163,10 +167,9 @@ export async function persistCancelled(params: {
      VALUES ($1::uuid, $2::uuid, 'assistant', $3, $4::uuid, $5, NOW())`,
     [messageId, params.chatId, content, params.runId, JSON.stringify(metadata)],
   )
-  await runQuery(
-    `UPDATE chats SET status = 'idle', updated_at = NOW() WHERE id = $1::uuid`,
-    [params.chatId],
-  )
+  await runQuery(`UPDATE chats SET status = 'idle', updated_at = NOW() WHERE id = $1::uuid`, [
+    params.chatId,
+  ])
 
   wsHub.broadcastChat(params.chatId, {
     type: 'chat:cancelled',

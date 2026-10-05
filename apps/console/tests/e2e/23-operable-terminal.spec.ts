@@ -87,17 +87,18 @@ test.describe('可操作终端', () => {
     await page.waitForURL(/\/workflows\/[^\s]+\/canvas\?run=/, { timeout: 20_000 })
   })
 
-  test('OT-02a: 终端 stdin 行结束态 —— 原位「重跑」入口打开输入面板', async ({ page }) => {
+  test('OT-02a: 终端结束态无底栏 —— 重跑唯一入口在标题行（2026-09-20 裁决）', async ({ page }) => {
     test.setTimeout(60_000)
     await page.goto(`/workflows/${flowId}/canvas?run=${doneRunId}`)
     const termTab = page.getByRole('tab', { name: '终端' })
     await expect(termTab).toBeVisible({ timeout: 20_000 })
     await termTab.click()
 
-    // 运行结束：stdin 行翻到结束态（就近原则 —— ⬆ 在原地）
-    const bar = page.locator('.rti-done')
-    await expect(bar).toBeVisible()
-    await bar.getByRole('button', { name: '重跑' }).click()
+    // 结束态不渲染任何 stdin 底栏（原 .rti-done「❯ 运行已结束 ↻重跑」
+    // 2026-09-20 移除 —— 与标题行重跑/完成 toast 三重表达重复）；
+    // 重跑唯一入口 = 标题行「重跑」（打开预填输入面板）。
+    await expect(page.locator('.rti-bar')).toHaveCount(0)
+    await page.locator('.canvas-results-title').getByRole('button', { name: '重跑' }).click()
 
     // 画布运行输入面板打开（输入记忆为空时预填空串 —— 画布直跑首跑）
     await expect(page.locator('.canvas-run-panel')).toBeVisible()

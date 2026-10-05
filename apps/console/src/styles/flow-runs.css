@@ -189,3 +189,56 @@
     display: none;
   }
 }
+
+/* ── 节点画像（2026-10-04 用量分析）：类型/失败率/耗时/tokens 聚合表 ── */
+.flow-runs-insights {
+  margin-bottom: 8px;
+}
+.flow-runs-insights-toggle {
+  background: none;
+  border: none;
+  padding: 2px 0;
+  font-size: var(--text-xs, 12px);
+  color: var(--text-secondary);
+  cursor: pointer;
+  text-align: left;
+}
+.flow-runs-insights-toggle:hover {
+  color: var(--text-primary);
+}
+.flow-runs-insights-summary {
+  color: var(--text-tertiary);
+}
+.flow-runs-insights-table {
+  width: 100%;
+  border-collapse: collapse;
+  font-size: var(--text-xs, 12px);
+  margin-top: 4px;
+}
+.flow-runs-insights-table th,
+.flow-runs-insights-table td {
+  padding: 3px 8px 3px 0;
+  text-align: left;
+  border-bottom: 1px solid var(--border-subtle, rgba(255, 255, 255, 0.06));
+}
+.flow-runs-insights-table th.nnum,
+.flow-runs-insights-table td.nnum,
+.flow-runs-insights-table th.tnum,
+.flow-runs-insights-table td.tnum {
+  text-align: right;
+  font-variant-numeric: tabular-nums;
+}
+.flow-runs-insights-table td.danger {
+  color: var(--danger, #e5484d);
+}
+
+/* ── 谱系（2026-10-04）：续跑行缩进 + 链 chip ── */
+.flow-runs-item.resumed .flow-runs-row {
+  margin-left: 14px;
+  border-left: 2px solid var(--border-subtle, rgba(255, 255, 255, 0.12));
+  padding-left: 6px;
+}
+.flow-runs-lineage {
+  font-size: var(--text-2xs, 11px);
+  opacity: 0.85;
+}

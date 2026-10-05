@@ -308,3 +308,18 @@ DELETE FROM flows WHERE flow_data::text ~ '"(loopAgentflow|executeFlowAgentflow|
 9. spec 腐化三处对齐现行 UI：UC-FLW-01 的「我的」tab（产品裁决已删）、spec-16 人格卡（PX-A03 起整卡可点，确认步按钮在 .modal-foot）、创业 MVP 模板成员 5→7（2026-08-31 扩容）。
 
 **测试结果**：workflow 175 / gateway 330 / console 323 单测全绿；全套 Playwright e2e 两轮：修复后 205 用例中 203 过，余 2 例为负载相关的既有 flaky（UC-NAV-06 复跑即过；UC-FLW-02 的画布冷编译跳转超时已由 15s 放宽到 30s）；真实浏览器复验便签新建/编辑/持久化、分支边标签（True/False）、双击检查器、保存后规范形重跑且分支路由正确（go→True / stop→False）。
+
+## 后续演进：结果面板「轨迹」视图（2026-10-01）
+
+结果面板在 摘要/终端 之外新增第三视图**轨迹**（`canvas/canvas-trace-view.tsx`，参考 deepseek-harness
+Trajectory 子系统的交互语法，按工作流语义适配为节点泳道甘特）：
+
+- **数据**：`lib/run-trace-model.ts` 纯函数层——直播帧（run-live SSE，帧带服务端 `at`）与 DB spans 快照
+  两路收敛为同一 `RunTraceModel`；终端视图的 `TerminalSection` 与轨迹模型是**平行投影**（互不转换，
+  `use-run-live` 一次解析喂双 builder）。
+- **时间线**：一行一节点、横条=执行区间（迭代重跑多段并列）、条内工具/错误事件刻度；sequence/duration/
+  actual 三投影；拖拽框选过滤台账、滚轮缩放、右键平移/复位；运行段随秒级 tick 延伸（不造时长）。
+- **台账 + Inspector**：节点分区状态驱动自动展开（running/failed 开、干净态收、手动优先）；右侧
+  Inspector 覆盖层（窄面板下列表保全宽），节点检视概览/输入/输出/用量、事件检视全文 detail。
+- **布局**：轨迹 tab 激活时面板加宽 `.canvas-results-panel.wide`（480→760px，甘特需要横向空间）。
+- 测试：`run-trace-model.test.ts` 19 例（三投影数值/迭代多段/降级/两路一致性）；e2e spec 24。

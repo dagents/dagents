@@ -259,4 +259,12 @@ export const common = {
   '收尾中': 'Finalizing',
   '正在执行': 'Executing',
   '产出': 'Output',
+
+  // ── 2026-10-04 稳定性专项：错误边界文案 ──
+  '此区域渲染出错': 'This section failed to render',
+  '画布渲染出错': 'Canvas rendering error',
+  '页面出了点问题': 'Something went wrong',
+  '渲染这个页面时发生错误。其余界面不受影响，可重试或返回首页。':
+    'An error occurred while rendering this page. The rest of the app is unaffected — retry or go back home.',
+  '回到首页': 'Back to home',
 } as const

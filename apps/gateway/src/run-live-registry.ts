@@ -21,6 +21,10 @@
 import type { RunLiveDelta, RunLiveFrame, RunLiveHello } from '@dagents/contracts'
 import type { IExecutedNode, IStreamDelta } from '@dagents/workflow'
 import { executionRegistry } from './execution-registry.js'
+import { createLogger } from '@dagents/shared'
+import { declareCounter, declareGauge } from './lib/metrics.js'
+
+const log = createLogger({ svc: 'gateway:run-live' })
 
 interface RunLiveEntry {
   runId: string
@@ -33,6 +37,8 @@ interface RunLiveEntry {
   approxBytes: number
   /** 头部累计丢弃帧数（truncated 标记的载荷）。 */
   droppedCount: number
+  /** 该 run 是否已因截断打过 warn（每 run 一次，避免刷屏）。 */
+  truncationLogged: boolean
   ended: boolean
   finalStatus?: string
   subscribers: Set<(frame: RunLiveFrame) => void>
@@ -48,6 +54,22 @@ export interface RunLiveTap {
 }
 
 const entries = new Map<string, RunLiveEntry>()
+
+// 水位指标（稳定性专项 2026-10-04）：缓冲截断与条目驱逐从「静默发生的
+// 降级」变成可观测事件——截断意味着晚订阅者丢前缀（回放降级），驱逐
+// 意味着旁观者会 404 回退轮询。两者都不是错误，但持续高位 = 需要调大
+// DAGENTS_RUNLIVE_BUFFER_BYTES / MAX_RUNS 的信号。
+declareGauge('dagents_runlive_entries', 'run-live registry entries (active + retained)', {
+  collect: () => entries.size,
+})
+const truncatedTotal = declareCounter(
+  'dagents_runlive_truncated_total',
+  'Runs whose live replay buffer was head-truncated (late subscribers lose the prefix)',
+)
+const evictedTotal = declareCounter(
+  'dagents_runlive_evicted_total',
+  'Registry entries evicted to make room under the entry cap',
+)
 
 const numEnv = (name: string, fallback: number): number => {
   const raw = Number(process.env[name])
@@ -80,6 +102,7 @@ function helloOf(entry: RunLiveEntry): RunLiveHello {
 function trimToCap(entry: RunLiveEntry): void {
   const cap = bufferCapBytes()
   if (entry.approxBytes <= cap) return
+  const droppedBefore = entry.droppedCount
   // 连同旧 truncated 标记一起丢，再压一枚携带累计数的新标记到头部。
   while (entry.approxBytes > cap * 0.75 && entry.frames.length > 0) {
     const head = entry.frames.shift()
@@ -94,9 +117,26 @@ function trimToCap(entry: RunLiveEntry): void {
     if (existing?.type === 'truncated') entry.frames.shift()
     entry.frames.unshift(marker)
   }
+  // 水位事件（稳定性专项）：每 run 只 warn 一次，指标持续累计。
+  if (entry.droppedCount > droppedBefore) {
+    truncatedTotal.inc()
+    if (!entry.truncationLogged) {
+      entry.truncationLogged = true
+      log.warn('run-live replay buffer truncated (raise DAGENTS_RUNLIVE_BUFFER_BYTES if frequent)', {
+        runId: entry.runId,
+        droppedTotal: entry.droppedCount,
+        capBytes: cap,
+      })
+    }
+  }
 }
 
 function emit(entry: RunLiveEntry, frame: RunLiveFrame): void {
+  // 服务端时间戳（2026-10-01 轨迹时间线）：单点收口打点——真实事件一律
+  // 带入缓冲时刻，客户端把直播与回放事件摆上同一面墙钟；truncated 是
+  // 回放标记不是事件，不打。就地补字段：帧在各 tap 调用点现造现传，
+  // 无共享引用。
+  if (frame.type !== 'truncated') frame.at = new Date().toISOString()
   // 重开语义：runEnd 之外的任何帧都会唤醒已结束的条目（断点续跑同 runId）。
   if (entry.ended && frame.type !== 'runEnd' && frame.type !== 'truncated') {
     entry.ended = false
@@ -141,7 +181,14 @@ function evictForSlot(): void {
     return found
   }
   const victim = pickOldest((e) => e.ended) ?? pickOldest((e) => e.subscribers.size === 0)
-  if (victim) entries.delete(victim.runId)
+  if (victim) {
+    entries.delete(victim.runId)
+    evictedTotal.inc()
+    log.warn('run-live entry evicted for slot (raise DAGENTS_RUNLIVE_MAX_RUNS if frequent)', {
+      runId: victim.runId,
+      entries: entries.size,
+    })
+  }
 }
 
 /** 取（或惰性创建）run 的发射入口。assembleWorkflowEngine 装配时调用一次。 */
@@ -162,6 +209,7 @@ export function forRunLive(
       frames: [],
       approxBytes: 0,
       droppedCount: 0,
+      truncationLogged: false,
       ended: false,
       subscribers: new Set(),
     }
@@ -271,4 +319,11 @@ function startSweeper(): void {
 /** 测试隔离：清空全部条目并停清扫器（生产代码禁用）。 */
 export function resetRunLiveForTest(): void {
   entries.clear()
+}
+
+/** 注册表水位快照（/metrics gauge 之外的可编程读取口）。 */
+export function runLiveStats(): { entries: number; subscribers: number } {
+  let subscribers = 0
+  for (const e of entries.values()) subscribers += e.subscribers.size
+  return { entries: entries.size, subscribers }
 }

@@ -10,6 +10,7 @@ import type {
 import { NodeRegistry } from './node-registry.js'
 import { HumanInputPendingError } from './errors.js'
 import { RuntimeState } from './runtime.js'
+import { runUserCode } from '../nodes/custom-function/user-code-exec.js'
 
 /** Result of a DAG execution. */
 export interface ExecutionResult {
@@ -43,6 +44,12 @@ export interface ExecuteOptions {
   toolRegistry?: IExecutionContext['toolRegistry']
   /** Human input resolver — passed through to HumanInput nodes. */
   humanInputResolver?: IExecutionContext['humanInputResolver']
+  /** 会话检索器（2026-10-04）— LLM 节点 includeChatHistory 用。 */
+  historyRetriever?: IExecutionContext['historyRetriever']
+  /** 子流程执行器（2026-10-04）— ExecuteFlow 节点用（宿主注入，引擎 DB-free）。 */
+  flowExecutor?: IExecutionContext['flowExecutor']
+  /** flow 级上下文（P2a，2026-10-04）— 宿主预算预裁后的 context_md。 */
+  flowContext?: string
   /**
    * Node lifecycle hooks — fire as each node starts / finishes so callers
    * (e.g. the gateway's canvas run) can persist live progress. Hooks are
@@ -67,6 +74,12 @@ export interface ExecuteOptions {
    * 同步 fire-and-forget（宿主自行节流落库），绝不阻塞调度。
    */
   onCheckpoint?: (snapshot: RunCheckpointSnapshot) => void
+  /**
+   * run 级 token 预算（2026-10-04）：累计 usage 越线即停机，终态
+   * budget_exceeded（产出截至停机点，根因明确）——失控循环不再只靠
+   * MAX_LOOP/迭代上限兜底烧钱。
+   */
+  tokenBudget?: number
 }
 
 /** Node type names whose iteration body the executor repeats. */
@@ -138,6 +151,11 @@ interface RunContext {
   iterationProgress: Map<string, IterationProgress>
   /** 根图 outputs 引用（区分根调度与迭代体克隆，checkpoint 只拍根）。 */
   rootOutputs: Map<string, Record<string, unknown>> | null
+  /** 失败分支隔离（2026-10-04）：声明 isolateFailure 的失败节点记账处——
+   *  非空 + 无未隔离错误 → run 终态 partial_success。 */
+  isolatedFailures: string[]
+  /** 已消耗 tokens（tokenBudget 对账用，2026-10-04）。 */
+  tokensSpent: number
   onCheckpoint?: (snapshot: RunCheckpointSnapshot) => void
 }
 
@@ -229,10 +247,15 @@ export class DagExecutor {
         finalOutput: null,
         finalOutputIndex: -1,
         iterationProgress: new Map(
-          Object.entries(resume?.iterationProgress ?? {}).map(([k, v]) => [k, { ...v, itemOutputs: [...v.itemOutputs] }]),
+          Object.entries(resume?.iterationProgress ?? {}).map(([k, v]) => [
+            k,
+            { ...v, itemOutputs: [...v.itemOutputs] },
+          ]),
         ),
         rootOutputs: nodeOutputs,
         onCheckpoint: opts.onCheckpoint,
+        isolatedFailures: [],
+        tokensSpent: 0,
       }
 
       // 种子节点计入 finalOutput 判定（续跑后无新节点执行时最终产出仍正确）
@@ -268,6 +291,21 @@ export class DagExecutor {
         // can distinguish user intent from engine errors — the enum value
         // existed since the beginning but was never produced (spec D3).
         const cancelled = opts.signal?.aborted === true
+        // token 预算停机（2026-10-04）：与失败区分——产出截至停机点，
+        // 错误消息自带对账数字，宿主据此落 budget_exceeded 终态。
+        if (result.budgetExceeded) {
+          this.fireCheckpoint(ctx, nodeOutputs, {
+            nodeId: '',
+            error: result.error,
+          })
+          return {
+            status: 'budget_exceeded',
+            executedNodes,
+            finalOutput: ctx.finalOutput,
+            error: result.error,
+            state: runtime.snapshot(),
+          }
+        }
         this.fireCheckpoint(ctx, nodeOutputs, {
           nodeId: result.failedNodeId ?? '',
           error: result.error,
@@ -277,6 +315,19 @@ export class DagExecutor {
           executedNodes,
           finalOutput: null,
           error: cancelled ? 'Execution cancelled by user' : result.error,
+          state: runtime.snapshot(),
+        }
+      }
+
+      // 失败分支隔离（2026-10-04）：隔离失败被记账而非中断——全部波次
+      // 跑完后仍有产出（finalOutput 来自最深成功节点），终态如实标注
+      // partial_success，调用方与 spans 里都能看出「有分支挂了」。
+      if (ctx.isolatedFailures.length > 0) {
+        this.fireCheckpoint(ctx, nodeOutputs)
+        return {
+          status: 'partial_success',
+          executedNodes,
+          finalOutput: ctx.finalOutput,
           state: runtime.snapshot(),
         }
       }
@@ -319,11 +370,21 @@ export class DagExecutor {
     })
   }
 
-  /** Record a node output as the run's final output if it's topologically deepest. */
-  private recordExecution(ctx: RunContext, nodeId: string, output: Record<string, unknown>): void {
+  /** Record a node output as the run's final output if it's topologically deepest.
+   *  显式指定（2026-10-04）：节点声明 `finalOutput: true` 时压过「拓扑最深」
+   *  默认——多个显式节点并存时，拓扑更深的那个赢。 */
+  private recordExecution(
+    ctx: RunContext,
+    nodeId: string,
+    output: Record<string, unknown>,
+    flowNode?: FlowNode,
+  ): void {
     const idx = ctx.topoIndex.get(nodeId) ?? -1
-    if (idx >= ctx.finalOutputIndex) {
-      ctx.finalOutputIndex = idx
+    const explicit = flowNode ? mergedNodeFlag(flowNode, 'finalOutput') === true : false
+    // 显式位与大数偏移合成：显式恒胜隐式，显式之间仍按拓扑序分胜负。
+    const rank = explicit ? 1_000_000_000 + idx : idx
+    if (rank >= ctx.finalOutputIndex) {
+      ctx.finalOutputIndex = rank
       ctx.finalOutput = output
     }
   }
@@ -350,12 +411,18 @@ export class DagExecutor {
       onNodeDelta:
         opts.onNodeDelta && nodeId
           ? (chunk: import('../types/execution.js').IStreamDelta) =>
-            opts.onNodeDelta!({ nodeId, nodeName: nodeName ?? nodeId }, chunk)
+              opts.onNodeDelta!({ nodeId, nodeName: nodeName ?? nodeId }, chunk)
           : undefined,
       llmClient: opts.llmClient,
       agentFetcher: opts.agentFetcher,
       toolRegistry: ctx.toolRegistry,
       humanInputResolver: opts.humanInputResolver,
+      // 2026-10-04 新接缝：会话检索（LLM 节点 includeChatHistory）与
+      // 子流程执行（ExecuteFlow 节点）——漏传会让节点拿到 undefined 而
+      // 诚实报「宿主未装配」，测试逮出过一次。
+      historyRetriever: opts.historyRetriever,
+      flowExecutor: opts.flowExecutor,
+      flowContext: opts.flowContext,
     }
   }
 
@@ -364,7 +431,11 @@ export class DagExecutor {
    * 0 = 行为不变）时，失败自动重试并指数退避 —— LLM/HTTP 类瞬时故障的
    * 单节点自愈，不改变波次失败语义（重试耗尽仍按波次失败上报）。取消
    * 信号触发时不重试。 */
-  private async runNode(ctx: RunContext, flowNode: FlowNode, nodeInput: unknown): Promise<INodeOutput> {
+  private async runNode(
+    ctx: RunContext,
+    flowNode: FlowNode,
+    nodeInput: unknown,
+  ): Promise<INodeOutput> {
     const nodeInstance = this.registry.get(flowNode.data.name as string)
     if (!nodeInstance) {
       throw new Error(`Node type "${flowNode.data.name}" not registered`)
@@ -443,6 +514,8 @@ export class DagExecutor {
     error?: string
     failedNodeId?: string
     pending?: { nodeId: string; prompt: string; inputType: string; options: unknown[] }
+    /** token 预算停机标记（2026-10-04）：error 为对账消息。 */
+    budgetExceeded?: boolean
   }> {
     const { opts, runtime, executedNodes, nodeById, topoIndex, incomingEdges } = ctx
 
@@ -476,11 +549,22 @@ export class DagExecutor {
         }
       }
     }
-    let wave = [...scope].filter((id) => (localPending.get(id) ?? 0) === 0 && !processed.has(id)).sort(byTopo)
+    let wave = [...scope]
+      .filter((id) => (localPending.get(id) ?? 0) === 0 && !processed.has(id))
+      .sort(byTopo)
 
     while (wave.length > 0) {
       if (opts.signal?.aborted) {
         return { processed, error: 'Execution cancelled' }
+      }
+      // token 预算闸（2026-10-04）：波次间检查——本波内已消耗的 tokens
+      // 越线就不再装配下一波（当前波成员已完成的产出保留）。
+      if (opts.tokenBudget != null && ctx.tokensSpent > opts.tokenBudget) {
+        return {
+          processed,
+          error: `Token 预算超限：已消耗 ${ctx.tokensSpent} tokens，预算 ${opts.tokenBudget}（调度器停机，产出截至停机点）`,
+          budgetExceeded: true,
+        }
       }
 
       // Evaluate every wave member: execute or skip. Tasks never reject —
@@ -496,18 +580,18 @@ export class DagExecutor {
             (e) => e.target === nodeId && !outputs.has(e.source),
           )
           const incoming = this.activeIncomingEdges(ctx, nodeId, outputs)
-          const shouldExecute =
-            isStartNode || incoming.length > 0 || seedEntries.length > 0
+          const shouldExecute = isStartNode || incoming.length > 0 || seedEntries.length > 0
 
           if (!shouldExecute) {
             return { kind: 'skipped', nodeId }
           }
 
-          const nodeInput = seedEntries.length > 0
-            ? this.mergeInputs(seedEntries, seed)
-            : isStartNode
-              ? ctx.input
-              : this.mergeInputs(incoming, outputs)
+          const nodeInput =
+            seedEntries.length > 0
+              ? this.mergeInputs(seedEntries, seed)
+              : isStartNode
+                ? ctx.input
+                : this.mergeInputs(incoming, outputs)
 
           const startedAt = new Date().toISOString()
           try {
@@ -541,7 +625,10 @@ export class DagExecutor {
               runtime.merge({ start: { ...nodeOut, output: nodeOut } })
             }
             outputs.set(nodeId, output.output)
-            this.recordExecution(ctx, nodeId, output.output)
+            this.recordExecution(ctx, nodeId, output.output, flowNode)
+            // token 预算对账（2026-10-04）：节点 usage 累计进 run 级账本。
+            const spent = (output.usage?.total_tokens as number | undefined) ?? 0
+            if (Number.isFinite(spent) && spent > 0) ctx.tokensSpent += Math.trunc(spent)
             return { kind: 'executed', nodeId, output: output.output, input: nodeInput }
           } catch (err) {
             // HumanInput 挂起信号（§6.3）：resolver reject HumanInputPendingError
@@ -573,7 +660,10 @@ export class DagExecutor {
             }
             executedNodes.push(executed)
             opts.onNodeEnd?.(executed)
-            return { kind: 'failed', nodeId, error: message }
+            // 失败分支隔离（2026-10-04）：节点声明 isolateFailure 时，失败
+            // 只塌缩本分支（无产出 → 下游自然剪枝），不中断整个 run。
+            const isolated = mergedNodeFlag(flowNode, 'isolateFailure') === true
+            return { kind: 'failed', nodeId, error: message, isolated }
           }
         }),
       )
@@ -592,10 +682,30 @@ export class DagExecutor {
         }
       }
 
-      const failure = outcomes.find((o): o is FailedOutcome => o.kind === 'failed')
+      const failure = outcomes.find((o): o is FailedOutcome => o.kind === 'failed' && !o.isolated)
+      const isolatedFailures = outcomes.filter(
+        (o): o is FailedOutcome => o.kind === 'failed' && o.isolated === true,
+      )
+      if (isolatedFailures.length > 0) {
+        // 隔离失败记账（2026-10-04）：不中断——节点仍进 processed/released，
+        // 其下游因拿不到输出而走 skipped 传递剪枝。
+        for (const o of isolatedFailures) ctx.isolatedFailures.push(o.nodeId)
+      }
       if (failure) {
         for (const o of outcomes) processed.add(o.nodeId)
         return { processed, error: failure.error, failedNodeId: failure.nodeId }
+      }
+
+      // token 预算闸（2026-10-04）：波次结算后对账——本波把账目推过线就
+      // 地停机（产出截至本波，错误消息带对账数字）。顶部检查覆盖「续跑
+      // 种子已超线」的启动态。
+      if (opts.tokenBudget != null && ctx.tokensSpent > opts.tokenBudget) {
+        for (const o of outcomes) processed.add(o.nodeId)
+        return {
+          processed,
+          error: `Token 预算超限：已消耗 ${ctx.tokensSpent} tokens，预算 ${opts.tokenBudget}（调度器停机，产出截至停机点）`,
+          budgetExceeded: true,
+        }
       }
 
       // Everything processed this round — iteration controllers additionally
@@ -668,12 +778,21 @@ export class DagExecutor {
   }
 
   /**
-   * Execute an iteration controller's body once per item, sequentially.
+   * Execute an iteration controller's body once per item.
    * Each iteration runs the body sub-DAG against a fresh clone of the
    * global outputs (minus the controller's raw output, so entry edges
    * resolve via the per-iteration seed: the current item wrapped in the
    * content-string convention). Iteration metadata is merged into runtime
    * state so prompts can reference it via template variables.
+   *
+   * 2026-10-04 两项新语义（多人格优化轮）：
+   *  - `concurrency` 输入（默认 1 = 原串行行为）：有界并行逐项执行——
+   *    每项拿独立的 runtime 覆盖层与 executedNodes 收集器，完成后按项序
+   *    归并（executedNodes 确定性 + runtime「最后完成项覆盖」语义保持）。
+   *    体内嵌套迭代控制器时强制串行（嵌套隔离语义复杂度不值当）。
+   *  - `whileCondition` 输入（JS 表达式，经 user-code-exec 硬化求值）：
+   *    每项完成后对当前聚合状态求值，真值即停止剩余项（受 maxIterations
+   *    硬顶约束的「循环直到 X」原生表达），聚合输出带 earlyExit 标记。
    */
   private async runIterationBody(
     ctx: RunContext,
@@ -711,49 +830,198 @@ export class DagExecutor {
       lastBodyOutput = iterations[iterations.length - 1] ?? {}
     }
 
-    for (let i = completed; i < count; i++) {
-      if (ctx.opts.signal?.aborted) break
+    // ── 并发与提前收敛配置（2026-10-04）──
+    const MAX_ITEM_CONCURRENCY = 8
+    const concurrencyRaw = Number(mergedNodeFlag(controller, 'concurrency'))
+    const concurrency = Number.isFinite(concurrencyRaw)
+      ? Math.min(Math.max(Math.trunc(concurrencyRaw), 1), MAX_ITEM_CONCURRENCY)
+      : 1
+    const whileConditionRaw = mergedNodeFlag(controller, 'whileCondition')
+    const whileCondition =
+      typeof whileConditionRaw === 'string' && whileConditionRaw.trim().length > 0
+        ? whileConditionRaw.trim()
+        : null
+    const hasNestedController = [...plan.body].some((id) =>
+      ITERATION_CONTROLLERS.has(ctx.nodeById.get(id)?.data?.name as string),
+    )
+    const parallel = concurrency > 1 && !hasNestedController && whileCondition == null
+    let earlyExit = false
 
-      const item = plan.items[i]
-      const seedValue: Record<string, unknown> = {
-        content: typeof item === 'string' ? item : JSON.stringify(item),
-        item,
-        iterationIndex: i,
+    /** whileCondition 求值（硬化执行）：真值 = 停止调度剩余项。 */
+    const shouldStopEarly = async (): Promise<boolean> => {
+      if (!whileCondition) return false
+      try {
+        const verdict = await runUserCode(
+          `return (${whileCondition})`,
+          lastBodyOutput,
+          typeof lastBodyOutput.content === 'string'
+            ? lastBodyOutput.content
+            : JSON.stringify(lastBodyOutput),
+          runtime.snapshot(),
+          { signal: ctx.opts.signal, timeoutMs: 2_000 },
+        )
+        return verdict === true
+      } catch (err) {
+        throw new Error(
+          `Iteration 节点「${controller.data?.name ?? controller.id}」的 whileCondition 求值失败：` +
+            `${err instanceof Error ? err.message : String(err)}`,
+        )
       }
-      const seed = new Map<string, Record<string, unknown>>([[controller.id, seedValue]])
-      runtime.merge({
-        iterationIndex: i,
-        iterationCount: count,
-        iterationItem: item ?? null,
-        iteration: item ?? null,
-      })
+    }
 
-      const iterationOutputs = new Map(globalOutputs)
-      iterationOutputs.delete(controller.id)
-      const result = await this.runWaves(ctx, plan.body, plan.entryEdges, iterationOutputs, seed)
-      if (result.error) {
-        return { output: {}, error: result.error }
+    if (parallel) {
+      // ── 有界并行：每项独立 runtime 覆盖层 + executedNodes 收集器 ──
+      const itemOutputsByIdx = new Map<number, Record<string, unknown>>()
+      const itemExecutedByIdx = new Map<number, IExecutedNode[]>()
+      const itemRuntimeByIdx = new Map<number, Record<string, unknown>>()
+      const doneIdx = new Set<number>()
+      let nextIdx = completed
+      let stopped = false
+      let failError: string | null = null
+
+      const runItem = async (i: number): Promise<void> => {
+        const item = plan.items[i]
+        const seedValue: Record<string, unknown> = {
+          content: typeof item === 'string' ? item : JSON.stringify(item),
+          item,
+          iterationIndex: i,
+        }
+        const seed = new Map<string, Record<string, unknown>>([[controller.id, seedValue]])
+        const childRuntime = new RuntimeState()
+        childRuntime.merge(runtime.snapshot())
+        childRuntime.merge({
+          iterationIndex: i,
+          iterationCount: count,
+          iterationItem: item ?? null,
+          iteration: item ?? null,
+        })
+        const childCtx: RunContext = {
+          ...ctx,
+          runtime: childRuntime,
+          executedNodes: [],
+          isolatedFailures: [],
+          tokensSpent: 0,
+        }
+        const iterationOutputs = new Map(globalOutputs)
+        iterationOutputs.delete(controller.id)
+        const result = await this.runWaves(
+          childCtx,
+          plan.body,
+          plan.entryEdges,
+          iterationOutputs,
+          seed,
+        )
+        // 聚合对账：tokens 与隔离失败回父账本（并行内的越限在下一波次闸收敛）
+        ctx.tokensSpent += childCtx.tokensSpent
+        ctx.isolatedFailures.push(...childCtx.isolatedFailures)
+        itemExecutedByIdx.set(i, childCtx.executedNodes)
+        itemRuntimeByIdx.set(i, childRuntime.snapshot())
+        if (result.error) {
+          failError = result.error
+          stopped = true
+          return
+        }
+        let iterationFinal: Record<string, unknown> = {}
+        let iterationFinalIndex = -1
+        for (const nodeId of result.processed) {
+          const out = iterationOutputs.get(nodeId)
+          if (!out) continue
+          const idx = topoIndex.get(nodeId) ?? -1
+          if (idx >= iterationFinalIndex) {
+            iterationFinalIndex = idx
+            iterationFinal = out
+          }
+        }
+        itemOutputsByIdx.set(i, iterationFinal)
+        doneIdx.add(i)
       }
 
-      // The iteration's final output = deepest body node executed.
-      let iterationFinal: Record<string, unknown> = {}
-      let iterationFinalIndex = -1
-      for (const nodeId of result.processed) {
-        const out = iterationOutputs.get(nodeId)
-        if (!out) continue
-        const idx = topoIndex.get(nodeId) ?? -1
-        if (idx >= iterationFinalIndex) {
-          iterationFinalIndex = idx
-          iterationFinal = out
+      const inFlight = new Set<Promise<void>>()
+      while (!stopped && nextIdx < count) {
+        if (ctx.opts.signal?.aborted) break
+        while (inFlight.size < concurrency && nextIdx < count && !stopped) {
+          const p = runItem(nextIdx).finally(() => inFlight.delete(p))
+          inFlight.add(p)
+          nextIdx += 1
+        }
+        if (inFlight.size > 0) await Promise.race(inFlight)
+      }
+      if (inFlight.size > 0) await Promise.allSettled(inFlight)
+
+      if (failError) return { output: {}, error: failError }
+
+      // 按项序归并：executedNodes 确定性、游标只沿「连续完成前缀」推进
+      //（并行竞态下跳号完成项不进游标——断点续跑不产生洞，代价是极端
+      // 情况下个别已完项重跑，正确性优先）。runtime 取最高完成项的覆盖层
+      //（与串行「最后一项的写键留存」语义一致）。
+      for (let i = completed; i < count; i++) {
+        if (!doneIdx.has(i)) break
+        for (const rec of itemExecutedByIdx.get(i) ?? []) ctx.executedNodes.push(rec)
+        iterations.push(itemOutputsByIdx.get(i) ?? {})
+        completed = i + 1
+        lastBodyOutput = itemOutputsByIdx.get(i) ?? {}
+        ctx.iterationProgress.set(controller.id, { completed, itemOutputs: [...iterations] })
+      }
+      const highestDone = Math.max(-1, ...[...doneIdx.values()])
+      if (highestDone >= 0) {
+        const snap = itemRuntimeByIdx.get(highestDone)
+        if (snap) {
+          runtime.merge(snap)
         }
       }
-      iterations.push(iterationFinal)
-      lastBodyOutput = iterationFinal
-      completed = i + 1
-      // 游标增量维护 + 快照（§6.2：迭代每项完成后）
-      ctx.iterationProgress.set(controller.id, { completed, itemOutputs: [...iterations] })
-      if (ctx.onCheckpoint && ctx.rootOutputs === globalOutputs) {
-        this.fireCheckpoint(ctx, globalOutputs)
+    } else {
+      // ── 串行（默认）：原语义 + whileCondition 提前收敛 ──
+      for (let i = completed; i < count; i++) {
+        if (ctx.opts.signal?.aborted) break
+
+        const item = plan.items[i]
+        const seedValue: Record<string, unknown> = {
+          content: typeof item === 'string' ? item : JSON.stringify(item),
+          item,
+          iterationIndex: i,
+        }
+        const seed = new Map<string, Record<string, unknown>>([[controller.id, seedValue]])
+        runtime.merge({
+          iterationIndex: i,
+          iterationCount: count,
+          iterationItem: item ?? null,
+          iteration: item ?? null,
+        })
+
+        const iterationOutputs = new Map(globalOutputs)
+        iterationOutputs.delete(controller.id)
+        const result = await this.runWaves(ctx, plan.body, plan.entryEdges, iterationOutputs, seed)
+        if (result.error) {
+          return { output: {}, error: result.error }
+        }
+
+        // The iteration's final output = deepest body node executed.
+        let iterationFinal: Record<string, unknown> = {}
+        let iterationFinalIndex = -1
+        for (const nodeId of result.processed) {
+          const out = iterationOutputs.get(nodeId)
+          if (!out) continue
+          const idx = topoIndex.get(nodeId) ?? -1
+          if (idx >= iterationFinalIndex) {
+            iterationFinalIndex = idx
+            iterationFinal = out
+          }
+        }
+        iterations.push(iterationFinal)
+        lastBodyOutput = iterationFinal
+        completed = i + 1
+        // 游标增量维护 + 快照（§6.2：迭代每项完成后）
+        ctx.iterationProgress.set(controller.id, { completed, itemOutputs: [...iterations] })
+        if (ctx.onCheckpoint && ctx.rootOutputs === globalOutputs) {
+          this.fireCheckpoint(ctx, globalOutputs)
+        }
+
+        // whileCondition（2026-10-04）：真值即停止剩余项——「循环直到 X」
+        // 的原生表达（仍受 items 数量硬顶约束）。
+        if (await shouldStopEarly()) {
+          earlyExit = true
+          break
+        }
       }
     }
 
@@ -782,6 +1050,7 @@ export class DagExecutor {
         iterations,
         completedIterations: completed,
         content: aggregateContent || content,
+        ...(earlyExit ? { earlyExit: true } : {}),
       },
     }
   }
@@ -882,7 +1151,9 @@ export class DagExecutor {
       // Condition 源节点：把画布数字/Else 锚点映射回 true/false 分支。
       const matchedTrue = matched === 'true' || matched === true
       if (/^else$/i.test(handle)) return !matchedTrue
-      const anchorMatch = sourceNode ? /^-output-(\d+)$/.exec(handle.replace(sourceNode.id, '')) : null
+      const anchorMatch = sourceNode
+        ? /^-output-(\d+)$/.exec(handle.replace(sourceNode.id, ''))
+        : null
       if (anchorMatch) {
         const index = Number(anchorMatch[1])
         const flat = sourceNode?.data as Record<string, unknown> | undefined
@@ -942,7 +1213,7 @@ export class DagExecutor {
     }
 
     if (contents.length > 0) {
-      merged.content = contents.join('\n')
+      merged.content = capJoinedContent(contents)
     }
     merged.inputs = inputs
 
@@ -1064,6 +1335,31 @@ export class DagExecutor {
 }
 
 /** Outcome of evaluating one wave member. */
+/**
+ * 多入边合并的 content 拼接上限（2026-10-04）：N 路上游的正文无界拼接
+ * 会撑爆下游 LLM 的上下文（宽扇入图的静默炸弹）。超限保头尾 + 中间省略
+ * 标记（带对账数字，不静默截断）；完整内容仍在 `inputs` 数组里，下游
+ * 模板可显式取用。默认 64KB，DAGENTS_MERGE_CONTENT_CAP 可调（0 = 不限）。
+ */
+const MERGE_CONTENT_CAP = (() => {
+  const raw = Number(process.env.DAGENTS_MERGE_CONTENT_CAP)
+  return Number.isFinite(raw) && raw >= 0 ? raw : 65_536
+})()
+
+function capJoinedContent(contents: string[]): string {
+  const joined = contents.join('\n')
+  if (MERGE_CONTENT_CAP === 0 || joined.length <= MERGE_CONTENT_CAP) return joined
+  const head = Math.floor(MERGE_CONTENT_CAP * 0.6)
+  const tail = Math.floor(MERGE_CONTENT_CAP * 0.4)
+  const omitted = joined.length - head - tail
+  return (
+    joined.slice(0, head) +
+    `\n\n[合并截断：${contents.length} 路上游共 ${joined.length} 字符，超出上限 ${MERGE_CONTENT_CAP}，` +
+    `中间省略约 ${omitted} 字符——完整内容见本输入的 inputs 数组]\n\n` +
+    joined.slice(joined.length - tail)
+  )
+}
+
 type WaveOutcome =
   | { kind: 'skipped'; nodeId: string }
   | { kind: 'executed'; nodeId: string; output: Record<string, unknown>; input: unknown }
@@ -1082,4 +1378,17 @@ interface FailedOutcome {
   kind: 'failed'
   nodeId: string
   error: string
+  /** 失败分支隔离（2026-10-04）：节点声明 isolateFailure 时为 true。 */
+  isolated?: boolean
+}
+
+/**
+ * 读节点配置旗标（平铺 `data.<key>` 打底、嵌套 `data.inputs.<key>` 覆盖
+ * —— 与 runNode 的双形态归一化同语义）。返回原值，调用方自行判 true。
+ */
+function mergedNodeFlag(flowNode: FlowNode, key: string): unknown {
+  const flat = flowNode.data as Record<string, unknown> | undefined
+  const nested = flat?.inputs as Record<string, unknown> | undefined
+  if (nested && typeof nested === 'object' && nested[key] !== undefined) return nested[key]
+  return flat?.[key]
 }

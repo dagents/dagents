@@ -10,6 +10,9 @@
 | [`checklist.md`](./checklist.md) | 发布前验证 + 发布日操作顺序（先读这个） |
 | [`show-hn.md`](./show-hn.md) | Hacker News「Show HN」帖子（标题 + 正文，可直接粘贴） |
 | [`reddit.md`](./reddit.md) | r/LocalLLaMA · r/selfhosted · r/ClaudeAI 三份帖子 |
+| [`reddit-engagement.md`](./reddit-engagement.md) | Reddit 社区参与计划（版块分层、90/10 纪律、排期与决策树，包在 reddit.md 帖子外面） |
+| [`metrics-retro.md`](./metrics-retro.md) | 全渠道指标看板与四级复盘模板（指标字典、目标值、采集手册） |
+| [`metrics-log.md`](./metrics-log.md) | 看板数据落盘表（每日 War Room 行——GitHub traffic 只回溯 14 天，每日必采） |
 | [`chinese.md`](./chinese.md) | V2EX「分享创造」+ 掘金/公众号短文 |
 | [`awesome-lists.md`](./awesome-lists.md) | 目标 awesome 清单 + 每家的 PR 文案（直接可提） |
 

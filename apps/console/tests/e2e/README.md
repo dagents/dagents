@@ -83,8 +83,12 @@ prompt / 工具是否回灌 / 循环了几轮」的协作证据），不再依�
 # 1. gateway 指向专用库重启（GATEWAY_PORT 可换端口并行跑）。
 #    DAGENTS_HTTP_ALLOW_PRIVATE=1：HTTP 节点用例指向 Mock :4010，SSRF 守卫
 #    的官方逃生门（CI e2e.yml 同款；守卫语义由 workflow 包单测钉住）。
+#    DAGENTS_DISABLE_LLM_FALLBACK=1（2026-10-04）：mock error 规则钉「节点
+#    失败」断言时，CLI 降级会把确定性失败变成真 claude 慢成功——关掉降级
+#    保持 e2e 确定性（生产不设）。
 POSTGRES_URL=postgresql://dagents:dagents_dev@localhost:15432/dagents_e2e \
   DAGENTS_HTTP_ALLOW_PRIVATE=1 \
+  DAGENTS_DISABLE_LLM_FALLBACK=1 \
   GATEWAY_PORT=8081 pnpm --filter @dagents/gateway dev &
 
 # 2. 套件指向该 gateway + 专用库。⚠️ 换了网关端口时 GATEWAY_URL 必须同步

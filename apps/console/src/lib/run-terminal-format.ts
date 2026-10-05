@@ -137,8 +137,9 @@ export function formatTokensBadge(tokens: unknown): string | null {
  *  统一写这个 —— gateway resolveNodeType 单源）、旧类型名（'llm'，直存
  *  类型的 flow）、画布渲染类型（'customNode'，旧 run 的 node_type 列）。
  *  未知类型兜底用节点名（label）—— 旧 run 的 '$ customNode'×N 无区分度
- *  （用户实测「只看到一个 $」的根源），退到 label 至少每段可辨。 */
-function commandOf(
+ *  （用户实测「只看到一个 $」的根源），退到 label 至少每段可辨。
+ *  导出（2026-10-01）：run-trace-model 的 lane command 复用此单源。 */
+export function commandOf(
   nodeType: string | null | undefined,
   input: RunNodeSpan['input'],
   label?: string | null,
@@ -306,7 +307,14 @@ export function createLiveSectionBuilder(): LiveSectionBuilder {
           const kind = (LINE_KINDS as readonly string[]).includes(frame.delta.kind)
             ? (frame.delta.kind as TerminalLineKind)
             : 'log'
-          const line: TerminalLine = { kind, label: frame.delta.label, at: new Date().toISOString() }
+          // at 优先取帧携带的服务端时间戳（2026-10-01 轨迹时间线起网关统一
+          // 打点）；旧网关无此字段时退回接收时刻（展示够用，时间线定位有
+          // 网络延迟误差）。
+          const line: TerminalLine = {
+            kind,
+            label: frame.delta.label,
+            at: frame.at ?? new Date().toISOString(),
+          }
           if (frame.delta.detail) line.detail = frame.delta.detail
           s.lines.push(line)
         }

@@ -8,6 +8,141 @@ All notable changes to Dagents are documented here. The format follows
 
 ### Added
 
+- **工作流多人格优化轮（2026-10-04，12 个人格 × 12 个方面）** — 从内置人格库选角，对
+  `@dagents/workflow` 全链路的一揽子优化；引擎语义改动由新测试套 `executor-v2-semantics.test.ts`
+  （17 例）钉死：
+  - **失败分支隔离**（Backend Architect）：节点级 `isolateFailure` 输入——失败只塌缩本分支
+    （下游 skipped 剪枝），run 不中断、终态 `partial_success`（有产出 + 失败记账）；默认语义
+    不变。附带 `finalOutput` 显式指定（压过「拓扑最深」默认）。
+  - **LLM 输出契约**（Prompt Engineer）：`outputSchema` 输入（JSON Schema 子集）——schema 编入
+    system prompt（HTTP/CLI 同语义）、`json-schema-lite` 解析校验（零依赖手写子集：type/required/
+    properties/items/enum/长度与数值界）、一轮「错误清单喂回」修复重试、命中后输出带 `json` 字段
+    （下游 `{{id.json}}`）；声明契约禁用流式（修复重试无法撤回增量）。多入边合并 content 64KB
+    截断（保头尾 + 对账省略标记，`DAGENTS_MERGE_CONTENT_CAP` 可调）。
+  - **混合会话检索**（AI Engineer）：LLM 节点 `includeChatHistory`——宿主 `historyRetriever`
+    按「关键词×3 + 时间衰减×2 + 同会话+2」融合排序，作用域当前会话 + 同目录（近 7 天）；
+    向量升级路径 = 换实现不动契约。
+  - **Iteration 双新语义**（DevOps + Product Manager）：`concurrency`（默认 1；1-8 有界并行，
+    每项独立 runtime 覆盖层 + 收集器，项序归并保 executedNodes 确定性，游标沿连续前缀推进，
+    嵌套迭代自动回退串行）与 `whileCondition`（JS 表达式，user-code-exec 硬化求值，真值停剩余项
+    ——「循环直到 X」原生表达，聚合带 earlyExit）。
+  - **run 级 tokenBudget**（DevOps Automator）：run body `tokenBudget`——波次结算对账，越线停机
+    终态 `budget_exceeded`（产出截至停机点，错误带对账数字）；失控循环不再只靠上限兜底烧钱。
+  - **ExecuteFlow 子流程复活**（Agents Orchestrator）：`executeFlowAgentflow` 一等画布节点
+    （D8 删除后按引擎 DB-free 纪律重建）——宿主注入 `flowExecutor`（同 runId 递归装配子引擎，
+    spans 并入父 run 旁观/轨迹无缝），深度上限 3 + 祖先链防环引用；生成器词汇同步。
+  - **flow_versions 版本化回滚**（Codebase Archaeologist）：迁移 1720000102000 建快照表；结构
+    保存自动存档被覆盖旧结构（保留 20 版），`GET /workflows/:id/versions` + restore 端点
+    （回滚前先存档当前——回滚可撤销）+ BFF 代理 + 画布「版本」面板。
+  - **节点类型画像**（Analytics Reporter）：`GET /workflows/:id/analytics`——run_node_spans 按
+    node_type 聚合执行数/失败率/平均/P95/tokens + 近 30 run 趋势；FlowRunsPanel 新增「节点画像」
+    折叠表（哪类节点最贵最慢最易失败一眼可见）。
+  - **校验错误画布高亮**（Frontend Developer）：保存时拓扑校验的问题节点经 `applyRunStates` 标红
+    + 悬停错误文案（校验器错误本就带 node/edge 定位，差最后一步可视化）；子图折叠待立项。
+  - **HITL 应答条对齐**（UX Researcher）：聊天详情页补齐悬浮副驾 F6 的内联应答条——SSE
+    `custom:human_input` 清 sending + 末条 human_input 提示时常驻「流程在等待你的输入」条。
+  - **诚实清单纠偏**（AppSec + Reality Checker）：workflow-engine.md 三处过时条目修正——Tool/
+    Loop/conditionAgent/retriever 节点已随 D8 删除（唯一用户 JS 是已硬化的 CustomFunction），
+    whileCondition 求值同样走 user-code-exec；前端 HITL 输入框早已存在。新语义 17 例测试 +
+    gateway 全量 449 例全绿。
+
+- **工作流优化轮 · 端到端收尾与挂账清偿（2026-10-04 第二轮）**：
+  - **真机黑盒 e2e（16 断言全过）**：经 dev 网关全链路验证子流程/迭代并发/失败隔离/whileCondition/
+    finalOutput/版本回滚/analytics；实弹逮出两处——`runs_status_chk` 约束缺新终态（迁移
+    1720000103000 放宽 partial_success/budget_exceeded，否则终态 upsert 被拒、runs 永停 running）
+    与循环体取项陷阱（body 单入边是 content 字符串，当前项须 `$flow.state.iterationItem` /
+    `{{iterationItem}}` 取用——已写入 workflow-engine.md）。
+  - **运行谱系（挂账 #12 清偿）**：runs 列表带出 `resumedFromRunId`（repo/路由/面板三处），
+    FlowRunsPanel 续跑行缩进 + ↩ chip + 悬停溯源。
+  - **大图导航纠偏（挂账 #7 收口）**：核实画布 MiniMap（可平移缩放）+ Controls 早已在位；
+    子图折叠确需产品裁决（折叠态持久化/引擎语义），文档明示不立项。
+  - **向量检索（挂账 #3 收口）**：混合检索已上线；pgvector 路径 = 替换 `historyRetriever` 实现，
+    embedding 供给方属产品决策，文档明示 blocked-by-decision。
+
+- **上下文管理 P1-P3 落地（2026-10-04 第四轮，调研驱动）** — 依据 `docs/context-management-research.md`：
+  - **P1a 总预算分配制**：LLM 节点组装从「各块独立上限」升级为牺牲序预算
+    （常驻不裁 → 丢检索历史【摘要块最先、避免大摘要饿死短消息】→ 头尾保真截断上游输入），
+    对账账目 `contextBudget` 进 span；http 节点与内置 http_request 改保尾截断（判决在末尾）。
+    测试逮出并修复两个预算器真 bug（摘要饿死、超限放行）。
+  - **P1b 两级历史**：chats 滚动摘要（迁移 1720000104000：`context_summary` + 水位列；
+    `lib/chat-context-summary.ts`：阈值 40 折叠、保近 20、仅 HTTP provider、fire-and-forget
+    钩子挂 persistComplete/聊天流式落库）；`includeChatHistory` 升级「滚动摘要 + 近期原文」
+    混合注入（检索器契约升级 `{summary, messages}`）；dsh 技巧全量应用——摘要指令作末条
+    user 消息保 KV 前缀、五节 checkpoint、前次摘要合并不照抄。
+  - **P2a flow 级上下文**：`flows.context_md`（迁移 1720000105000，flow_versions 同列）；
+    画布「上下文」面板（textarea + 计数 + 保存）；运行时 `DAGENTS_FLOW_CONTEXT_CAP` 预裁
+    后注入 LLM/Agent 节点 system 前部（直跑/聊天流式/@flow 三路径全接）；版本快照与
+    回滚连带上下文（真机冒烟验证往返）。
+  - **P2b 收编结论**：dagents 聊天无在途增长上下文（flow 每消息全新引擎态、CLI 单发
+    自理、节点一次性上下文）——压缩面即滚动摘要，独立 compaction 无对象（文档明示）。
+  - **P3**：persona 本体预算（`DAGENTS_PERSONA_CONTEXT_CAP`，技能侧原有三层护栏不动）；
+    `/metrics` 新增 `dagents_llm_assembled_nodes_total/chars_total/over_budget_total`
+    （按节点类型，span 对账驱动）。
+  - **验证**：workflow 267 + gateway 449 + console 428 全绿；真机冒烟（context.md CRUD/
+    版本回滚恢复上下文/新指标出数）通过；新测试 10 例（预算分配序 7 + 注入语义 3）。
+
+- **e2e 收尾（2026-10-04 第三轮）**：全量 Playwright 套件 240 用例，10 失败全数归因清偿——
+  ① `DAGENTS_DISABLE_LLM_FALLBACK=1` e2e 总闸（新）：CLI 降级会把 mock 的确定性失败变成真
+  claude 慢成功（15s+ 且烧 token），闸门保 e2e 确定性、生产默认不受影响（README/CI 配方同步，
+  另补 `DAGENTS_HTTP_ALLOW_PRIVATE` 本地网关配方提醒）；② spec-16 ×5 对齐广场一等页面 IA
+  （commit 4470a3b 的 spec 漂移欠账：旧「从人格库启用」对话框选择器全部改写为
+  `/agents?tab=plaza` 页面流）；③ 5 个环境敏感 spec（WF-04/OB-03/ED-07/MA-10/MA-14）在
+  e2e 环境下复跑全过。运行谱系（`resumedFromRunId` 贯通 repo/路由/面板）随本轮落地。
+
+- **稳定性专项（2026-10-04，十个方面全面加固）** — 从进程兜底到前端边界的一揽子稳定性机制：
+  - **进程级异常兜底**：`index.ts` 挂 `unhandledRejection`（记日志 + error-sink，进程继续服务）与
+    `uncaughtException`（受控走优雅停机链，boot sweep 下次启动兜底）——此前任何漏接的后台 rejection
+    都会按新版 Node 默认语义直接杀死网关，连带全部在跑 run 与 CLI 子进程。
+  - **启动依赖重试**：`initDb` 包上预算内退避重试（`DB_INIT_RETRY_MS` 默认 60s）——Postgres 慢半拍
+    （compose 竞态/开机顺序）不再让网关当场退出等人工 restart。
+  - **LLM HTTP 重试退避**（`lib/fetch-retry.ts`）：429/5xx/瞬时网络错误指数退避 + jitter 有限重试
+    （`LLM_HTTP_RETRY_ATTEMPTS` 默认 3），尊重 `Retry-After`；外部取消立即中断不重试；chatStream 仅在
+    产出第一字节前重试（已 yield 的增量无法撤回）。
+  - **LLM provider 熔断 → CLI 降级**（`lib/llm-breaker.ts`）：按 provider 记连续瞬时失败，达阈值
+    （`LLM_HTTP_BREAKER_THRESHOLD` 默认 3）熔断 `LLM_HTTP_BREAKER_COOLDOWN_MS`（默认 60s），期间与单次
+    瞬时失败都降级本地 CLI（过程流留可见活动标记）；冷却后半开探测自动恢复；配置错误（401/404 等）
+    诚实抛出不掩盖。
+  - **run 并发闸**（`lib/run-gate.ts`，`DAGENTS_MAX_CONCURRENT_RUNS` 默认 8）：画布直跑 / chat @flow /
+    chat 流式 / 断点续跑（resume + answer）五条执行路径统一准入，满载诚实 429（排队是「已启动却永远
+    running」的谎言）。
+  - **CLI spawn 闸**（`lib/cli-spawn-gate.ts`，`DAGENTS_MAX_CLI_PROCESSES` 默认 16）：工作流节点 / 聊天
+    inline / agent 单发调用三处 spawn 点的 FIFO 总量护栏——并发 run × 分支并行不再打爆本机。
+  - **可观测性**：`GET /metrics`（手写 Prometheus 文本格式注册表 `lib/metrics.ts`，零依赖——run
+    启动/终态计数、CLI/run 闸水位、run-live 缓冲截断与条目驱逐、熔断器状态、执行/PTY 活跃水位、进程
+    基础指标）；`GET /livez` 与 `/health` 探针分离（liveness=进程活着，readiness=DB 可用——本机单进程
+    模式下 DB 断连更该「活着等回来」而不是杀实例丢执行）。
+  - **DB 连接池显式调优**（`DB_POOL_MAX`/`DB_POOL_IDLE_MS`/`DB_POOL_CONNECT_TIMEOUT_MS`）：池耗尽/DB
+    抖动时请求 5s 快速失败（→ 503 + 错误信封），不再无限挂起堆叠超时。
+  - **console 错误边界**：`app/global-error.tsx`（最外层，自带 html/body，双语直排零全局依赖）+
+    `app/error.tsx`（根路由段，i18n 可用）+ 可复用 `components/error-boundary.tsx`（画布已挂局部边界）——
+    任何渲染抛错从「整页白屏」降级为「错误卡 + 周围照常」；样式入 `error-boundary.css`（棘轮/孤儿
+    CSS 双护栏合规）。
+  - **e2e 残留自动清扫**：`createSeedContext` 前置清 `e2e-mock-%` provider 行——中途强杀后的尸体在
+    下一轮首个 spec 的 beforeAll 就被清掉，不再劫持「首个 active provider」语义。
+  - **注册表水位可观测**：run-live 缓冲截断/条目驱逐从静默降级变为计数 + 每 run 一次 warn（调参信号：
+    `DAGENTS_RUNLIVE_BUFFER_BYTES` / `DAGENTS_RUNLIVE_MAX_RUNS`）；shell 会话数进 metrics。
+  - **测试**：六个新模块 38 例单测（重试分类学 / 熔断状态机含 half-open 探测失败重开 / FIFO 槽位移交 /
+    诚实 429 / Prometheus 渲染含 label 转义与 collect 异常降级 / 启动重试预算语义）；gateway 全量 449
+    例全绿。
+
+- **运行轨迹视图（结果面板第三视图，参考 deepseek-harness Trajectory）** — 执行 trace 从「事后列表」升级为
+  「时间轴上的轨迹」：
+  - **数据层**：run-live 帧带服务端 `at` 时间戳（`run-live-registry` `emit()` 单点打点，truncated 回放标记除外；
+    契约 `@dagents/contracts/run-live.ts` 可选字段，旧网关兼容）——直播与回放事件摆上同一面墙钟；历史运行
+    复用 span events 既有的 `at`（2026-09-06 起）。
+  - **投影层**：新纯函数模块 `console/lib/run-trace-model.ts`（19 单测）——直播帧（`createLiveTraceBuilder`）
+    与 DB spans 快照（`buildTraceFromSpans`）两路收敛为同一 `RunTraceModel`；迭代重跑 = 同 lane 多 segment；
+    sequence/duration/actual 三投影（无时间戳旧数据自动降级 sequence 并诚实提示）；框选命中集
+    `timelineFocusIndexes`。
+  - **视图**：`canvas-trace-view.tsx` + `canvas-trace.css`——节点泳道甘特（拖拽框选过滤台账 / 滚轮缩放 /
+    右键平移复位 / hover 起止·时长·状态 / 运行段随秒级 tick 延伸、时长显示 `—` 不造假）+ 事件台账
+    （running/failed 状态驱动自动展开，手动开关优先）+ Inspector 覆盖层（节点概览/输入/输出/用量 + 事件
+    全文，拖宽可调双击复位）；`use-run-live` 同一流解析喂双 builder（终端段 + 轨迹模型）；轨迹 tab 激活时
+    结果面板加宽（480→760px）。零新依赖（交互语法照搬 dsh，视觉走既有 tokens，暗色自动适配）。
+  - **测试**：单测 19 例（含「同一执行两路数据源产出等价模型」一致性钉子）；e2e 新 spec 24（甘特/台账/
+    Inspector/无时间戳降级四景）；顺手修正存量过期用例 OT-02a（`.rti-done` 已于 2026-09-20 裁决移除，
+    spec 未同步——改为断言结束态无底栏 + 标题行重跑）。
+
 - **终端双锚点全家桶（P0/P1/P2/P4）** — 设计 `docs/design-terminal-anchors.md` 剩余四项落地：
   - **P0 运行→目录数据链**：runs 表新增 `directory_id`（迁移 1720000097000），四个写入点
     （画布直跑/异步先行行/chat 继承/续跑回流）与两个读点（GET /runs、node-spans）全线打通；
@@ -53,6 +188,13 @@ All notable changes to Dagents are documented here. The format follows
 
 ### Fixed
 
+- **AI 生成工作流节点互相叠放**：LLM 坐标本就不可信（分叉挤同一 y、直接叠放、无视
+  间距要求——历史 prompt 的 "~250px" 软约束连一个节点宽度 280px 都放不下），归一化
+  又只在缺 position 时兜 grid，数字型重叠坐标原样透传画布。修复为成功产物一律按图
+  拓扑确定性重排：`@dagents/workflow` 新增 `applyAutoLayout`（最长路径分层 + 层内
+  BFS 序 + 垂直居中对齐父节点均值，步长 360×150 与节点物理尺寸匹配，环输入不悬挂），
+  `generateFlow` 成功出口统一收口（chat 与 canvas 两入口同时生效）；验收不变量
+  「任意两节点横向 ≥360 或纵向 ≥150 错开」进单测。prompt 措辞同步改为「坐标仅占位」。
 - **断点续跑认领互斥三处漏洞**（架构审计轮）：① resume 路由认领后、起跑前的
   失败路径（flow 404 / 拓扑 422 / 种子组装抛错）泄漏进程内认领 —— 该 checkpoint
   从此 409 直到网关重启；修复为只读校验前置到认领之前 + 失败显式释放。

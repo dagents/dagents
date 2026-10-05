@@ -1,0 +1,86 @@
+/* 画布「流程上下文」面板（2026-10-04 P2a）——被 flow-context-dialog.tsx 显式 import */
+
+.flow-ctx-panel {
+  position: absolute;
+  top: 52px;
+  right: 16px;
+  z-index: 30;
+  width: 420px;
+  background: var(--bg-elevated, #1c1c1f);
+  border: 1px solid var(--border-subtle, rgba(255, 255, 255, 0.08));
+  border-radius: 10px;
+  padding: 10px 12px;
+  box-shadow: 0 8px 28px rgba(0, 0, 0, 0.35);
+}
+
+.flow-ctx-head {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  margin-bottom: 4px;
+}
+
+.flow-ctx-title {
+  font-size: var(--text-sm, 13px);
+  font-weight: 600;
+}
+
+.flow-ctx-close {
+  background: none;
+  border: none;
+  color: var(--text-secondary);
+  font-size: 16px;
+  cursor: pointer;
+  padding: 0 4px;
+}
+.flow-ctx-close:hover {
+  color: var(--text-primary);
+}
+
+.flow-ctx-hint {
+  font-size: var(--text-2xs, 11px);
+  color: var(--text-tertiary);
+  margin-bottom: 6px;
+  line-height: 1.5;
+}
+
+.flow-ctx-editor {
+  width: 100%;
+  min-height: 220px;
+  resize: vertical;
+  font-family: var(--font-mono, monospace);
+  font-size: var(--text-xs, 12px);
+  line-height: 1.6;
+  background: var(--bg-primary, #111113);
+  color: var(--text-primary);
+  border: 1px solid var(--border-subtle, rgba(255, 255, 255, 0.1));
+  border-radius: 8px;
+  padding: 8px 10px;
+}
+.flow-ctx-editor:focus-visible {
+  outline: 1px solid var(--accent, #8b5cf6);
+}
+
+.flow-ctx-foot {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  margin-top: 8px;
+}
+
+.flow-ctx-count {
+  font-size: var(--text-2xs, 11px);
+  color: var(--text-tertiary);
+  font-variant-numeric: tabular-nums;
+}
+
+.flow-ctx-notice {
+  font-size: var(--text-2xs, 11px);
+  color: var(--success, #30a46c);
+  flex: 1;
+  text-align: right;
+}
+
+.flow-ctx-foot .btn {
+  margin-left: auto;
+}

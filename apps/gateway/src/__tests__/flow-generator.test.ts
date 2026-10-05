@@ -25,9 +25,24 @@ import {
 function validFlowJson() {
   return {
     nodes: [
-      { id: 'node_1', type: 'customNode', position: { x: 0, y: 0 }, data: { name: 'startAgentflow', label: 'Start' } },
-      { id: 'node_2', type: 'customNode', position: { x: 250, y: 0 }, data: { name: 'llmAgentflow', label: 'LLM', model: '', systemPrompt: 'x' } },
-      { id: 'node_3', type: 'customNode', position: { x: 500, y: 0 }, data: { name: 'directReplyAgentflow', label: 'Reply', content: 'ok' } },
+      {
+        id: 'node_1',
+        type: 'customNode',
+        position: { x: 0, y: 0 },
+        data: { name: 'startAgentflow', label: 'Start' },
+      },
+      {
+        id: 'node_2',
+        type: 'customNode',
+        position: { x: 250, y: 0 },
+        data: { name: 'llmAgentflow', label: 'LLM', model: '', systemPrompt: 'x' },
+      },
+      {
+        id: 'node_3',
+        type: 'customNode',
+        position: { x: 500, y: 0 },
+        data: { name: 'directReplyAgentflow', label: 'Reply', content: 'ok' },
+      },
     ],
     edges: [
       { id: 'e1', source: 'node_1', target: 'node_2' },
@@ -40,8 +55,18 @@ function validFlowJson() {
 function startlessFlowJson() {
   return {
     nodes: [
-      { id: 'node_1', type: 'customNode', position: { x: 0, y: 0 }, data: { name: 'llmAgentflow', label: 'LLM' } },
-      { id: 'node_2', type: 'customNode', position: { x: 250, y: 0 }, data: { name: 'directReplyAgentflow', label: 'Reply', content: '' } },
+      {
+        id: 'node_1',
+        type: 'customNode',
+        position: { x: 0, y: 0 },
+        data: { name: 'llmAgentflow', label: 'LLM' },
+      },
+      {
+        id: 'node_2',
+        type: 'customNode',
+        position: { x: 250, y: 0 },
+        data: { name: 'directReplyAgentflow', label: 'Reply', content: '' },
+      },
     ],
     edges: [{ id: 'e1', source: 'node_1', target: 'node_2' }],
   }
@@ -131,9 +156,9 @@ describe('normalizeToCanonicalFlow', () => {
     expect(flowData.nodes[1]!.id).not.toBe('n1') // de-duplicated
     expect(flowData.edges[0]!.sourceHandle).toBe('true')
     expect(flowData.edges[0]!.targetHandle).toBe('in')
-    expect(
-      flowData.nodes.every((n) => typeof n.data === 'object' && !Array.isArray(n.data)),
-    ).toBe(true)
+    expect(flowData.nodes.every((n) => typeof n.data === 'object' && !Array.isArray(n.data))).toBe(
+      true,
+    )
   })
 
   it('returns empty arrays for non-object LLM output', () => {
@@ -150,7 +175,11 @@ describe('parseSelectedModel', () => {
   })
 
   it('maps providerId::model to the provider engine', () => {
-    expect(parseSelectedModel('p1::gpt-4o')).toEqual({ kind: 'provider', providerId: 'p1', model: 'gpt-4o' })
+    expect(parseSelectedModel('p1::gpt-4o')).toEqual({
+      kind: 'provider',
+      providerId: 'p1',
+      model: 'gpt-4o',
+    })
   })
 
   it('maps gateway-default / undefined / empty agent:: to auto (CLI-first baseline)', () => {
@@ -176,7 +205,10 @@ describe('buildRepairInstruction', () => {
 describe('generateFlow', () => {
   it('first-pass success: no repair, success telemetry, canonical flowData', async () => {
     const { deps, attempts } = makeDeps()
-    const result = await generateFlow({ userDesc: '三步开发流', source: 'chat', chatId: undefined }, deps)
+    const result = await generateFlow(
+      { userDesc: '三步开发流', source: 'chat', chatId: undefined },
+      deps,
+    )
 
     expect(result.status).toBe('success')
     if (result.status === 'success') {
@@ -187,6 +219,65 @@ describe('generateFlow', () => {
     expect(attempts).toHaveLength(1)
     expect(attempts[0]!.outcome).toBe('success')
     expect(attempts[0]!.repairRounds).toBe(0)
+  })
+
+  it('relayouts overlapping engine coordinates into a non-overlapping topology layout', async () => {
+    // LLM 典型坏输出：分叉节点全挤在同一 y=0 —— 修复前会原样透传到画布叠放
+    const stacked = {
+      nodes: [
+        {
+          id: 'node_1',
+          type: 'customNode',
+          position: { x: 0, y: 0 },
+          data: { name: 'startAgentflow', label: 'Start' },
+        },
+        {
+          id: 'node_2',
+          type: 'customNode',
+          position: { x: 0, y: 0 },
+          data: { name: 'llmAgentflow', label: 'A', model: '', systemPrompt: 'x' },
+        },
+        {
+          id: 'node_3',
+          type: 'customNode',
+          position: { x: 0, y: 0 },
+          data: { name: 'llmAgentflow', label: 'B', model: '', systemPrompt: 'y' },
+        },
+        {
+          id: 'node_4',
+          type: 'customNode',
+          position: { x: 0, y: 0 },
+          data: { name: 'directReplyAgentflow', label: 'Reply', content: 'ok' },
+        },
+      ],
+      edges: [
+        { id: 'e1', source: 'node_1', target: 'node_2' },
+        { id: 'e2', source: 'node_1', target: 'node_3' },
+        { id: 'e3', source: 'node_2', target: 'node_4' },
+        { id: 'e4', source: 'node_3', target: 'node_4' },
+      ],
+    }
+    const { deps } = makeDeps({
+      callEngine: async () => ({ text: JSON.stringify(stacked), engineUsed: 'test-engine' }),
+    })
+    const result = await generateFlow({ userDesc: '分叉流', source: 'canvas' }, deps)
+
+    expect(result.status).toBe('success')
+    if (result.status !== 'success') return
+    const positions = result.flowData.nodes.map((n) => n.position!)
+    // 无重叠不变量：任意两节点横向 ≥ 360 或纵向 ≥ 150（画布节点 280×80 物理放不下）
+    for (let i = 0; i < positions.length; i++) {
+      for (let j = i + 1; j < positions.length; j++) {
+        const dx = Math.abs(positions[i]!.x - positions[j]!.x)
+        const dy = Math.abs(positions[i]!.y - positions[j]!.y)
+        expect(dx >= 360 || dy >= 150).toBe(true)
+      }
+    }
+    // 菱形拓扑：两个分支对称张开、汇合点回中轴
+    const byId = new Map(result.flowData.nodes.map((n) => [n.id, n.position!]))
+    expect(byId.get('node_2')!.y).toBe(-75)
+    expect(byId.get('node_3')!.y).toBe(75)
+    expect(byId.get('node_4')!.y).toBe(0)
   })
 
   it('repair round rescues a broken first output', async () => {
@@ -215,7 +306,10 @@ describe('generateFlow', () => {
 
   it('validation failure is EXPLICIT — no silent fallback flow, errors listed, telemetry recorded', async () => {
     const { deps, attempts } = makeDeps({
-      callEngine: async () => ({ text: JSON.stringify(startlessFlowJson()), engineUsed: 'test-engine' }),
+      callEngine: async () => ({
+        text: JSON.stringify(startlessFlowJson()),
+        engineUsed: 'test-engine',
+      }),
     })
 
     const result = await generateFlow({ userDesc: '没有 start 的流', source: 'chat' }, deps)
@@ -240,7 +334,10 @@ describe('generateFlow', () => {
       edges: [{ id: 'e1', source: 'n1', target: 'n2' }],
     }
     const { deps } = makeDeps({
-      callEngine: async () => ({ text: '```json\n' + JSON.stringify(aliased) + '\n```', engineUsed: 'cli' }),
+      callEngine: async () => ({
+        text: '```json\n' + JSON.stringify(aliased) + '\n```',
+        engineUsed: 'cli',
+      }),
     })
     const result = await generateFlow({ userDesc: '别名测试', source: 'canvas' }, deps)
     expect(result.status).toBe('success')
@@ -268,7 +365,9 @@ describe('generateFlow', () => {
 describe('combineEngineFailure', () => {
   it('leads with the CLI root cause and appends the HTTP fallback error', () => {
     const err = combineEngineFailure(
-      new Error('CLI agent 未完成（failed）：API Error: Unable to connect to API (ConnectionRefused)'),
+      new Error(
+        'CLI agent 未完成（failed）：API Error: Unable to connect to API (ConnectionRefused)',
+      ),
       new Error('No active LLM provider configured. Add one in the LLM Providers settings.'),
     )
     expect(err.message).toBe(

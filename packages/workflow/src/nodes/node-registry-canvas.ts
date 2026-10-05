@@ -46,7 +46,8 @@ export const NODE_CATEGORIES = {
 } as const
 
 /**
- * Canvas node metadata — 9 nodes, CLI-agent-centric (D8 精简，2026-09-05).
+ * Canvas node metadata — 10 nodes, CLI-agent-centric (D8 精简 2026-09-05；
+ * 2026-10-04 复活 executeFlow 子流程节点——引擎侧 DB-free，宿主注入执行器).
  *
  * platformAgent is the hero node (a real CLI agent from the agents table);
  * everything else is minimal orchestration scaffolding. Removed types:
@@ -104,11 +105,28 @@ export const CANVAS_NODES: CanvasNodeMeta[] = [
         type: 'number',
         default: 10,
       },
+      {
+        label: '失败隔离',
+        name: 'isolateFailure',
+        type: 'boolean',
+        default: false,
+        description:
+          '开启后本节点失败只剪枝其下游分支，run 以 partial_success 收尾——不拖垮其他分支',
+      },
+      {
+        label: '指定为最终输出',
+        name: 'finalOutput',
+        type: 'boolean',
+        default: false,
+        description: '开启后本节点输出压过「拓扑最深节点」默认，成为 run 的最终输出',
+      },
     ],
     defaultData: {
       agentId: '',
       systemPrompt: '',
       maxIterations: 10,
+      isolateFailure: false,
+      finalOutput: false,
     },
   },
   {
@@ -147,12 +165,55 @@ export const CANVAS_NODES: CanvasNodeMeta[] = [
         type: 'number',
         default: 0.7,
       },
+      {
+        label: 'Output Schema (JSON)',
+        name: 'outputSchema',
+        type: 'json',
+        rows: 6,
+        default: '',
+        description:
+          '可选 JSON Schema：要求只输出符合结构的 JSON（输出带 json 字段；做一轮格式修复重试；禁用流式）',
+      },
+      {
+        label: '注入会话历史',
+        name: 'includeChatHistory',
+        type: 'number',
+        default: 0,
+        description: '注入最近 N 条会话消息 + 滚动会话摘要（0=不注入；chat 触发的运行生效）',
+      },
+      {
+        label: '上下文预算（字符）',
+        name: 'contextCap',
+        type: 'number',
+        default: 0,
+        description:
+          '本节点上下文总预算（字符，0=默认 131072）——常驻不裁，超限依次丢历史、截上游输入（对账进 span）',
+      },
+      {
+        label: '失败隔离',
+        name: 'isolateFailure',
+        type: 'boolean',
+        default: false,
+        description:
+          '开启后本节点失败只剪枝其下游分支，run 以 partial_success 收尾——不拖垮其他分支',
+      },
+      {
+        label: '指定为最终输出',
+        name: 'finalOutput',
+        type: 'boolean',
+        default: false,
+        description: '开启后本节点输出压过「拓扑最深节点」默认，成为 run 的最终输出',
+      },
     ],
     defaultData: {
       model: '',
       systemPrompt: '',
       prompt: '',
       temperature: 0.7,
+      outputSchema: '',
+      includeChatHistory: 0,
+      isolateFailure: false,
+      finalOutput: false,
     },
   },
   {
@@ -254,6 +315,22 @@ export const CANVAS_NODES: CanvasNodeMeta[] = [
         acceptVariable: true,
         description: 'JSON array — the body connected to the Iteration anchor runs once per item',
       },
+      {
+        label: 'Concurrency',
+        name: 'concurrency',
+        type: 'number',
+        default: 1,
+        description: '逐项并行度（默认 1 = 串行；2-8 各项独立并行，体内嵌套迭代自动回退串行）',
+      },
+      {
+        label: 'While Condition',
+        name: 'whileCondition',
+        type: 'code',
+        rows: 2,
+        default: '',
+        description:
+          '可选 JS 表达式（如 $input.approved === true）——每项完成后求值，真值即停止剩余项（「循环直到 X」，仍受上限保护）',
+      },
     ],
     outputs: [
       { name: 'iteration', label: 'Iteration Body' },
@@ -261,6 +338,39 @@ export const CANVAS_NODES: CanvasNodeMeta[] = [
     ],
     defaultData: {
       items: '',
+      concurrency: 1,
+      whileCondition: '',
+    },
+  },
+  {
+    name: 'executeFlowAgentflow',
+    label: 'Subflow',
+    category: 'flow',
+    color: '#ec4899',
+    icon: 'GitBranch',
+    description: 'Run another flow as a subflow — shares this run’s agents and tools',
+    inputs: [
+      {
+        label: 'Flow ID',
+        name: 'targetFlowId',
+        type: 'string',
+        acceptVariable: true,
+        required: true,
+        description: '目标流程 id（打开目标画布，URL /workflows/<id>/canvas 中的 id）',
+      },
+      {
+        label: 'Input',
+        name: 'input',
+        type: 'code',
+        rows: 3,
+        default: '',
+        description: '传给子流程的输入（支持模板变量）；留空透传上游输出',
+      },
+    ],
+    outputs: [{ name: 'output', label: 'Subflow Output' }],
+    defaultData: {
+      targetFlowId: '',
+      input: '',
     },
   },
   {
@@ -295,9 +405,7 @@ export const CANVAS_NODES: CanvasNodeMeta[] = [
         description: 'Choices for inputType=select',
       },
     ],
-    outputs: [
-      { name: 'response', label: 'Response' },
-    ],
+    outputs: [{ name: 'response', label: 'Response' }],
     defaultData: {
       prompt: '',
       inputType: 'text',
@@ -320,9 +428,7 @@ export const CANVAS_NODES: CanvasNodeMeta[] = [
         acceptVariable: true,
       },
     ],
-    outputs: [
-      { name: 'text', label: 'Text' },
-    ],
+    outputs: [{ name: 'text', label: 'Text' }],
     defaultData: {
       text: '',
     },
@@ -348,9 +454,7 @@ export const CANVAS_NODES: CanvasNodeMeta[] = [
         rows: 4,
       },
     ],
-    outputs: [
-      { name: 'result', label: 'Result' },
-    ],
+    outputs: [{ name: 'result', label: 'Result' }],
     defaultData: {
       code: '',
       parameters: {},

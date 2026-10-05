@@ -1,9 +1,18 @@
-import { DagExecutor, type FlowData, resolveNodeType } from '@dagents/workflow'
+import {
+  DagExecutor,
+  type FlowData,
+  type IExecutionContext,
+  resolveNodeType,
+} from '@dagents/workflow'
 import { NodeRegistry } from '@dagents/workflow'
 import type { Logger } from '@dagents/shared'
+import { runQuery } from '@dagents/db'
 import { allNodes } from '@dagents/workflow'
 import { makeIncrementalSpanWriter, type IncrementalSpanWriter } from '../span-writer.js'
 import { forRunLive, type RunLiveTap } from '../run-live-registry.js'
+import { getFlowById } from '../repositories/workflows.repo.js'
+import { getChatContextSummary, CHAT_SUMMARY_MAX_CHARS } from '../lib/chat-context-summary.js'
+import { declareCounter } from '../lib/metrics.js'
 import {
   createDefaultLlmClient,
   createAgentFetcher,
@@ -22,6 +31,24 @@ import {
  * / 静态预供答案）由调用方在 baseOptions 之上 spread 合并。
  */
 
+// 组装字节可观测（P3）：LLM/Agent 节点的 contextBudget 对账 → 按节点类型
+// 累计（count + 总字符），"谁在吃上下文"从推断变成曲线。
+const assembledNodesTotal = declareCounter(
+  'dagents_llm_assembled_nodes_total',
+  'LLM nodes assembled with a context budget report, by node type',
+  ['nodeType'],
+)
+const assembledCharsTotal = declareCounter(
+  'dagents_llm_assembled_chars_total',
+  'Total assembled context characters reported by LLM nodes, by node type',
+  ['nodeType'],
+)
+const assembledOverBudgetTotal = declareCounter(
+  'dagents_llm_assembled_over_budget_total',
+  'LLM nodes whose fixed (system+prompt+schema) block alone exceeded the context cap',
+  ['nodeType'],
+)
+
 export interface AssembleWorkflowEngineOptions {
   flowData: FlowData
   runId: string
@@ -30,6 +57,14 @@ export interface AssembleWorkflowEngineOptions {
   cwd?: string
   /** 调用方 logger（span-writer 依赖注入，必传）。 */
   logger: Logger
+  /** 会话 id（historyRetriever 的检索锚点；缺省用 runId）。 */
+  chatId?: string
+  /** 子流程嵌套深度（根图 = 0；flowExecutor 递归装配时 +1，上限 3）。 */
+  subflowDepth?: number
+  /** flow 级上下文（P2a）：flows.context_md 原文——这里按子预算预裁后注入。 */
+  flowContextMd?: string | null
+  /** 祖先 flowId 链（防子流程环引用；根图 = 空）。 */
+  ancestorFlowIds?: ReadonlySet<string>
 }
 
 export interface AssembledWorkflowEngine {
@@ -47,13 +82,21 @@ export interface AssembledWorkflowEngine {
     llmClient: ReturnType<typeof createDefaultLlmClient>
     agentFetcher: ReturnType<typeof createAgentFetcher>
     toolRegistry: ReturnType<typeof createBuiltInToolRegistry>
+    historyRetriever: IExecutionContext['historyRetriever']
+    flowExecutor: IExecutionContext['flowExecutor']
+    flowContext?: string
     onNodeStart: IncrementalSpanWriter['onNodeStart']
     onNodeEnd: IncrementalSpanWriter['onNodeEnd']
     onNodeDelta: IncrementalSpanWriter['onNodeDelta']
   }
 }
 
-export function assembleWorkflowEngine(opts: AssembleWorkflowEngineOptions): AssembledWorkflowEngine {
+/** 子流程嵌套上限（防自引用/互相引用的死循环烧钱）。 */
+const MAX_SUBFLOW_DEPTH = 3
+
+export function assembleWorkflowEngine(
+  opts: AssembleWorkflowEngineOptions,
+): AssembledWorkflowEngine {
   const registry = new NodeRegistry()
   registry.registerMany(allNodes())
   const executor = new DagExecutor(registry)
@@ -65,6 +108,73 @@ export function assembleWorkflowEngine(opts: AssembleWorkflowEngineOptions): Ass
   const llmClient = createDefaultLlmClient('claude', { cwd: opts.cwd, runId: opts.runId })
   const agentFetcher = createAgentFetcher()
   const toolRegistry = createBuiltInToolRegistry()
+  const historyRetriever = createHybridHistoryRetriever()
+
+  // flow 级上下文（P2a）：按子预算预裁（DAGENTS_FLOW_CONTEXT_CAP，默认 8KB）
+  // ——引擎/节点不再感知体积。dsh 取舍序：这是「最特定」的注入块。
+  const FLOW_CONTEXT_CAP = (() => {
+    const raw = Number(process.env.DAGENTS_FLOW_CONTEXT_CAP)
+    return Number.isFinite(raw) && raw > 0 ? raw : 8192
+  })()
+  const rawCtx = (opts.flowContextMd ?? '').trim()
+  const flowContext =
+    rawCtx.length <= FLOW_CONTEXT_CAP
+      ? rawCtx
+      : rawCtx.slice(0, Math.floor(FLOW_CONTEXT_CAP * 0.85)) +
+        `\n[流程上下文截断：原文 ${rawCtx.length} 字符，上限 ${FLOW_CONTEXT_CAP}]`
+  if (rawCtx.length > FLOW_CONTEXT_CAP) {
+    opts.logger.warn('flow context truncated to cap', {
+      flowId: opts.flowId,
+      rawChars: rawCtx.length,
+      cap: FLOW_CONTEXT_CAP,
+    })
+  }
+
+  // 子流程执行器（2026-10-04 ExecuteFlow 复活）：引擎侧 DB-free，这里持有
+  // flows 表访问。递归装配同 runId 的子引擎——spans 自然并入同一 run 的
+  // 增量写入（旁观/轨迹无缝）；深度与祖先链守卫防环引用。
+  const depth = opts.subflowDepth ?? 0
+  const ancestors = new Set(opts.ancestorFlowIds ?? [])
+  ancestors.add(opts.flowId)
+  const flowExecutor: NonNullable<IExecutionContext['flowExecutor']> = async (
+    flowId,
+    input,
+    execOpts,
+  ) => {
+    if (flowId === opts.flowId || ancestors.has(flowId)) {
+      throw new Error('子流程不能引用自身或其祖先链（环引用防护）')
+    }
+    if (depth + 1 > MAX_SUBFLOW_DEPTH) {
+      throw new Error(`子流程嵌套超过 ${MAX_SUBFLOW_DEPTH} 层上限`)
+    }
+    const row = await getFlowById(flowId)
+    if (!row) throw new Error(`子流程 ${flowId} 不存在（可能已被删除）`)
+    const flowData = row.flow_data as FlowData
+    if (!flowData || !Array.isArray(flowData.nodes) || !Array.isArray(flowData.edges)) {
+      throw new Error(`子流程 ${flowId} 的 flow 数据无效`)
+    }
+    const sub = assembleWorkflowEngine({
+      flowData,
+      runId: opts.runId,
+      flowId,
+      cwd: opts.cwd,
+      logger: opts.logger,
+      chatId: opts.chatId,
+      subflowDepth: depth + 1,
+      ancestorFlowIds: ancestors,
+      flowContextMd: opts.flowContextMd,
+    })
+    const result = await sub.executor.execute(flowData, input, {
+      ...sub.baseOptions,
+      chatId: opts.chatId ?? opts.runId,
+      runId: opts.runId,
+      state: {},
+      isLastNode: true,
+      signal: execOpts.signal,
+    })
+    sub.live.finish(toRunStatus(result.status))
+    return { output: result.finalOutput ?? {}, status: result.status }
+  }
 
   // 节点 label/type 查找表：span 携带画布 inspector 同款人类可读元数据。
   // nodeType 用引擎同款解析（resolveNodeType：data.name 优先、type 回退，
@@ -100,6 +210,9 @@ export function assembleWorkflowEngine(opts: AssembleWorkflowEngineOptions): Ass
       llmClient,
       agentFetcher,
       toolRegistry,
+      historyRetriever,
+      flowExecutor,
+      flowContext: flowContext.length > 0 ? flowContext : undefined,
       onNodeStart: (n) => {
         spanWriter.onNodeStart(n)
         live.nodeStart(n)
@@ -107,6 +220,27 @@ export function assembleWorkflowEngine(opts: AssembleWorkflowEngineOptions): Ass
       onNodeEnd: (n) => {
         spanWriter.onNodeEnd(n)
         live.nodeEnd(n)
+        // P3 可观测：contextBudget 对账上指标（无账目的节点零开销跳过）
+        const budget = (
+          n.output as
+            | { contextBudget?: { totalCharsLikeNever?: never } & Record<string, unknown> }
+            | undefined
+        )?.contextBudget as
+          | {
+              inputChars?: number
+              historyChars?: number
+              fixedChars?: number
+              overBudget?: boolean
+            }
+          | undefined
+        if (budget) {
+          const nodeType = nodeTypeById.get(n.nodeId) ?? 'unknown'
+          const total =
+            (budget.inputChars ?? 0) + (budget.historyChars ?? 0) + (budget.fixedChars ?? 0)
+          assembledNodesTotal.inc(1, { nodeType })
+          assembledCharsTotal.inc(total, { nodeType })
+          if (budget.overBudget) assembledOverBudgetTotal.inc(1, { nodeType })
+        }
       },
       onNodeDelta: (n, chunk) => {
         spanWriter.onNodeDelta(n, chunk)
@@ -116,9 +250,95 @@ export function assembleWorkflowEngine(opts: AssembleWorkflowEngineOptions): Ass
   }
 }
 
-/** 引擎执行状态 → runs 行 status（三入口共用映射，防再漂移）。 */
-export function toRunStatus(executionStatus: string): 'completed' | 'cancelled' | 'failed' {
+/**
+ * 引擎执行状态 → runs 行 status（三入口共用映射，防再漂移）。
+ * 2026-10-04：partial_success（失败分支隔离后的有产出终态）与
+ * budget_exceeded（token 预算停机）作为独立终态如实落库——runs.status
+ * 是 text 列，console 侧按标签映射渲染。
+ */
+export function toRunStatus(
+  executionStatus: string,
+): 'completed' | 'cancelled' | 'failed' | 'partial_success' | 'budget_exceeded' {
   if (executionStatus === 'success') return 'completed'
   if (executionStatus === 'cancelled') return 'cancelled'
+  if (executionStatus === 'partial_success') return 'partial_success'
+  if (executionStatus === 'budget_exceeded') return 'budget_exceeded'
   return 'failed'
+}
+
+/**
+ * 混合会话检索器（2026-10-04）：关键词命中 + 时间衰减 + 同会话加权的
+ * 融合排序。作用域 = 当前会话 + 同目录其他会话（D8 删掉 Retriever 节点后，
+ * chat 触发的工作流每轮冷启动——本检索器补上「记得刚才聊过什么」）。
+ *
+ * 向量检索的升级路径：换 embeddings + pgvector 时只需替换本实现
+ * （节点契约不变）；当前的关键词+时间融合是零基础设施的诚实基线。
+ */
+function createHybridHistoryRetriever(): NonNullable<IExecutionContext['historyRetriever']> {
+  return async (query, { chatId, limit }) => {
+    // 两级历史（P1b）：摘要层（滚动 checkpoint）与原文层并行取，互不阻塞
+    const summary = await getChatContextSummary(chatId)
+    try {
+      const records = await loadCandidateMessages(chatId)
+      if (records.length === 0) return { summary, messages: [] }
+
+      const tokens = [
+        ...new Set(
+          query
+            .split(/[\s,.;:!?，。；：！？]+/)
+            .map((t) => t.trim().toLowerCase())
+            .filter((t) => t.length >= 2),
+        ),
+      ].slice(0, 8)
+
+      const now = Date.now()
+      const scored = records.map((m) => {
+        const lower = m.content.toLowerCase()
+        const hits = tokens.reduce((n, t) => (lower.includes(t) ? n + 1 : n), 0)
+        const ageHours = Math.max(0, (now - Date.parse(m.created_at)) / 3_600_000)
+        const recency = 1 / (1 + ageHours)
+        const sameChat = m.chat_id === chatId ? 2 : 0
+        return { m, score: hits * 3 + recency * 2 + sameChat }
+      })
+      return {
+        summary: summary ? summary.slice(0, CHAT_SUMMARY_MAX_CHARS()) : null,
+        messages: scored
+          .filter((s) => s.score > 2) // 全无命中且久远的不进上下文
+          .sort((a, b) => b.score - a.score)
+          .slice(0, limit)
+          .map((s) => ({
+            role: s.m.role,
+            content: s.m.content.slice(0, 2_000),
+            createdAt: s.m.created_at,
+          })),
+      }
+    } catch {
+      // 检索是增益不是依赖：任何故障返回空上下文，不阻塞生成
+      return { summary, messages: [] }
+    }
+  }
+}
+
+/** 原文层候选（近 7 天，当前会话 + 同目录，最近 200 条）。 */
+async function loadCandidateMessages(
+  chatId: string,
+): Promise<Array<{ chat_id: string; role: string; content: string; created_at: string }>> {
+  const { records } = await runQuery<{
+    chat_id: string
+    role: string
+    content: string
+    created_at: string
+  }>(
+    `SELECT m.chat_id, m.role, m.content, m.created_at
+       FROM chat_messages m
+       JOIN chats c ON c.id = m.chat_id
+      WHERE (m.chat_id = $1::uuid
+             OR c.directory_id = (SELECT directory_id FROM chats WHERE id = $1::uuid))
+        AND m.role IN ('user', 'assistant')
+        AND m.created_at > NOW() - interval '7 days'
+      ORDER BY m.created_at DESC
+      LIMIT 200`,
+    [chatId],
+  )
+  return records
 }

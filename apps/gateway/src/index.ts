@@ -7,6 +7,8 @@ import { wsHub } from './ws-hub.js'
 import { executionRegistry } from './execution-registry.js'
 import { startRetentionTimer } from './retention.js'
 import { markOrphanedHumanInputs } from './routes/human-input.js'
+import { reportErrorToSink } from './lib/error-sink.js'
+import { retryUntilDeadline, DB_INIT_RETRY_MS } from './lib/db-init-retry.js'
 
 const tracing = startTracing('gateway')
 const log = createLogger({ svc: 'gateway:reaper' })
@@ -16,7 +18,19 @@ const port = Number(process.env.GATEWAY_PORT ?? 8080)
 // 如需从其他设备访问（如远程开发），显式设置 GATEWAY_HOST=0.0.0.0。
 const hostname = process.env.GATEWAY_HOST ?? '127.0.0.1'
 
-await initDb()
+// 启动期依赖重试（稳定性专项 2026-10-04）：docker compose 竞态 / 机器重启
+// 顺序里 Postgres 慢半拍，网关不该当场退出等人工 restart。预算内带退避
+// 重试（默认 60s），超窗仍失败才带着最后一次错误退出。
+await retryUntilDeadline(() => initDb(), {
+  onRetry: ({ attempt, delayMs, error }) => {
+    log.warn('db init failed — retrying until deadline', {
+      attempt,
+      delayMs,
+      budgetMs: DB_INIT_RETRY_MS(),
+      error: error instanceof Error ? error.message : String(error),
+    })
+  },
+})
 
 /**
  * Boot sweep (execution-cancellation spec D7 / architecture AD-6): a gateway
@@ -231,3 +245,28 @@ console.log(`gateway on ${hostname}:${port} (ws: /ws)`)
 
 process.on('SIGTERM', () => void shutdown('SIGTERM', server))
 process.on('SIGINT', () => void shutdown('SIGINT', server))
+
+/**
+ * 进程级异常兜底（稳定性专项 2026-10-04）：后台定时器（retention / reaper /
+ * sweeper）、SSE 流、fire-and-forget 链里任何一个漏接的 rejection，在新版
+ * Node 默认 throw 语义下都会直接杀死网关——连带全部在跑 run 与 CLI 子进程
+ *（agent-invoke 的 collect 兜底注释就是活证据）。此处收口：
+ *  - unhandledRejection：记日志 + error-sink，进程继续服务（后台任务的
+ *    残余状态由各自信任域兜底：执行有 boot sweep，定时器每轮独立容错）。
+ *  - uncaughtException：同步栈已不可信，走受控优雅停机链（abort 执行 →
+ *    落库 → 3s 硬退出看门狗），而不是让 Node 默认裸退丢掉终态。
+ */
+process.on('unhandledRejection', (reason) => {
+  log.error('unhandled rejection (process-level guardrail)', {
+    reason: reason instanceof Error ? `${reason.message}\n${reason.stack ?? ''}` : String(reason),
+  })
+  reportErrorToSink(reason, 'gateway')
+})
+process.on('uncaughtException', (err) => {
+  log.error('uncaught exception (process-level guardrail) — graceful shutdown', {
+    error: err.message,
+    stack: err.stack,
+  })
+  reportErrorToSink(err, 'gateway')
+  void shutdown('uncaughtException', server)
+})

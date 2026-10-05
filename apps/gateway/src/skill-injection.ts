@@ -91,12 +91,23 @@ export function buildSkillContext(
  * section. Empty instructions degrade to just the skill section (and vice
  * versa); both empty → undefined so no system prompt is passed at all.
  */
+/** persona 本体（instructions）预算：超出保头截断 + 指纹标记（P3，2026-10-04）。 */
+const MAX_PERSONA_CHARS = (() => {
+  const raw = Number(process.env.DAGENTS_PERSONA_CONTEXT_CAP)
+  return Number.isFinite(raw) && raw > 0 ? raw : 32_000
+})()
+
 export function composeSystemPrompt(
   instructions: string | null | undefined,
   skills: unknown,
   registry: Pick<SkillsRegistry, 'get'> = skillsRegistry,
 ): string | undefined {
-  const base = (instructions ?? '').trim()
+  let base = (instructions ?? '').trim()
+  if (base.length > MAX_PERSONA_CHARS) {
+    base =
+      base.slice(0, MAX_PERSONA_CHARS) +
+      `\n…(persona 超过 ${MAX_PERSONA_CHARS} 字符预算已截断——完整定义请在 Agent 库瘦身)`
+  }
   const context = buildSkillContext(normalizeSkillNames(skills), registry)
   if (base && context) return `${base}\n\n${context}`
   return base || context || undefined

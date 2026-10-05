@@ -92,17 +92,17 @@ export async function getRunError(runId: string): Promise<string | null> {
 }
 
 /** 会话执行记录（chat 详情右栏；runs.chat_id 是 TEXT，入参转 text 比较）。 */
-export async function listRunsForChat(
-  chatId: string,
-): Promise<Array<{
-  id: string
-  status: string
-  created_at: Date
-  finished_at: Date | null
-  duration_ms: number | null
-  pipeline_id: string | null
-  flow_name: string | null
-}>> {
+export async function listRunsForChat(chatId: string): Promise<
+  Array<{
+    id: string
+    status: string
+    created_at: Date
+    finished_at: Date | null
+    duration_ms: number | null
+    pipeline_id: string | null
+    flow_name: string | null
+  }>
+> {
   const { records } = await runQuery<{
     id: string
     status: string
@@ -138,6 +138,8 @@ export interface RunHistoryRow {
   first_error: string | null
   /** 2026-09-19 P0 数据链：运行的项目目录锚（终端入口数据源）。 */
   directory_id: string | null
+  /** 2026-10-04 谱系：本 run 从哪个 run 断点续跑/应答回流而来（无 = 根运行）。 */
+  resumed_from_run_id: string | null
 }
 
 /** 跨 Flow 运行历史（Workflow-First 运行页）：可选状态/flow 过滤 + 失败摘要。 */
@@ -164,6 +166,7 @@ export async function listRunsHistory(opts: {
     `SELECT r.id, r.pipeline_id AS flow_id, f.name AS flow_name,
             r.status, r.started_at, r.finished_at, r.duration_ms,
             r.input, r.chat_id, r.created_at, r.directory_id,
+            r.resumed_from_run_id,
             (SELECT left(s.error, 160) FROM run_node_spans s
               WHERE s.run_id = r.id AND s.status = 'failed' AND s.error IS NOT NULL
               ORDER BY s.started_at ASC LIMIT 1) AS first_error
@@ -267,7 +270,14 @@ export async function initAsyncWorkflowRunRow(input: {
     `INSERT INTO runs (id, identifier, pipeline_id, status, input, output, started_at, duration_ms, cost, directory_id)
      VALUES ($1::uuid, $2::text, $3::uuid, 'running', $4, NULL, $5, NULL, 0, $6::uuid)
      ON CONFLICT (id) DO NOTHING`,
-    [input.runId, input.runId, input.flowId, input.inputJson, input.startedAt, input.directoryId ?? null],
+    [
+      input.runId,
+      input.runId,
+      input.flowId,
+      input.inputJson,
+      input.startedAt,
+      input.directoryId ?? null,
+    ],
   )
 }
 
@@ -349,7 +359,9 @@ export async function insertNodeSpansBatch(rows: NodeSpanInsertRow[]): Promise<v
   for (const row of rows) {
     // 14 columns: run_id, flow_id, node_id, node_label, node_type, status,
     // started_at, finished_at, duration_ms, tokens, cost, error, input, output
-    spanPlaceholders.push(`($${i++}, $${i++}, $${i++}, $${i++}, $${i++}, $${i++}, $${i++}, $${i++}, $${i++}, $${i++}, $${i++}, $${i++}, $${i++}, $${i++})`)
+    spanPlaceholders.push(
+      `($${i++}, $${i++}, $${i++}, $${i++}, $${i++}, $${i++}, $${i++}, $${i++}, $${i++}, $${i++}, $${i++}, $${i++}, $${i++}, $${i++})`,
+    )
     spanValues.push(
       row.run_id,
       row.flow_id,
@@ -377,17 +389,22 @@ export async function insertNodeSpansBatch(rows: NodeSpanInsertRow[]): Promise<v
 
 /** Langfuse 导出成功后把 trace id 盖到尚未标记的 span 上。 */
 export async function stampRunSpansTraceId(traceId: string, runId: string): Promise<void> {
-  await runQuery(
-    `UPDATE run_node_spans SET trace_id = $1 WHERE run_id = $2 AND trace_id IS NULL`,
-    [traceId, runId],
-  )
+  await runQuery(`UPDATE run_node_spans SET trace_id = $1 WHERE run_id = $2 AND trace_id IS NULL`, [
+    traceId,
+    runId,
+  ])
 }
 
 /** agent 详情的 runs 关联（usage @> 包含查询，与 dispatch 详情路由同契约）。 */
 export async function listRunsTouchingAgentDaemon(
   adId: string,
 ): Promise<Array<{ id: string; identifier: string; status: string; cost: string }>> {
-  const { records } = await runQuery<{ id: string; identifier: string; status: string; cost: string }>(
+  const { records } = await runQuery<{
+    id: string
+    identifier: string
+    status: string
+    cost: string
+  }>(
     `SELECT id, identifier, status, cost::text AS cost
        FROM runs
       WHERE agent_daemon_calls @> $1::jsonb

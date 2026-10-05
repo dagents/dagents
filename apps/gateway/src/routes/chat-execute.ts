@@ -31,8 +31,18 @@ import {
   findFirstAgentDaemonByKinds,
   findFirstAgentDaemonAny,
 } from '../repositories/agent-daemons.repo.js'
-import { findRunnableFlowIdByName, getFlowDataById, insertDraftFlow } from '../repositories/workflows.repo.js'
+import {
+  findRunnableFlowIdByName,
+  getFlowDataById,
+  insertDraftFlow,
+} from '../repositories/workflows.repo.js'
 import { insertDirectDaemonRunRow } from '../repositories/runs.repo.js'
+import {
+  tryAcquireRunSlot,
+  recordRunFinished,
+  runGateStats,
+  MAX_CONCURRENT_RUNS,
+} from '../lib/run-gate.js'
 
 const log = createLogger({ svc: 'gateway:chat-execute' })
 
@@ -147,7 +157,10 @@ export async function routeMessage(
   }
 
   if (!flowId && !agentId) {
-    return { mode: 'json', error: 'no agent or flow bound to chat — set chat.agentId or chat.flowId, or use @agent' }
+    return {
+      mode: 'json',
+      error: 'no agent or flow bound to chat — set chat.agentId or chat.flowId, or use @agent',
+    }
   }
 
   // Persist agent/flow overrides onto the chat row so subsequent reads
@@ -221,7 +234,11 @@ async function routeCommand(
   const ack = formatCommandAck(cmd)
   let systemMessageId: string | undefined
   try {
-    systemMessageId = await insertSystemMessageReturningId(chatId, ack.text, JSON.stringify({ command: cmd }))
+    systemMessageId = await insertSystemMessageReturningId(
+      chatId,
+      ack.text,
+      JSON.stringify({ command: cmd }),
+    )
   } catch (err) {
     log.error('routeCommand system message insert failed', { chatId, error: String(err) })
     return { mode: 'json', error: 'command ack failed' }
@@ -376,6 +393,23 @@ async function routeFlowCommand(
     }
   }
 
+  // run 并发闸（稳定性专项）：达上限诚实拒绝（chat 尚未标记 running，
+  // 拒绝不留半状态）；release 与终态计数挂在异步执行的 .finally。
+  const releaseRunSlot = tryAcquireRunSlot()
+  if (!releaseRunSlot) {
+    return {
+      mode: 'json',
+      payload: {
+        ack: `⚡ 并发运行已达上限（${MAX_CONCURRENT_RUNS()}）——请取消闲置运行或稍后重试`,
+        command: cmd,
+        systemMessageId,
+        error: 'concurrent run cap reached',
+        active: runGateStats().active,
+      },
+      systemMessageId,
+    }
+  }
+
   // Mark chat as running + bind flow_id (text column — accepts any string).
   await markChatRunningWithFlow(flowId, chatId).catch((err) => {
     log.warn('routeFlowCommand status update failed', { chatId, flowId, error: String(err) })
@@ -405,6 +439,7 @@ async function routeFlowCommand(
   // Fire-and-forget execution — persistComplete writes the assistant message
   // and pushes chat:done via wsHub when finished. We don't await here so the
   // HTTP response returns immediately with the ack.
+  let finalRunStatus: string | null = null
   void (async () => {
     const startedAt = Date.now()
     // run-live 收口句柄提到 try 外：装配之后任何失败路径（含 catch）都要关流，
@@ -439,11 +474,16 @@ async function routeFlowCommand(
       // 引擎装配单一来源（workflows.ts / chats.ts 同款）—— 此前这里是
       // 手工镜像副本，漏接了 spanWriter：@flow 触发的运行在画布旁观里
       // 永远「无进度」。现在与画布直跑同源（2026-09-17 评审修复）。
-      const { executor, live: liveTap, baseOptions } = assembleWorkflowEngine({
+      const {
+        executor,
+        live: liveTap,
+        baseOptions,
+      } = assembleWorkflowEngine({
         flowData,
         runId,
         flowId,
         logger: log,
+        flowContextMd: flowRow.context_md ?? null,
       })
       live = liveTap
 
@@ -460,6 +500,7 @@ async function routeFlowCommand(
       const durationMs = Date.now() - startedAt
       if (result.status === 'cancelled') {
         live?.finish('cancelled')
+        finalRunStatus = 'cancelled'
         await persistCancelled({
           chatId,
           runId,
@@ -468,7 +509,9 @@ async function routeFlowCommand(
         })
         return
       }
-      if (result.status === 'success') {
+      // partial_success（2026-10-04 失败分支隔离）：有产出——按完成走，
+      // 聊天里如实带一行提示（用户不需要区分引擎内部状态机）。
+      if (result.status === 'success' || result.status === 'partial_success') {
         // finalOutput is Record<string, unknown> | null — extract a string
         // for chat rendering. DirectReply nodes emit { content: string };
         // fall back to JSON for any other shape.
@@ -479,12 +522,26 @@ async function routeFlowCommand(
             : out != null
               ? JSON.stringify(out)
               : ''
-        live?.finish('completed')
+        live?.finish(result.status === 'success' ? 'completed' : 'partial_success')
+        finalRunStatus = 'completed'
         await persistComplete({
           chatId,
           runId,
-          output: output || `(flow ${cmd.target} completed with no output)`,
+          output:
+            (result.status === 'partial_success'
+              ? '（部分分支失败，以下为完成分支的产出）\n\n'
+              : '') + (output || `(flow ${cmd.target} completed with no output)`),
           status: 'completed',
+          durationMs,
+        })
+      } else if (result.status === 'budget_exceeded') {
+        live?.finish('budget_exceeded')
+        finalRunStatus = 'failed'
+        await persistComplete({
+          chatId,
+          runId,
+          output: `Flow 停机：${result.error ?? 'token 预算超限'}`,
+          status: 'failed',
           durationMs,
         })
       } else {
@@ -528,6 +585,10 @@ async function routeFlowCommand(
     .finally(() => {
       resolveDone()
       executionRegistry.unregister(handle)
+      releaseRunSlot()
+      // 早退路径（flow 不可加载等）与异常路径全部 persist 'failed'——
+      // finalRunStatus 为 null 时按 failed 计，与落库语义一致。
+      recordRunFinished(finalRunStatus ?? 'failed')
     })
 
   return {
@@ -641,7 +702,11 @@ async function routeWorkflowCommand(
           durationMs: Date.now() - startedAt,
         })
       } catch (persistErr) {
-        log.error('routeWorkflowCommand persistComplete failed', { chatId, runId, error: String(persistErr) })
+        log.error('routeWorkflowCommand persistComplete failed', {
+          chatId,
+          runId,
+          error: String(persistErr),
+        })
       }
     }
   })()
@@ -743,7 +808,11 @@ async function routeDaemonCommand(
 
     // Mark chat running — daemon will complete async (see jsdoc above).
     await setChatStatusRunning(chatId).catch((err) => {
-      log.warn('routeDaemonCommand status=running update failed', { chatId, runId, error: String(err) })
+      log.warn('routeDaemonCommand status=running update failed', {
+        chatId,
+        runId,
+        error: String(err),
+      })
     })
 
     return {

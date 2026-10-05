@@ -7,6 +7,7 @@ import { HumanInputNode } from './human-input/human-input.node.js'
 import { StartNode } from './start/start.node.js'
 import { LLMNode } from './llm/llm.node.js'
 import { PlatformAgentNode } from './platform-agent/platform-agent.node.js'
+import { ExecuteFlowNode } from './execute-flow/execute-flow.node.js'
 import type { INode } from '../types/index.js'
 
 // Re-export node classes for direct import
@@ -19,6 +20,7 @@ export { HumanInputNode } from './human-input/human-input.node.js'
 export { StartNode } from './start/start.node.js'
 export { LLMNode } from './llm/llm.node.js'
 export { PlatformAgentNode } from './platform-agent/platform-agent.node.js'
+export { ExecuteFlowNode } from './execute-flow/execute-flow.node.js'
 
 // Canvas node registry (metadata for the frontend editor)
 export { CANVAS_NODES, NODE_CATEGORIES, getNodeMeta, getNodesByCategory } from './node-registry-canvas.js'
@@ -41,5 +43,6 @@ export function allNodes(): INode[] {
     new HttpNode(),
     new ConditionNode(),
     new HumanInputNode(),
+    new ExecuteFlowNode(),
   ]
 }

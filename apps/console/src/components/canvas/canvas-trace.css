@@ -1,0 +1,686 @@
+/*
+ * canvas-trace.css —— 运行结果「轨迹」视图样式（2026-10-01）。
+ *
+ * 视觉参数参考 deepseek-harness Trajectory（0.5px 发丝线 / tabular-nums
+ * 时间列 / 120ms hover / 180ms 过渡 / prefers-reduced-motion 守卫 / 运行态
+ * 脉动），配色一律走 tokens.css 语义变量（暗色主题经 [data-theme] 重绑
+ * 自动适配，本文件零主题分支）。仅本组件 import（孤儿 CSS 护栏）。
+ */
+
+.canvas-trace {
+  position: relative;
+  display: flex;
+  flex-direction: column;
+  min-height: 0;
+  max-height: 66vh;
+  flex: 1;
+}
+
+.canvas-trace .tnum {
+  font-variant-numeric: tabular-nums;
+}
+
+.canvas-trace .mono {
+  font-family: var(--font-mono);
+}
+
+/* ── 工具条 ── */
+
+.trace-toolbar {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  flex: none;
+  padding: 6px 8px;
+  border-bottom: 0.5px solid var(--border-soft);
+  font-size: var(--text-xs, 12px);
+}
+
+.trace-modes {
+  display: inline-flex;
+  border: 1px solid var(--border);
+  border-radius: 6px;
+  overflow: hidden;
+}
+
+.trace-mode-btn {
+  appearance: none;
+  border: 0;
+  background: transparent;
+  color: var(--muted);
+  font-size: 11px;
+  line-height: 1;
+  padding: 4px 10px;
+  cursor: pointer;
+  transition: background 0.12s, color 0.12s;
+}
+
+.trace-mode-btn + .trace-mode-btn {
+  border-left: 0.5px solid var(--border-soft);
+}
+
+.trace-mode-btn:hover {
+  background: var(--surface-sunk);
+  color: var(--fg-2);
+}
+
+.trace-mode-btn.active {
+  background: var(--accent-soft);
+  color: var(--accent);
+  font-weight: 500;
+}
+
+.trace-degraded {
+  color: var(--warn-text);
+  font-size: 11px;
+  padding: 0 4px;
+}
+
+.trace-toolbar-spacer {
+  flex: 1;
+}
+
+.trace-tool-btn {
+  appearance: none;
+  border: 0;
+  background: transparent;
+  color: var(--muted);
+  font-size: 11px;
+  line-height: 1;
+  padding: 4px 8px;
+  border-radius: 6px;
+  cursor: pointer;
+  transition: background 0.12s, color 0.12s;
+}
+
+.trace-tool-btn:hover {
+  background: var(--surface-sunk);
+  color: var(--fg-2);
+}
+
+/* ── 时间线概览（节点泳道甘特） ── */
+
+.trace-plot {
+  display: grid;
+  grid-template-columns: 96px minmax(0, 1fr);
+  flex: none;
+  border-bottom: 0.5px solid var(--border-soft);
+  background: var(--surface-warm);
+}
+
+.trace-labels {
+  display: flex;
+  flex-direction: column;
+  border-right: 0.5px solid var(--border-soft);
+  overflow: hidden;
+}
+
+.trace-label {
+  display: flex;
+  align-items: center;
+  gap: 5px;
+  padding: 0 8px 0 6px;
+  height: var(--trace-pitch, 22px);
+  font-size: 10px;
+  line-height: 1.1;
+  color: var(--muted);
+  cursor: pointer;
+  white-space: nowrap;
+  transition: background 0.12s;
+}
+
+.trace-label:hover {
+  background: var(--surface-sunk);
+  color: var(--fg-2);
+}
+
+.trace-label-dot {
+  flex: none;
+  width: 6px;
+  height: 6px;
+  border-radius: 50%;
+  background: var(--muted);
+}
+
+.trace-label-dot.st-ok { background: var(--success); }
+.trace-label-dot.st-err { background: var(--danger); }
+.trace-label-dot.st-run { background: var(--accent); }
+.trace-label-dot.st-warn { background: var(--warn); }
+
+.trace-label-text {
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+
+.trace-track {
+  position: relative;
+  overflow: hidden;
+  cursor: crosshair;
+  touch-action: none;
+  outline: none;
+  height: 100%;
+  /* 泳道底纹：逐行条纹由 repeating-gradient 承担（组件不再渲染底纹 div） */
+  background: repeating-linear-gradient(
+    to bottom,
+    transparent 0,
+    transparent var(--trace-pitch, 22px),
+    color-mix(in srgb, var(--surface-sunk) 55%, transparent) var(--trace-pitch, 22px),
+    color-mix(in srgb, var(--surface-sunk) 55%, transparent) calc(var(--trace-pitch, 22px) * 2)
+  );
+}
+
+.trace-track:focus-visible {
+  outline: 1px solid var(--accent);
+  outline-offset: -1px;
+}
+
+.trace-track[data-panning='true'] {
+  cursor: grabbing;
+}
+
+.trace-span {
+  position: absolute;
+  min-width: 2px;
+  border-radius: 4px;
+  background: var(--muted);
+  cursor: pointer;
+  transition: filter 0.12s;
+}
+
+.trace-span:hover {
+  filter: brightness(1.08) saturate(1.1);
+}
+
+.trace-span.st-ok { background: var(--success); }
+.trace-span.st-err { background: var(--danger); }
+.trace-span.st-warn { background: var(--warn); }
+.trace-span.st-neutral { background: var(--border-strong); }
+
+.trace-span.st-run {
+  background: var(--accent);
+  animation: trace-pulse 1.6s ease-in-out infinite;
+}
+
+@keyframes trace-pulse {
+  0%, 100% { opacity: 1; }
+  50% { opacity: 0.55; }
+}
+
+.trace-tick {
+  position: absolute;
+  top: 1px;
+  bottom: 1px;
+  width: 1.5px;
+  border-radius: 1px;
+  background: color-mix(in srgb, var(--bg) 78%, transparent);
+}
+
+.trace-tick.tk-user_input {
+  background: var(--bg);
+  width: 2px;
+}
+
+.trace-tick.err {
+  background: var(--bg);
+  box-shadow: 0 0 0 1px var(--danger-text);
+}
+
+.trace-selection {
+  position: absolute;
+  top: 0;
+  bottom: 0;
+  background: color-mix(in srgb, var(--accent) 12%, transparent);
+  border-inline: 1px solid color-mix(in srgb, var(--accent) 55%, transparent);
+  pointer-events: none;
+}
+
+.trace-selection[data-draft] {
+  background: color-mix(in srgb, var(--accent) 7%, transparent);
+  border-inline-style: dashed;
+}
+
+.trace-now {
+  position: absolute;
+  top: 0;
+  bottom: 0;
+  width: 0;
+  border-left: 1px dashed color-mix(in srgb, var(--accent) 65%, transparent);
+  pointer-events: none;
+}
+
+.trace-empty {
+  padding: 32px 12px;
+  text-align: center;
+  color: var(--muted);
+  font-size: var(--text-sm, 13px);
+}
+
+/* ── 主体：台账（Inspector 为右侧覆盖层——窄面板下列表保持全宽） ── */
+
+.trace-body {
+  display: flex;
+  min-height: 0;
+  flex: 1;
+}
+
+.trace-ledger {
+  flex: 1;
+  min-width: 0;
+  overflow-y: auto;
+  overscroll-behavior: contain;
+}
+
+.trace-node.dimmed {
+  opacity: 0.24;
+  transition: opacity 0.18s;
+}
+
+.trace-node-head {
+  display: flex;
+  align-items: center;
+  gap: 7px;
+  width: 100%;
+  appearance: none;
+  border: 0;
+  border-bottom: 0.5px solid var(--border-soft);
+  background: var(--surface-warm);
+  padding: 0 8px;
+  height: 30px;
+  font-size: var(--text-xs, 12px);
+  color: var(--fg-2);
+  cursor: pointer;
+  text-align: left;
+  transition: background 0.12s;
+}
+
+.trace-node-head:hover {
+  background: var(--surface-sunk);
+}
+
+.trace-node-dot {
+  flex: none;
+  width: 7px;
+  height: 7px;
+  border-radius: 50%;
+  background: var(--muted);
+}
+
+.trace-node-dot.st-ok { background: var(--success); }
+.trace-node-dot.st-err { background: var(--danger); }
+.trace-node-dot.st-run { background: var(--accent); animation: trace-pulse 1.6s ease-in-out infinite; }
+.trace-node-dot.st-warn { background: var(--warn); }
+
+.trace-node-label {
+  font-weight: 500;
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+
+.trace-node-cmd {
+  font-family: var(--font-mono);
+  font-size: 10px;
+  color: var(--meta);
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+
+.trace-node-meta {
+  margin-left: auto;
+  flex: none;
+  font-size: 10px;
+  color: var(--meta);
+}
+
+.trace-node-chev {
+  flex: none;
+  color: var(--meta);
+  display: inline-flex;
+  transition: transform 0.18s ease-out;
+}
+
+.trace-node-chev.open {
+  transform: rotate(0deg);
+}
+
+.trace-node-chev:not(.open) {
+  transform: rotate(-90deg);
+}
+
+.trace-rows {
+  content-visibility: auto;
+  contain-intrinsic-size: auto 24px;
+}
+
+.trace-row {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  height: 24px;
+  padding: 0 8px 0 22px;
+  border-bottom: 0.5px solid color-mix(in srgb, var(--border-soft) 60%, transparent);
+  font-size: var(--text-xs, 12px);
+  cursor: pointer;
+  transition: background 0.12s, opacity 0.18s;
+}
+
+.trace-row:hover {
+  background: var(--surface-sunk);
+}
+
+.trace-row.active {
+  background: var(--accent-soft);
+}
+
+.trace-row.dimmed {
+  opacity: 0.24;
+}
+
+.trace-row.k-error .trace-row-text,
+.trace-row.k-nodeEnd.err .trace-row-text {
+  color: var(--danger-text);
+}
+
+.trace-row-pill {
+  flex: none;
+  display: inline-flex;
+  align-items: center;
+  gap: 4px;
+  width: 58px;
+  color: var(--meta);
+  font-size: 10px;
+  line-height: 1;
+}
+
+.trace-row-pill svg {
+  flex: none;
+  width: 11px;
+  height: 11px;
+}
+
+.trace-node-chev svg {
+  width: 12px;
+  height: 12px;
+}
+
+.trace-row-kind {
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+
+.trace-row.k-tool .trace-row-pill { color: var(--warn-text); }
+.trace-row.k-error .trace-row-pill { color: var(--danger-text); }
+.trace-row.k-thinking .trace-row-pill { color: var(--accent); }
+.trace-row.k-user_input .trace-row-pill { color: var(--accent); }
+.trace-row.k-nodeStart .trace-row-pill,
+.trace-row.k-nodeEnd .trace-row-pill { color: var(--success-text); }
+
+.trace-row-text {
+  flex: 1;
+  min-width: 0;
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  color: var(--fg-2);
+}
+
+.trace-row-time {
+  flex: none;
+  font-family: var(--font-mono);
+  font-size: 10px;
+  color: var(--meta);
+}
+
+/* ── Inspector ── */
+
+.trace-inspector {
+  position: absolute;
+  right: 0;
+  top: 0;
+  bottom: 0;
+  z-index: 5;
+  flex: none;
+  border-left: 0.5px solid var(--border-soft);
+  background: var(--surface-warm);
+  display: flex;
+  flex-direction: column;
+  min-height: 0;
+  box-shadow: -8px 0 20px rgb(0 0 0 / 0.08);
+}
+
+.trace-inspector-grip {
+  position: absolute;
+  left: -4px;
+  top: 0;
+  bottom: 0;
+  width: 8px;
+  cursor: col-resize;
+  z-index: 3;
+}
+
+.trace-inspector-grip:hover,
+.trace-inspector-grip:active {
+  background: color-mix(in srgb, var(--accent) 18%, transparent);
+}
+
+.trace-inspector-empty {
+  padding: 24px 14px;
+  color: var(--muted);
+  font-size: var(--text-xs, 12px);
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+}
+
+.trace-inspector-hint {
+  font-size: 10px;
+  color: var(--meta);
+}
+
+.trace-insp {
+  display: flex;
+  flex-direction: column;
+  min-height: 0;
+  flex: 1;
+}
+
+.trace-insp-head {
+  display: flex;
+  align-items: center;
+  gap: 7px;
+  padding: 8px 10px;
+  border-bottom: 0.5px solid var(--border-soft);
+  font-size: var(--text-sm, 13px);
+}
+
+.trace-insp-title {
+  font-weight: 500;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.trace-insp-nodelink {
+  margin-left: auto;
+  appearance: none;
+  border: 0;
+  background: transparent;
+  color: var(--accent);
+  font-size: 11px;
+  cursor: pointer;
+  padding: 2px 4px;
+}
+
+.trace-insp-nodelink:hover {
+  text-decoration: underline;
+}
+
+.trace-insp-tabs {
+  display: flex;
+  gap: 2px;
+  padding: 4px 8px 0;
+  border-bottom: 0.5px solid var(--border-soft);
+}
+
+.trace-insp-tab {
+  appearance: none;
+  border: 0;
+  border-bottom: 2px solid transparent;
+  background: transparent;
+  color: var(--muted);
+  font-size: 11px;
+  padding: 4px 8px 5px;
+  cursor: pointer;
+  transition: color 0.12s, border-color 0.12s;
+}
+
+.trace-insp-tab:hover {
+  color: var(--fg-2);
+}
+
+.trace-insp-tab.active {
+  color: var(--accent);
+  border-bottom-color: var(--accent);
+  font-weight: 500;
+}
+
+.trace-insp-body {
+  padding: 10px;
+  overflow-y: auto;
+  overscroll-behavior: contain;
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+  min-height: 0;
+}
+
+.trace-insp-kv {
+  display: grid;
+  grid-template-columns: auto 1fr;
+  gap: 6px 12px;
+  margin: 0;
+  font-size: var(--text-xs, 12px);
+}
+
+.trace-insp-kv dt {
+  color: var(--meta);
+}
+
+.trace-insp-kv dd {
+  margin: 0;
+  color: var(--fg-2);
+  font-size: 11px;
+  overflow-wrap: anywhere;
+}
+
+.trace-insp-recordlabel {
+  font-size: var(--text-sm, 13px);
+  color: var(--fg);
+  overflow-wrap: anywhere;
+}
+
+.trace-insp-time {
+  font-size: 10px;
+  color: var(--meta);
+}
+
+.trace-insp-actions {
+  display: flex;
+  gap: 6px;
+}
+
+.trace-insp-pre {
+  margin: 0;
+  padding: 0;
+  font-family: var(--font-mono);
+  font-size: 11px;
+  line-height: 1.55;
+  color: var(--fg-2);
+  white-space: pre-wrap;
+  overflow-wrap: anywhere;
+  max-height: 320px;
+  overflow-y: auto;
+}
+
+.trace-insp-detail {
+  background: var(--surface-sunk);
+  border-radius: 6px;
+  padding: 8px;
+}
+
+.trace-insp-none {
+  color: var(--muted);
+  font-size: 11px;
+  padding: 8px 0;
+}
+
+.trace-insp-usage {
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+  font-size: var(--text-xs, 12px);
+}
+
+.trace-insp-usage-row {
+  display: flex;
+  justify-content: space-between;
+  gap: 10px;
+  color: var(--fg-2);
+}
+
+.trace-insp-usage-row > span:first-child {
+  color: var(--meta);
+}
+
+.trace-insp-error {
+  background: var(--danger-soft);
+  color: var(--danger-text);
+  border-radius: 6px;
+  padding: 8px 10px;
+  font-size: 11px;
+  white-space: pre-wrap;
+  overflow-wrap: anywhere;
+}
+
+/* ── 悬停提示 ── */
+
+.trace-tooltip {
+  position: absolute;
+  z-index: 30;
+  pointer-events: none;
+  background: var(--fg);
+  color: var(--bg);
+  border-radius: 6px;
+  padding: 6px 9px;
+  font-size: 11px;
+  line-height: 1.5;
+  max-width: 300px;
+  box-shadow: 0 4px 14px rgb(0 0 0 / 0.18);
+}
+
+.trace-tooltip-head {
+  font-weight: 500;
+}
+
+.trace-tooltip div:not(.trace-tooltip-head) {
+  font-family: var(--font-mono);
+  font-size: 10px;
+  opacity: 0.85;
+}
+
+/* ── 动效守卫 ── */
+
+@media (prefers-reduced-motion: reduce) {
+  .trace-span.st-run,
+  .trace-node-dot.st-run {
+    animation: none;
+  }
+
+  .trace-node-chev,
+  .trace-row,
+  .trace-node.dimmed {
+    transition: none;
+  }
+}

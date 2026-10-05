@@ -139,8 +139,12 @@ describe('HttpNode', () => {
 
     const node = new HttpNode()
     const result = await node.run(makeNodeData(), '', makeContext())
-    expect((result.output.content as string).length).toBe(32 * 1024)
+    // 保尾截断（2026-10-04 P1a）：头 60% + 对账标记 + 尾 40%——判决在末尾
+    const out = result.output.content as string
     expect(result.output.truncated).toBe(true)
+    expect(out).toContain('响应截断')
+    expect(out.length).toBeGreaterThan(32 * 1024 * 0.9) // 头尾都在
+    expect(out.length).toBeLessThan(huge.length)
   })
 
   it('accepts headers as an object (canvas defaultData shape)', async () => {

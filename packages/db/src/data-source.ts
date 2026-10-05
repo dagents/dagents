@@ -20,7 +20,22 @@ export const AppDataSource = new DataSource({
   migrations: [join(here, 'migrations', '*.{ts,js}')],
   synchronize: false,
   logging: process.env.DB_LOG === '1',
+  // 连接池显式调优（稳定性专项 2026-10-04）：TypeORM 默认把 pg Pool 参数
+  // 藏在 extra 里且 max=10 不透明。connectionTimeout 5s 让池耗尽/DB 抖动时
+  // 请求快速失败（→ /health 503 + 错误信封），而不是无限挂起堆叠超时。
+  // node-spans 轮询 + SSE + run 写入的并发画像下，10 连接足够；全部可经
+  // 环境变量覆盖。
+  extra: {
+    max: dbNumEnv('DB_POOL_MAX', 10),
+    idleTimeoutMillis: dbNumEnv('DB_POOL_IDLE_MS', 30_000),
+    connectionTimeoutMillis: dbNumEnv('DB_POOL_CONNECT_TIMEOUT_MS', 5_000),
+  },
 })
+
+function dbNumEnv(name: string, fallback: number): number {
+  const raw = Number(process.env[name])
+  return Number.isFinite(raw) && raw > 0 ? raw : fallback
+}
 
 export async function initDb(): Promise<DataSource> {
   if (!AppDataSource.isInitialized) await AppDataSource.initialize()
