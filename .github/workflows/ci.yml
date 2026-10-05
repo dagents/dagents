@@ -106,7 +106,13 @@ jobs:
           cache: pnpm
 
       - name: Install dependencies
-        run: pnpm install --frozen-lockfile
+        # --config.ignore-scripts=false 放开依赖构建脚本——.npmrc 的全局
+        # ignore-scripts=true 会压过 onlyBuiltDependencies 白名单。node-pty 的
+        # tarball 只带 win32/darwin prebuild，linux 必须由 install 脚本现场
+        # node-gyp 编译（gateway shell-registry 静态 import node-pty，缺原生
+        # 模块 24 个测试文件全灭）。白名单保证仍只有 node-pty 跑脚本；
+        # ubuntu-latest 自带 python3/make/g++。
+        run: pnpm install --frozen-lockfile --config.ignore-scripts=false
 
       - name: Build
         run: pnpm build

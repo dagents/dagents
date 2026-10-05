@@ -30,11 +30,27 @@ COPY packages/workflow/package.json packages/workflow/
 COPY packages/agent-adapters/package.json packages/agent-adapters/
 COPY packages/daemon/package.json packages/daemon/
 
+# Build toolchain for node-pty: its npm tarball ships prebuilds only for
+# win32/darwin — on linux the native module must be compiled at install time
+# (node-gyp needs python3/make/g++, none of which node:22-slim carries).
+RUN apt-get update \
+    && apt-get install -y --no-install-recommends python3 make g++ \
+    && rm -rf /var/lib/apt/lists/*
+
 # Install the entire workspace (all apps/* + packages/*). The
 # lockfile is committed, so --frozen-lockfile keeps the install reproducible.
-# .npmrc sets ignore-scripts=true, so no postinstall hooks run.
+# .npmrc sets ignore-scripts=true as a supply-chain guard, but that also
+# blocks the pnpm-workspace.yaml onlyBuiltDependencies allowlist — node-pty
+# would never compile (gateway statically imports it and cannot boot).
+# --config.ignore-scripts=false restores the allowlist semantics: only
+# node-pty's scripts run, everything else stays blocked.
 RUN --mount=type=cache,id=pnpm,target=/root/.local/share/pnpm/store \
-    pnpm install --frozen-lockfile
+    pnpm install --frozen-lockfile --config.ignore-scripts=false
+
+# Stage the freshly compiled node-pty binding so the runtime image can pick
+# it up without a toolchain (see runtime stage).
+RUN mkdir /pty-build \
+    && cp -r node_modules/.pnpm/node-pty@*/node_modules/node-pty/build/. /pty-build/
 
 # Now copy the rest of the source. .dockerignore strips node_modules / dist /
 # .next / .git so this only moves real source files.
@@ -81,9 +97,19 @@ COPY --from=builder /app/packages/workflow/package.json ./packages/workflow/
 COPY --from=builder /app/packages/agent-adapters/package.json ./packages/agent-adapters/
 
 # corepack again so the runtime pnpm matches the builder's (needed by the
-# entrypoint's migration filter).
+# entrypoint's migration filter). The runtime install keeps .npmrc's
+# ignore-scripts=true (no toolchain here), so node-pty unpacks uncompiled.
 RUN corepack enable \
     && pnpm install --frozen-lockfile --prod
+
+# Overlay the node-pty binding compiled in the builder stage: the gateway
+# statically imports node-pty, so without the native module the image boots
+# into a crash. Glob resolves the pnpm virtual-store path without pinning
+# the version.
+COPY --from=builder /pty-build /tmp/pty-build
+RUN d=$(echo node_modules/.pnpm/node-pty@*/node_modules/node-pty) \
+    && cp -r /tmp/pty-build "$d/build" \
+    && rm -rf /tmp/pty-build
 
 # tsconfig for the runtime migrations: typeorm-ts-node-esm compiles
 # packages/db/src/*.ts on the fly, and without module:NodeNext from these
