@@ -56,6 +56,10 @@ export { createBackend } from './factory.js'
 export { writeMcpConfigToTemp } from './mcp-config.js'
 export type { McpConfigFile } from './mcp-config.js'
 
+// win32 spawn 兼容层（裸名 CLI / npm .cmd shim 的 PATH 解析，三平台单源）
+export { resolveCliExecutable } from './win-spawn.js'
+export type { ResolvedCli } from './win-spawn.js'
+
 // Adapter maintenance tiers (方案 E — single source for UI + README)
 export { ADAPTER_TIERS, getAdapterTier } from './tiers.js'
 export type { AdapterTier, AdapterTierInfo, RegressionStatus } from './tiers.js'

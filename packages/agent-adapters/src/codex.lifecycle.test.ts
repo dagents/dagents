@@ -37,7 +37,6 @@ let wrapperPath = ''
 const fixtureDir = ''
 
 beforeAll(async () => {
-  if (isWindows) return
   const fs = await import('node:fs/promises')
   const dir = await mkdtemp(path.join(os.tmpdir(), 'mil-fake-codex-'))
   const harness = path.join(dir, 'harness.mjs')
@@ -90,15 +89,25 @@ process.stderr.write('unknown mode: ' + mode + '\\n')
 process.exit(64)
 `,
   )
-  await fs.writeFile(
-    wrapperPath,
-    `#!/bin/sh
+  // 跨平台 wrapper（2026-10-05 win32 真机跑通）：POSIX sh / win32 .cmd，
+  // 行为选择统一走 MIL_FAKE_CODEX_MODE env（argv 对 node 无害，忽略）。
+  if (process.platform === 'win32') {
+    wrapperPath = path.join(dir, 'wrapper.cmd')
+    await fs.writeFile(
+      wrapperPath,
+      ['@echo off', `"${process.execPath}" "${harness}"`].join('\r\n') + '\r\n',
+    )
+  } else {
+    await fs.writeFile(
+      wrapperPath,
+      `#!/bin/sh
 # codex 形状的 argv（exec --json ... -- <prompt>）对 node 无害，但统一
 # 忽略并经 env 选行为，与 claude.lifecycle 的 wrapper 模式一致。
 exec "${process.execPath}" "${harness}"
 `,
-  )
-  await chmod(wrapperPath, 0o755)
+    )
+    await chmod(wrapperPath, 0o755)
+  }
 }, 60_000)
 
 /** Collect all events from the stream into an array. */
@@ -115,7 +124,7 @@ function fakeBackend(mode: string, fixtureScenario?: string) {
   return codexBackend({ executablePath: wrapperPath, env })
 }
 
-describe.skipIf(isWindows)('codexBackend execute lifecycle — 真机夹具回放', () => {
+describe('codexBackend execute lifecycle — 真机夹具回放', () => {
   // 动态发现夹具目录（同步 API——describe 体非 async；防夹具新增后 L2 漏跑）。
   const scenarios = readdirSync(fixturesRoot, { withFileTypes: true })
     .filter((d) => d.isDirectory())
@@ -182,6 +191,10 @@ describe.skipIf(isWindows)('codexBackend execute lifecycle — 真机夹具回�
   })
 })
 
+// win32 跳过（2026-10-05）：两个用例的 fixture 依赖「子进程能捕获 SIGTERM」
+// 这一 POSIX 语义 —— win32 上 taskkill /T /F 直接整树终止（不可捕获），前提
+// 不成立。生产 kill 路径的 win32 行为由 cancellation.test（全平台）与
+// claude.lifecycle（已跨平台）覆盖。
 describe.skipIf(isWindows)('codexBackend execute lifecycle — 进程级注入', () => {
   it('hang: SIGTERM ignored → SIGKILL escalation resolves timeout', async () => {
     const b = fakeBackend('hang')

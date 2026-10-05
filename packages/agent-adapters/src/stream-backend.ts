@@ -34,6 +34,7 @@ import type {
   TokenUsage,
 } from '@dagents/contracts'
 import { createLogger } from '@dagents/shared'
+import { resolveCliExecutable, treeKill } from './win-spawn.js'
 
 // ────────────────────────────────────────────────────────────────────────────
 // tuning constants
@@ -368,10 +369,15 @@ export function spawnStreamAgent(config: StreamAgentConfig): {
   // Eagerly start the subprocess so the run always happens even when the
   // caller awaits only `result` (mirrors multica's unconditional goroutine).
   const done = (async (): Promise<AgentResult> => {
-    const proc = spawn(execPath, args, {
+    // win32 兼容（2026-10-05）：裸名 CLI（npm 全局装的 claude.cmd shim 等）
+    // 无 shell 直启会 ENOENT —— PATH 解析 + .cmd shim 标记一次到位。
+    // POSIX 恒等返回，行为不变。
+    const resolved = resolveCliExecutable(execPath)
+    const proc = spawn(resolved.path, args, {
       cwd: opts.cwd,
       env: buildChildEnv(cfg.env),
       stdio: ['pipe', 'pipe', 'pipe'],
+      shell: resolved.viaShell,
     })
     log.info(`${agentName} spawn`, { exec: execPath, args, cwd: opts.cwd })
 
@@ -418,7 +424,19 @@ export function spawnStreamAgent(config: StreamAgentConfig): {
     // SIGTERM → SIGKILL after the grace period. Shared by both watchdogs.
     // Idempotent: a second call when the proc is already dead is a no-op.
     const killWithEscalation = (): void => {
-      proc.kill('SIGTERM')
+      // win32 + shell spawn（.cmd shim）专用路径：taskkill /T /F 就是
+      // TerminateProcess 整树 —— win32 本没有「SIGTERM 优雅退出」可守
+      // （不可捕获），且 proc.kill('SIGTERM') 会先打死 cmd.exe 外壳、pid
+      // 消失，随后的 taskkill 落空（128），孤儿 node 孙进程握着 stdout
+      // 卡死 run（真机复现，且与 taskkill 启动速度形成竞态）。所以
+      // viaShell 时只走 treeKill、跳过信号两段式；SIGKILL 补刀保留
+      // （taskkill 万一失败时 5s 后再试一次，无害）。
+      const winShell = resolved.viaShell && process.platform === 'win32'
+      if (winShell) {
+        if (proc.pid) treeKill(proc.pid)
+      } else {
+        proc.kill('SIGTERM')
+      }
       if (killTimer) clearTimeout(killTimer)
       // Freeze the inactivity watchdog once we've begun escalating: a late
       // line flushed during the SIGTERM grace must not re-arm it.
@@ -432,6 +450,7 @@ export function spawnStreamAgent(config: StreamAgentConfig): {
         // harmless no-op. (We do NOT destroy stdout — destroying it rejects the
         // readline iterator and hangs `done`; SIGKILL closes the child's stdout
         // end, which drives ours to EOF and ends the loop cleanly.)
+        if (winShell && proc.pid) treeKill(proc.pid)
         proc.kill('SIGKILL')
       }, SIGKILL_GRACE_MS)
     }

@@ -13,14 +13,19 @@ import { spawnStreamAgent, wireCancellation } from './stream-backend.js'
 import { claudeBackend } from './claude.js'
 import type { AgentEvent } from '@dagents/contracts'
 
-const isWindows = process.platform === 'win32'
-const describeUnix = isWindows ? describe.skip : describe
+/**
+ * 跨平台说明（2026-10-05 win32 真机验证）：子进程全部经 `process.execPath`
+ * （node.exe）spawn —— 不依赖 POSIX wrapper 脚本或 SIGTERM 陷阱语义，
+ * Windows 上同样成立（kill 路径 proc.kill('SIGTERM') 在 win32 由 Node
+ * 映射为 TerminateProcess，实测可靠终止）。此前 describeUnix 全跳过是
+ * 假设过保守 —— 三平台一致跑。
+ */
+const describeUnix = describe
 
 /** A child that prints one JSON-ish line, then hangs until killed. */
 let chattySleeperPath = ''
 
 beforeAll(async () => {
-  if (isWindows) return
   const path = await import('node:path')
   const os = await import('node:os')
   const fs = await import('node:fs/promises')
@@ -36,7 +41,6 @@ await sleep(60_000)
 })
 
 afterAll(async () => {
-  if (isWindows) return
   const fs = await import('node:fs/promises')
   await fs.rm(chattySleeperPath, { force: true }).catch(() => {})
 })
