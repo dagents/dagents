@@ -305,7 +305,12 @@ test.describe('工作流执行契约（Tier A：WF / OB）', () => {
     const flatOut = (await flatRun.json()).data?.output
     const nestedOut = (await nestedRun.json()).data?.output
     expect(flatOut).toMatchObject({ content: 'WF08-SAME-ANSWER' })
-    expect(nestedOut).toEqual(flatOut)
+    // contextBudget.fixedChars 随 prompt 字面长度波动（flat form=10 字符 vs
+    // nested form=12 字符，账目如实）——恒等比较剥离账目，形状另行断言。
+    const { contextBudget: flatBudget, ...flatCore } = flatOut ?? {}
+    const { contextBudget: nestedBudget, ...nestedCore } = nestedOut ?? {}
+    expect(nestedCore).toEqual(flatCore)
+    expect(Object.keys(nestedBudget ?? {})).toEqual(Object.keys(flatBudget ?? {}))
   })
 
   test('OB-03: 失败 run 的 spans —— failed 节点带 error，未执行节点无 span', async ({ request }) => {

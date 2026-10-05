@@ -65,9 +65,26 @@ test.describe('Settings module (UC-SET-01 ~ 06)', () => {
     // data (other 5 tabs). The context is created for suite-shape consistency
     // and so dispose() is always safe to call.
     ctx = await createSeedContext()
+    // UC-SET-03 例外：账单卡的渲染条件是 summary.totals.events > 0——
+    // 干净库里没有 usage_events 时整块让位给空态，「Token 用量」等卡
+    // 永不出现（2026-10-05 CI 首次确定性复跑暴露：此前本用例在开发机
+    // 恒过是本地库有历史账单的巧合）。自种两行（已计价 + 未计价）让
+    // 用例确定性成立；afterAll 清理。
+    await ctx!.db.runQuery(`DELETE FROM usage_events WHERE model = 'e2e-usage-model'`)
+    await ctx!.db.runQuery(
+      `INSERT INTO usage_events (id, source, model, usage, cost, priced, created_at)
+       VALUES
+         (gen_random_uuid(), 'workflow_run', 'e2e-usage-model',
+          '{"prompt_tokens":100,"completion_tokens":50,"total_tokens":150}'::jsonb,
+          '0.012300', true, now()),
+         (gen_random_uuid(), 'chat', 'e2e-usage-model',
+          '{"prompt_tokens":40,"completion_tokens":10,"total_tokens":50}'::jsonb,
+          NULL, false, now())`,
+    )
   })
 
   test.afterAll(async () => {
+    await ctx?.db.runQuery(`DELETE FROM usage_events WHERE model = 'e2e-usage-model'`)
     await ctx?.dispose()
   })
 
