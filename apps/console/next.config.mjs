@@ -7,7 +7,7 @@ const nextConfig = {
   // Workspace packages (@dagents/shared, @dagents/contracts, …) are ESM-only. Next
   // transpiles them so the server runtime can import them without a separate
   // build step.
-  transpilePackages: ['@dagents/shared', '@dagents/contracts', '@dagents/agentflow'],
+  transpilePackages: ['@dagents/shared', '@dagents/contracts'],
   reactStrictMode: true,
   // 关闭 dev 浮动指示器：它停靠左下角，与侧栏页脚（设置/主题/语言）重叠
   // 并拦截指针事件 —— e2e 点击「设置」被 nextjs-portal 遮挡（2026-08-29
