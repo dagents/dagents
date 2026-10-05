@@ -29,7 +29,6 @@ let wrapperArgvPath = ''
 // Write the harness + a shell wrapper once. The wrapper ignores all argv and
 // runs `node harness.mjs`, picking behavior from $MIL_FAKE_CLAUDE_MODE.
 beforeAll(async () => {
-  if (isWindows) return
   const path = await import('node:path')
   const os = await import('node:os')
   const fs = await import('node:fs/promises')
@@ -165,28 +164,49 @@ if (mode === 'stream-input' || mode === 'stream-input-slow-turn1') {
 }
 `,
   )
-  await fs.writeFile(
-    wrapperPath,
-    `#!/bin/sh
+  // 跨平台 wrapper（2026-10-05 win32 真机跑通）：POSIX 写 sh 脚本，win32 写
+  // .cmd 批处理（spawn 带 shell —— adapter 的 resolveCliExecutable 会解析
+  // .cmd 并自动加 shell:true，测试与生产行为一致）。两者都把 argv 转发进
+  // 环境变量 / 参数，选行为靠 MIL_FAKE_CLAUDE_MODE env。
+  const isWin = process.platform === 'win32'
+  if (isWin) {
+    wrapperPath = path.join(dir, 'wrapper.cmd')
+    await fs.writeFile(
+      wrapperPath,
+      ['@echo off', 'set "MIL_FAKE_CLAUDE_ARGV=%*"', `"${process.execPath}" "${harness}"`].join('\r\n') + '\r\n',
+    )
+    wrapperArgvPath = path.join(dir, 'wrapper-argv.cmd')
+    await fs.writeFile(
+      wrapperArgvPath,
+      // %* 原样转发 —— harness 侧 process.argv.slice(2) 恢复（node 批处理
+      // 转发不吞参数；-- 前缀语义由 harness 内部对齐）。
+      ['@echo off', `"${process.execPath}" "${harness}" %*`].join('\r\n') + '\r\n',
+    )
+  } else {
+    wrapperPath = path.join(dir, 'wrapper.sh')
+    await fs.writeFile(
+      wrapperPath,
+      `#!/bin/sh
 # node would choke on the adapter's claude-shaped argv (e.g. --print is a
 # node option), so the wrapper ignores them as node args but forwards them
 # via env so the echo-args mode can prove they reached the real spawn.
 MIL_FAKE_CLAUDE_ARGV="$*" exec "${process.execPath}" "${harness}"
 `,
-  )
-  await fs.chmod(wrapperPath, 0o755)
-  // Argv-forwarding wrapper: for the MCP-injection probe we need the
-  // adapter's argv to reach the harness. `node script` would treat flags like
-  // `--print` as node options and choke; '"$@"' after '--' makes node pass
-  // them through as script args, so process.argv.slice(2) recovers them.
-  wrapperArgvPath = path.join(dir, 'wrapper-argv.sh')
-  await fs.writeFile(
-    wrapperArgvPath,
-    `#!/bin/sh
+    )
+    await fs.chmod(wrapperPath, 0o755)
+    // Argv-forwarding wrapper: for the MCP-injection probe we need the
+    // adapter's argv to reach the harness. `node script` would treat flags like
+    // `--print` as node options and choke; '"$@"' after '--' makes node pass
+    // them through as script args, so process.argv.slice(2) recovers them.
+    wrapperArgvPath = path.join(dir, 'wrapper-argv.sh')
+    await fs.writeFile(
+      wrapperArgvPath,
+      `#!/bin/sh
 exec "${process.execPath}" "${harness}" -- "$@"
 `,
-  )
-  await fs.chmod(wrapperArgvPath, 0o755)
+    )
+    await fs.chmod(wrapperArgvPath, 0o755)
+  }
 }, 60_000)
 
 /** Collect all events from the stream into an array. */
@@ -212,7 +232,7 @@ function fakeArgvBackend(mode: string) {
   })
 }
 
-describe.skipIf(isWindows)('claudeBackend execute lifecycle', () => {
+describe('claudeBackend execute lifecycle', () => {
   it('ENOENT (missing binary) → failed result, no uncaughtException', async () => {
     const b = claudeBackend({ executablePath: '/definitely/not/installed/claude-xyz' })
     const session = b.execute('hi', { timeoutMs: 5_000 })
@@ -428,7 +448,7 @@ describe.skipIf(isWindows)('claudeBackend execute lifecycle', () => {
   })
 })
 
-describe.skipIf(isWindows)('claudeBackend stream-input (可操作终端 2026-09-08)', () => {
+describe('claudeBackend stream-input (可操作终端 2026-09-08)', () => {
   it('argv carries --input-format stream-json（owned flag，调用方不可覆盖）', async () => {
     const b = fakeArgvBackend('dump-argv')
     const session = b.execute('hi', {})

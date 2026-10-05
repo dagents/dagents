@@ -53,6 +53,7 @@ import type {
   TokenUsage,
 } from '@dagents/contracts'
 import { createLogger } from '@dagents/shared'
+import { resolveCliExecutable, treeKill } from './win-spawn.js'
 import { writeMcpConfigToTemp } from './mcp-config.js'
 import type { McpConfigFile } from './mcp-config.js'
 // 共享 spawn 原语单源（2026-09-17 评审收敛）：AsyncEventQueue/filterCustomArgs/
@@ -446,12 +447,16 @@ const SIGKILL_GRACE_MS = 5_000
         }
         const args = buildClaudeArgs(opts, log, mcpFile?.path)
 
-        const proc = spawn(execPath, args, {
+        // win32 兼容（2026-10-05）：裸名 CLI / npm .cmd shim 的 PATH 解析
+        // 与 shell 标记（POSIX 恒等返回，行为不变）。
+        const resolved = resolveCliExecutable(execPath)
+        const proc = spawn(resolved.path, args, {
           cwd: opts.cwd,
           env: buildChildEnv(cfg.env),
           stdio: ['pipe', 'pipe', 'pipe'],
+          shell: resolved.viaShell,
         })
-        log.info('claude spawn', { exec: execPath, args, cwd: opts.cwd })
+        log.info('claude spawn', { exec: resolved.path, args, cwd: opts.cwd, viaShell: resolved.viaShell })
 
         let stderrTail = ''
 
@@ -526,7 +531,17 @@ const SIGKILL_GRACE_MS = 5_000
         // call when the proc is already dead is a no-op, so overlapping
         // wall-clock + inactivity fires are safe.
         const killWithEscalation = (): void => {
-          proc.kill('SIGTERM')
+          // win32 + shell spawn（.cmd shim）专用路径：taskkill /T /F 就是
+          // TerminateProcess 整树 —— win32 无「SIGTERM 优雅退出」可守，且
+          // proc.kill('SIGTERM') 先打死 cmd.exe 外壳后 pid 消失，taskkill
+          // 会落空并与 taskkill 启动速度形成竞态（真机复现挂死）。详见
+          // win-spawn.ts treeKill 注。
+          const winShell = resolved.viaShell && process.platform === 'win32'
+          if (winShell) {
+            if (proc.pid) treeKill(proc.pid)
+          } else {
+            proc.kill('SIGTERM')
+          }
           if (killTimer) clearTimeout(killTimer)
           // Freeze the inactivity watchdog once we've begun escalating: a late
           // line flushed during the SIGTERM grace must not re-arm it (the run is
@@ -545,7 +560,9 @@ const SIGKILL_GRACE_MS = 5_000
             // is exactly the review #3 hang. (We do NOT destroy stdout —
             // destroying it rejects the readline iterator and hangs `done`;
             // SIGKILL closes the child's stdout end, which drives ours to
-            // EOF and ends the loop cleanly.)
+            // EOF and ends the loop cleanly.) winShell 补一次整树终止
+            // （首次 taskkill 万一失败时的兜底，无害）。
+            if (winShell && proc.pid) treeKill(proc.pid)
             proc.kill('SIGKILL')
           }, SIGKILL_GRACE_MS)
         }

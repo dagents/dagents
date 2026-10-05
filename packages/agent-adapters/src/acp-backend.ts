@@ -28,6 +28,7 @@ import type {
   TokenUsage,
 } from '@dagents/contracts'
 import { createLogger } from '@dagents/shared'
+import { resolveCliExecutable, treeKill } from './win-spawn.js'
 import { filterCustomArgs, buildChildEnv, AsyncEventQueue, STDERR_TAIL_BYTES, SIGKILL_GRACE_MS, wireCancellation } from './stream-backend.js'
 
 // ────────────────────────────────────────────────────────────────────────────
@@ -341,10 +342,14 @@ export function spawnAcpAgent(config: AcpSpawnConfig): AgentSession {
   let finalError: string | undefined
 
   const done = (async (): Promise<AgentResult> => {
-    const proc = spawn(execPath, args, {
+    // win32 兼容（2026-10-05）：裸名 CLI / npm .cmd shim 的 PATH 解析与
+    // shell 标记（POSIX 恒等返回，行为不变）。
+    const resolved = resolveCliExecutable(execPath)
+    const proc = spawn(resolved.path, args, {
       cwd: opts.cwd,
       env: buildChildEnv(backendCfg.env),
       stdio: ['pipe', 'pipe', 'pipe'],
+      shell: resolved.viaShell,
     })
 
     log.info(`${acpCfg.agentName} spawn`, { exec: execPath, args: acpCfg.subcommand })
@@ -373,22 +378,41 @@ export function spawnAcpAgent(config: AcpSpawnConfig): AgentSession {
 
     // Timeout
     let timer: NodeJS.Timeout | undefined
+    // win32 + shell spawn（.cmd shim）：taskkill /T /F 就是 TerminateProcess
+    // 整树（无「SIGTERM 优雅退出」可守）；proc.kill('SIGTERM') 会先带走
+    // cmd.exe 外壳令 pid 消失、taskkill 落空（128），孤儿孙进程握 stdout
+    // 卡死 run。所以 viaShell 时只走 treeKill，信号两段式仅 POSIX。
+    const winShell = resolved.viaShell && process.platform === 'win32'
     if (opts.timeoutMs && opts.timeoutMs > 0) {
       timer = setTimeout(() => {
-        proc.kill('SIGTERM')
-        setTimeout(() => proc.kill('SIGKILL'), SIGKILL_GRACE_MS)
+        if (winShell) {
+          if (proc.pid) treeKill(proc.pid)
+        } else {
+          proc.kill('SIGTERM')
+        }
+        setTimeout(() => {
+          if (winShell && proc.pid) treeKill(proc.pid)
+          proc.kill('SIGKILL')
+        }, SIGKILL_GRACE_MS)
         finalStatus = 'timeout'
         finalError = `${acpCfg.agentName} timed out after ${opts.timeoutMs}ms`
       }, opts.timeoutMs)
     }
 
     // Caller-initiated cancellation (execution-cancellation spec D2): route the
-    // caller's AbortSignal through the same SIGTERM→SIGKILL teardown; the
+    // caller's AbortSignal through the same teardown; the
     // pending session/prompt request rejects when the child dies, and the
     // precedence below relabels the result as `cancelled`.
     const cancel = wireCancellation(opts.signal, () => {
-      proc.kill('SIGTERM')
-      setTimeout(() => proc.kill('SIGKILL'), SIGKILL_GRACE_MS)
+      if (winShell) {
+        if (proc.pid) treeKill(proc.pid)
+      } else {
+        proc.kill('SIGTERM')
+      }
+      setTimeout(() => {
+        if (winShell && proc.pid) treeKill(proc.pid)
+        proc.kill('SIGKILL')
+      }, SIGKILL_GRACE_MS)
     }, log)
 
     try {
