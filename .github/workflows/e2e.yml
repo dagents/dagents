@@ -72,7 +72,9 @@ jobs:
           cache: pnpm
 
       - name: Install dependencies
-        run: pnpm install --frozen-lockfile
+        # 同 ci.yml：放开构建脚本让 node-pty 在 linux 现场 node-gyp 编译，
+        # 否则 gateway（tsx）静态 import node-pty 直接崩、e2e 全红。
+        run: pnpm install --frozen-lockfile --config.ignore-scripts=false
 
       # gateway dev（tsx）import 的 @dagents/* 走各自 dist —— 先构建包；
       # console 本身由 playwright webServer 的 next dev 现编译，无需预构建。
