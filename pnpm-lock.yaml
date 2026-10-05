@@ -296,6 +296,9 @@ importers:
 
   packages/workflow:
     dependencies:
+      '@dagents/contracts':
+        specifier: workspace:*
+        version: link:../contracts
       zod:
         specifier: ^4.4.3
         version: 4.4.3

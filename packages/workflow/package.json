@@ -18,6 +18,7 @@
     "lint": "eslint src --ext .ts"
   },
   "dependencies": {
+    "@dagents/contracts": "workspace:*",
     "zod": "^4.4.3"
   },
   "devDependencies": {

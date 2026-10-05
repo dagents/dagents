@@ -29,12 +29,10 @@ COPY packages/db/package.json packages/db/
 COPY packages/workflow/package.json packages/workflow/
 COPY packages/agent-adapters/package.json packages/agent-adapters/
 COPY packages/daemon/package.json packages/daemon/
-COPY vendor/agentflow/package.json vendor/agentflow/
 
-# Install the entire workspace (all apps/* + packages/* + vendor/*). The
+# Install the entire workspace (all apps/* + packages/*). The
 # lockfile is committed, so --frozen-lockfile keeps the install reproducible.
-# .npmrc sets ignore-scripts=true, so no postinstall hooks run (vendored
-# agentflow has no .git, so its husky install would otherwise fail).
+# .npmrc sets ignore-scripts=true, so no postinstall hooks run.
 RUN --mount=type=cache,id=pnpm,target=/root/.local/share/pnpm/store \
     pnpm install --frozen-lockfile
 
@@ -81,7 +79,6 @@ COPY --from=builder /app/packages/shared/package.json ./packages/shared/
 COPY --from=builder /app/packages/db/package.json ./packages/db/
 COPY --from=builder /app/packages/workflow/package.json ./packages/workflow/
 COPY --from=builder /app/packages/agent-adapters/package.json ./packages/agent-adapters/
-COPY --from=builder /app/vendor/agentflow/package.json ./vendor/agentflow/
 
 # corepack again so the runtime pnpm matches the builder's (needed by the
 # entrypoint's migration filter).
