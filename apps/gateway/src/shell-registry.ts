@@ -162,13 +162,19 @@ export function createSession(opts: CreateSessionOptions): ShellSession {
   const cwd = opts.cwd ?? os.homedir()
   const cols = clampInt(opts.cols ?? 80, 10, 500)
   const rows = clampInt(opts.rows ?? 24, 4, 300)
-  const shell = process.env.SHELL && process.env.SHELL.startsWith('/') ? process.env.SHELL : '/bin/bash'
+  // shell 选择：SHELL 指向存在的 POSIX 路径就用它；Windows 默认 PowerShell
+  // （node-pty 需要 Windows 可执行文件 —— /bin/bash 在 win32 上不存在）。
+  // login 参数同理分平台：POSIX `-l`，Windows PowerShell 不吃 `-l`。
+  const isWindows = process.platform === 'win32'
+  const posixShellOk =
+    !!process.env.SHELL && process.env.SHELL.startsWith('/') && !isWindows
+  const shell = posixShellOk ? process.env.SHELL! : isWindows ? 'powershell.exe' : '/bin/bash'
   const kind = opts.kind ?? 'shell'
   const label = opts.label ?? null
   const id = kind === 'agent' ? `agt_${randomUUID().slice(0, 8)}` : `shl_${randomUUID().slice(0, 8)}`
   // agent 会话：PTY 里托管 agent CLI（交互 TUI 直连）；shell 会话：login shell。
   const file = opts.command ?? shell
-  const argv = opts.command != null ? (opts.args ?? []) : ['-l']
+  const argv = opts.command != null ? (opts.args ?? []) : isWindows ? [] : ['-l']
 
   let pty: IPty
   try {
@@ -192,6 +198,22 @@ export function createSession(opts: CreateSessionOptions): ShellSession {
         TZ: process.env.TZ,
         TERM: 'xterm-256color',
         COLORTERM: 'truecolor',
+        // win32 骨架：Windows 进程没有 SystemRoot/ComSpec 起不来或退出态
+        // 损坏（实测 powershell.exe 缺 SystemRoot 时 `exit 3` 报
+        // 0xFFFF0000 而非 3）—— 只透传系统级变量，用户级密钥仍不进 env。
+        ...(process.platform === 'win32'
+          ? {
+              SystemRoot: process.env.SystemRoot,
+              windir: process.env.windir,
+              ComSpec: process.env.ComSpec,
+              USERNAME: os.userInfo().username,
+              USERPROFILE: os.homedir(),
+              APPDATA: process.env.APPDATA,
+              LOCALAPPDATA: process.env.LOCALAPPDATA,
+              TEMP: process.env.TEMP,
+              TMP: process.env.TMP,
+            }
+          : {}),
       } as Record<string, string>,
     })
   } catch (err) {

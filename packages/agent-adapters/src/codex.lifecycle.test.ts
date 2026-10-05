@@ -34,7 +34,7 @@ const fixturesRoot = path.resolve(here, '../fixtures/codex')
 /** Path to the wrapper script the adapter spawns (set in beforeAll). */
 let wrapperPath = ''
 /** 行为模式 → 回放哪份真机夹具（env 传给 harness）。 */
-let fixtureDir = ''
+const fixtureDir = ''
 
 beforeAll(async () => {
   if (isWindows) return

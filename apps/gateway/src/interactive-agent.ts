@@ -30,7 +30,9 @@ const INTERACTIVE_SUPPORT: Record<string, string> = {
 
 function which(binary: string): string | null {
   try {
-    return execSync(`which ${binary}`, { encoding: 'utf8', timeout: 5000 }).trim() || null
+    // `where` on Windows, `which` elsewhere (same convention as cli-runtimes)
+    const cmd = process.platform === 'win32' ? 'where' : 'which'
+    return execSync(`${cmd} ${binary}`, { encoding: 'utf8', timeout: 5000 }).trim() || null
   } catch {
     return null
   }

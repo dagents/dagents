@@ -2,18 +2,21 @@ import { describe, it, expect, beforeAll, afterAll } from 'vitest'
 import { app } from '../app.js'
 
 /**
- * Shell 会话（浏览器终端）路由测试：真 PTY、真 bash —— 不 mock node-pty，
+ * Shell 会话（浏览器终端）路由测试：真 PTY、真 shell —— 不 mock node-pty，
  * 走 app.request 全链路（SSE 流解析 = 前端同款语义）。
  *
- * SHELL 钉到 /bin/bash 保证确定性（CI 容器与 dev 机默认 zsh 配置各异，
- * bash 的提示符/启动输出最可预测）。macOS 自带 bash 3.2，Linux 常见 5.x，
- * 断言只用两者共有的行为（echo / exit code）。
+ * SHELL 钉到平台默认保证确定性：POSIX 是 /bin/bash（CI 容器与 dev 机默认
+ * zsh 配置各异，bash 的提示符/启动输出最可预测；macOS 自带 bash 3.2，
+ * Linux 常见 5.x，断言只用两者共有的行为 echo / exit code）。win32 上
+ * node-pty 需要 Windows 可执行文件 —— 用 PowerShell（shell-registry 的
+ * 同款平台默认），输入行同样以 
+ 结尾，两者语义一致。
  */
 
 const ORIG_SHELL = process.env.SHELL
 
 beforeAll(() => {
-  process.env.SHELL = '/bin/bash'
+  if (process.platform !== 'win32') process.env.SHELL = '/bin/bash'
 })
 
 afterAll(() => {
