@@ -177,13 +177,28 @@
         word-break: break-all;
       }
       footer {
-        padding: 0 20px 14px;
+        padding: 0 20px 6px;
         color: var(--muted);
         font-size: 11.5px;
       }
       footer a {
         color: var(--accent);
         cursor: pointer;
+      }
+      /* 关于 · 未签名包说明（docs §R4）：静态常驻，status.ts 只重写 #footer 不触碰本区 */
+      .about {
+        padding: 0 20px 14px;
+        color: var(--muted);
+        font-size: 11.5px;
+        line-height: 1.7;
+      }
+      .about code {
+        font-family: 'Cascadia Mono', Consolas, monospace;
+        color: var(--text);
+        background: var(--panel);
+        border: 1px solid var(--border);
+        padding: 0 5px;
+        border-radius: 4px;
       }
     </style>
   </head>
@@ -198,6 +213,12 @@
     </header>
     <main id="grid"></main>
     <footer id="footer"></footer>
+    <aside class="about">
+      <b>安装包未签名</b>——首次启动被系统拦下时的绕过方法：Windows SmartScreen 点「更多信息 →
+      仍要运行」；macOS Gatekeeper 对 App 右键选「打开」，或终端执行
+      <code>xattr -dr com.apple.quarantine /Applications/dagents.app</code>；Linux AppImage
+      需先 <code>chmod +x</code> 再运行。详见仓库 apps/desktop/README.md「安装包未签名说明」。
+    </aside>
     <script src="./status.js"></script>
   </body>
 </html>
