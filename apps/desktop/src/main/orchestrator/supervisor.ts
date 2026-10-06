@@ -8,6 +8,7 @@ import {
   type ServiceEvent,
 } from './state-machine'
 import type {
+  ContentIntent,
   DesktopConfig,
   DesktopSnapshot,
   ManagedServiceId,
@@ -361,6 +362,7 @@ export class Orchestrator {
   private listeners = new Set<() => void>()
   private gatewayEnv: Record<string, string>
   private runMode: RunMode
+  private contentIntent?: () => ContentIntent
   private pg: PgServiceController
 
   constructor(
@@ -373,9 +375,12 @@ export class Orchestrator {
       runMode?: RunMode
       /** packaged 形态定位（runMode='packaged' 时必带）。 */
       packaged?: { servicesDir: string; execPath: string }
+      /** 窗口内容意愿注入（takeover 控制器闭包；缺省恒 auto——契约由 tsc 钉住）。 */
+      contentIntent?: () => ContentIntent
     } = {}
   ) {
     this.runMode = opts.runMode ?? 'dev'
+    this.contentIntent = opts.contentIntent
     const make = (id: ManagedServiceId) =>
       new ServiceSupervisor(id, deps, config, () => this.emit())
     // gateway 的 env 在 pg 就绪后追加 POSTGRES_URL（extraEnv 通道，docs §10.2）——
@@ -497,6 +502,7 @@ export class Orchestrator {
   snapshot(): DesktopSnapshot {
     return {
       phase: computePhase(this.supervisors.gateway.status, this.supervisors.console.status),
+      contentIntent: this.contentIntent?.() ?? 'auto',
       services: {
         gateway: this.supervisors.gateway.status,
         console: this.supervisors.console.status,

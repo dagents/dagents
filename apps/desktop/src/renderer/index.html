@@ -51,6 +51,14 @@
         color: var(--muted);
         font-size: 12px;
       }
+      header .chip.pin {
+        color: var(--restarting);
+        border-color: var(--restarting);
+        font-size: 11px;
+        padding: 2px 8px;
+        border-radius: 999px;
+        border: 1px solid var(--border);
+      }
       header .actions {
         margin-left: auto;
         display: flex;
@@ -207,8 +215,10 @@
     <header>
       <h1>dagents 桌面客户端 · 服务编排</h1>
       <span class="meta" id="meta">连接主进程…</span>
+      <span class="chip pin" id="pin-chip" style="display: none">已钉住本页</span>
       <div class="actions">
-        <button id="btn-restart" class="primary" disabled>重试 / 重启服务</button>
+        <button id="btn-enter-workbench" class="primary" disabled>进入工作台（等待服务健康）</button>
+        <button id="btn-restart" disabled>重试 / 重启服务</button>
         <button id="btn-stop" disabled>停止服务</button>
       </div>
     </header>

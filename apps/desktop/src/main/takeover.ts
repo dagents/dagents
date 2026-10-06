@@ -2,12 +2,16 @@ import { join } from 'node:path'
 import type { BrowserWindow } from 'electron'
 import type { DesktopSnapshot } from './orchestrator/types'
 
-// 就绪接管控制器（docs §3.1 单窗口两阶段）：
+// 就绪接管控制器（docs §3.1 单窗口两阶段 + §12.2 内容意愿态，M7）：
 //   阶段 A 本地启动态/错误态页（窗口初始内容）
 //   阶段 B snapshot.phase === 'console'（双健康，computePhase 判定）→ loadURL(consoleUrl)
 //   console 意外不可用（phase 跌回 boot / did-fail-load）→ 回退阶段 A 显示恢复过程
-// 「打开启动态页」= pin：把启动态页钉在窗口（服务再健康也不抢）；phase 一旦跌回
-// boot（服务重启/降级）自动解除 pin，恢复自动接管。
+// 「内容意愿」三态（contentIntent，根治启动态页死路 docs §12.1）：
+//   auto    = 现自动行为（双健康接管、跌落回 boot）
+//   boot    = 钉住启动态页（原 pinnedBoot 语义；phase 跌落仍自动回 auto——回退不回归）
+//   console = 用户意愿进工作台：立即尝试接管；不健康时意愿保留、双健康一恢复即接管
+// 不变式（docs §12.2-5 验收口径）：任何时刻可达工作台满足其一——自动接管 / 启动态页
+// 按钮（boot 态+双健康）/ 菜单「进入工作台」（永远可点，不健康时给反馈不静默）。
 //
 // 纯跟随逻辑集中在 onSnapshot（可在无窗口语义下推理）；Electron API 只有
 // loadFile/loadURL/isDestroyed——按测试策略属薄壳，不单测（computePhase 已钉表）。
@@ -15,6 +19,8 @@ import type { DesktopSnapshot } from './orchestrator/types'
 export const BOOT_PAGE_PATH = '../renderer/index.html'
 
 export type WindowContent = 'boot' | 'console' | 'loading'
+
+export type ContentIntent = 'auto' | 'boot' | 'console'
 
 export interface TakeoverDeps {
   win: BrowserWindow
@@ -24,8 +30,12 @@ export interface TakeoverDeps {
 
 export interface TakeoverController {
   onSnapshot(snapshot: DesktopSnapshot): void
-  /** 菜单「打开启动态页」：钉住启动态页（服务降级/重启时自动解除）。 */
+  /** 菜单/IPC「服务状态页」：钉住启动态页（服务降级/重启时自动解除）。 */
   showStartupPage(): void
+  /** 菜单/IPC/启动态页按钮「进入工作台」：意愿态转 console 并立即尝试接管。 */
+  enterWorkbench(): void
+  /** 当前内容意愿（渲染层「已钉住」徽标 / 诚实文案的数据源）。 */
+  contentIntent(): ContentIntent
   /** 当前窗口内容（诊断/日志用）。 */
   content(): WindowContent
 }
@@ -33,7 +43,8 @@ export interface TakeoverController {
 export function createTakeoverController(deps: TakeoverDeps): TakeoverController {
   const { win, consoleUrl, log } = deps
   let content: WindowContent = 'boot'
-  let pinnedBoot = false
+  let intent: ContentIntent = 'auto'
+  let lastPhase: DesktopSnapshot['phase'] = 'boot'
 
   const loadBoot = (reason: string) => {
     if (win.isDestroyed()) return
@@ -72,22 +83,39 @@ export function createTakeoverController(deps: TakeoverDeps): TakeoverController
   return {
     onSnapshot(snapshot) {
       if (win.isDestroyed()) return
+      lastPhase = snapshot.phase
       if (snapshot.phase !== 'console') {
-        pinnedBoot = false // 服务离开健康态即解除钉住（重启/降级后恢复自动接管）
+        // 服务离开健康态：钉住自动解除（boot→auto，恢复自动接管——docs §12.2-1 回退不回归）；
+        // console 意愿（用户点了「进入工作台」但服务尚不健康）保留，恢复即接管
+        if (intent === 'boot') intent = 'auto'
         if (content !== 'boot') loadBoot(`${snapshot.services.console.state === 'running' ? 'gateway' : 'console'} 不再健康`)
         return
       }
       // 双健康：
-      if (pinnedBoot) {
-        if (content !== 'boot') loadBoot('启动态页被钉住（菜单「打开启动态页」）')
+      if (intent === 'boot') {
+        if (content !== 'boot') loadBoot('启动态页被钉住（菜单「服务状态页」）')
         return
       }
       if (content === 'boot') loadConsole('gateway+console 双健康')
     },
     showStartupPage() {
-      pinnedBoot = true
+      intent = 'boot'
       if (win.isDestroyed()) return
       if (content !== 'boot') loadBoot('手动打开启动态页')
+    },
+    enterWorkbench() {
+      intent = 'console'
+      if (win.isDestroyed()) return
+      // 双健康 → 立即接管；不健康 → 意愿已记录（onSnapshot 下一拍恢复即接管），不硬
+      // loadURL（服务没起来时硬加载只会 did-fail-load 来回弹，反而误导）
+      if (lastPhase === 'console' && content === 'boot') {
+        loadConsole('用户意愿「进入工作台」')
+      } else if (lastPhase !== 'console') {
+        log('「进入工作台」意愿已记录——服务恢复健康后自动接管')
+      }
+    },
+    contentIntent() {
+      return intent
     },
     content() {
       return content

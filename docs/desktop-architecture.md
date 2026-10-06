@@ -552,8 +552,7 @@ darwin 因 PG 141MiB unpacked 会更大（dmg 压缩后另计，CI 实测回填�
 
 **M6 win 实测回填**：实际安装包 **494MB**（494,001,291B，NSIS lzma）——高于预算陈述，主因 pg 的 20+ 个 DLL/OpenConsole 等原生二进制与 node-pty prebuilds 压缩率低、以及 pnpm 平铺规整后部分硬链接共享退化为独立副本。无 KPI（outOfScope），CI artifact 限额（win 单文件默认无压缩上限限流）为唯一警戒线；若需裁剪，后续可按「按需剔除非 win 平台的 node-pty prebuilds 与 pg DLL」立项。
 
-## 12. 导航架构：根治「启动态页死路」（navArchitecture）
-
+## 12. 导航架构：根治「启动态页死路」（navArchitecture）——M7 已落地（死路场景/回退回归真机过）
 ### 12.1 病灶（需求痛点①的机制复核，均已在源码定位）
 
 - `takeover.ts:81-84`：`showStartupPage()` 置 `pinnedBoot=true` 后，唯一解除条件是 `phase` 跌出 `'console'`（takeover.ts:76）——双服务持续健康时 **pin 永不解除**。
@@ -576,9 +575,9 @@ darwin 因 PG 141MiB unpacked 会更大（dmg 压缩后另计，CI 实测回填�
 
 **为什么不做常驻状态栏/overlay**：console 是完整 Next 应用，向其注入常驻 UI 需要 webContents.executeJavaScript 或 WebContentsView 叠加——CSP/样式冲突/生命周期（导航瞬间闪烁）三面都是新失败面，而需求只要「随时能回工作台 + 随时能看状态」。菜单 + CTA 双锚点零 console 改动即可满足。WebContentsView 底部状态条列为体验侧可选增强（非阻塞，见 uxPlan），若做则独立于本节不变式。
 
-## 13. 兼容排查框架（痛点②的工程面）
+## 13. 兼容排查框架（痛点②的工程面）——M7 已落地（全表见 docs/desktop-compat-matrix.md，15 项真机结论）
 
-> 具体逐项修复与结论归 `docs/desktop-compat-matrix.md`（第二轮交付物，体验工程师产出），本章只定框架与壳层优先原则。
+> 具体逐项修复与结论在 **`docs/desktop-compat-matrix.md`**（页面×功能×结论×证据全表 + 死路场景实录 + 壳层修复清单 + 明示边界 + 复验方法学）。本章只定框架与壳层优先原则；M7 落地的壳层接线集中在 `src/main/index.ts` 的 `wireShellCompatibility()`（外链 setWindowOpenHandler/通知双钩子+AppUserModelID/下载 will-download/历史 Alt+Left·Right/导航防护 will-navigate）。**实测翻案**：`window.confirm` 在 Electron 44 原生可用（弹真模态框、返回值正确）——需求「嫌疑清单」对此项系误判，矩阵 #4 留证。
 
 - **修复优先级**（约束原文）：main/preload/session 层（`setWindowOpenHandler → shell.openExternal`、`setPermissionRequestHandler`、`app.setAppUserModelId`、session 下载行为、菜单加速器审查）> console 源码逐处论证（每处必须说明「为什么壳层解决不了 + 浏览器行为不受影响的依据」）。
 - **矩阵骨架**（页面 × 功能 × 结论 × 证据），首版必查清单（需求 inScope 原文）：外链/新窗口（assistant-content.tsx:655、form-engine.tsx:159 实测）、剪贴板（12 处 writeText）、系统通知（use-desktop-notification.ts:50 permission 门 + AppUserModelID）、window.confirm（3 处）、终端页（xterm 输入/粘贴/快捷键/多标签/SSE 直播——打包版全链路，§14 已退役 ABI 风险）、下载行为、快捷键/加速器冲突（Ctrl+W/Ctrl+R/Ctrl+Shift+I vs Ctrl+K/S/Enter/Esc）、历史返回（Alt+Left/鼠标侧键）、标题/favicon、缩放、localStorage、拖放。
@@ -624,6 +623,16 @@ darwin 因 PG 141MiB unpacked 会更大（dmg 压缩后另计，CI 实测回填�
 | 10 | `node_modules/.pnpm/node-pty@1.1.0`：读 binding.gyp / lib/utils.js / prebuilds/ | N-API（node-addon-api）绑定；prebuilds/{darwin-arm64,darwin-x64,win32-arm64,win32-x64}（**无 linux**）；加载路径 build/Release → prebuilds/<plat>-<arch> |
 
 **未验证（如实记录，归 CI 或后续里程碑）**：mac/linux 打包与 node-pty（约束 2 归 CI matrix；linux 需编译步骤 §11.2）；`@embedded-postgres` linux/darwin 包 pg-symlinks.json 内容与 hydrate 效果；GH windows runner 的 symlink 特权（§11.3 风险预案）；三平台真实安装包体积（§11.5 预算待 CI 回填）。
+
+**M7 验收实测（win32 真机，2026-10-07，全部本 session 实跑；CDP 驱动 = electron . --remote-debugging-port + Runtime.evaluate/Input 真实输入流）**：
+
+| # | 场景 | 结果 |
+|---|---|---|
+| M7-1 | 死路场景（钉住→双健康→一键回） | 工作台 `showStartupPage()`（preload 通道，与菜单同线）→ 钉住；双健康 6s 复核仍钉住（原病灶如实复现）+ meta 诚实文案/钉住徽标/按钮 enabled·primary 三断言过；页面按钮 click → 4s 内回 `localhost:3000` ✅ |
+| M7-2 | 回退回归（R16） | taskkill console dev → 窗口自动回启动态页 + 钉住自动解除 + 「意愿保留」文案 → 有界重启（~10s）→ **自动接管回工作台** ✅（did-fail-load 分支原样保留） |
+| M7-3 | 矩阵 15 项 | 全表见 docs/desktop-compat-matrix.md：外链（hit-server 收 GET+零子窗口）/剪贴板（Get-Clipboard 读回）/通知（permission granted + onshow）/confirm（**原生可用，翻案**）/终端（xterm 41 行+SSE+真实键入 2 处回显）/下载（落 Downloads）/快捷键零冲突（grep 实录）/Alt+Left·Right（navigationHistory）/标题/localStorage/导航防护/SSE·WS ✅ |
+| M7-4 | 方法学坑（复验者须知） | CDP modifiers 位 Alt=1（8 是 Shift）；xterm 只吃带 text 的真实输入；剪贴板项需先真实点击拿焦点；confirm 阻塞 evaluate（SendKeys 驱动模态）——全记矩阵文档末节 ✅ |
+| M7-5 | 门禁 | desktop vitest 127 过 + typecheck/lint 净；根门禁三件套见下 ✅ |
 
 **M6 验收实测（win32 真机，2026-10-07，全部本 session 实跑）**：
 

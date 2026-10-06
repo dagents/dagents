@@ -14,6 +14,9 @@ const api = {
   },
   restart: (): Promise<void> => ipcRenderer.invoke('desktop:restart'),
   stop: (): Promise<void> => ipcRenderer.invoke('desktop:stop'),
+  // 双向导航（docs §12.2，M7 死路根治）
+  enterWorkbench: (): Promise<void> => ipcRenderer.invoke('desktop:enterWorkbench'),
+  showStartupPage: (): Promise<void> => ipcRenderer.invoke('desktop:showStartupPage'),
   openExternal: (url: string): Promise<void> => ipcRenderer.invoke('desktop:openExternal', url),
 }
 

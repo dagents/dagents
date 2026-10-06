@@ -1,12 +1,14 @@
 import { Menu, type MenuItemConstructorOptions } from 'electron'
 
 // 全 role 化基础菜单（mac 没有基础菜单连复制粘贴都没有）+ 自定义「服务」菜单
-// （docs §3.4）。M3 起四动作全接：重启/停止（编排器）、打开启动态页（takeover
-// pin）、在浏览器打开 console（shell.openExternal）。
+// （docs §3.4）。M7 重排（§12.2-4，死路根治）：**进入工作台**置顶（Electron 原生
+// 菜单层不受任何 web 页面崩溃影响——故障态兜底第一锚点，永远可点，不健康时由
+// takeover 给日志反馈不静默）；「打开启动态页」改名「服务状态页」（语义即钉住）。
 export interface MenuHandlers {
+  onEnterWorkbench?: () => void
+  onShowStartupPage?: () => void
   onRestartServices?: () => void
   onStopServices?: () => void
-  onShowStartupPage?: () => void
   onOpenConsoleInBrowser?: () => void
 }
 
@@ -16,11 +18,27 @@ export function buildAppMenu(handlers: MenuHandlers = {}): void {
       ? ([{ role: 'appMenu' }] as MenuItemConstructorOptions[])
       : []),
     { role: 'editMenu' },
+    // viewMenu 内置 reload(Ctrl+R)/toggleDevTools(Ctrl+Shift+I)/zoom(Ctrl+=/-/0)：
+    // 与 console 的 Ctrl+K/S/Enter 快捷键无冲突（兼容矩阵「快捷键」行的审查基线）
     { role: 'viewMenu' },
+    // windowMenu 内置 close(Ctrl+W)：console 无 Ctrl+W 绑定，保留原生语义（关窗=优雅退出）
     { role: 'windowMenu' },
     {
       label: '服务',
       submenu: [
+        {
+          label: '进入工作台（接管 console 页面）',
+          accelerator: 'Alt+Shift+W',
+          enabled: handlers.onEnterWorkbench !== undefined,
+          click: () => handlers.onEnterWorkbench?.(),
+        },
+        {
+          label: '服务状态页（三服务状态与日志，钉住本页）',
+          accelerator: 'Alt+Shift+S',
+          enabled: handlers.onShowStartupPage !== undefined,
+          click: () => handlers.onShowStartupPage?.(),
+        },
+        { type: 'separator' },
         {
           label: '重启服务（停止后重新拉起）',
           enabled: handlers.onRestartServices !== undefined,
@@ -32,11 +50,6 @@ export function buildAppMenu(handlers: MenuHandlers = {}): void {
           click: () => handlers.onStopServices?.(),
         },
         { type: 'separator' },
-        {
-          label: '打开启动态页（服务编排状态与日志）',
-          enabled: handlers.onShowStartupPage !== undefined,
-          click: () => handlers.onShowStartupPage?.(),
-        },
         {
           label: '在浏览器打开 console',
           enabled: handlers.onOpenConsoleInBrowser !== undefined,

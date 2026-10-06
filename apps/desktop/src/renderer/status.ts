@@ -15,6 +15,7 @@ interface ServiceStatusView {
 
 interface SnapshotView {
   phase: 'boot' | 'console'
+  contentIntent: 'auto' | 'boot' | 'console'
   services: { gateway: ServiceStatusView; console: ServiceStatusView; pg: ServiceStatusView }
   logTail: { gateway: string[]; console: string[]; pg: string[] }
   config: {
@@ -35,6 +36,9 @@ interface DesktopApi {
   onState(cb: (snap: SnapshotView) => void): () => void
   restart(): Promise<void>
   stop(): Promise<void>
+  /** 双向导航（docs §12.2）：意愿进工作台 / 钉住本页。 */
+  enterWorkbench(): Promise<void>
+  showStartupPage(): Promise<void>
   openExternal(url: string): Promise<void>
 }
 
@@ -183,15 +187,35 @@ function renderSnapshot(snap: SnapshotView): void {
   if (meta) {
     const pgFailed = snap.services.pg.state === 'failed'
     const gwDown = snap.services.gateway.db === 'down'
+    const pinned = snap.contentIntent === 'boot'
     if (pgFailed) {
       meta.textContent = '内嵌 Postgres 启动失败 · gateway 未启动（看第三卡日志与指引）'
     } else if (gwDown) {
       meta.textContent = '服务已起（Postgres 未就绪，不接管工作台）'
+    } else if (pinned && snap.phase === 'console') {
+      // 死路根治（docs §12.1：钉住时双健康文案失实）——诚实描述 + 出口指引
+      meta.textContent = '服务健康 · 已停留在此页——点「进入工作台」或菜单「服务 → 进入工作台」返回工作台'
+    } else if (pinned) {
+      meta.textContent = '已钉在服务状态页（服务恢复健康后停留在此页，点「进入工作台」可立即接管）'
+    } else if (snap.contentIntent === 'console' && snap.phase !== 'console') {
+      meta.textContent = '已记录「进入工作台」意愿——服务恢复健康后自动接管'
     } else if (snap.phase === 'console') {
       meta.textContent = '双服务健康 · 正在接管工作台…'
     } else {
       meta.textContent = `启动编排中（pg → gateway → console）· 仓库 ${snap.config.repoRoot}`
     }
+  }
+
+  // 钉住徽标（contentIntent 数据源——M7 §12.2-6）
+  const pinChip = document.getElementById('pin-chip')
+  if (pinChip) pinChip.style.display = snap.contentIntent === 'boot' ? '' : 'none'
+
+  // 「进入工作台」主按钮（死路出口，docs §12.2-3）：双健康可点；不健康 disabled
+  const btnEnter = document.getElementById('btn-enter-workbench') as HTMLButtonElement | null
+  if (btnEnter) {
+    const healthy = snap.phase === 'console'
+    btnEnter.disabled = !(desktopApi && healthy)
+    btnEnter.textContent = healthy ? '进入工作台 →' : '进入工作台（等待服务健康）'
   }
 
   const btnRestart = document.getElementById('btn-restart') as HTMLButtonElement | null
@@ -246,6 +270,10 @@ function main(): void {
   })
   btnStop?.addEventListener('click', () => {
     void api.stop()
+  })
+  const btnEnter = document.getElementById('btn-enter-workbench')
+  btnEnter?.addEventListener('click', () => {
+    void api.enterWorkbench()
   })
 
   void api

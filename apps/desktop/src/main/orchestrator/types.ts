@@ -88,10 +88,16 @@ export interface ServiceStatus {
   message: string | null
 }
 
+/** 内容意愿态（docs §12.2，M7 死路根治）：auto=自动接管；boot=钉住启动态页；
+ * console=用户意愿进工作台（不健康时保留，恢复即接管）。 */
+export type ContentIntent = 'auto' | 'boot' | 'console'
+
 /** 渲染层快照（preload 窄暴露面 getState/onState 的载荷）。 */
 export interface DesktopSnapshot {
   /** boot = 阶段 A 启动态页；console = 阶段 B 已接管工作台（M3）。 */
   phase: 'boot' | 'console'
+  /** 窗口内容意愿（takeover 控制器维护，index.ts 合入快照——「已钉住」徽标数据源）。 */
+  contentIntent: ContentIntent
   services: Record<ServiceId, ServiceStatus>
   logTail: Record<ServiceId, string[]>
   config: {
