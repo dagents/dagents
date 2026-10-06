@@ -30,6 +30,7 @@
 | [`design-run-checkpoint-resume.md`](design-run-checkpoint-resume.md) | 设计：执行状态检查点与断点续跑（2026-09-18 已实施）——失败节点续跑/迭代项级游标/HumanInput 挂起持久化（checkpoint 串行链/resume·answer 端点/e2e RM-01~03 零重跑证明） |
 | [`terminal-architecture.md`](terminal-architecture.md) | 浏览器终端架构（2026-09）：node-pty/SSE 协议契约（@dagents/contracts）、会话生命周期、ADR（SSE vs WS/base64/最小环境）、安全模型、故障模式与演进边界 |
 | [`design-terminal-anchors.md`](design-terminal-anchors.md) | 设计：终端双锚点（2026-09-19 **五项全部实施**）——目录/运行两锚、一扇门原则；P0 运行目录数据链 / P1 三入口 / P2 多标签 / P3 运行实时终端 / P4 交互式 agent 会话 |
+| [`desktop-architecture.md`](desktop-architecture.md) | 桌面客户端选型与架构（2026-10-06 设计定稿）：Electron 路线论证（win32 真机实测含真实 NSIS 打包）、供应链机制（electron 44.x 无 install script）、进程编排器状态机、三平台打包与 CI 兑现 |
 
 ## 流程文档（docs/superpowers/）
 
