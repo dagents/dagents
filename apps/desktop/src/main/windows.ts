@@ -1,6 +1,7 @@
 import { readFileSync, writeFileSync } from 'node:fs'
 import { join } from 'node:path'
 import { app, BrowserWindow, screen } from 'electron'
+import { destroyManagedChildren } from './managed-children'
 import {
   DEFAULT_ZOOM,
   parseWindowState,
@@ -94,6 +95,9 @@ export function createMainWindow(): BrowserWindow {
       saveTimer = null
     }
     persistWindowState(win)
+    // A6 子窗随主窗关闭：主窗 close 即逐个 destroy 受管子窗——否则 window-all-closed
+    // 要等子窗全关才触发，主窗关了应用不退、服务栈继续跑（体验规格 A6 验收锁定）
+    destroyManagedChildren()
   })
 
   win.on('closed', () => {

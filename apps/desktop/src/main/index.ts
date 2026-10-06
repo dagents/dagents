@@ -9,6 +9,12 @@ import { registerDesktopIpc } from './ipc'
 import { buildAppMenu } from './menu'
 import { createRuntimeDeps } from './spawn-runtime'
 import { createTakeoverController, type TakeoverController } from './takeover'
+import {
+  claimManagedChild,
+  expectManagedChild,
+  managedChildCount,
+} from './managed-children'
+import { classifyOpenUrl, consoleOriginOf, managedChildBounds } from './window-open-policy'
 import { createMainWindow, focusMainWindow, getMainWindow } from './windows'
 
 // 主入口（docs §3.1 进程模型 + §10.2 内嵌 PG 编排 + §11.4 三级模式开关 +
@@ -188,16 +194,43 @@ function wireShellCompatibility(consoleUrl: string): void {
   // 窗口级钩子在窗口创建后挂（createMainWindow 内已加载 boot 页——钩子对后续导航生效）
   app.on('browser-window-created', (_event, win: BrowserWindow) => {
     const wc = win.webContents
-    // 外链：console 的 target=_blank（聊天链接等）→ 默认浏览器；其余（含 about:blank
-    // 之类）一律拒开裸 Electron 子窗口
+    // 受管子窗认领（U2 三分支）：放行计数在等 → 本窗即受管子窗（主窗/devtools 不被误收）
+    if (claimManagedChild(win)) {
+      console.log(`[shell] 受管子窗开启（在开 ${managedChildCount()} 个）`)
+    }
+    // 外链三分支（体验规格 flows「外部链接与新窗口三分支」——单点防线）：
+    //   同源 → 受管子窗（继承 preload、0.8×主窗、24px 级联；title 随页面文档 C15）
+    //   异源 http(s)/mailto（含 :8080/:3001）→ 系统默认浏览器
+    //   其余协议 → deny（无裸 Electron 子窗口）
+    const consoleOrigin = consoleOriginOf(consoleUrl)
     wc.setWindowOpenHandler(({ url }) => {
-      if (/^https?:\/\//i.test(url)) {
+      const decision = classifyOpenUrl(url, consoleOrigin)
+      if (decision === 'managed') {
+        expectManagedChild()
+        const main = getMainWindow()
+        const parent = main && !main.isDestroyed() ? main.getNormalBounds() : null
+        const bounds = parent ? managedChildBounds(parent, managedChildCount()) : undefined
+        return {
+          action: 'allow',
+          overrideBrowserWindowOptions: {
+            ...(bounds ?? {}),
+            // 不设 title——子窗标题随页面 document.title（C15）；继承主窗 preload 语义
+            webPreferences: {
+              preload: join(__dirname, '../preload/index.js'),
+              contextIsolation: true,
+              sandbox: true,
+              nodeIntegration: false,
+            },
+          },
+        }
+      }
+      if (decision === 'external') {
         void shell.openExternal(url)
       }
       return { action: 'deny' }
     })
-    // 导航防护：主窗口只许本机 consoleUrl 与启动态页（file://）——拖放文件到窗口、
-    // 意外重定向等一律拒绝，窗口内容只归编排器管
+    // 导航防护：窗口只许本机 consoleUrl 与启动态页（file://）——拖放文件到窗口、
+    // 意外重定向等一律拒绝，窗口内容只归编排器管（受管子窗同样只许 console 同源）
     wc.on('will-navigate', (event, url) => {
       const allowed =
         url === consoleUrl || url.startsWith(`${consoleUrl}/`) || url.startsWith('file://')
@@ -220,7 +253,7 @@ function wireShellCompatibility(consoleUrl: string): void {
     })
   })
 
-  // 全局兜底：webContents 新建（多窗口防御）同样挂外链策略
+  // 全局兜底：webContents 新建（多窗口防御）同样挂外链策略（非 window 类型无受管分支）
   app.on('web-contents-created', (_event, contents) => {
     if (contents.getType() === 'window') return // browser-window-created 已处理
     contents.setWindowOpenHandler(({ url }) => {

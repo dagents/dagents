@@ -581,12 +581,14 @@ darwin 因 PG 141MiB unpacked 会更大（dmg 压缩后另计，CI 实测回填�
 
 **为什么不做常驻状态栏/overlay**：console 是完整 Next 应用，向其注入常驻 UI 需要 webContents.executeJavaScript 或 WebContentsView 叠加——CSP/样式冲突/生命周期（导航瞬间闪烁）三面都是新失败面，而需求只要「随时能回工作台 + 随时能看状态」。菜单 + CTA 双锚点零 console 改动即可满足。WebContentsView 底部状态条列为体验侧可选增强（非阻塞，见 uxPlan），若做则独立于本节不变式。
 
-## 13. 兼容排查框架（痛点②的工程面）——M7 已落地（全表见 docs/desktop-compat-matrix.md，15 项真机结论）
+## 13. 兼容排查框架（痛点②的工程面）——M7 落地 + U2 三分支升级（全表见 docs/desktop-compat-matrix.md v2，20 项真机结论）
 
-> 具体逐项修复与结论在 **`docs/desktop-compat-matrix.md`**（页面×功能×结论×证据全表 + 死路场景实录 + 壳层修复清单 + 明示边界 + 复验方法学）。本章只定框架与壳层优先原则；M7 落地的壳层接线集中在 `src/main/index.ts` 的 `wireShellCompatibility()`（外链 setWindowOpenHandler/通知双钩子+AppUserModelID/下载 will-download/历史 Alt+Left·Right/导航防护 will-navigate）。**实测翻案**：`window.confirm` 在 Electron 44 原生可用（弹真模态框、返回值正确）——需求「嫌疑清单」对此项系误判，矩阵 #4 留证。
+> 具体逐项修复与结论在 **`docs/desktop-compat-matrix.md`**（页面×功能×结论×证据全表 + 死路场景实录 + 壳层修复清单 + 明示边界 + 复验方法学）。本章只定框架与壳层优先原则；壳层接线集中在 `src/main/index.ts` 的 `wireShellCompatibility()`（**外链三分支**/通知双钩子+AppUserModelID/下载 will-download/历史 Alt+Left·Right/导航防护 will-navigate）。**实测翻案**：`window.confirm` 在 Electron 44 原生可用（弹真模态框、返回值正确）——需求「嫌疑清单」对此项系误判，矩阵 #4 留证。
+>
+> **U2 三分支升级（受管子窗）**：M7 的 deny-all 子窗口策略会让 console 的同源 `target="_blank"` 链接在桌面**静默无效**（真实案例：form-engine.tsx:155「从广场启用 Agent」`href="/agents?tab=plaza" target="_blank"`）。U2 按体验规格冻结方案落三分支：**同源 → 受管子窗**（继承 preload、0.8×主窗、24px 级联、title 随页面——纯逻辑 `window-open-policy.ts` 8 单测）／**异源 http(s)+mailto（含 :8080/:3001）→ 系统浏览器**／**其余协议 deny**。受管子窗生命周期挂主窗（`managed-children.ts`：放行计数→browser-window-created 认领；主窗 close → 逐个 destroy）——否则 window-all-closed 等子窗全关才触发，主窗关了应用不退服务栈继续跑（A6 真机锁定：子窗在开时只关主窗 → 全栈退出、端口释放、0 进程）。
 
-- **修复优先级**（约束原文）：main/preload/session 层（`setWindowOpenHandler → shell.openExternal`、`setPermissionRequestHandler`、`app.setAppUserModelId`、session 下载行为、菜单加速器审查）> console 源码逐处论证（每处必须说明「为什么壳层解决不了 + 浏览器行为不受影响的依据」）。
-- **矩阵骨架**（页面 × 功能 × 结论 × 证据），首版必查清单（需求 inScope 原文）：外链/新窗口（assistant-content.tsx:655、form-engine.tsx:159 实测）、剪贴板（12 处 writeText）、系统通知（use-desktop-notification.ts:50 permission 门 + AppUserModelID）、window.confirm（3 处）、终端页（xterm 输入/粘贴/快捷键/多标签/SSE 直播——打包版全链路，§14 已退役 ABI 风险）、下载行为、快捷键/加速器冲突（Ctrl+W/Ctrl+R/Ctrl+Shift+I vs Ctrl+K/S/Enter/Esc）、历史返回（Alt+Left/鼠标侧键）、标题/favicon、缩放、localStorage、拖放。
+- **修复优先级**（约束原文）：main/preload/session 层（`setWindowOpenHandler → 受管子窗 / shell.openExternal`、`setPermissionRequestHandler`、`app.setAppUserModelId`、session 下载行为、菜单加速器审查）> console 源码逐处论证（每处必须说明「为什么壳层解决不了 + 浏览器行为不受影响的依据」）。U2 console 改动数仍为 **0**。
+- **矩阵骨架**（页面 × 功能 × 结论 × 证据），首版必查清单（需求 inScope 原文）：外链/新窗口（assistant-content.tsx:655、form-engine.tsx:159 实测）、剪贴板（12 处 writeText）、系统通知（use-desktop-notification.ts:50 permission 门 + AppUserModelID）、window.confirm（3 处）、终端页（xterm 输入/粘贴/快捷键/多标签/SSE 直播——打包版全链路，§14 已退役 ABI 风险）、下载行为、快捷键/加速器冲突（Ctrl+W/Ctrl+R/Ctrl+Shift+I vs Ctrl+K/S/Enter/Esc）、历史返回（Alt+Left/鼠标侧键）、标题/favicon、缩放、localStorage、拖放。U2 增补：受管子窗（C2）、子窗随主窗退出（A6）、鼠标侧键、右键菜单（C14）、缩放持久（C8）、localStorage 跨重启（C10）。
 - 每项结论三值：**可用（真机过）/ 修复后可用（指向 PR）/ 明示边界（文档化降级）**。验收员按矩阵 100% 复验。
 
 ## 14. 终端策略（terminalStrategy）
@@ -609,6 +611,7 @@ darwin 因 PG 141MiB unpacked 会更大（dmg 压缩后另计，CI 实测回填�
 | M6 | **服务栈入包** | stage-stack.mjs（console standalone + gateway deploy + 裁剪落位）；electron-builder extraResources；packaged 模式编排（ELECTRON_RUN_AS_NODE spawn + bootstrap 迁移走 staged migrate.mjs）；dist:win 完整入口；desktop.yml matrix 扩展；.gitignore/.dockerignore 补条目 | win 真机全新机器语义（无仓库/docker/pnpm/node）：安装 → 双击 → 内嵌 PG 自动就绪 → 工作台可用 → 退出 8080/3000/PG 端口与进程全净；CI 四 job 产物可下载；dev 模式与附加模式回归不破 |
 | M7 | **导航修复 + 兼容矩阵 + 收口** | §12 全量（enterWorkbench 通道/意愿态/文案/菜单）；壳层兼容修复（setWindowOpenHandler、AppUserModelID+通知权限、confirm、下载、加速器）；`docs/desktop-compat-matrix.md` 全表真机结论；README/本文档收口 | 痛点①死路场景（钉住→双健康→一键回工作台）真机过；矩阵逐项 100% 复验；「杀 console→自动重启→窗口恢复」回归；根命令门禁最终态全绿 |
 | U1 | **启动态页产品化 + 死路根治（体验侧 uxPlan-1）** | 状态页信息层级重做（全局状态灯/诚实 meta/bootstrap 红横幅/首启五步进度/首启教育/三服务卡分级指引/日志面板 400 行复制+打开完整日志）；文案真值表纯函数层 `renderer/status-copy.ts`（模式分叉：dev 话术不泄漏 packaged）；「进入工作台」呼吸高亮 + S4/S5b/S6/S10 诚实文案；窗口状态记忆（bounds+maximized+zoom，显示器交集回退）；三平台真实图标（零依赖生成器 + build/ 产物入库）；快照 config 增 healthTimeoutMs/logsDir/appVersion；菜单增数据/日志目录与关于面板 | 真机 CDP：S4 钉住+双健康（呼吸高亮+诚实 meta+步条 ⑤◐ 指引）→ 点击回工作台 ✓；pg 崩溃恢复竞态真实触发→红横幅原文+「重试初始化」→恢复自动接管 ✓；等待预算本地 1s 走秒 ✓；Win32 移动缩放 160,120,1188×742 → 优雅关窗 → 重启精确恢复 ✓；优雅退出 8080/3000/55432 全释放 0 残留 ✓；desktop 175 用例/typecheck 双 tsconfig/lint/check-builder-config 全绿 |
+| U2 | **兼容矩阵排查与修复（体验侧 uxPlan-2，痛点②）** | 矩阵 v2（20 项，M7 15 项全量复验 + 5 项新增）；外链三分支升级：受管子窗（window-open-policy.ts 纯层 8 单测 + managed-children.ts 生命周期 + 主窗 close 全量 destroy）——修 M7 deny-all 策略下「从广场启用 Agent」同源链接静默无效的真缺陷；console 改动数 0 | 真机：C2 子窗 0.8×+24px 级联+preload 继承+主窗不跳转+关无残留；A6 子窗在开只关主窗→全栈退出端口释放 0 进程；C6 终端全链（Ctrl+C ^C/Read-Host 交互/双标签隔离/多行粘贴）；C8 缩放 SendKeys 真输入 dpr 1→1.2→重启复原；C10 localStorage 跨重启；C14 右键+输入复制粘贴往返；C1 外链 hit-server+favicon 铁证；C5 confirm 两分支；desktop 183 用例/typecheck/lint 全绿 |
 
 （体验侧里程碑 U 系列由 uxPlan 承载，U1 已落地；后续 U 系列沿用本文档 §16 证据表口径。）
 
@@ -640,6 +643,18 @@ darwin 因 PG 141MiB unpacked 会更大（dmg 压缩后另计，CI 实测回填�
 | M7-3 | 矩阵 15 项 | 全表见 docs/desktop-compat-matrix.md：外链（hit-server 收 GET+零子窗口）/剪贴板（Get-Clipboard 读回）/通知（permission granted + onshow）/confirm（**原生可用，翻案**）/终端（xterm 41 行+SSE+真实键入 2 处回显）/下载（落 Downloads）/快捷键零冲突（grep 实录）/Alt+Left·Right（navigationHistory）/标题/localStorage/导航防护/SSE·WS ✅ |
 | M7-4 | 方法学坑（复验者须知） | CDP modifiers 位 Alt=1（8 是 Shift）；xterm 只吃带 text 的真实输入；剪贴板项需先真实点击拿焦点；confirm 阻塞 evaluate（SendKeys 驱动模态）——全记矩阵文档末节 ✅ |
 | M7-5 | 门禁 | desktop vitest 127 过 + typecheck/lint 净；根门禁三件套见下 ✅ |
+
+**U2 验收实测（win32 真机，2026-10-07 第二 session，全部本 session 实跑；CDP 9444 + Win32 EnumWindows/PostMessage + PowerShell SendKeys/Get-Clipboard + 本地 hit-server；逐项证据见矩阵 v2 对应行）**：
+
+| # | 命令/操作 | 结果 |
+|---|---|---|
+| U2-1 | **C1 外链**：`window.open('http://127.0.0.1:9455/hit-external-u2')` + hit-server | 收 `GET /hit-external-u2` + **`GET /favicon.ico`**（真实浏览器铁证）；page targets 不增（无裸子窗）✅ |
+| U2-2 | **C2 受管子窗**：`window.open('/agents?tab=plaza')`（form-engine.tsx:155 同款 href） | 子窗 target 同源 + `!!window.dagensDesktop`（preload 继承）+ EnumWindows：子 950×594@160,120（=0.8×主 1188×742）；第二个子窗 @184,144（+24px 级联）；主窗停留 /flows；CDP closeTarget 后无残留 ✅ |
+| U2-3 | **A6 子窗随主窗退出**：子窗在开 → PostMessage WM_CLOSE 只关 1188 主窗 | app 整体退出：8080/3000/55432/9444 全释放、0 electron 进程、日志「受管子窗开启（在开 1 个）」✅（无 destroy-on-main-close 则 window-all-closed 会等子窗——服务栈残留） |
+| U2-4 | **C6 终端全链**（真实输入流，先点击 xterm 拿焦点） | 键入 echo 双回显；`Start-Sleep 30` 中 Ctrl+C → `^C`+prompt 即恢复；`Read-Host U2ASK` 交互 stdin 往返；`+` 开第二 tab 键入 marker → 切 tab1 无 marker（隔离）→ 回 tab2 marker 在；insertText 两行各自执行 ✅。**明示边界**：PTY 最小 env 无 System32（ping/vim 不可达——gateway 设计）；agent 会话/杀 gateway 重连未驱动 |
+| U2-5 | **C8/C9/C20 缩放与几何闭环**：SendKeys `^{+}`×2（真实 OS 输入——CDP 注入不触发菜单加速器）→ 优雅关窗 → 重启 | dpr 1→1.2（innerWidth 1172→977）；`window-state.json` 记 zoomFactor 1.2；重启后 dpr 1.2 + bounds 160,120 1188×742 复原 ✅ |
+| U2-6 | **C10 localStorage 跨重启** | `u2-ls-marker='cross-restart-ok'` → 全栈退出重启 → 读回一致 ✅ |
+| U2-7 | **C14/C3/C5/C4/C13/C12/C7/C11** | 右键 contextmenu 触发 + 输入 Ctrl+A/C/V 往返（Get-Clipboard 比对）；剪贴板**无焦点写入也成功**（M7 handler 生效——边界比 v1 记录更宽，翻案）；confirm Enter→true/ESC→false；Notification.permission granted+onshow；blob 下载落 Downloads；file:// 导航被拦；Ctrl+K 面板开/关；Alt+←→ 跨 boot↔console 历史 ✅。鼠标侧键/真实拖放：CDP 注入不可达，明示边界留人工 |
 
 **U1 验收实测（win32 真机，2026-10-07，全部本 session 实跑；CDP 9444 + Win32 SetWindowPos/CloseMainWindow + PowerShell 探针）**：
 
