@@ -1,10 +1,20 @@
+import { join } from 'node:path'
 import { app } from 'electron'
+import { loadConfig } from './orchestrator/config'
+import { Orchestrator } from './orchestrator/supervisor'
+import { registerDesktopIpc } from './ipc'
 import { buildAppMenu } from './menu'
+import { createRuntimeDeps } from './spawn-runtime'
 import { createMainWindow, focusMainWindow, getMainWindow } from './windows'
 
-// M1 空壳入口：单窗口加载本地启动态占位页。
-// M2 起接入编排器（src/main/orchestrator/，纯逻辑禁 import electron），
-// M3 双健康后 loadURL(consoleUrl) 接管 —— 进程模型见 docs/desktop-architecture.md §3.1。
+// 主入口（docs §3.1 进程模型）：
+//   app ready → 加载配置（userData/config.json，坏 JSON 全量默认值兜底）
+//   → 建编排器（真实 deps：spawn/健康探测/树终止/日志落盘）
+//   → 窗口（阶段 A 本地启动态页，M3 双健康后 loadURL(consoleUrl) 接管）
+//   → IPC 桥 + 菜单 → 编排启动（端口已听的服务进附加模式）
+// 退出：window-all-closed → app.quit() → will-quit 先全量树终止再退（无孤儿语义）。
+
+let orchestrator: Orchestrator | null = null
 
 const gotLock = app.requestSingleInstanceLock()
 if (!gotLock) {
@@ -13,18 +23,46 @@ if (!gotLock) {
   app.on('second-instance', () => focusMainWindow())
 
   void app.whenReady().then(() => {
-    buildAppMenu()
-    createMainWindow()
+    const userData = app.getPath('userData')
+    const { config, warnings } = loadConfig({
+      userDataDir: userData,
+      // dev 模式 = apps/desktop（electron .）→ 向上发现 pnpm-workspace.yaml 即仓库根
+      startDir: app.getAppPath(),
+    })
+    for (const w of warnings) console.warn(`[desktop-config] ${w}`)
+
+    orchestrator = new Orchestrator(
+      config,
+      createRuntimeDeps(config, { logDir: join(userData, 'logs') })
+    )
+
+    const win = createMainWindow()
+    registerDesktopIpc(win, orchestrator)
+    buildAppMenu({
+      onRestartServices: () => void orchestrator?.restartAll(),
+      onStopServices: () => void orchestrator?.stopAll(),
+    })
 
     // mac dock 点击：窗口已全关时重建
     app.on('activate', () => {
       if (!getMainWindow()) createMainWindow()
     })
+
+    orchestrator.start()
   })
 
-  // 关窗即退出（outOfScope：不做托盘常驻）——这是「无孤儿进程」语义的最简实现；
-  // M2 起退出前先触发全量进程树终止（docs/desktop-architecture.md §3.4）。
   app.on('window-all-closed', () => {
     app.quit()
+  })
+
+  // 关窗即退出的收尾：先全量树终止（端口释放校验在 stopAll 内），再真正退出。
+  // 6s 兜底防止 taskkill 卡死拖住退出（正常 <1s）。
+  app.on('will-quit', (event) => {
+    if (orchestrator === null) return
+    const orch = orchestrator
+    event.preventDefault()
+    void Promise.race([orch.stopAll(), new Promise((r) => setTimeout(r, 6_000))]).then(() => {
+      app.exit(0)
+    })
   })
 }

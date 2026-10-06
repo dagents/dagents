@@ -8,51 +8,196 @@
     />
     <title>dagents 桌面客户端</title>
     <style>
-      /* M1 占位页样式内联（单文件静态页，无框架零依赖）；M2 起拆出样式随构建同步 */
+      /* 启动态/错误态页（docs §3.4）：无框架零依赖经典 script；状态由 status.ts 动态渲染 */
       :root {
         color-scheme: dark;
+        --bg: #0f1115;
+        --panel: #161a22;
+        --border: #2c3340;
+        --text: #e6e8ee;
+        --muted: #9aa3b2;
+        --accent: #7aa2f7;
+        --ok: #4ade80;
+        --warn: #fbbf24;
+        --err: #f87171;
+        --running: #22c55e;
+        --waiting: #eab308;
+        --restarting: #a78bfa;
+        --failed: #ef4444;
+        --stopped: #6b7280;
+      }
+      * {
+        box-sizing: border-box;
       }
       body {
         margin: 0;
-        min-height: 100vh;
-        display: flex;
-        align-items: center;
-        justify-content: center;
-        background: #0f1115;
-        color: #e6e8ee;
+        background: var(--bg);
+        color: var(--text);
         font-family: 'Segoe UI', 'Microsoft YaHei', system-ui, sans-serif;
+        font-size: 14px;
       }
-      main {
-        max-width: 640px;
-        padding: 48px;
+      header {
+        display: flex;
+        align-items: baseline;
+        gap: 12px;
+        padding: 14px 20px;
+        border-bottom: 1px solid var(--border);
       }
-      h1 {
-        font-size: 28px;
-        font-weight: 600;
-        margin: 0 0 12px;
-      }
-      p {
-        line-height: 1.7;
-        color: #9aa3b2;
+      header h1 {
+        font-size: 16px;
         margin: 0;
       }
-      .tag {
-        display: inline-block;
-        margin-bottom: 16px;
-        padding: 2px 10px;
-        border: 1px solid #2c3340;
-        border-radius: 999px;
+      header .meta {
+        color: var(--muted);
         font-size: 12px;
-        color: #7aa2f7;
+      }
+      header .actions {
+        margin-left: auto;
+        display: flex;
+        gap: 8px;
+      }
+      button {
+        background: var(--panel);
+        color: var(--text);
+        border: 1px solid var(--border);
+        border-radius: 6px;
+        padding: 5px 14px;
+        font-size: 13px;
+        cursor: pointer;
+      }
+      button:hover:not(:disabled) {
+        border-color: var(--accent);
+      }
+      button:disabled {
+        opacity: 0.45;
+        cursor: default;
+      }
+      button.primary {
+        border-color: var(--accent);
+        color: var(--accent);
+      }
+      main {
+        display: grid;
+        grid-template-columns: 1fr 1fr;
+        gap: 14px;
+        padding: 16px 20px;
+      }
+      .svc {
+        background: var(--panel);
+        border: 1px solid var(--border);
+        border-radius: 10px;
+        padding: 14px 16px;
+        display: flex;
+        flex-direction: column;
+        min-height: 320px;
+      }
+      .svc-head {
+        display: flex;
+        align-items: center;
+        gap: 8px;
+        flex-wrap: wrap;
+      }
+      .svc-head h2 {
+        font-size: 14px;
+        margin: 0 8px 0 0;
+      }
+      .chip {
+        font-size: 11px;
+        padding: 2px 8px;
+        border-radius: 999px;
+        border: 1px solid var(--border);
+        color: var(--muted);
+      }
+      .chip.state-running {
+        color: var(--running);
+        border-color: var(--running);
+      }
+      .chip.state-waiting_health,
+      .chip.state-starting,
+      .chip.state-idle {
+        color: var(--waiting);
+        border-color: var(--waiting);
+      }
+      .chip.state-restarting {
+        color: var(--restarting);
+        border-color: var(--restarting);
+      }
+      .chip.state-failed {
+        color: var(--failed);
+        border-color: var(--failed);
+      }
+      .chip.state-stopped {
+        color: var(--stopped);
+        border-color: var(--stopped);
+      }
+      .chip.db-down {
+        color: var(--warn);
+        border-color: var(--warn);
+      }
+      .chip.db-up {
+        color: var(--ok);
+        border-color: var(--ok);
+      }
+      .chip.attach {
+        color: var(--accent);
+        border-color: var(--accent);
+      }
+      .facts {
+        color: var(--muted);
+        font-size: 12px;
+        margin: 8px 0;
+      }
+      .message {
+        margin: 6px 0;
+        padding: 8px 10px;
+        border-radius: 8px;
+        font-size: 12.5px;
+        line-height: 1.6;
+        white-space: pre-wrap;
+        background: rgba(251, 191, 36, 0.08);
+        border: 1px solid rgba(251, 191, 36, 0.35);
+        color: #fde68a;
+      }
+      .message:empty {
+        display: none;
+      }
+      .log {
+        margin-top: auto;
+        background: #0b0d12;
+        border: 1px solid var(--border);
+        border-radius: 8px;
+        padding: 8px 10px;
+        font-family: 'Cascadia Mono', Consolas, monospace;
+        font-size: 11.5px;
+        line-height: 1.55;
+        color: #b6c2d4;
+        overflow-y: auto;
+        height: 180px;
+        white-space: pre-wrap;
+        word-break: break-all;
+      }
+      footer {
+        padding: 0 20px 14px;
+        color: var(--muted);
+        font-size: 11.5px;
+      }
+      footer a {
+        color: var(--accent);
+        cursor: pointer;
       }
     </style>
   </head>
   <body>
-    <main>
-      <span class="tag">M1 骨架</span>
-      <h1>dagents 桌面客户端</h1>
-      <p id="status">启动态页占位 —— M2 起在此显示 gateway / console 编排进度与日志尾部。</p>
-    </main>
+    <header>
+      <h1>dagents 桌面客户端 · 服务编排</h1>
+      <span class="meta" id="meta">连接主进程…</span>
+      <div class="actions">
+        <button id="btn-restart" class="primary" disabled>重试 / 重启服务</button>
+        <button id="btn-stop" disabled>停止服务</button>
+      </div>
+    </header>
+    <main id="grid"></main>
+    <footer id="footer"></footer>
     <script src="./status.js"></script>
   </body>
 </html>

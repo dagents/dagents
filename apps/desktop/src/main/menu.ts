@@ -1,9 +1,14 @@
 import { Menu, type MenuItemConstructorOptions } from 'electron'
 
-// 全 role 化基础菜单（mac 没有基础菜单连复制粘贴都没有）+ 自定义「服务」菜单占位。
-// 「服务」菜单的四个动作（重启服务 / 停止服务 / 打开启动态页 / 在浏览器打开 console）
-// 由 M2 编排器 + IPC 桥接线后启用 —— docs/desktop-architecture.md §3.4。
-export function buildAppMenu(): void {
+// 全 role 化基础菜单（mac 没有基础菜单连复制粘贴都没有）+ 自定义「服务」菜单
+// （docs §3.4）。M2 接入编排器控制（重启/停止）；「打开启动态页 / 在浏览器打开
+// console」随 M3 两阶段窗口接线。
+export interface MenuHandlers {
+  onRestartServices?: () => void
+  onStopServices?: () => void
+}
+
+export function buildAppMenu(handlers: MenuHandlers = {}): void {
   const template: MenuItemConstructorOptions[] = [
     ...(process.platform === 'darwin'
       ? ([{ role: 'appMenu' }] as MenuItemConstructorOptions[])
@@ -14,11 +19,19 @@ export function buildAppMenu(): void {
     {
       label: '服务',
       submenu: [
-        { label: '重启服务（M2 接入编排器后启用）', enabled: false },
-        { label: '停止服务（M2 接入编排器后启用）', enabled: false },
+        {
+          label: '重启服务（停止后重新拉起）',
+          enabled: handlers.onRestartServices !== undefined,
+          click: () => handlers.onRestartServices?.(),
+        },
+        {
+          label: '停止服务（终止全部子进程树）',
+          enabled: handlers.onStopServices !== undefined,
+          click: () => handlers.onStopServices?.(),
+        },
         { type: 'separator' },
-        { label: '打开启动态页（M3 接入）', enabled: false },
-        { label: '在浏览器打开 console（M3 接入）', enabled: false },
+        { label: '打开启动态页（M3 两阶段接线）', enabled: false },
+        { label: '在浏览器打开 console（M3 接线）', enabled: false },
       ],
     },
   ]
