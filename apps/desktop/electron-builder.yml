@@ -1,5 +1,8 @@
 appId: dev.dagents.desktop
 productName: dagents
+# 可执行文件名显式钉死：scoped 包名 @dagents/desktop 会被推导成「@dagentsdesktop」，
+# Linux AppImage 工具链拒绝 @ 字符（CI linux-x64 job 实跑踩中）；win/mac 产物名不变（本就是 dagents）
+executableName: dagents
 directories:
   output: release
 # 只带 tsc 产物与 main 入口定位文件；本包零 runtime 依赖 → node_modules 无需入包
