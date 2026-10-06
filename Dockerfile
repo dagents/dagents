@@ -56,10 +56,13 @@ RUN mkdir /pty-build \
 # .next / .git so this only moves real source files.
 COPY . .
 
-# turbo builds every workspace in dependency order (contracts → shared/db → …
+# turbo builds every workspace in dependency order (contracts → shared/db/…
 # → gateway / console). Each package's build script emits to its own dist/ (or
-# .next/ for the console).
-RUN pnpm run build
+# .next/ for the console). The desktop client (@dagents/desktop) is excluded:
+# this image ships the server stack only — the manifest COPY above never
+# includes apps/desktop, so electron (its type dep) is absent from the install
+# graph, and its artifacts are not copied to the runtime stage either.
+RUN pnpm run build --filter='!@dagents/desktop'
 
 # =============================================================================
 # Stage 2 — runtime
