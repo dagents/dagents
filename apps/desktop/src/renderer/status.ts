@@ -160,13 +160,14 @@ function renderSnapshot(snap: SnapshotView): void {
 
   const meta = document.getElementById('meta')
   if (meta) {
-    const both = snap.services.gateway.state === 'running' && snap.services.console.state === 'running'
     const gwDown = snap.services.gateway.db === 'down'
-    meta.textContent = both
-      ? gwDown
-        ? '服务已起（Postgres 未就绪）'
-        : '服务运行中'
-      : `启动编排中 · 仓库 ${snap.config.repoRoot}`
+    if (gwDown) {
+      meta.textContent = '服务已起（Postgres 未就绪，不接管工作台）'
+    } else if (snap.phase === 'console') {
+      meta.textContent = '双服务健康 · 正在接管工作台…'
+    } else {
+      meta.textContent = `启动编排中 · 仓库 ${snap.config.repoRoot}`
+    }
   }
 
   const btnRestart = document.getElementById('btn-restart') as HTMLButtonElement | null

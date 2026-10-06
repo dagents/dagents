@@ -23,7 +23,12 @@ export function registerDesktopIpc(win: BrowserWindow, orch: Orchestrator): void
   const push = () => {
     scheduled = null
     lastSentAt = Date.now()
-    if (!win.isDestroyed()) win.webContents.send('desktop:state', orch.snapshot())
+    if (win.isDestroyed()) return
+    try {
+      win.webContents.send('desktop:state', orch.snapshot())
+    } catch {
+      // 页面导航/销毁瞬间 frame 可能已 disposed——丢一帧状态推送无害（下一拍补上）
+    }
   }
   orch.onChange(() => {
     if (scheduled !== null) return

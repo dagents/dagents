@@ -1,20 +1,22 @@
 import { join } from 'node:path'
-import { app } from 'electron'
+import { app, shell } from 'electron'
 import { loadConfig } from './orchestrator/config'
 import { Orchestrator } from './orchestrator/supervisor'
 import { registerDesktopIpc } from './ipc'
 import { buildAppMenu } from './menu'
 import { createRuntimeDeps } from './spawn-runtime'
+import { createTakeoverController, type TakeoverController } from './takeover'
 import { createMainWindow, focusMainWindow, getMainWindow } from './windows'
 
 // 主入口（docs §3.1 进程模型）：
-//   app ready → 加载配置（userData/config.json，坏 JSON 全量默认值兜底）
-//   → 建编排器（真实 deps：spawn/健康探测/树终止/日志落盘）
-//   → 窗口（阶段 A 本地启动态页，M3 双健康后 loadURL(consoleUrl) 接管）
-//   → IPC 桥 + 菜单 → 编排启动（端口已听的服务进附加模式）
+//   app ready → 加载配置 → 建编排器 → 窗口（阶段 A 启动态页）
+//   → IPC 桥 + 菜单 + 接管控制器 → 编排启动
+//   双健康（computePhase）→ 窗口 loadURL(consoleUrl) 进入阶段 B；
+//   console 崩溃/健康跌落 → 回退阶段 A 显示有界重启与引导。
 // 退出：window-all-closed → app.quit() → will-quit 先全量树终止再退（无孤儿语义）。
 
 let orchestrator: Orchestrator | null = null
+let takeover: TakeoverController | null = null
 
 const gotLock = app.requestSingleInstanceLock()
 if (!gotLock) {
@@ -37,10 +39,17 @@ if (!gotLock) {
     )
 
     const win = createMainWindow()
+    takeover = createTakeoverController({
+      win,
+      consoleUrl: config.consoleUrl,
+      log: (line) => console.log(`[takeover] ${line}`),
+    })
     registerDesktopIpc(win, orchestrator)
     buildAppMenu({
       onRestartServices: () => void orchestrator?.restartAll(),
       onStopServices: () => void orchestrator?.stopAll(),
+      onShowStartupPage: () => takeover?.showStartupPage(),
+      onOpenConsoleInBrowser: () => void shell.openExternal(config.consoleUrl),
     })
 
     // mac dock 点击：窗口已全关时重建
@@ -48,6 +57,11 @@ if (!gotLock) {
       if (!getMainWindow()) createMainWindow()
     })
 
+    orchestrator.onChange(() => {
+      const orch = orchestrator
+      if (orch) takeover?.onSnapshot(orch.snapshot())
+    })
+    takeover.onSnapshot(orchestrator.snapshot())
     orchestrator.start()
   })
 

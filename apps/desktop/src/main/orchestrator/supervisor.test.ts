@@ -1,6 +1,7 @@
 import { describe, expect, it } from 'vitest'
 import { defaultConfig } from './config'
 import {
+  computePhase,
   healthResultToEvent,
   healthUrl,
   Orchestrator,
@@ -9,7 +10,7 @@ import {
   type SpawnHandle,
   type SupervisorDeps,
 } from './supervisor'
-import type { ServiceId } from './types'
+import type { ServiceId, ServiceStatus } from './types'
 
 // supervisor 单测：假时钟/假 HTTP/假 spawn 全速驱动（docs §6 编排器核心场景），
 // 不碰真进程真网络——真子进程树终止与真端口探测在 tree-kill.test.ts / ports.test.ts。
@@ -303,6 +304,43 @@ describe('ServiceSupervisor', () => {
   })
 })
 
+describe('computePhase（就绪接管判定——db down 不接管）', () => {
+  const svc = (over: Partial<ServiceStatus>): ServiceStatus => ({
+    id: 'gateway',
+    state: 'running',
+    attachMode: false,
+    db: 'up',
+    attempts: 0,
+    lastExit: null,
+    startedAt: 1,
+    message: null,
+    ...over,
+  })
+
+  it('双健康 → console（含附加模式：state 一样是 running）', () => {
+    expect(computePhase(svc({}), svc({ id: 'console' }))).toBe('console')
+    expect(computePhase(svc({ attachMode: true }), svc({ id: 'console', attachMode: true }))).toBe(
+      'console'
+    )
+  })
+
+  it('gateway db:down（降级）→ boot——不接管，留在启动态页看引导', () => {
+    expect(computePhase(svc({ db: 'down' }), svc({ id: 'console' }))).toBe('boot')
+  })
+
+  it('gateway 非 running（restarting/failed/waiting…）→ boot', () => {
+    for (const state of ['restarting', 'failed', 'waiting_health', 'stopped', 'starting'] as const) {
+      expect(computePhase(svc({ state }), svc({ id: 'console' }))).toBe('boot')
+    }
+  })
+
+  it('console 非 running → boot（崩溃回退启动态页的判定源）', () => {
+    for (const state of ['restarting', 'failed', 'waiting_health', 'stopped'] as const) {
+      expect(computePhase(svc({}), svc({ id: 'console', state }))).toBe('boot')
+    }
+  })
+})
+
 describe('Orchestrator 门面', () => {
   it('snapshot 含双服务状态/日志尾/配置投影；onChange 触发订阅者', async () => {
     const world = new FakeWorld()
@@ -317,7 +355,7 @@ describe('Orchestrator 门面', () => {
     await world.advance(10)
     await world.advance(600)
     const snap = orch.snapshot()
-    expect(snap.phase).toBe('boot')
+    expect(snap.phase).toBe('console') // 双健康（gateway ok:true + console 200）→ 接管
     expect(snap.services.gateway.state).toBe('running')
     expect(snap.services.console.state).toBe('running')
     expect(snap.config.gatewayPort).toBe(8080)

@@ -188,7 +188,10 @@ export class ServiceSupervisor {
         cwd: this.config.repoRoot,
         env: this.config.extraEnv,
       })
-      this.deps.log(this.id, `spawn：${spec.command} ${spec.args.join(' ')}（cwd=${this.config.repoRoot}）`)
+      this.deps.log(
+        this.id,
+        `spawn pid=${handle.pid ?? '?'}：${spec.command} ${spec.args.join(' ')}（cwd=${this.config.repoRoot}）`
+      )
       handle.onExit((code) => {
         this.deps.log(this.id, `进程退出 code=${code}`)
         this.dispatch({ type: 'EXIT', code })
@@ -275,6 +278,20 @@ export class ServiceSupervisor {
   }
 }
 
+/**
+ * 就绪接管判定（docs §3.1 单窗口两阶段）：gateway 健康（running 且 db up——
+ * 503 db:down 是降级不算健康，不接管）+ console running → 'console'（阶段 B），
+ * 其余一律 'boot'（阶段 A 启动态页）。附加模式同样适用：双健康即接管直连。
+ */
+export function computePhase(
+  gateway: ServiceStatus,
+  consoleSvc: ServiceStatus
+): DesktopSnapshot['phase'] {
+  const gatewayHealthy = gateway.state === 'running' && gateway.db === 'up'
+  const consoleHealthy = consoleSvc.state === 'running'
+  return gatewayHealthy && consoleHealthy ? 'console' : 'boot'
+}
+
 /** 双服务编排门面（渲染层快照单源）。 */
 export class Orchestrator {
   private supervisors: Record<ServiceId, ServiceSupervisor>
@@ -329,7 +346,7 @@ export class Orchestrator {
 
   snapshot(): DesktopSnapshot {
     return {
-      phase: 'boot', // 阶段 B（loadURL console）M3 接线
+      phase: computePhase(this.supervisors.gateway.status, this.supervisors.console.status),
       services: {
         gateway: this.supervisors.gateway.status,
         console: this.supervisors.console.status,
