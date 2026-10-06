@@ -1,0 +1,58 @@
+<!doctype html>
+<html lang="zh-CN">
+  <head>
+    <meta charset="utf-8" />
+    <meta
+      http-equiv="Content-Security-Policy"
+      content="default-src 'self'; style-src 'self' 'unsafe-inline'"
+    />
+    <title>dagents 桌面客户端</title>
+    <style>
+      /* M1 占位页样式内联（单文件静态页，无框架零依赖）；M2 起拆出样式随构建同步 */
+      :root {
+        color-scheme: dark;
+      }
+      body {
+        margin: 0;
+        min-height: 100vh;
+        display: flex;
+        align-items: center;
+        justify-content: center;
+        background: #0f1115;
+        color: #e6e8ee;
+        font-family: 'Segoe UI', 'Microsoft YaHei', system-ui, sans-serif;
+      }
+      main {
+        max-width: 640px;
+        padding: 48px;
+      }
+      h1 {
+        font-size: 28px;
+        font-weight: 600;
+        margin: 0 0 12px;
+      }
+      p {
+        line-height: 1.7;
+        color: #9aa3b2;
+        margin: 0;
+      }
+      .tag {
+        display: inline-block;
+        margin-bottom: 16px;
+        padding: 2px 10px;
+        border: 1px solid #2c3340;
+        border-radius: 999px;
+        font-size: 12px;
+        color: #7aa2f7;
+      }
+    </style>
+  </head>
+  <body>
+    <main>
+      <span class="tag">M1 骨架</span>
+      <h1>dagents 桌面客户端</h1>
+      <p id="status">启动态页占位 —— M2 起在此显示 gateway / console 编排进度与日志尾部。</p>
+    </main>
+    <script src="./status.js"></script>
+  </body>
+</html>
