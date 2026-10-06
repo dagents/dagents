@@ -1,0 +1,82 @@
+# Desktop 打包 CI —— apps/desktop 三平台安装包（docs/desktop-architecture.md §4.2）。
+#
+# 与 ci.yml 的分工：纯检查（vitest / tsc / eslint / 打包配置齐备性）由 ci.yml 的
+# turbo 全 workspace 遍历自动覆盖（desktop 的 test script 自带 check-builder-config），
+# 本文件只做打包产物 job——win nsis 本机已实证链路，mac dmg（x64/arm64）与
+# linux AppImage 归此处实跑（需求 userStory 6「从 CI 拿到本平台安装包」）。
+#
+# pnpm install 零开关：electron 44.x 无 install script（架构文档 §2.4 实测），
+# ignore-scripts=true 原样成立；二进制由 ensure:electron 显式按需下载。
+# 镜像默认 npmmirror（受限网络实测可用），可用仓库变量 ELECTRON_MIRROR /
+# ELECTRON_BUILDER_BINARIES_MIRROR 覆盖（如维护者偏好直连 GitHub）。
+# 产物 upload-artifact 归档供人工取用——无发布基础设施（outOfScope：不做自动更新）。
+
+name: Desktop
+
+on:
+  push:
+    branches: [main]
+  pull_request:
+    paths:
+      - 'apps/desktop/**'
+      - 'pnpm-lock.yaml'
+      - '.github/workflows/desktop.yml'
+
+concurrency:
+  group: desktop-${{ github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  package:
+    name: 打包 ${{ matrix.name }}
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          - { name: win-x64, os: windows-latest, platform: win, target: nsis, arch: x64 }
+          - { name: mac-x64, os: macos-latest, platform: mac, target: dmg, arch: x64 }
+          - { name: mac-arm64, os: macos-latest, platform: mac, target: dmg, arch: arm64 }
+          - { name: linux-x64, os: ubuntu-latest, platform: linux, target: AppImage, arch: x64 }
+    runs-on: ${{ matrix.os }}
+    timeout-minutes: 30
+    env:
+      ELECTRON_MIRROR: ${{ vars.ELECTRON_MIRROR || 'https://npmmirror.com/mirrors/electron/' }}
+      ELECTRON_BUILDER_BINARIES_MIRROR: ${{ vars.ELECTRON_BUILDER_BINARIES_MIRROR || 'https://npmmirror.com/mirrors/electron-builder-binaries/' }}
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Setup pnpm
+        uses: pnpm/action-setup@v4
+
+      - name: Setup Node
+        uses: actions/setup-node@v4
+        with:
+          node-version: 22
+          cache: pnpm
+
+      - name: Install dependencies
+        run: pnpm install --frozen-lockfile
+
+      - name: Build @dagents/desktop
+        run: pnpm --filter @dagents/desktop run build
+
+      - name: Ensure electron binary
+        run: pnpm --filter @dagents/desktop run ensure:electron
+
+      - name: Package (${{ matrix.target }} ${{ matrix.arch }})
+        run: >-
+          pnpm --filter @dagents/desktop exec electron-builder
+          --${{ matrix.platform }} ${{ matrix.target }} --${{ matrix.arch }} --publish never
+
+      - name: Upload artifacts
+        uses: actions/upload-artifact@v4
+        with:
+          name: dagents-desktop-${{ matrix.name }}
+          path: |
+            apps/desktop/release/*.exe
+            apps/desktop/release/*.exe.blockmap
+            apps/desktop/release/*.dmg
+            apps/desktop/release/*.AppImage
+          retention-days: 14
+          if-no-files-found: error
