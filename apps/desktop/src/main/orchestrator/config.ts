@@ -1,8 +1,14 @@
 import { existsSync, readFileSync as fsReadFileSync } from 'node:fs'
-import { dirname, join } from 'node:path'
-import type { DesktopConfig, RestartPolicy, ServiceId, ServiceSpec } from './types'
+import { isAbsolute, dirname, join } from 'node:path'
+import type {
+  DesktopConfig,
+  ManagedServiceId,
+  PostgresConfig,
+  RestartPolicy,
+  ServiceSpec,
+} from './types'
 
-// 配置加载/默认值/校验（docs §3.5）——零依赖手写校验（zod-lite），纯函数 + 注入 fs。
+// 配置加载/默认值/校验（docs §3.5 + §10.4）——零依赖手写校验（zod-lite），纯函数 + 注入 fs。
 // 供应链纪律：desktop 零 runtime deps；复杂结构校验 20 行手写足够且可全测。
 
 export const DEFAULT_RESTART_POLICY: RestartPolicy = {
@@ -12,10 +18,12 @@ export const DEFAULT_RESTART_POLICY: RestartPolicy = {
   healthTimeoutMs: 120_000,
 }
 
-export const LOCKED_PORTS: Record<ServiceId, number> = {
+export const LOCKED_PORTS: Record<ManagedServiceId, number> = {
   gateway: 8080,
   console: 3000,
 }
+
+export const DEFAULT_PG_PORT = 55432
 
 const PORT_LOCK_REASON =
   '端口锁定 8080/3000（console BFF 只认 GATEWAY_URL——AGENTS.md 已知问题），已回落默认端口'
@@ -28,10 +36,22 @@ export function defaultConsoleSpec(): ServiceSpec {
   return { command: 'pnpm', args: ['--filter', '@dagents/console', 'dev'], port: 3000 }
 }
 
+export function defaultPostgresConfig(): PostgresConfig {
+  return {
+    embedded: true,
+    port: DEFAULT_PG_PORT,
+    dataDir: null,
+    binDir: null,
+    migrateScript: null,
+    pgRequireRoot: null,
+  }
+}
+
 export function defaultConfig(repoRoot: string): DesktopConfig {
   return {
     repoRoot,
     consoleUrl: 'http://localhost:3000',
+    mode: 'dev',
     services: {
       gateway: defaultGatewaySpec(),
       console: defaultConsoleSpec(),
@@ -39,6 +59,7 @@ export function defaultConfig(repoRoot: string): DesktopConfig {
     restartPolicy: { ...DEFAULT_RESTART_POLICY, backoffMs: [...DEFAULT_RESTART_POLICY.backoffMs] },
     logTailLines: 400,
     extraEnv: {},
+    postgres: defaultPostgresConfig(),
   }
 }
 
@@ -68,8 +89,12 @@ function asPositiveInt(v: unknown): number | null {
   return typeof v === 'number' && Number.isInteger(v) && v > 0 ? v : null
 }
 
+function asBool(v: unknown): boolean | null {
+  return typeof v === 'boolean' ? v : null
+}
+
 function mergeService(
-  id: ServiceId,
+  id: ManagedServiceId,
   raw: unknown,
   warnings: string[]
 ): ServiceSpec {
@@ -112,6 +137,51 @@ function mergeRestartPolicy(raw: unknown, warnings: string[]): RestartPolicy {
   if (policy.maxAttempts < 1) policy.maxAttempts = 1
   void warnings
   return policy
+}
+
+/**
+ * postgres.* 合并（docs §10.4 三层「不抢连接」中的第 ② 层在此落定）：
+ * extraEnv.POSTGRES_URL 已设（用户指向外部 PG，含 15432 docker）→ embedded 自动 false + warning。
+ */
+function mergePostgres(
+  raw: unknown,
+  extraEnv: Record<string, string>,
+  warnings: string[]
+): PostgresConfig {
+  const pg = defaultPostgresConfig()
+  if (extraEnv.POSTGRES_URL !== undefined) {
+    pg.embedded = false
+    warnings.push(
+      `extraEnv.POSTGRES_URL 已设置（${extraEnv.POSTGRES_URL}）——内嵌 Postgres 自动关闭，gateway 连用户指定的外部库（不抢连接）`
+    )
+  }
+  if (raw === null || typeof raw !== 'object') return pg
+  const obj = raw as Record<string, unknown>
+
+  const embedded = asBool(obj.embedded)
+  if (embedded !== null) pg.embedded = embedded
+  else if (obj.embedded !== undefined) warnings.push('postgres.embedded 非 boolean，已回落默认 true')
+
+  // PG 端口不锁值（独立于 LOCKED_PORTS，docs §10.3）：只做合法范围校验
+  const port = asPositiveInt(obj.port)
+  if (port !== null) {
+    if (port >= 1024 && port <= 65_535) pg.port = port
+    else warnings.push(`postgres.port=${obj.port} 越界（1024–65535），已回落默认 ${DEFAULT_PG_PORT}`)
+  }
+
+  for (const field of ['dataDir', 'binDir', 'migrateScript', 'pgRequireRoot'] as const) {
+    const v = asString(obj[field])
+    if (v === null) {
+      if (obj[field] !== undefined) warnings.push(`postgres.${field} 非非空字符串，已回落运行时默认`)
+      continue
+    }
+    if (!isAbsolute(v)) {
+      warnings.push(`postgres.${field}="${v}" 非绝对路径，已回落运行时默认`)
+      continue
+    }
+    pg[field] = v
+  }
+  return pg
 }
 
 export interface LoadConfigDeps {
@@ -164,6 +234,10 @@ export function loadConfig(
   if (consoleUrl && /^https?:\/\//.test(consoleUrl)) config.consoleUrl = consoleUrl
   else if (consoleUrl) warnings.push(`consoleUrl "${consoleUrl}" 非 http(s) URL，已回落默认值`)
 
+  const mode = asString(obj.mode)
+  if (mode === 'dev' || mode === 'packaged') config.mode = mode
+  else if (mode !== null) warnings.push(`mode "${mode}" 非 dev/packaged，已回落默认 dev`)
+
   config.services = {
     gateway: mergeService('gateway', (obj.services as Record<string, unknown> | undefined)?.gateway, warnings),
     console: mergeService('console', (obj.services as Record<string, unknown> | undefined)?.console, warnings),
@@ -180,6 +254,9 @@ export function loadConfig(
     }
     config.extraEnv = env
   }
+
+  // postgres.* 在 extraEnv 之后合并（第 ② 层回退依赖 extraEnv.POSTGRES_URL 判定）
+  config.postgres = mergePostgres(obj.postgres, config.extraEnv, warnings)
 
   // 未知字段忽略（向前兼容）
   return { config, warnings }

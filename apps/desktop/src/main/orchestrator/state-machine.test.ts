@@ -22,7 +22,7 @@ let now = 1_000_000
 const tick = (ms: number) => (now += ms)
 
 /** 驱动到指定状态的便捷序列（从 idle 走主干到 running）。 */
-function driveToRunning(id: 'gateway' | 'console' = 'gateway') {
+function driveToRunning(id: 'gateway' | 'console' | 'pg' = 'gateway') {
   let m = createMachine(id)
   m = transition(m, { type: 'START' }, policy, now).machine
   m = transition(m, { type: 'SPAWNED', pid: 4242 }, policy, now).machine
@@ -30,6 +30,30 @@ function driveToRunning(id: 'gateway' | 'console' = 'gateway') {
   expect(m.status.state).toBe('running')
   return m
 }
+
+describe('pg 机器（M5：同一状态机，TCP 探活产 HEALTH_OK db:unknown）', () => {
+  it('START 文案是内嵌 Postgres 直跑形态（不是 pnpm dev）', () => {
+    const m = createMachine('pg')
+    const r = transition(m, { type: 'START' }, policy, now)
+    expect(r.machine.status.state).toBe('starting')
+    expect(r.machine.status.message).toContain('postgres -D pgdata')
+    expect(r.machine.status.message).not.toContain('pnpm')
+  })
+
+  it('主干到 running（db 子状态由探测层给值——TCP 探针恒 unknown，见 supervisor.test）', () => {
+    const m = driveToRunning('pg')
+    expect(m.status.id).toBe('pg')
+    expect(m.status.state).toBe('running')
+  })
+
+  it('意外退出同样进有界重启预算（pg 与两服务同策略）', () => {
+    const m = driveToRunning('pg')
+    const r = transition(m, { type: 'EXIT', code: 1 }, policy, tick(1_000))
+    expect(r.machine.status.state).toBe('restarting')
+    expect(r.machine.status.attempts).toBe(1)
+    expect(r.effects).toContainEqual({ kind: 'schedule-restart', delayMs: 1_000 })
+  })
+})
 
 describe('主干迁移', () => {
   it('idle→starting→waiting_health→running', () => {

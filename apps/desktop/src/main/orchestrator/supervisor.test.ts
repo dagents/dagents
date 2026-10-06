@@ -1,5 +1,7 @@
 import { describe, expect, it } from 'vitest'
+import { join } from 'node:path'
 import { defaultConfig } from './config'
+import type { PgClient, PgDeps, RunOnceSpec } from './pg-service'
 import {
   computePhase,
   healthResultToEvent,
@@ -8,32 +10,53 @@ import {
   ServiceSupervisor,
   type HttpResult,
   type SpawnHandle,
-  type SupervisorDeps,
 } from './supervisor'
 import type { ServiceId, ServiceStatus } from './types'
 
 // supervisor 单测：假时钟/假 HTTP/假 spawn 全速驱动（docs §6 编排器核心场景），
 // 不碰真进程真网络——真子进程树终止与真端口探测在 tree-kill.test.ts / ports.test.ts。
+// M5 起 FakeWorld 同时实现 PgDeps（runOnce/connectPg/假文件系统）驱动内嵌 PG 管线。
 
 /** 假世界：手动时钟 + 定时器队列 + 可编排的 HTTP 应答队列 + spawn 记录。 */
 class FakeWorld {
   now = 1_000_000
   timers = new Map<number, { cb: () => void; at: number }>()
   private timerSeq = 1
-  logs: Record<ServiceId, string[]> = { gateway: [], console: [] }
+  logs: Record<ServiceId, string[]> = { gateway: [], console: [], pg: [] }
   httpQueue: HttpResult[] = []
   httpRequests: string[] = []
-  portsOpen = { gateway: false, console: false }
-  spawnedSpecs: { id: ServiceId; command: string; args: string[]; cwd: string }[] = []
+  /** 端口占用集合（附加模式 / PG 让位测试的开关）。 */
+  openPorts = new Set<number>()
+  spawnedSpecs: { id: ServiceId; command: string; args: string[]; cwd: string; env?: Record<string, string> }[] = []
   killedPids: number[] = []
   spawnHandles: FakeSpawnHandle[] = []
+  /** runOnce 应答队列（initdb/migrate/pg_ctl stop），可附带副作用。 */
+  runOnceQueue: { code: number; stdout?: string; stderr?: string; effect?: () => void }[] = []
+  runOnceSpecs: RunOnceSpec[] = []
+  /** connectPg 假客户端：库存在与否 + 是否抛错。 */
+  pgDatabaseExists = true
+  pgConnectError: string | null = null
+  pgQueries: string[] = []
+  /** 假文件系统（existsSync/readFileUtf8/removeFile/isProcessAlive）。 */
+  files = new Map<string, string>()
+  alivePids = new Set<number>()
+  /** pg spawn 后监听的端口（fake 世界的「postgres 起来端口就开」）。 */
+  pgSpawnPort: number | null = null
   private nextPid = 1000
 
-  deps: SupervisorDeps = {
+  deps: PgDeps = {
     spawnService: (id, spec) => {
-      this.spawnedSpecs.push({ id, command: spec.command, args: spec.args, cwd: spec.cwd })
+      this.spawnedSpecs.push({ id, command: spec.command, args: spec.args, cwd: spec.cwd, env: spec.env })
       const handle = new FakeSpawnHandle(this.nextPid++)
       this.spawnHandles.push(handle)
+      if (id === 'pg') {
+        const pIdx = spec.args.indexOf('-p')
+        const port = pIdx >= 0 ? Number(spec.args[pIdx + 1]) : NaN
+        if (Number.isFinite(port)) {
+          this.pgSpawnPort = port
+          this.openPorts.add(port)
+        }
+      }
       return handle
     },
     httpGet: async (url, timeoutMs) => {
@@ -42,8 +65,7 @@ class FakeWorld {
       const next = this.httpQueue.shift()
       return next ?? { error: 'ECONNREFUSED (queue empty)' }
     },
-    isPortOpen: async (port) =>
-      port === 8080 ? this.portsOpen.gateway : this.portsOpen.console,
+    isPortOpen: async (port) => this.openPorts.has(port),
     killTree: (pid) => {
       this.killedPids.push(pid)
       for (const h of this.spawnHandles) if (h.pid === pid) h.markExited(1)
@@ -60,6 +82,33 @@ class FakeWorld {
     },
     log: (id, line) => this.logs[id].push(line),
     getLogTail: (id, n) => this.logs[id].slice(-n),
+    existsSync: (p) => this.files.has(p),
+    readFileUtf8: (p) => this.files.get(p) ?? null,
+    removeFile: (p) => {
+      this.files.delete(p)
+    },
+    runOnce: async (spec) => {
+      this.runOnceSpecs.push(spec)
+      const next = this.runOnceQueue.shift() ?? { code: 0 }
+      next.effect?.()
+      return { code: next.code, stdout: next.stdout ?? '', stderr: next.stderr ?? '' }
+    },
+    connectPg: async () => {
+      if (this.pgConnectError !== null) throw new Error(this.pgConnectError)
+      const world = this
+      const client: PgClient = {
+        async query(sql) {
+          world.pgQueries.push(sql)
+          if (sql.includes('pg_database')) {
+            return { rows: world.pgDatabaseExists ? [{ ok: 1 }] : [] }
+          }
+          return { rows: [] }
+        },
+        async end() {},
+      }
+      return client
+    },
+    isProcessAlive: (pid) => this.alivePids.has(pid),
   }
 
   /** 推进假时钟，触发所有到期定时器（含级联：退避到期 → spawn → 轮询 0ms）。 */
@@ -67,9 +116,7 @@ class FakeWorld {
     const target = this.now + ms
     for (let guard = 0; guard < 200; guard++) {
       // 每轮先冲刷微任务——被测代码常在 await 链之后才注册下一个定时器
-      await Promise.resolve()
-      await Promise.resolve()
-      await Promise.resolve()
+      for (let i = 0; i < 8; i++) await Promise.resolve()
       const due = [...this.timers.entries()].filter(([, t]) => t.at <= target).sort((a, b) => a[1].at - b[1].at)
       if (due.length === 0) break
       for (const [id, t] of due) {
@@ -77,12 +124,11 @@ class FakeWorld {
         this.now = Math.max(this.now, t.at)
         t.cb()
         // 让 pollOnce 的微任务/await 落地
-        await Promise.resolve()
-        await Promise.resolve()
+        for (let i = 0; i < 8; i++) await Promise.resolve()
       }
     }
     this.now = target
-    await Promise.resolve()
+    for (let i = 0; i < 8; i++) await Promise.resolve()
   }
 }
 
@@ -154,6 +200,16 @@ describe('healthResultToEvent（判活协议 docs §3.1）', () => {
     })
   })
 
+  it('pg：TCP 探针（2xx=端口 accept）→ HEALTH_OK db unknown；无监听 → FAIL', () => {
+    expect(healthResultToEvent('pg', { status: 200, body: '' })).toEqual({
+      type: 'HEALTH_OK',
+      db: 'unknown',
+    })
+    expect(healthResultToEvent('pg', { error: 'TCP 127.0.0.1:55432 无监听' })).toMatchObject({
+      type: 'HEALTH_FAIL',
+    })
+  })
+
   it('console：非 2xx / 网络错 → HEALTH_FAIL', () => {
     expect(healthResultToEvent('console', { status: 500, body: '' })).toMatchObject({ type: 'HEALTH_FAIL' })
     expect(healthResultToEvent('console', { error: 'ECONNREFUSED' })).toEqual({
@@ -185,6 +241,7 @@ describe('ServiceSupervisor', () => {
         command: 'pnpm',
         args: ['--filter', '@dagents/gateway', 'dev'],
         cwd: 'C:/repo',
+        env: {},
       },
     ])
     await world.advance(10) // SPAWNED → 0ms 后首次轮询
@@ -196,7 +253,7 @@ describe('ServiceSupervisor', () => {
 
   it('附加路径：端口已听 → 不 spawn，直接 waiting_health(attachMode) → running', async () => {
     const world = new FakeWorld()
-    world.portsOpen.gateway = true
+    world.openPorts.add(8080)
     world.httpQueue = [{ status: 200, body: '{"ok":true,"db":"up"}' }]
     const sup = makeSup('gateway', world)
     await sup.start()
@@ -342,9 +399,16 @@ describe('computePhase（就绪接管判定——db down 不接管）', () => {
 })
 
 describe('Orchestrator 门面', () => {
+  /** 双服务焦点用例的配置：关内嵌 PG（pg 管线有自己的用例组）。 */
+  function twoServiceConfig() {
+    const cfg = defaultConfig('C:/repo')
+    cfg.postgres.embedded = false
+    return cfg
+  }
+
   it('snapshot 含双服务状态/日志尾/配置投影；onChange 触发订阅者', async () => {
     const world = new FakeWorld()
-    const orch = new Orchestrator(defaultConfig('C:/repo'), world.deps)
+    const orch = new Orchestrator(twoServiceConfig(), world.deps)
     const events: number[] = []
     orch.onChange(() => events.push(1))
     world.httpQueue = [
@@ -366,7 +430,7 @@ describe('Orchestrator 门面', () => {
 
   it('stopAll 杀树并确认端口释放；端口仍占 → 报告 false（告警路径）', async () => {
     const world = new FakeWorld()
-    const orch = new Orchestrator(defaultConfig('C:/repo'), world.deps)
+    const orch = new Orchestrator(twoServiceConfig(), world.deps)
     world.httpQueue = [
       { status: 200, body: '{"ok":true,"db":"up"}' },
       { status: 200, body: 'ok' },
@@ -376,7 +440,7 @@ describe('Orchestrator 门面', () => {
     await world.advance(600)
 
     // 模拟「外部别的进程占着 3000」：kill 后端口仍开
-    world.portsOpen.console = true
+    world.openPorts.add(3000)
     const stopPromise = orch.stopAll()
     // stopAll 的 setTimer(1500) 在首个 isPortOpen 微任务之后才注册——分轮推进假时钟
     await world.advance(100)
@@ -391,7 +455,7 @@ describe('Orchestrator 门面', () => {
 
   it('restartAll：停 → 起双服务', async () => {
     const world = new FakeWorld()
-    const orch = new Orchestrator(defaultConfig('C:/repo'), world.deps)
+    const orch = new Orchestrator(twoServiceConfig(), world.deps)
     world.httpQueue = [
       { status: 200, body: '{"ok":true,"db":"up"}' },
       { status: 200, body: 'ok' },
@@ -403,5 +467,169 @@ describe('Orchestrator 门面', () => {
     // 停净后重启：spawn 同步完成 → waiting_health，且累计双服务 × 两轮 spawn
     expect(orch.snapshot().services.gateway.state).toBe('waiting_health')
     expect(world.spawnedSpecs.length).toBeGreaterThanOrEqual(4)
+  })
+})
+
+describe('内嵌 PG 编排（M5，docs §10.2）', () => {
+  // fake fs 的 key 必须与被测代码 join() 的输出同构（win32 反斜杠）
+  const PG_BIN = join('C:/stage/pg/native/bin', 'postgres.exe')
+  const DATA_DIR = 'C:/ud/pgdata'
+  const pgPaths = {
+    binDir: 'C:/stage/pg/native/bin',
+    dataDir: DATA_DIR,
+    migrateScript: 'C:/repo/packages/db/scripts/migrate.mjs',
+    pgRequireRoot: 'C:/repo/packages/db',
+  }
+
+  function makeWorld() {
+    const world = new FakeWorld()
+    // 二进制在位；dataDir 无 PG_VERSION → 首启走 initdb（runOnce 队列第 1 项）
+    world.files.set(PG_BIN, 'binary')
+    world.runOnceQueue = [
+      { code: 0, stdout: 'initdb: ok' }, // initdb
+      { code: 0, stdout: 'db: applied Init' }, // migrate
+      // pg_ctl stop：副作用 = postgres 进程退出、端口释放（fake 世界的物理事实）
+      {
+        code: 0,
+        stdout: 'server stopped',
+        effect: () => {
+          if (world.pgSpawnPort !== null) world.openPorts.delete(world.pgSpawnPort)
+        },
+      },
+    ]
+    return world
+  }
+
+  it('全链路：initdb → postgres 前台直跑 → TCP 健康 → 建库 → 迁移 → gateway 注入 DSN → 双健康', async () => {
+    const world = makeWorld()
+    const orch = new Orchestrator(defaultConfig('C:/repo'), world.deps, { pgPaths })
+    world.httpQueue = [
+      { status: 200, body: '{"ok":true,"db":"up"}' }, // gateway
+      { status: 200, body: '<!doctype html>' }, // console
+    ]
+    orch.start()
+    await world.advance(10) // pg spawn + 首轮 TCP 探活 → running
+    await world.advance(500) // waitUntilSettled + 建库 + 迁移 + gateway/console spawn + 健康
+
+    const snap = orch.snapshot()
+    expect(snap.services.pg.state).toBe('running')
+    expect(snap.services.gateway.state).toBe('running')
+    expect(snap.services.gateway.db).toBe('up')
+    expect(snap.phase).toBe('console') // 端到端：gateway db:up（内含 pg 语义）
+    expect(snap.config.pgPort).toBe(55432)
+    expect(snap.config.pgEmbedded).toBe(true)
+    expect(snap.config.pgDataDir).toBe(DATA_DIR)
+
+    // pg spawn 形态：前台直跑 postgres -D <data> -p 55432 -h 127.0.0.1
+    const pgSpawn = world.spawnedSpecs.find((s) => s.id === 'pg')
+    expect(pgSpawn?.command).toBe(PG_BIN)
+    expect(pgSpawn?.args).toEqual(['-D', DATA_DIR, '-p', '55432', '-h', '127.0.0.1'])
+
+    // bootstrap 顺序：initdb → migrate（runOnce 各一次）
+    const commands = world.runOnceSpecs.map((s) => s.command)
+    expect(commands[0]).toContain('initdb')
+    expect(commands[1]).toContain('node')
+    expect(world.runOnceSpecs[1].env?.POSTGRES_URL).toBe('postgresql://dagents@127.0.0.1:55432/dagents')
+
+    // gateway env 注入内嵌 DSN（extraEnv 通道）
+    const gwSpawn = world.spawnedSpecs.find((s) => s.id === 'gateway')
+    expect(gwSpawn?.env?.POSTGRES_URL).toBe('postgresql://dagents@127.0.0.1:55432/dagents')
+
+    // 建库查询走了维护库
+    expect(world.pgQueries.some((q) => q.includes('pg_database'))).toBe(true)
+  })
+
+  it('端口让位：55432 被占 → 55433，DSN/状态明示', async () => {
+    const world = makeWorld()
+    world.openPorts.add(55432) // 外部占用默认端口
+    world.runOnceQueue[1] = { code: 0, stdout: 'db: applied' }
+    const orch = new Orchestrator(defaultConfig('C:/repo'), world.deps, { pgPaths })
+    world.httpQueue = [
+      { status: 200, body: '{"ok":true,"db":"up"}' },
+      { status: 200, body: 'ok' },
+    ]
+    orch.start()
+    await world.advance(10)
+    await world.advance(500)
+
+    const snap = orch.snapshot()
+    expect(snap.services.pg.state).toBe('running')
+    expect(snap.config.pgPort).toBe(55433)
+    // pg spawn 用让位端口；DSN 同步
+    const pgSpawn = world.spawnedSpecs.find((s) => s.id === 'pg')
+    expect(pgSpawn?.args).toContain('55433')
+    expect(world.runOnceSpecs[1].env?.POSTGRES_URL).toBe('postgresql://dagents@127.0.0.1:55433/dagents')
+    // 状态明示（docs §10.3：实际端口写状态页）
+    expect(snap.services.pg.message).toContain('55432')
+    expect(snap.services.pg.message).toContain('55433')
+    expect(world.logs.pg.some((l) => l.includes('让位'))).toBe(true)
+  })
+
+  it('迁移失败 → pg failed + gateway 不启动（docker-entrypoint 语义）', async () => {
+    const world = makeWorld()
+    world.runOnceQueue[1] = { code: 1, stderr: 'TypeError: cannot read migrations' }
+    const orch = new Orchestrator(defaultConfig('C:/repo'), world.deps, { pgPaths })
+    orch.start()
+    await world.advance(10)
+    await world.advance(500)
+
+    const snap = orch.snapshot()
+    expect(snap.services.pg.state).toBe('failed')
+    expect(snap.services.pg.message).toContain('迁移失败')
+    expect(world.spawnedSpecs.some((s) => s.id === 'gateway')).toBe(false)
+    expect(world.spawnedSpecs.some((s) => s.id === 'console')).toBe(false)
+    expect(snap.phase).toBe('boot')
+  })
+
+  it('附加模式（8080 已监听）→ 内嵌 PG 不启动，诚实标记', async () => {
+    const world = makeWorld()
+    world.openPorts.add(8080) // 外部 gateway 实例
+    const orch = new Orchestrator(defaultConfig('C:/repo'), world.deps, { pgPaths })
+    world.httpQueue = [{ status: 200, body: '{"ok":true,"db":"up"}' }]
+    orch.start()
+    await world.advance(10)
+    await world.advance(500)
+
+    const snap = orch.snapshot()
+    expect(snap.services.pg.state).toBe('idle')
+    expect(snap.services.pg.message).toContain('附加模式')
+    expect(world.spawnedSpecs.some((s) => s.id === 'pg')).toBe(false)
+    expect(world.runOnceSpecs).toEqual([]) // initdb 也没跑
+    expect(snap.services.gateway.attachMode).toBe(true) // gateway 附加语义原样
+    expect(snap.config.pgPort).toBe(null)
+  })
+
+  it('stopAll：console→gateway→pg 顺序，pg_ctl fast 优先 + EXIT 抑制不触发重启', async () => {
+    const world = makeWorld()
+    const orch = new Orchestrator(defaultConfig('C:/repo'), world.deps, { pgPaths })
+    world.httpQueue = [
+      { status: 200, body: '{"ok":true,"db":"up"}' },
+      { status: 200, body: 'ok' },
+    ]
+    orch.start()
+    await world.advance(10)
+    await world.advance(500)
+    expect(orch.snapshot().phase).toBe('console')
+
+    const stopPromise = orch.stopAll()
+    await world.advance(100)
+    await world.advance(2_000)
+    await world.advance(100)
+    const report = await stopPromise
+
+    expect(report.gateway).toBe(true)
+    expect(report.console).toBe(true)
+    expect(report.pg).toBe(true)
+    // pg_ctl stop -m fast -w -t 5 被调用
+    const ctl = world.runOnceSpecs.find((s) => s.command.includes('pg_ctl'))
+    expect(ctl?.args).toEqual(['-D', DATA_DIR, '-m', 'fast', '-w', '-t', '5', 'stop'])
+    // postgres 树被兜底终止（suppressExit 之后 stop 的 kill-tree）
+    expect(world.killedPids.length).toBe(3)
+    // 停净后端口全释放、pg 未进重启链（suppressExit 生效——attempts 保持 0）
+    expect(world.openPorts.has(55432)).toBe(false)
+    const pgStatus = orch.snapshot().services.pg
+    expect(pgStatus.state).toBe('stopped')
+    expect(pgStatus.attempts).toBe(0)
+    expect(world.logs.pg.some((l) => l.includes('优雅停止流程中，不触发重启'))).toBe(true)
   })
 })

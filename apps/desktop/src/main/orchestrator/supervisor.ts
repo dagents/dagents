@@ -1,3 +1,5 @@
+import { join } from 'node:path'
+import { PgServiceController, resolvePgPaths, type PgDeps, type PgRuntimePaths } from './pg-service'
 import {
   createMachine,
   transition,
@@ -7,6 +9,7 @@ import {
 import type {
   DesktopConfig,
   DesktopSnapshot,
+  ManagedServiceId,
   ServiceId,
   ServiceState,
   ServiceStatus,
@@ -15,6 +18,9 @@ import type {
 // supervisor：把纯状态机的 effects 落到真实世界（spawn/HTTP 探测/定时器/日志）。
 // 一切副作用经 SupervisorDeps 注入——单测用假时钟/假 HTTP/假 spawn 全速驱动
 // （supervisor.test.ts），真接线见 ../spawn-runtime.ts。
+// pg 服务（M5，docs §10.2）：同一状态机/重启预算/树终止，差异面全部经
+// SupervisorOptions 注入——TCP 探活替代 HTTP、运行时构造的 spawn 规格、
+// 不做端口附加（让位逻辑在 PgServiceController）。
 
 export interface SpawnHandle {
   pid?: number
@@ -24,6 +30,14 @@ export interface SpawnHandle {
 }
 
 export type HttpResult = { status: number; body: string } | { error: string }
+
+/** spawn 规格（pg 由 PgServiceController 运行时构造——端口让位后才定形）。 */
+export interface ServiceRunSpec {
+  command: string
+  args: string[]
+  cwd: string
+  env: Record<string, string>
+}
 
 export interface SupervisorDeps {
   spawnService(
@@ -38,6 +52,21 @@ export interface SupervisorDeps {
   clearTimer(handle: object): void
   log(id: ServiceId, line: string): void
   getLogTail(id: ServiceId, n: number): string[]
+}
+
+/** 服务级差异注入（默认 = gateway/console 现行为；pg 的变体见 pg-service.ts）。 */
+export interface SupervisorOptions {
+  /**
+   * 健康探测变体。默认 HTTP（healthUrl + healthResultToEvent 判活）；
+   * pg 传 TCP 端口探活（pg_isready 不随二进制包分发，docs §10.2 判活协议）。
+   */
+  probe?: (port: number) => Promise<HttpResult>
+  /** spawn 规格（默认 config.services[id] + repoRoot cwd + extraEnv）。 */
+  runSpec?: () => ServiceRunSpec
+  /** 健康探测端口（默认 config.services[id].port——pg 让位后端口运行时才定）。 */
+  port?: number
+  /** 端口被占时是否附加而非 spawn（默认 true；pg false——冲突让位，不附加）。 */
+  attachable?: boolean
 }
 
 const HTTP_TIMEOUT_MS = 4_000
@@ -67,12 +96,12 @@ export function healthResultToEvent(id: ServiceId, res: HttpResult): ServiceEven
     }
     return { type: 'HEALTH_FAIL', error: `/health ${res.status}` }
   }
-  // console：HTTP 200 即健康（Next.js 首页）
+  // console：HTTP 2xx 即健康（Next.js 首页）；pg：TCP 探针产 200（端口 accept 即活）
   if (res.status >= 200 && res.status < 300) return { type: 'HEALTH_OK', db: 'unknown' }
   return { type: 'HEALTH_FAIL', error: `HTTP ${res.status}` }
 }
 
-export function healthUrl(id: ServiceId, port: number): string {
+export function healthUrl(id: ManagedServiceId, port: number): string {
   return id === 'gateway' ? `http://localhost:${port}/health` : `http://localhost:${port}/`
 }
 
@@ -86,15 +115,40 @@ export class ServiceSupervisor {
   private firstFailAt: number | null = null
   private pollInFlight = false
   private stopped = false
+  private exitSuppressed = false
+  private probe: (port: number) => Promise<HttpResult>
+  private runSpec: () => ServiceRunSpec
+  private portOf: () => number
+  private attachable: boolean
 
   constructor(
     id: ServiceId,
     private deps: SupervisorDeps,
     private config: DesktopConfig,
-    private onChange: () => void
+    private onChange: () => void,
+    options: SupervisorOptions = {}
   ) {
     this.id = id
     this.machine = createMachine(id)
+    this.attachable = options.attachable ?? true
+    this.probe =
+      options.probe ??
+      ((port) => this.deps.httpGet(healthUrl(id as ManagedServiceId, port), HTTP_TIMEOUT_MS))
+    this.runSpec =
+      options.runSpec ??
+      (() => {
+        const spec = this.config.services[id as ManagedServiceId]
+        return {
+          command: spec.command,
+          args: spec.args,
+          cwd: this.config.repoRoot,
+          env: this.config.extraEnv,
+        }
+      })
+    this.portOf =
+      options.port !== undefined
+        ? () => options.port as number
+        : () => this.config.services[id as ManagedServiceId].port
   }
 
   get status(): ServiceStatus {
@@ -105,15 +159,26 @@ export class ServiceSupervisor {
     return this.machine.status.state
   }
 
+  /**
+   * 抑制后续 EXIT 事件（只记日志不进状态机）——优雅停止前置：pg_ctl stop 会让
+   * postgres.exe 退出，若不抑制会按「意外退出」进重启预算（docs §10.2 停止顺序）。
+   */
+  suppressExit(): void {
+    this.exitSuppressed = true
+  }
+
   /** 启动：端口已听 → 附加（不 spawn）；否则 START → spawn。幂等（机器层兜底）。 */
   async start(): Promise<void> {
     this.stopped = false
+    this.exitSuppressed = false
     if (this.machine.status.state !== 'idle' && this.machine.status.state !== 'stopped') return
-    const portOpen = await this.deps.isPortOpen(this.config.services[this.id].port)
-    if (portOpen) {
-      this.deps.log(this.id, `端口 ${this.config.services[this.id].port} 已被监听 → 附加模式（不 spawn）`)
-      this.dispatch({ type: 'SPAWNED', attach: true })
-      return
+    if (this.attachable) {
+      const portOpen = await this.deps.isPortOpen(this.portOf())
+      if (portOpen) {
+        this.deps.log(this.id, `端口 ${this.portOf()} 已被监听 → 附加模式（不 spawn）`)
+        this.dispatch({ type: 'SPAWNED', attach: true })
+        return
+      }
     }
     this.dispatch({ type: 'START' })
   }
@@ -180,19 +245,23 @@ export class ServiceSupervisor {
   }
 
   private doSpawn(): void {
-    const spec = this.config.services[this.id]
+    const spec = this.runSpec()
     try {
       const handle = this.deps.spawnService(this.id, {
         command: spec.command,
         args: spec.args,
-        cwd: this.config.repoRoot,
-        env: this.config.extraEnv,
+        cwd: spec.cwd,
+        env: spec.env,
       })
       this.deps.log(
         this.id,
-        `spawn pid=${handle.pid ?? '?'}：${spec.command} ${spec.args.join(' ')}（cwd=${this.config.repoRoot}）`
+        `spawn pid=${handle.pid ?? '?'}：${spec.command} ${spec.args.join(' ')}（cwd=${spec.cwd}）`
       )
       handle.onExit((code) => {
+        if (this.exitSuppressed) {
+          this.deps.log(this.id, `进程退出 code=${code}（优雅停止流程中，不触发重启）`)
+          return
+        }
         this.deps.log(this.id, `进程退出 code=${code}`)
         this.dispatch({ type: 'EXIT', code })
       })
@@ -230,8 +299,7 @@ export class ServiceSupervisor {
     if (this.pollInFlight) return
     this.pollInFlight = true
     try {
-      const url = healthUrl(this.id, this.config.services[this.id].port)
-      const res = await this.deps.httpGet(url, HTTP_TIMEOUT_MS)
+      const res = await this.probe(this.portOf())
       const event = healthResultToEvent(this.id, res)
       if (event.type === 'HEALTH_OK') {
         this.firstFailAt = null
@@ -282,6 +350,7 @@ export class ServiceSupervisor {
  * 就绪接管判定（docs §3.1 单窗口两阶段）：gateway 健康（running 且 db up——
  * 503 db:down 是降级不算健康，不接管）+ console running → 'console'（阶段 B），
  * 其余一律 'boot'（阶段 A 启动态页）。附加模式同样适用：双健康即接管直连。
+ * （pg 不参与判定——其健康已内含于 gateway db:'up' 端到端语义，docs §10.5。）
  */
 export function computePhase(
   gateway: ServiceStatus,
@@ -294,29 +363,87 @@ export function computePhase(
 
 /** 双服务编排门面（渲染层快照单源）。 */
 export class Orchestrator {
-  private supervisors: Record<ServiceId, ServiceSupervisor>
+  private supervisors: Record<ManagedServiceId, ServiceSupervisor>
   private listeners = new Set<() => void>()
+  private gatewayEnv: Record<string, string>
 
   constructor(
     private config: DesktopConfig,
-    private deps: SupervisorDeps
+    private deps: PgDeps,
+    opts: { pgPaths?: PgRuntimePaths; pg?: PgServiceController } = {}
   ) {
-    const make = (id: ServiceId) =>
+    const make = (id: ManagedServiceId) =>
       new ServiceSupervisor(id, deps, config, () => this.emit())
-    this.supervisors = { gateway: make('gateway'), console: make('console') }
+    // gateway 的 env 在 pg 就绪后追加 POSTGRES_URL（extraEnv 通道，docs §10.2）——
+    // 引用同一对象，doSpawn 时才读取，时序安全。
+    this.gatewayEnv = { ...config.extraEnv }
+    this.supervisors = {
+      gateway: new ServiceSupervisor('gateway', deps, config, () => this.emit(), {
+        runSpec: () => ({
+          command: config.services.gateway.command,
+          args: config.services.gateway.args,
+          cwd: config.repoRoot,
+          env: this.gatewayEnv,
+        }),
+      }),
+      console: make('console'),
+    }
+    // pgPaths 缺省时按 monorepo 布局从 repoRoot 推（dev：desktop 包在 apps/desktop 下；
+    // packaged 模式 M6 由 index.ts 显式传 staging 路径）
+    this.pg =
+      opts.pg ??
+      new PgServiceController(config, deps, {
+        paths:
+          opts.pgPaths ??
+          resolvePgPaths(config.postgres, {
+            userDataDir: join(config.repoRoot, 'apps', 'desktop', '.pgdata-dev'),
+            desktopDir: join(config.repoRoot, 'apps', 'desktop'),
+            repoRoot: config.repoRoot,
+          }),
+        createSupervisor: (options) =>
+          new ServiceSupervisor('pg', deps, config, () => this.emit(), options),
+        emit: () => this.emit(),
+      })
   }
 
+  private pg: PgServiceController
+
   start(): void {
+    void this.startAsync()
+  }
+
+  /**
+   * 启动编排（docs §10.2）：附加模式（gateway 端口被外部占用）→ 不 spawn 任何东西；
+   * 内嵌 PG 启用 → pg（initdb 幂等 → postgres 前台直跑 → 建库 → 迁移）就绪后
+   * gateway（注入内嵌 DSN）+ console 并行；pg 失败 → gateway 不启动（诚实展示）。
+   */
+  private async startAsync(): Promise<void> {
+    const gatewayAttached = await this.deps.isPortOpen(this.config.services.gateway.port)
+    if (gatewayAttached) {
+      this.pg.markSkipped('附加模式：gateway 端口已被外部实例监听——不启动内嵌 Postgres（外部栈自带数据库）')
+    } else if (this.pg.enabled) {
+      const ready = await this.pg.start()
+      if (!ready.ok) {
+        this.deps.log('pg', `内嵌 Postgres 未就绪，gateway 不启动（对齐 docker-entrypoint 语义）`)
+        this.emit()
+        return
+      }
+      this.gatewayEnv.POSTGRES_URL = ready.dsn
+      this.deps.log('pg', `gateway 将注入 POSTGRES_URL=${ready.dsn}`)
+    }
     void this.supervisors.gateway.start()
     void this.supervisors.console.start()
   }
 
-  /** 全停（树终止 + 定时器清理 + 端口释放校验；未释放只告警不扩杀——R2）。 */
-  async stopAll(): Promise<{ gateway: boolean; console: boolean }> {
-    for (const sup of Object.values(this.supervisors)) sup.stop()
-    for (const sup of Object.values(this.supervisors)) sup.dispose()
-    const report = { gateway: true, console: true } as Record<ServiceId, boolean>
-    for (const id of ['gateway', 'console'] as ServiceId[]) {
+  /**
+   * 全停，反依赖序 console → gateway → pg（docs §10.2）：树终止 + 定时器清理 +
+   * 端口释放校验（未释放只告警不扩杀——R2）；pg 走 pg_ctl stop -m fast 优先。
+   */
+  async stopAll(): Promise<Record<ServiceId, boolean>> {
+    this.supervisors.console.stop()
+    this.supervisors.gateway.stop()
+    const report: Record<ServiceId, boolean> = { gateway: true, console: true, pg: true }
+    for (const id of ['gateway', 'console'] as ManagedServiceId[]) {
       const port = this.config.services[id].port
       const released = await this.deps.isPortOpen(port).then((open) => !open)
       if (!released) {
@@ -330,17 +457,21 @@ export class Orchestrator {
         this.deps.log(id, `停止后端口 ${port} 仍被占用——进程树终止可能漏杀，请人工检查（MVP 只告警不扩杀）`)
       }
     }
+    report.pg = await this.pg.stop()
+    this.supervisors.gateway.dispose()
+    this.supervisors.console.dispose()
     this.emit()
-    return { gateway: report.gateway, console: report.console }
+    return report
   }
 
-  /** 手动重启（菜单「重启服务」/重试按钮）：全停 → 重新 start（预算清零）。 */
+  /** 手动重启（菜单「重启服务」/重试按钮）：全停 → 重新编排（预算清零）。 */
   async restartAll(): Promise<void> {
     await this.stopAll()
-    this.start()
+    await this.startAsync()
   }
 
   retry(id: ServiceId): void {
+    if (id === 'pg') return // pg 的重试经 restartAll（bootstrap 管线含其中）
     this.supervisors[id].retry()
   }
 
@@ -350,16 +481,21 @@ export class Orchestrator {
       services: {
         gateway: this.supervisors.gateway.status,
         console: this.supervisors.console.status,
+        pg: this.pg.status(),
       },
       logTail: {
         gateway: this.supervisors.gateway.logTail(30),
         console: this.supervisors.console.logTail(30),
+        pg: this.pg.logTail(30),
       },
       config: {
         repoRoot: this.config.repoRoot,
         consoleUrl: this.config.consoleUrl,
         gatewayPort: this.config.services.gateway.port,
         consolePort: this.config.services.console.port,
+        pgPort: this.pg.actualPort,
+        pgEmbedded: this.pg.enabled,
+        pgDataDir: this.pg.dataDir,
       },
       at: this.deps.now(),
     }

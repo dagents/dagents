@@ -13,6 +13,7 @@
     "dev": "node scripts/ensure-electron.mjs && electron .",
     "dist:win": "pnpm run build && node scripts/ensure-electron.mjs && electron-builder --win nsis --publish never",
     "ensure:electron": "node scripts/ensure-electron.mjs",
+    "ensure:postgres": "node scripts/ensure-postgres.mjs",
     "smoke": "node scripts/smoke.mjs"
   },
   "devDependencies": {

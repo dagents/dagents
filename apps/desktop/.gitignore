@@ -1,2 +1,5 @@
 # 打包产物目录（root .gitignore 的 dist/ 与 node_modules/ 已覆盖源与依赖）
 release/
+
+# 内嵌 PG / 服务栈 staging（ensure-postgres.mjs 下载缓存与解包；R13 双护——.dockerignore 同步）
+stage/

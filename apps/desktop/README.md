@@ -4,16 +4,25 @@
 
 ## 它做什么
 
-- **进程编排**：spawn `pnpm --filter @dagents/gateway dev`（:8080）与 `pnpm --filter @dagents/console dev`（:3000）为子进程；健康轮询（gateway `/health` 判 200+`ok:true`，console 判 HTTP 200，启动期 500ms/运行期 5s）；意外退出**有界自动重启**（5 分钟窗内 3 次，退避 1s/3s/9s，耗尽转 failed 等手动重试）；停止即整棵进程树终止（win32 `taskkill /T /F`）。
+- **内嵌 Postgres（M5）**：应用自带 PostgreSQL 16 二进制（`@embedded-postgres` tarball 经 `pnpm ensure:postgres` 显式按需下载，不进 npm 依赖）；首启自动 `initdb` 到 `userData/pgdata` → 前台直跑 `postgres`（只绑 127.0.0.1）→ 建库 → 跑迁移 → gateway 经 `POSTGRES_URL` 注入连接——**应用启动即数据库就绪，退出即停净**（`pg_ctl stop -m fast` 优先，树终止兜底）。默认端口 **55432**（避开 5432 原生/15432 infra docker），被占自动 +1 让位（≤20 次），实际端口在日志与状态页明示。
+- **进程编排**：spawn `pnpm --filter @dagents/gateway dev`（:8080）与 `pnpm --filter @dagents/console dev`（:3000）为子进程；健康轮询（gateway `/health` 判 200+`ok:true`，console 判 HTTP 200，pg 判 TCP 端口探活；启动期 500ms/运行期 5s）；意外退出**有界自动重启**（5 分钟窗内 3 次，退避 1s/3s/9s，耗尽转 failed 等手动重试）；停止即整棵进程树终止（win32 `taskkill /T /F`）。启动顺序 **pg → gateway → console**，停止反序；pg 起不来或迁移失败 → gateway 不启动（状态页三卡诚实展示）。
 - **就绪接管**：双服务健康后窗口自动加载 `http://localhost:3000`（console 单真相源，零 UI fork）；console 崩溃/健康跌落自动回退本地启动态页显示恢复过程。
-- **附加模式**：启动时探测 8080/3000，已被外部实例监听 → 不 spawn、只做健康观察与接管（退出也不杀外部进程）。
-- **排障可视化**：启动态页实时显示两服务状态机、重启计数、退出码、子进程日志尾部（等宽滚动）、失败重试按钮；**Postgres 未就绪**（gateway 503 `db:down`）给出 `cd infra && docker compose up -d` 引导文案且**不重启**（重启救不了 DB）。
+- **附加模式**：启动时探测 8080/3000，已被外部实例监听 → 不 spawn、只做健康观察与接管（退出也不杀外部进程）——内嵌 PG 同样不启动（外部栈自带数据库）。
+- **排障可视化**：启动态页实时显示 **pg / gateway / console 三服务**状态机、重启计数、退出码、子进程日志尾部（等宽滚动）、失败重试按钮；gateway 503 `db:down`（外部 PG 场景）给出 `cd infra && docker compose up -d` 引导文案且**不重启**（重启救不了 DB）。
 
-## 诚实边界（MVP）
+## 内嵌 Postgres：数据、升级与外部库共存
 
-- **默认命令是 dev 栈**：本机需有 dagents 仓库检出 + pnpm + node。打包后的 app 通过下面的 `config.json` 指定 `repoRoot`（dev 模式从 `apps/desktop` 向上自动发现 `pnpm-workspace.yaml`）。
-- **不代管 Docker/Postgres**：只探测 + 引导（outOfScope）。
-- 端口锁定 8080/3000（console BFF 只认 `GATEWAY_URL`），配置里写别的端口会被拒绝并回落默认。
+- **数据目录固定在** `userData/pgdata`（win 实测路径 `%APPDATA%\@dagents\desktop\pgdata`——Electron 对 scoped 包名 `@dagents/desktop` 原样做目录名）。**卸载默认不删用户数据**；手动清理就删整个 `pgdata` 目录。
+- **不做 docker 数据自动迁移**：首轮用户的 infra docker PG（15432）数据请用 `pg_dump`/`pg_restore` 手动搬迁。
+- **跨 major 版本升级不做**（16 → 17 需 pg_upgrade，outOfScope）；同 major（16.x）随包自动兼容。
+- **异常关机残留 `postmaster.pid`**：若属主进程已死会在启动时自动清锁（PG 认可的 stale lock 处置，不动数据）；若属主进程还活着则诚实报错并列出 PID。
+- **外部 PG 三层「不抢连接」**：① `postgres.embedded:false` 显式关；② `extraEnv.POSTGRES_URL` 已设 → 内嵌自动关（启动日志 warning 说明）；③ 附加模式本就不启动。
+- 供应链：PG 二进制不进 package.json/lockfile（主包会拉全 8 平台、平台包带 postinstall）——`scripts/ensure-postgres.mjs` 显式下载（默认镜像 registry.npmmirror.com，`DAGENTS_DESKTOP_PG_MIRROR` 可覆盖，`DAGENTS_DESKTOP_SKIP_POSTGRES=1` 短路），缓存于 `apps/desktop/stage/pg-cache/`（gitignore + dockerignore 双护）。
+
+## 诚实边界（当前）
+
+- **默认命令是 dev 栈**：本机需有 dagents 仓库检出 + pnpm + node，且先跑 `pnpm --filter @dagents/desktop ensure:postgres` 取 PG 二进制（dev 一次 37MB 下载，缓存复用）。安装包内嵌完整服务栈（零仓库/零 pnpm/零 node）在 M6 上线。
+- 端口锁定 8080/3000（console BFF 只认 `GATEWAY_URL`），配置里写别的端口会被拒绝并回落默认；**PG 端口不锁**（默认 55432 可配 1024-65535，冲突自动让位）。
 - 不做自动更新/托盘/远程 gateway/深链（outOfScope，详见架构文档 §1）。
 
 ## 安装包未签名说明
@@ -34,11 +43,20 @@
 
 ```jsonc
 {
+  "mode": "dev",                            // dev = 仓库 dev 栈（现行为）；packaged = 安装包内嵌栈（M6 落地，当前只是 schema 占位）
   "repoRoot": "C:/projects/dagents",       // 服务 spawn 的 cwd；缺省=从 app 路径向上找 pnpm-workspace.yaml（打包后必须显式配置）
   "consoleUrl": "http://localhost:3000",   // 就绪接管加载的 URL
   "services": {
     "gateway": { "command": "pnpm", "args": ["--filter", "@dagents/gateway", "dev"], "port": 8080 },
     "console": { "command": "pnpm", "args": ["--filter", "@dagents/console", "dev"], "port": 3000 }
+  },
+  "postgres": {                            // 内嵌 PG（M5）；设 extraEnv.POSTGRES_URL 会自动 embedded:false
+    "embedded": true,
+    "port": 55432,                         // 默认端口（不锁值）；被占自动 +1 让位（≤20 次）
+    "dataDir": null,                       // null = userData/pgdata（绝对路径可覆盖）
+    "binDir": null,                        // null = apps/desktop/stage/pg/native/bin
+    "migrateScript": null,                 // null = <repoRoot>/packages/db/scripts/migrate.mjs
+    "pgRequireRoot": null                  // null = <repoRoot>/packages/db（建库用 pg 驱动解析根）
   },
   "restartPolicy": { "maxAttempts": 3, "windowMs": 300000, "backoffMs": [1000, 3000, 9000], "healthTimeoutMs": 120000 },
   "logTailLines": 400,
@@ -53,6 +71,7 @@
 ```bash
 pnpm --filter @dagents/desktop run build      # tsc → dist/ + 渲染页静态资产同步
 pnpm --filter @dagents/desktop run test       # vitest（编排器单测/真子进程树终止/真端口探测/架构守护）+ 打包配置校验
+pnpm --filter @dagents/desktop run ensure:postgres  # 内嵌 PG 二进制按需下载（37MB，缓存 stage/pg-cache）
 pnpm --filter @dagents/desktop run dev        # 起 app（electron 二进制按需下载，ELECTRON_MIRROR 可覆盖）
 pnpm --filter @dagents/desktop run dist:win   # 本机 win nsis 打包（--publish never）
 pnpm --filter @dagents/desktop run smoke      # 安装包解包 exe 启动冒烟（需先 dist:win）

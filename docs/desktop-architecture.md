@@ -1,9 +1,9 @@
 # dagents 桌面客户端 — 选型论证与架构设计
 
-> 状态：**设计定稿（2026-10-06）**，选型结论与供应链机制全部经过本机（win32 真机）实测。
+> 状态：**第二轮设计定稿（2026-10-07）**。第一轮（2026-10-06，Electron 壳 + dev 栈编排）全部结论经本机实测；本轮为演进：**内嵌 Postgres + 生产服务栈打进安装包 + 启动态页导航修复 + 兼容排查框架**，新增选型结论（§10–§15）同样全部经本机（win32 真机）实测，证据表见 §16。
 > 读者：后续研发工程师（按此实现）与验证员（按此验收）。
 > 需求基线：需求分析师产出（vision / userStories / inScope / outOfScope / constraints），本文引用处标注「需求原文」。
-> 配套：总体架构见 [`ARCHITECTURE.md`](ARCHITECTURE.md)；本文只管 `apps/desktop`。
+> 配套：总体架构见 [`ARCHITECTURE.md`](ARCHITECTURE.md)；本文只管 `apps/desktop`；兼容矩阵（第二轮交付物）将落在 `docs/desktop-compat-matrix.md`。
 
 ---
 
@@ -11,11 +11,15 @@
 
 | 决策项 | 结论 |
 |---|---|
-| 技术路线 | **Electron**（electron 44.5.1 + electron-builder 26.15.3） |
-| 本机验证状态 | win32 真机完成：依赖安装 → 按需下载二进制 → **NSIS 安装包真实产出（111,162,911 字节）→ 安装包 exe 启动冒烟 → 进程干净终止** 全链路（见 §2.3 证据表） |
-| 供应链结论 | **electron@44.5.1 无 install script**（registry 元数据 `scripts: null`）——`ignore-scripts=true` 不需要放宽，`onlyBuiltDependencies` 不需要新增条目（对需求约束的两处修正见 §2.4） |
-| monorepo 集成 | 新包 `apps/desktop`（`@dagents/desktop`），零 workspace 依赖，`pnpm-workspace.yaml` 的 `apps/*` 通配已覆盖，根命令门禁自动纳入 |
-| 打包 | electron-builder 三 target（win nsis / mac dmg / linux AppImage），全部不签名；本机实跑 win，mac/linux 归 CI matrix（`desktop.yml`） |
+| 技术路线 | **Electron**（electron 44.5.1 + electron-builder 26.15.3）——第一轮结论不变 |
+| 本机验证状态 | win32 真机完成：依赖安装 → 按需下载二进制 → **NSIS 安装包真实产出（111,162,911 字节）→ 安装包 exe 启动冒烟 → 进程干净终止**（第一轮 §2.3）；**第二轮新增全链路探测：内嵌 PG initdb→迁移→起停、node-pty 双运行时 ABI、deploy 版 gateway 在 Electron-as-Node 下 `/health ok:true`**（§16） |
+| 供应链结论 | **electron@44.5.1 无 install script**（§2.4）；**第二轮零新增 npm 依赖**——内嵌 PG 二进制走显式下载脚本（`ensure-postgres.mjs`，ensure-electron 同款先例），不进 lockfile、不放宽 `ignore-scripts`/`onlyBuiltDependencies` |
+| monorepo 集成 | `apps/desktop` 零 workspace 依赖不变；打包物料落 `apps/desktop/stage/`（gitignore+dockerignore 双护），不进服务镜像（bfac702 教训） |
+| 打包 | electron-builder 三 target（win nsis / mac dmg / linux AppImage），全部不签名；extraResources 携带 `pg/` + `services/gateway` + `services/console`（§11） |
+| **内嵌 PG（第二轮）** | `@embedded-postgres/<platform>-<arch>` npm tarball 经显式脚本下载（win-x64 96MiB 解包 / 37.3MB 压缩；pg 16.14 对齐 infra postgres:16 主版本）；编排器第三个受管服务 + bootstrap 阶段（§10） |
+| **服务栈运行时（第二轮）** | **ELECTRON_RUN_AS_NODE + `process.execPath`**，不另带 Node 分发——实测 gateway 生产产物（pnpm deploy --prod --legacy）在其下正常运行，node-pty N-API prebuild ABI 兼容（§11/§14/§16） |
+| **启动态页导航（第二轮）** | 显式双向入口模型：`pinnedBoot` 布尔升级为内容意愿态（auto/boot/console），新增 `enterWorkbench` IPC 通道——启动态页不再是死路（§12） |
+| **终端（第二轮）** | 打包版**可用不降级**：node-pty 1.1.0 是 N-API 绑定，Node 22（modules 127）与 Electron 44 内嵌 Node 24（modules 149）双真跑 PASS（§14） |
 
 ---
 
@@ -23,7 +27,9 @@
 
 **核心增量**（需求 vision 原文）：把「本机模式」从三终端命令行仪式变成双击即用——一键拉起并守护 gateway+console、独立窗口承载 console 工作台、失败可恢复可见。
 
-**硬边界**（需求 outOfScope，本文严格遵守）：不做自动更新、不做托盘常驻、不融合 gateway 进程、不编排 Docker/Postgres（只探测+引导）、不做代码签名、不做远程 gateway、不做离线壳。
+**硬边界**（需求 outOfScope，本文严格遵守）：不做自动更新、不做托盘常驻、不融合 gateway 进程、不做代码签名、不做远程 gateway、不做离线壳。
+
+> **第二轮边界变更（2026-10-07）**：「不编排 Docker/Postgres（只探测+引导）」是第一轮的边界，**本轮需求已推翻**——Postgres 改为内嵌二进制随包分发并纳入编排（§10）；Docker 本身仍不编排（Langfuse 等可观测栈继续走外部 docker，outOfScope 不变）。第一轮 §3.1 进程图与 §3.2 db-down 文案中的「docker compose 引导」语义按下述新章为准。
 
 **四条关键约束**（需求 constraints 原文摘要）：
 
@@ -140,8 +146,11 @@
              ▼                               ▼
    gateway 子进程（pnpm --filter @dagents/gateway dev，:8080）
    console 子进程（pnpm --filter @dagents/console  dev，:3000）
-             ▲ 不受管（只探测 + 引导）
-   Postgres（docker compose，:15432）—— outOfScope 不代管
+             ▲ 不受管（只探测 + 引导）——第一轮形态
+   Postgres（docker compose，:15432）
+             【第二轮起：上图 dev 形态降为回落模式，默认形态见 §10/§11——
+               内嵌 PG + packaged 服务栈；db-down 的 docker compose 引导文案
+               仅在 dev 模式保留，packaged 模式改为内嵌 PG 自身的恢复语义】
 ```
 
 要点：
@@ -221,7 +230,8 @@ idle ──start──▶ starting ──spawn ok──▶ waiting_health ──
   ```
 
 - `config.ts` 纯函数 + 注入 fs/路径，单测覆盖默认值合并、坏 JSON 容错、未知字段忽略。
-- **MVP 诚实边界（写进 app 内文案）**：默认命令是 dev 栈（pnpm dev），意味着打包后的 app 需要机器上有 dagents 仓库检出 + pnpm + node——这是 inScope 的显式默认（「可配置命令，默认 pnpm --filter … dev」）。生产模式 console（`build:isolated`）与内置栈是后续立项，不在本轮。
+- **MVP 诚实边界（写进 app 内文案）**：默认命令是 dev 栈（pnpm dev），意味着打包后的 app 需要机器上有 dagents 仓库检出 + pnpm + node——这是第一轮 inScope 的显式默认（「可配置命令，默认 pnpm --filter … dev」）。
+  **【第二轮推翻此默认】** packaged 模式成为零配置默认（§11.4），dev 栈降为 `config.json` 显式回落；「CLI agent 需自备安装并登录」仍是不可消除的前提，首启文案诚实告知（不假装零依赖）。
 
 ### 3.6 目录结构
 
@@ -392,6 +402,8 @@ vitest 细节：`environment: node`；`fileParallelism: false`（真子进程/�
 | M3 | **就绪接管与错误引导** | 附加模式（双端口已听→不 spawn 直连）；双健康→`loadURL` 接管；db-down 引导文案 + docker compose 指引；console 崩溃回退启动页 + 有界重启可视化 + 重试按钮 | 需求 userStory 1/2/3/4 逐条手验记录；「杀 console 子进程→app 自动重启→窗口自动恢复」演示 |
 | M4 | **三平台打包兑现 + 收口** | mac dmg（x64/arm64）/linux AppImage CI 产物归档；desktop README（未签名包说明、配置说明）；AGENTS.md/docs 索引更新 | CI matrix 四 job 全绿且 artifact 可下载；验收员按验收清单全量过；根命令门禁最终态全绿 |
 
+> 第一轮 M1–M4 已交付（bfac702 等提交）。**第二轮里程碑 M5–M7 见 §15**——第一个必须是「内嵌 PG 可用 + 门禁全绿」的可验证切片。
+
 ---
 
 ## 9. 附：本设计的验证边界声明
@@ -399,3 +411,233 @@ vitest 细节：`environment: node`；`fileParallelism: false`（真子进程/�
 - 本机已验证（§2.3 全表，win32）：Electron 全链路含真实打包与启动冒烟。
 - 本机**未**验证（如实记录）：mac/linux 打包（约束 2 归 CI）；electron 44.5.1 在 mac arm64/linux 下的行为（由 CI 兜底）；orchestrator 对真 gateway/console 的完整编排（实现后 M2/M3 验收）。
 - 需求约束的两处修正（§2.4）：electron 无需 install script 白名单；`ELECTRON_SKIP_BINARY_DOWNLOAD` 在 44.5.1 不存在、也不再需要——修正依据均为 §2.3 实测，非推测。
+
+---
+
+# 第二轮设计（2026-10-07）：内嵌 PG · 服务栈入包 · 导航修复 · 兼容框架
+
+> 需求原文 vision：「下载安装包、双击即用的 dagents 一体盒：安装包内嵌 Postgres 与生产级 gateway/console 服务栈（零仓库检出/零 pnpm/零 node/零 docker）」。本章为 §1–§9 第一轮壳体的演进，第一轮已实现的编排器/接管/打包机制全部保留复用，冲突处以本章为准。
+> 本章所有选型断言的实测证据集中在 §16 证据表（全部为本轮在 win32 真机真实执行的命令与输出）。
+
+## 10. 内嵌 Postgres（pgEmbedding）
+
+### 10.1 二进制来源与供应链
+
+**结论：`@embedded-postgres/<platform>-<arch>` npm tarball，经 `apps/desktop/scripts/ensure-postgres.mjs` 显式按需下载，不进 package.json / lockfile。**
+
+- 版本钉 **16.14.0-beta.17**（平台包主版本 16 对齐 infra `postgres:16-alpine` 主版本——需求 inScope 原文「对齐 infra 现用的 postgres:16 主版本」；同主版本内小版本差异不影响 data 目录兼容）。
+- **为什么不是 npm 依赖**：主包 `embedded-postgres` 依赖全部 8 个平台包（win 96MiB + linux-x64 56MiB + darwin×2 各 141MiB + …），进 workspace 意味着每台安装机拉全平台二进制；且平台包带 `postinstall: node scripts/hydrate-symlinks.js`（实测 registry 元数据），进依赖图就得论证 install script。需求 constraints 第 1 条已指路：「内嵌 Postgres…一律走显式按需下载脚本先例（ensure-electron.mjs 模式：镜像可覆盖、可短路、不入 npm install 生命周期）」——照办。
+- **postinstall 无害性实测**（仍需论证，因为 CI linux job 会在解包后跑一次它）：win-x64 tarball 内 `native/pg-symlinks.json` 内容为 `[]`（实测），hydrate-symlinks 是纯 Node 的符号链接重建脚本、对 win 是 no-op；ensure-postgres.mjs 在解包后**显式执行** `node scripts/hydrate-symlinks.js`（这是我们自己调用普通脚本，不是 npm 生命周期），覆盖 linux/darwin 可能非空的场景（linux/darwin 的 json 内容未本机验证——CI matrix 验证点，记入 §16 边界）。
+- 镜像：默认 `registry.npmmirror.com`（实测直连可达、tarball 下载成功），`DAGENTS_DESKTOP_PG_MIRROR` 可覆盖（例如指回 registry.npmjs.org）；`DAGENTS_DESKTOP_SKIP_POSTGRES=1` 短路（CI 纯检查 job 不触二进制）。下载后校验 tarball 字节数与元数据 `dist.unpackedSize` 记录值的一致性，缓存于 `apps/desktop/stage/pg-cache/`（gitignore）。
+- 平台映射（CI matrix ↔ 包名）：win-x64 / linux-x64 / darwin-x64 / darwin-arm64。**`@embedded-postgres/windows-arm64` 不存在**（实测 registry 404）——win 目标本就只有 x64，无影响。
+
+### 10.2 生命周期：第三个受管服务 + 前置 bootstrap
+
+**结论：PG 作为编排器的第三个 `ServiceSupervisor` 实例（同一套状态机/有界重启/树终止语义），外加一个一次性 bootstrap 管线。**
+
+```
+app ready
+ └─ bootstrap（幂等，每次启动跑，几毫秒级短路）：
+      1. dataDir 存在 PG_VERSION ？→ 跳过 initdb
+      2. 否则 spawn initdb -U dagents -E UTF8 --locale=C -A trust -D <userData>/pgdata
+ └─ orchestrator.start()
+      ├─ pg       ：spawn postgres.exe -D pgdata -p <port> -h 127.0.0.1（前台直跑，不 pg_ctl daemonize）
+      │             健康 = TCP 端口探活（probePort 复用；pg_isready 不随包分发，见下）
+      ├─ pg 健康后 ── migrate：spawn <node> services/gateway/node_modules/@dagents/db/scripts/migrate.mjs
+      │             env POSTGRES_URL=<内嵌 DSN>（幂等：runMigrations 跳过已应用项；失败→gateway 不启动+状态页明示）
+      ├─ gateway  ：现有状态机，env 注入 POSTGRES_URL（extraEnv 通道）
+      └─ console  ：现有状态机
+```
+
+- **为什么前台直跑 postgres.exe 而不是 pg_ctl start**：pg_ctl 会 daemonize 出脱离本 app 进程树的服务进程，`taskkill /T` 够不着——违反「退出树终止与端口释放断言同口径」约束。前台直跑保持树归属；本机探测用的是 pg_ctl（probe 简化），直跑形态是 PG 官方支持的标准用法，M5 验收项覆盖。
+- **判活协议**：只看 TCP accept（约束原文「判活只看探活协议不猜进程状态」）。`pg_isready`/`psql`/`createdb` 都不随 tarball 分发（实测 bin/ 仅有 initdb/postgres/pg_ctl + DLL）——端口探活是唯一随包可用的协议级探活；端到端语义由 gateway `/health` 的 `db:'up'` 兜底（现有 computePhase 不变）。
+- **建库**：tarball 无 createdb.exe。DSN 直指 `postgres` 库即可让 migrate 跑通（实测迁移链对任意库工作），但为语义干净：bootstrap 里用 staged gateway 自带的 `pg` 驱动跑一句 `CREATE DATABASE dagents`（幂等，失败码 42P04 忽略）——`pg@8.22.0` 纯 JS 无脚本，已在既有 lockfile 内，**不新增供应链面**。执行载体是 `ELECTRON_RUN_AS_NODE <execPath> stage 内小脚本`，与 migrate 同通道。
+- **停止**：优先 `pg_ctl stop -m fast`（干净 checkpoint，数据落盘）；超时 5s 兜底走树终止；端口释放断言与 gateway/console 同口径。**App 退出顺序 = console → gateway → pg**（反依赖序）。
+- **有界重启**：与两服务同策略（5min 窗 3 次，1/3/9s）；PG 起不来时 gateway 的 503 `db:'down'` 降级展示语义原样复用（不重启 gateway——第一轮 §3.2 规则 3）。
+
+### 10.3 端口策略
+
+- 默认 **55432**，独立于 `LOCKED_PORTS`（8080/3000 锁语义不变；需求原文「内嵌 Postgres 端口独立于该锁」）。
+- 选 55432 的理由：避开 5432（用户自装 PG 常用）、15432（infra docker compose 的宿主映射约定——首轮用户机器上最可能的占用者）、54329+ 无特殊含义但 55432 与 15432 同构易记。
+- **冲突自动让位**：启动前 probe 默认端口，被占则 +1 递增探测（上限 20 次），实际端口写进：pg 服务日志、状态页 facts（「端口 :55433（默认 55432 被占用，已让位）」）、注入 gateway 的 `POSTGRES_URL`。全部失败 → pg 进 `failed` + 状态页明示（诚实边界，不猜不抢）。
+- 只绑 `127.0.0.1`，与 gateway 默认绑定面一致。
+
+### 10.4 数据目录、升级与外部 PG 共存
+
+- 数据目录固定 `userData/pgdata/`（**win 真机实测路径 `%APPDATA%\@dagents\desktop\pgdata`**——Electron 对 scoped 包名 `@dagents/desktop` 原样用作目录名，含 `@` 与嵌套层级；若未来设 `productName` 改写该路径，必须携带数据目录迁移说明），README 写明路径与手动清理方法；**卸载默认不删**（NSIS 默认行为 + 不设 `deleteAppDataOnUninstall`），换安装包升级不丢数据（需求 userStory 2）。
+- 主版本内小版本升级（16.x→16.y）随包自动完成（PG 允许同 major 的 PG_VERSION 兼容启动）；**跨 major 升级不做**（pg_upgrade 复杂度不值当），README 明示。不做 docker 数据自动迁移（outOfScope），提供 pg_dump 手动迁移说明。
+- **外部 PG 回退/共存**（三层，全部「不抢连接」）：
+  1. `config.json` 显式 `postgres.embedded: false` → 不 spawn 内嵌 PG；
+  2. `extraEnv.POSTGRES_URL` 已设（用户指向自己的 PG，含 15432 docker）→ 自动 `embedded=false`（配置合并时打 warning 说明判定依据）；
+  3. 附加模式（8080/3000 已被外部实例监听）→ 本来就不 spawn 任何东西，内嵌 PG 同样不启动。
+  外部 PG 的 db-down 引导文案（docker compose 指引）仅在 dev 模式保留；packaged 模式下 db-down 的引导是「内嵌 PG 服务卡片的恢复动作」。
+
+### 10.5 编排器实现形态（纯度纪律延续）——M5 已落地
+
+- `orchestrator/` 新增 `pg-service.ts`：TCP 健康变体**不是子类**——`ServiceSupervisor` 增 `SupervisorOptions`（`probe`/`runSpec`/`port`/`attachable` 四个注入点），pg 以选项注入（TCP 探针把端口开闭映射为 2xx/error；spawn 规格端口让位后运行时构造；`attachable:false`——冲突让位而非附加）；bootstrap 管线（挑端口/initdb/stale pid 清理/建库/迁移/优雅停）内聚 `PgServiceController`，全部副作用经 `PgDeps`（= SupervisorDeps + PgExtraDeps）注入，状态机/重启预算复用 `state-machine.ts` 原样。对 `supervisor.ts` 仅 type import（无循环）。
+- `ServiceId` 扩为 `'gateway' | 'console' | 'pg'`；`DesktopSnapshot.services` 增 pg 卡片 + `config.{pgPort,pgEmbedded,pgDataDir}`；`computePhase` 不变（双健康判 console——pg 健康已内含于 gateway `db:'up'`）。
+- 停止顺序与 EXIT 抑制：`ServiceSupervisor.suppressExit()` 让 pg_ctl 引发的 postgres 退出只记日志不进重启预算；`Orchestrator.stopAll` 反依赖序 console → gateway → pg（pg_ctl fast ≤5s → 树终止兜底 → 端口释放断言同口径）。
+- purity 测试继续钉死 `orchestrator/` 禁 import electron（pg-service.ts 在扫描范围内）；全部 spawn 走注入。
+- **win 真机实证踩坑（已修）**：desktop dist 是 CJS（tsc module:CommonJS），`await import(file://…)` 被 TS 降级为 `require`——而 `require` 不认 file:// URL，pg 驱动加载报 `Cannot find module 'file:///…'`。修为 `createRequire(...)(绝对路径)` 直 require（pg 本就是 CJS 包）。
+
+## 11. 服务栈打包（stackBundling）
+
+### 11.1 运行时选型：ELECTRON_RUN_AS_NODE，不另带 Node
+
+**结论：用 `process.execPath`（打包后即 dagents.exe）+ `ELECTRON_RUN_AS_NODE=1` 拉起两个服务，不随包另发 Node 运行时。**
+
+- **实测依据**（§16 #6–#8）：electron 44.5.1 内嵌 Node 24.21.0（modules 149 / napi 10）；`pnpm deploy --prod --legacy` 产出的 gateway（含 node-pty）在其下正常启动，`/health` 返回 `{"ok":true,"db":"up"}`、`/metrics` 200。
+- 对比「另带 node 分发」：每平台 +1 个 ~30MB 二进制与一条版本升级链，收益仅剩「Node 版本与仓库 engines 解耦」——但 gateway 本就在 Electron 主进程同机同版本下开发验证（dev 模式跑的是系统 Node 22，packaged 跑 24，两者 Node 22+ 特性面一致，`engines: node>=22` 满足）；N-API 兼容已实测。供应链上 Electron 二进制本来就要审（ensure-electron 通道），多一个 Node 分发反而多一条审计面。**判负。**
+- spawn 细节：gateway/console 子进程 env 显式注入 `ELECTRON_RUN_AS_NODE: '1'`；`process.execPath` 在 dev 模式（`electron .`）同样成立（dev 模式默认仍走 pnpm dev 栈，packaged spawn 仅在 packaged 模式启用，见 11.4）。
+- 已知边界（记入 §17 风险 R10）：`ELECTRON_RUN_AS_NODE` 会随 env 传给孙进程——gateway spawn 的 claude/codex 等 CLI 不受影响（非 Electron 程序）；仅当用户的 CLI agent 本身是 Electron GUI 应用时才会被切到 node 模式（现网无此形态，README 记录该边界与 extraEnv 覆盖逃生门）。
+
+### 11.2 gateway 产物形态
+
+**结论：`pnpm --filter @dagents/gateway deploy --prod --legacy <stage>`（Docker 运行时层的 pnpm 等价物），staging 时裁掉 src/tsconfig/vitest.config。**
+
+- 实测（§16 #7）：deploy 产物 225MiB（node_modules 222MiB + dist 1MiB + 库目录），+287 包；workspace 依赖以真实拷贝进 `node_modules/.pnpm/@dagents+<name>@file+…`（无软链逃逸）；`builtin-library/`、`quickstart-library/`（persona 运行时根）随包携带；`node_modules/@dagents/db/scripts/migrate.mjs` 存在且**从 deploy 树直接跑通迁移**（§16 #5）。
+- gateway dist 本身是 tsup 打包源码 + 外部化依赖（实测 dist/index.js 196 条 import 指向 @dagents/* 与 hono 等）——node_modules 由 deploy 提供，与 Docker 运行时层同构（Dockerfile L93-135 先例）。
+- node-pty：win/darwin 的 prebuilds 随 npm tarball 进 deploy 树（实测存在，ignore-scripts 下零脚本执行）；**linux 无 prebuild**（tarball 只有 darwin/win 目录）——desktop.yml linux job 加装 python3/make/g++ 并对 deploy 步骤用 `--config.ignore-scripts=false`（Dockerfile L47-48 同款：onlyBuiltDependencies=[node-pty] 白名单下只放行 node-pty 编译），CI 验证点记 §16 边界。
+
+### 11.3 console 产物形态
+
+**结论：`output: 'standalone'` 产物 + `.next/static` + `public` 三件套（Docker 先例），入口 `standalone/apps/console/<distDir>/server.js`。**
+
+- **本轮修了一个真 bug**（已落工作树）：`next.config.mjs` 的 `outputFileTracingRoot: new URL('../../', import.meta.url).pathname` 在 win 上产生 `/C:/…` 前导斜杠形态，`path.win32.relative` 算出错误相对路径——standalone 产物被**静默写进 `apps/projects/…` 垃圾树且构建 exit 0**（本机复现两轮，§16 #9）。改为 `fileURLToPath(new URL('../../', import.meta.url))` 后 standalone 正常落到 `.next-build/standalone/`（镜像仓库布局 `apps/console/ + packages/ + node_modules/`）。linux/docker 一直正常（pathname 在 POSIX 无此病），此修复对 Docker 无行为影响。
+- **win 本机构建的符号链接权限门（如实记录，未绕过）**：Next 的 copyTracedFiles 对 pnpm 布局用 `fs.symlink` 复建符号链接（next/dist/build/utils.js:1219-1222），win 上无 Developer Mode/管理员时 EPERM——本机实测 symlink 探针 DENIED、构建在 standalone 尾段报 `EPERM symlink` 且 server.js 未写出。**对策**：本机构建完整安装包需开一次 Windows 开发者模式（设置→隐私和安全性→开发者选项，或管理员终端跑 dist:win）；stage-stack.mjs 检测构建日志含 EPERM 时给出一句话指引后非零退出。CI 侧 linux/mac 无此问题；GH windows runner 进程提权运行、预期可建（**未本机验证**，desktop.yml win job 是验证点，若踩中则 win 安装包改由本机开启开发者模式产出——README 已有「安装包取得方式」双通道）。
+- 拉起：`ELECTRON_RUN_AS_NODE=1 <execPath> server.js`，env `PORT=3000 HOSTNAME=127.0.0.1 GATEWAY_URL=http://localhost:8080 NODE_ENV=production`（HOSTNAME 语义=docker-entrypoint L117 的 0.0.0.0 改本机回环——桌面形态无需对外）；`.next/static` 与 `public` 按 standalone 约定摆到 server.js 旁的对应位置。
+- **distDir 约定**：打包构建用 `NEXT_DIST_DIR=.next-build`（不踩 dev 的 `.next`——AGENTS.md 已知问题），standalone 内部路径随 distDir 镜像（`standalone/apps/console/.next-build/server.js`），stage-stack.mjs 按此定位并在缺失时报错。`.next-build` 补进根 `.gitignore`（现状未忽略，实测 `git status` 暴露）。
+
+### 11.4 打包布局与模式开关
+
+extraResources 布局（electron-builder.yml 新增）：
+
+```
+resources/                          ← process.resourcesPath
+  pg/native/{bin,lib,share,…}       ← @embedded-postgres tarball 的 package/native
+  services/gateway/
+    dist/  node_modules/  builtin-library/  quickstart-library/  package.json
+  services/console/
+    apps/console/.next-build/{server.js,server/,…}   ← standalone 镜像树
+    node_modules/  packages/  package.json
+    .next-build/static/  public/                    ← 静态三件套（按 standalone 约定落位）
+```
+
+- 源 staging 目录 `apps/desktop/stage/`：`.gitignore` 补条目 + **`.dockerignore` 补条目**（现状两处均未覆盖该路径——`.dockerignore` 的 `dist/`/`.next/` 是顶层锚定，嵌套目录不命中；bfac702 的教训是 desktop 物料进构建上下文会弄挂镜像，双护不可省）。asar 只装 desktop 自身 dist（files 不变），服务栈/pg 全在 extraResources（不进 asar——node-pty 等原生/文件 glob 资源本就不该进 asar）。
+- **模式开关（三级，零配置默认 packaged）**：
+  1. `resources/services/gateway` 存在 → **packaged 模式**（默认形态）：spawn 全走 §11.1 命令；repoRoot 不再需要。
+  2. `config.json` 显式 `mode: 'dev'` → dev 模式（现行为：发现 repoRoot + pnpm dev 栈 + 依赖外部 PG）——需求 userStory「开发者仍可指向仓库 dev 栈」。
+  3. 附加模式（8080/3000 已监听）→ 不 spawn（现行为保留，内嵌 PG 也不启动）。
+- `dist:win` 扩展为完整打包入口：`pnpm run build && ensure:electron && ensure:postgres && stage-stack && electron-builder --win nsis`；CI desktop.yml 四 job 各加 ensure:postgres（按 matrix 平台取包）与 stage-stack 步骤。
+
+### 11.5 体积预算（无 KPI，只做预算陈述）
+
+| 组成 | raw | 进安装包（NSIS/dmg 压缩后估） |
+|---|---|---|
+| 现有 Electron 壳（实测） | ~250MiB | 111MiB |
+| pg win-x64 native | 96MiB（tarball 37.3MB） | ~+40MiB |
+| gateway deploy | 225MiB | ~+85MiB（node_modules 文本压缩率高） |
+| console standalone+static+public | ~16MiB | ~+10MiB |
+| **预计 win 安装包** | — | **~245–265MiB** |
+
+darwin 因 PG 141MiB unpacked 会更大（dmg 压缩后另计，CI 实测回填）。outOfScope 明示不做极限优化；唯一主动性裁剪是 staging 排除 src/tsconfig/vitest.config 与 turbo 缓存。
+
+## 12. 导航架构：根治「启动态页死路」（navArchitecture）
+
+### 12.1 病灶（需求痛点①的机制复核，均已在源码定位）
+
+- `takeover.ts:81-84`：`showStartupPage()` 置 `pinnedBoot=true` 后，唯一解除条件是 `phase` 跌出 `'console'`（takeover.ts:76）——双服务持续健康时 **pin 永不解除**。
+- `renderer/status.ts` 全文只有 重试/停止/在浏览器打开 三个出口；`status.ts:166-167` 钉住时 meta 仍写「双服务健康 · 正在接管工作台…」——文案失实（此时根本不会接管）。
+- 菜单「打开启动态页」（menu.ts:36-39）同样只进不出。
+
+### 12.2 方案：显式双向入口（内容意愿态模型）
+
+**结论：不做 overlay/常驻状态栏，做「显式返回与重载入口」——零 console 改动的纯壳层方案（约束：兼容修复优先壳层）。**
+
+1. **`pinnedBoot: boolean` → `contentIntent: 'auto' | 'boot' | 'console'`**（takeover.ts）：
+   - `auto`：现自动行为（双健康接管、跌落回 boot）；
+   - `boot`：钉住启动态页（原 pinnedBoot 语义；phase 跌落时**仍自动回 auto**——回退逻辑不回归，需求原文）；
+   - `console`：用户意愿「我要进工作台」——立即解除钉住并尝试 `loadURL`（不健康时按 §12.3 按钮 disabled，但意愿记录保留，双健康一恢复即接管）。
+2. **新 IPC 通道 `desktop:enterWorkbench`**（ipc.ts）+ preload 暴露 `enterWorkbench(): Promise<void>`（preload/index.ts）——启动态页「进入工作台」按钮的动作线。
+3. **启动态页**（status.ts/index.html）：header actions 区新增主按钮「进入工作台」——`phase === 'console'` 时 enabled（primary 高亮；钉住时尤甚——这就是死路出口）；不健康时 disabled 且 meta 文案给出原因。meta 文案修正：钉住+双健康 → 「服务健康 · 已停留在此页——点「进入工作台」或菜单「服务 → 进入工作台」返回」。
+4. **菜单**（menu.ts）：「服务」组重排为：**进入工作台** / 服务状态页（原「打开启动态页」改名，语义即钉）/ 重启服务 / 停止服务 / 在浏览器打开 console。菜单是 Electron 原生层——**任何 web 页面崩溃/卡死都不影响它可达**，这是故障态兜底的第一锚点。
+5. **不变式（验收口径）**：任何时刻满足以下之一可达工作台——(a) 自动接管（auto + 双健康）；(b) 启动态页按钮（boot 态 + 双健康）；(c) 菜单「进入工作台」（永远可点，不健康时给 toast/文案反馈而非静默）。反向：任何时候菜单「服务状态页」可达状态页。`did-fail-load` 回退与 phase 跌落自动回 boot 的现有行为保留（回归项写进 M7 验收）。
+6. `DesktopSnapshot` 增 `contentIntent` 字段（渲染层可显示「已钉住」徽标）——契约仍由 tsc typecheck 钉住。
+
+**为什么不做常驻状态栏/overlay**：console 是完整 Next 应用，向其注入常驻 UI 需要 webContents.executeJavaScript 或 WebContentsView 叠加——CSP/样式冲突/生命周期（导航瞬间闪烁）三面都是新失败面，而需求只要「随时能回工作台 + 随时能看状态」。菜单 + CTA 双锚点零 console 改动即可满足。WebContentsView 底部状态条列为体验侧可选增强（非阻塞，见 uxPlan），若做则独立于本节不变式。
+
+## 13. 兼容排查框架（痛点②的工程面）
+
+> 具体逐项修复与结论归 `docs/desktop-compat-matrix.md`（第二轮交付物，体验工程师产出），本章只定框架与壳层优先原则。
+
+- **修复优先级**（约束原文）：main/preload/session 层（`setWindowOpenHandler → shell.openExternal`、`setPermissionRequestHandler`、`app.setAppUserModelId`、session 下载行为、菜单加速器审查）> console 源码逐处论证（每处必须说明「为什么壳层解决不了 + 浏览器行为不受影响的依据」）。
+- **矩阵骨架**（页面 × 功能 × 结论 × 证据），首版必查清单（需求 inScope 原文）：外链/新窗口（assistant-content.tsx:655、form-engine.tsx:159 实测）、剪贴板（12 处 writeText）、系统通知（use-desktop-notification.ts:50 permission 门 + AppUserModelID）、window.confirm（3 处）、终端页（xterm 输入/粘贴/快捷键/多标签/SSE 直播——打包版全链路，§14 已退役 ABI 风险）、下载行为、快捷键/加速器冲突（Ctrl+W/Ctrl+R/Ctrl+Shift+I vs Ctrl+K/S/Enter/Esc）、历史返回（Alt+Left/鼠标侧键）、标题/favicon、缩放、localStorage、拖放。
+- 每项结论三值：**可用（真机过）/ 修复后可用（指向 PR）/ 明示边界（文档化降级）**。验收员按矩阵 100% 复验。
+
+## 14. 终端策略（terminalStrategy）
+
+**结论：打包版终端可用（node-pty 经 ELECTRON_RUN_AS_NODE 原样工作），不设降级位、不延后。**
+
+- **论据（全部实测，§16 #2/#3/#6）**：
+  1. node-pty 1.1.0 是 **N-API 绑定**（binding.gyp:4 依赖 `node-addon-api` targets；lib/utils.js:19 直接从 `prebuilds/<platform>-<arch>` 加载）——N-API 跨 modules ABI 稳定，不随 Node 大版本重编；
+  2. **双运行时真跑 PASS**：系统 Node 22.23.3（modules 127）与 electron 44.5.1 as Node（Node 24.21.0 / modules 149）各自加载同一枚 win32-x64 prebuild、起真 cmd.exe PTY、回读输出、干净退出（两次输出逐字节一致）；
+  3. deploy 产物（ignore-scripts 之下 npm 零脚本执行）里 node-pty 带 prebuilds 进包，gateway 在 Electron-as-Node 下健康——含 node-pty 静态 import 链路的整进程验证。
+- **平台矩阵**：win-x64 本机实证；darwin-x64/arm64 prebuild 随 tarball（本机不可验，CI 验证；`spawn-helper` 可执行位丢失的老坑由网关启动自愈 chmod 覆盖——AGENTS.md 终端章既有机制）；linux-x64 无 prebuild，CI 编译（§11.2）。
+- **UI 呈现**：终端页**零新增降级 UI**——`/terminal` 是 gateway 路由驱动的真 PTY 直通，gateway 活则终端活。仅补一条诚实边界：若未来某平台 node-pty 加载失败（如 CI 编译缺失、napi 不兼容），gateway `/shell` 系路由 503 + 错误信封（沿用 `DAGENTS_SHELL_DISABLED` 同类语义），终端页现有错误态渲染，矩阵记「明示边界」。单一回归点 = CI 重编 prebuild，架构无需改。
+- 需求约束原文「node-pty ABI 必须与所选打包运行时真机验证兼容，验证结论与选型理由写入 docs/desktop-architecture.md 增补章后方可定稿」——本章即该增补章，§16 #2/#3 为证据。
+
+## 15. 第二轮里程碑
+
+| # | 里程碑 | 交付内容 | 验收口径 |
+|---|---|---|---|
+| M5 | **内嵌 PG 切片 + 门禁全绿** | ensure-postgres.mjs；orchestrator pg 服务 + bootstrap 管线（纯度测试覆盖）；config schema（postgres.* + mode）；状态页第三卡 | 根命令 `pnpm test && pnpm lint && pnpm typecheck` 全绿；win 真机：空 userData 首启 → initdb → 迁移 → gateway `db:'up'`；55432 被占自动让位且状态页明示；退出 PG 停净（端口+进程断言） |
+| M6 | **服务栈入包** | stage-stack.mjs（console standalone + gateway deploy + 裁剪落位）；electron-builder extraResources；packaged 模式编排（ELECTRON_RUN_AS_NODE spawn + bootstrap 迁移走 staged migrate.mjs）；dist:win 完整入口；desktop.yml matrix 扩展；.gitignore/.dockerignore 补条目 | win 真机全新机器语义（无仓库/docker/pnpm/node）：安装 → 双击 → 内嵌 PG 自动就绪 → 工作台可用 → 退出 8080/3000/PG 端口与进程全净；CI 四 job 产物可下载；dev 模式与附加模式回归不破 |
+| M7 | **导航修复 + 兼容矩阵 + 收口** | §12 全量（enterWorkbench 通道/意愿态/文案/菜单）；壳层兼容修复（setWindowOpenHandler、AppUserModelID+通知权限、confirm、下载、加速器）；`docs/desktop-compat-matrix.md` 全表真机结论；README/本文档收口 | 痛点①死路场景（钉住→双健康→一键回工作台）真机过；矩阵逐项 100% 复验；「杀 console→自动重启→窗口恢复」回归；根命令门禁最终态全绿 |
+
+（体验侧里程碑由 uxPlan 另行承载，与 M5-M7 并行。）
+
+## 16. 第二轮实测证据表（win32 真机，2026-10-07）
+
+环境：Windows 10 19045，node v22.23.3 / pnpm 10.26.0；`~/.npmrc` 带**失效代理** `proxy=127.0.0.1:7890`（第一轮 §2.4 已记录的既有网络条件——凡涉 pnpm 元数据请求的探测均以 `HOME=/tmp/fakehome` 隔离该配置后执行）。
+
+| # | 命令（探针目录均用后即删） | 结果 |
+|---|---|---|
+| 1 | `curl registry.npmmirror.com/@embedded-postgres%2F{windows-x64,linux-x64,darwin-x64,darwin-arm64,windows-arm64}` | 前四者 latest=18.4.0-beta.17、均带 `postinstall: hydrate-symlinks.js`、unpackedSize 96/56/141/141MiB；**windows-arm64 404 不存在** |
+| 2 | `node /tmp/pty-abi-test.js`（require 仓库 node-pty → spawn cmd.exe PTY → 回读） | **PASS**（Node 22.23.3 / modules 127 / napi 10） |
+| 3 | `ELECTRON_RUN_AS_NODE=1 apps/desktop/release/win-unpacked/dagents.exe /tmp/pty-abi-test.js` | **PASS**（Node 24.21.0 / modules 149 / napi 10；输出与 #2 一致）——ABI 风险退役 |
+| 4 | `curl -sL @embedded-postgres/windows-x64-16.14.0-beta.17.tgz`（npmmirror） | 37,303,807 字节下载成功；解包 `package/native/bin/`：initdb.exe/postgres.exe/pg_ctl.exe + DLL（**无 pg_isready/psql/createdb**）；`native/pg-symlinks.json` = `[]` |
+| 5 | `initdb -D data -U dagents -A trust` → `pg_ctl -o "-p 55432 -h 127.0.0.1" start` → node pg 8.22 连接/建库/查询 → `POSTGRES_URL=… node packages/db/scripts/migrate.mjs` → `pg_ctl stop -m fast` | 全链路 PASS：PG 16.14 起于 55432、`select 1` ok、迁移链全量应用（输出自 DropOrphanedTables… 至 FlowContextMd 止，无失败项）、停净（端口释放 + 无 postgres.exe）；**deploy 树内 migrate.mjs 亦 PASS**（schema already up to date） |
+| 6 | `ELECTRON_RUN_AS_NODE=1 POSTGRES_URL=… GATEWAY_PORT=8090 dagents.exe /tmp/gwdeploy/dist/index.js` | gateway on 127.0.0.1:8090；`/health` → `{"ok":true,"svc":"gateway","db":"up"}`；`/metrics` 200；taskkill 后端口释放——**packaged 运行时全栈语义实证** |
+| 7 | `HOME=/tmp/fakehome pnpm --filter @dagents/gateway deploy --prod --legacy /tmp/gwdeploy` | 225MiB（node_modules 222MiB +287 包）；workspace 包真实拷贝；node-pty 带 prebuilds；builtin/quickstart-library 随包；**不带 --legacy 报 ERR_PNPM_DEPLOY_NONINJECTED_WORKSPACE（pnpm 10 语义）** |
+| 8 | `ELECTRON_RUN_AS_NODE=1 dagents.exe -e "console.log(process.versions)"` | Node 24.21.0 / modules 149 / napi 10 / electron 44.5.1 |
+| 9 | console standalone：`NEXT_DIST_DIR=.next-build next build` ×2（修前/修后） | 修前：exit 0 但**无 standalone/**，产物错落 `apps/projects/dagens/…` 垃圾树（outputFileTracingRoot pathname 坑，本机复现）；修后（fileURLToPath）：`standalone/{apps/console,packages,node_modules}` 正常出现（11MiB）+ static 5MiB；**随后 EPERM symlink 中断**（本机无 Developer Mode，探针证实 symlink DENIED）——CI/linux 与 Docker 先例不受影响，win 本机需开发者模式（§11.3 对策） |
+| 10 | `node_modules/.pnpm/node-pty@1.1.0`：读 binding.gyp / lib/utils.js / prebuilds/ | N-API（node-addon-api）绑定；prebuilds/{darwin-arm64,darwin-x64,win32-arm64,win32-x64}（**无 linux**）；加载路径 build/Release → prebuilds/<plat>-<arch> |
+
+**未验证（如实记录，归 CI 或后续里程碑）**：mac/linux 打包与 node-pty（约束 2 归 CI matrix；linux 需编译步骤 §11.2）；`@embedded-postgres` linux/darwin 包 pg-symlinks.json 内容与 hydrate 效果；GH windows runner 的 symlink 特权（§11.3 风险预案）；三平台真实安装包体积（§11.5 预算待 CI 回填）。
+
+**M5 验收实测（win32 真机，2026-10-07，全部本 session 实跑）**：
+
+| # | 命令/操作 | 结果 |
+|---|---|---|
+| M5-1 | `node scripts/ensure-postgres.mjs`（首跑） | 元数据 unpackedSize=100,356,432B；tarball 37,302,807B 下载 → 解包（坑：PATH 命中 GNU tar 把 `C:\` 当远程主机，改 cwd+相对路径双兼容）→ hydrate-symlinks 显式执行 → `native/bin/{initdb,postgres,pg_ctl}.exe` 就位；二跑幂等短路 ✅ |
+| M5-2 | 清空 userData → `pnpm --filter @dagents/desktop run dev` | initdb（6.1s）→ postgres 前台直跑 55432 LISTENING → 建库「已创建数据库 dagents」→ 迁移全量应用（尾项 denAgentsVisibilityChk…）→ gateway 注入 `postgresql://dagents@127.0.0.1:55432/dagents` → **50s 内 `/health` `{"ok":true,"db":"up"}`**；console :3000 200；pgdata 结构在位 ✅ |
+| M5-3 | 首跑暴露真 bug（已修） | CJS 产物 `await import(file://…)` 被 tsc 降级 require → 建库 `Cannot find module 'file:///…pg/lib/index.js'` → gateway 诚实不启动（失败语义正确）；修为 createRequire 直 require 后全链通 ✅ |
+| M5-4 | 让位：哑 listener 占 55432 → 重启 dev | pg.log「默认端口 55432 被占用，让位至 55433（第 2 次探测命中）」；55433=内嵌 PG、55432=dummy 并存；DSN 注入 55433 且 `/health` db:up ✅ |
+| M5-5 | 优雅退出（`taskkill /PID <main>` 无 /F = WM_CLOSE → will-quit） | pg.log 三段：「进程退出 code=0（优雅停止流程中，不触发重启）」→「终止进程树 pid=…」→「内嵌 Postgres 已停净（端口 55433 释放）」；8080/3000/55433 全释放、无 electron/node/postgres 本实例残留（机器上既有 5432 原生 + 15432 docker 实例不受扰——55432 选址的现实佐证）✅ |
+| M5-6 | 单测/门禁 | desktop vitest 116 passed（pg-service 24 + supervisor 28 + state-machine 24 + config 13 等；purity 守护续钉）；lint/typecheck/build 净 ✅ |
+
+## 17. 第二轮风险增补（第一轮 R1–R8 保留）
+
+| # | 风险 | 对策 |
+|---|---|---|
+| R9 | **内嵌 PG 数据目录损坏/版本不兼容**（异常关机残留 postmaster.pid 等） | bootstrap 检测 `postmaster.pid` 残留 → 状态页明示 +「重置数据目录」动作（显式用户确认，不静默删数据）；跨 major 升级不做（§10.4） |
+| R10 | **ELECTRON_RUN_AS_NODE 泄漏给孙进程**（用户的 CLI agent 若是 Electron GUI 应用会被切 node 模式） | 现网 claude/codex 均非此形态；README 记录边界；config.extraEnv 可针对性覆盖 |
+| R11 | **win 本机 standalone 构建的 symlink 权限门**（§16 #9） | 文档化开发者模式一次性开关；stage-stack.mjs 检测 EPERM 给指引非零退；CI win job 验证，踩中则安装包改由 CI/本机开发者模式产出 |
+| R12 | **打包体积膨胀**（~245-265MiB 预算） | 无 KPI（outOfScope）；唯一警戒线=CI artifact 上传限额与下载体验，超预算再裁（standalone 本就不含 dev 依赖） |
+| R13 | **staging 物料泄进服务镜像/工作树** | `apps/desktop/stage/` 双 ignore（git+docker）+ CI 校验步骤（M6 验收含 `docker build` 不拾取 stage 的检查） |
+| R14 | **内嵌 PG 与用户本机 PG 生态抢端口/抢连接** | 55432 默认+让位策略（§10.3）；外部 POSTGRES_URL 三层不抢连接（§10.4）；只绑 127.0.0.1 |
+| R15 | **CI linux node-pty 编译失败**（无 prebuild） | Dockerfile 同款工具链 + `--config.ignore-scripts=false` 白名单语义（onlyBuiltDependencies 只放行 node-pty）；失败属 CI 可见性错误，不污染本机门禁 |
+
+---
+
+*第二轮设计完。第一轮 §1–§9 仍是壳体/编排器/供应链机制的真相源；两轮冲突处（Postgres 编排边界、启动态页出口、dev 栈默认形态）以 §10–§17 为准。*

@@ -34,6 +34,7 @@ describe('defaultConfig', () => {
     const c = defaultConfig('C:/repo')
     expect(c.repoRoot).toBe('C:/repo')
     expect(c.consoleUrl).toBe('http://localhost:3000')
+    expect(c.mode).toBe('dev')
     expect(c.services.gateway).toEqual({
       command: 'pnpm',
       args: ['--filter', '@dagents/gateway', 'dev'],
@@ -47,6 +48,14 @@ describe('defaultConfig', () => {
     expect(c.restartPolicy).toEqual(DEFAULT_RESTART_POLICY)
     expect(c.logTailLines).toBe(400)
     expect(c.extraEnv).toEqual({})
+    expect(c.postgres).toEqual({
+      embedded: true,
+      port: 55432,
+      dataDir: null,
+      binDir: null,
+      migrateScript: null,
+      pgRequireRoot: null,
+    })
   })
 })
 
@@ -164,5 +173,98 @@ describe('loadConfig', () => {
     })
     expect(config.logTailLines).toBe(2000)
     expect(config.restartPolicy.windowMs).toBe(3_600_000)
+  })
+})
+
+describe('postgres.* 与 mode 合并（docs §10.4 三层不抢连接）', () => {
+  const norm = (p: string) => p.replace(/\\/g, '/')
+  const mkDeps = (files: Record<string, string>) => ({
+    existsSync: (p: string) => norm(p) in files,
+    readFileSync: (p: string) => {
+      const hit = files[norm(p)]
+      if (hit === undefined) throw new Error('ENOENT')
+      return hit
+    },
+  })
+
+  it('合法 postgres 覆盖：embedded:false + 自定义端口 + 绝对路径', () => {
+    const json = JSON.stringify({
+      postgres: {
+        embedded: false,
+        port: 60432,
+        dataDir: 'D:/pgdata',
+        binDir: 'D:/pgbin',
+        migrateScript: 'D:/m.mjs',
+        pgRequireRoot: 'D:/gw',
+      },
+    })
+    const { config, warnings } = loadConfig({
+      userDataDir: 'C:/ud',
+      startDir: 'C:/r',
+      deps: mkDeps({ 'C:/ud/config.json': json, 'C:/r/pnpm-workspace.yaml': '' }),
+    })
+    expect(warnings).toEqual([])
+    expect(config.postgres).toEqual({
+      embedded: false,
+      port: 60432,
+      dataDir: 'D:/pgdata',
+      binDir: 'D:/pgbin',
+      migrateScript: 'D:/m.mjs',
+      pgRequireRoot: 'D:/gw',
+    })
+  })
+
+  it('第②层回退：extraEnv.POSTGRES_URL 已设 → embedded 自动关 + warning', () => {
+    const json = JSON.stringify({
+      extraEnv: { POSTGRES_URL: 'postgresql://dagents:dagents_dev@localhost:15432/dagents' },
+    })
+    const { config, warnings } = loadConfig({
+      userDataDir: 'C:/ud',
+      startDir: 'C:/r',
+      deps: mkDeps({ 'C:/ud/config.json': json, 'C:/r/pnpm-workspace.yaml': '' }),
+    })
+    expect(config.postgres.embedded).toBe(false)
+    expect(warnings.some((w) => w.includes('外部库') && w.includes('15432'))).toBe(true)
+  })
+
+  it('postgres 值域校验：端口越界 / 相对路径 / 非法 embedded 均回落 + warning', () => {
+    const json = JSON.stringify({
+      postgres: { port: 80, embedded: 'yes', dataDir: 'relative/dir', binDir: 42 },
+    })
+    const { config, warnings } = loadConfig({
+      userDataDir: 'C:/ud',
+      startDir: 'C:/r',
+      deps: mkDeps({ 'C:/ud/config.json': json, 'C:/r/pnpm-workspace.yaml': '' }),
+    })
+    expect(config.postgres.port).toBe(55432)
+    expect(config.postgres.embedded).toBe(true)
+    expect(config.postgres.dataDir).toBeNull()
+    expect(config.postgres.binDir).toBeNull()
+    expect(warnings.some((w) => w.includes('postgres.port'))).toBe(true)
+    expect(warnings.some((w) => w.includes('postgres.embedded'))).toBe(true)
+    expect(warnings.some((w) => w.includes('postgres.dataDir'))).toBe(true)
+    expect(warnings.some((w) => w.includes('postgres.binDir'))).toBe(true)
+  })
+
+  it('mode：合法 dev/packaged 透传，非法回落 dev + warning', () => {
+    const mk = (mode: unknown) =>
+      JSON.stringify({ mode })
+    const good = loadConfig({
+      userDataDir: 'C:/ud',
+      startDir: 'C:/r',
+      deps: mkDeps({
+        'C:/ud/config.json': mk('packaged'),
+        'C:/r/pnpm-workspace.yaml': '',
+      }),
+    })
+    expect(good.config.mode).toBe('packaged')
+    expect(good.warnings).toEqual([])
+    const bad = loadConfig({
+      userDataDir: 'C:/ud',
+      startDir: 'C:/r',
+      deps: mkDeps({ 'C:/ud/config.json': mk('cloud'), 'C:/r/pnpm-workspace.yaml': '' }),
+    })
+    expect(bad.config.mode).toBe('dev')
+    expect(bad.warnings.some((w) => w.includes('mode'))).toBe(true)
   })
 })

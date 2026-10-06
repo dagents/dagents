@@ -78,7 +78,8 @@
       }
       main {
         display: grid;
-        grid-template-columns: 1fr 1fr;
+        /* 三服务卡（gateway / console / pg）：自适应换行，窄窗不挤爆 */
+        grid-template-columns: repeat(auto-fit, minmax(400px, 1fr));
         gap: 14px;
         padding: 16px 20px;
       }

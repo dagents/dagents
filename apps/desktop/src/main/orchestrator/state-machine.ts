@@ -1,4 +1,4 @@
-import type { RestartPolicy, ServiceState, ServiceStatus } from './types'
+import type { RestartPolicy, ServiceId, ServiceState, ServiceStatus } from './types'
 
 // 纯状态机（docs/desktop-architecture.md §3.2）——禁 import electron、禁任何副作用：
 // transition() 是 (machine, event, policy, now) → { machine, effects } 的纯函数，
@@ -58,7 +58,14 @@ export const HEALTH_POLL_RUNNING_MS = 5_000
 const DB_DOWN_GUIDANCE =
   'Postgres 未就绪（gateway 进程健康、DB 连不上）——请先起库：cd infra && docker compose up -d。此状态下不重启服务（重启救不了 DB）。'
 
-function baseStatus(id: 'gateway' | 'console'): ServiceStatus {
+/** START 时状态页展示的命令描述（gateway/console 为 dev 默认命令；pg 前台直跑形态 docs §10.2）。 */
+const START_MESSAGES: Record<ServiceId, string> = {
+  gateway: '正在启动：pnpm --filter @dagents/gateway dev',
+  console: '正在启动：pnpm --filter @dagents/console dev',
+  pg: '正在启动：内嵌 Postgres（postgres -D pgdata 前台直跑）',
+}
+
+function baseStatus(id: ServiceId): ServiceStatus {
   return {
     id,
     state: 'idle',
@@ -71,7 +78,7 @@ function baseStatus(id: 'gateway' | 'console'): ServiceStatus {
   }
 }
 
-export function createMachine(id: 'gateway' | 'console'): MachineState {
+export function createMachine(id: ServiceId): MachineState {
   return { status: baseStatus(id), pid: null, restartTimestamps: [] }
 }
 
@@ -141,7 +148,7 @@ export function transition(
         machine: patch(m, {
           state: 'starting',
           attachMode: false,
-          message: `正在启动：${m.status.id === 'gateway' ? 'pnpm --filter @dagents/gateway dev' : 'pnpm --filter @dagents/console dev'}`,
+          message: START_MESSAGES[m.status.id],
         }),
         effects: [{ kind: 'spawn' }],
       }
