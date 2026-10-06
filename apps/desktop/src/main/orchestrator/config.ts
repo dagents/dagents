@@ -51,7 +51,7 @@ export function defaultConfig(repoRoot: string): DesktopConfig {
   return {
     repoRoot,
     consoleUrl: 'http://localhost:3000',
-    mode: 'dev',
+    mode: 'auto',
     services: {
       gateway: defaultGatewaySpec(),
       console: defaultConsoleSpec(),
@@ -235,8 +235,8 @@ export function loadConfig(
   else if (consoleUrl) warnings.push(`consoleUrl "${consoleUrl}" 非 http(s) URL，已回落默认值`)
 
   const mode = asString(obj.mode)
-  if (mode === 'dev' || mode === 'packaged') config.mode = mode
-  else if (mode !== null) warnings.push(`mode "${mode}" 非 dev/packaged，已回落默认 dev`)
+  if (mode === 'auto' || mode === 'dev' || mode === 'packaged') config.mode = mode
+  else if (mode !== null) warnings.push(`mode "${mode}" 非 auto/dev/packaged，已回落默认 auto`)
 
   config.services = {
     gateway: mergeService('gateway', (obj.services as Record<string, unknown> | undefined)?.gateway, warnings),

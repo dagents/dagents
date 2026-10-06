@@ -35,6 +35,14 @@ export interface ServiceSpec {
   port: number
 }
 
+/** 实际 spawn 规格（supervisor 消费；packaged 形态由 run-mode.ts 运行时构造）。 */
+export interface ServiceRunSpec {
+  command: string
+  args: string[]
+  cwd: string
+  env: Record<string, string>
+}
+
 /** 内嵌 Postgres 配置（docs §10；端口独立于 LOCKED_PORTS——不锁值，让位策略见 pg-service）。 */
 export interface PostgresConfig {
   /** 内嵌 PG 总开关；false = 外部 Postgres（gateway 走 .env/extraEnv 的 POSTGRES_URL）。 */
@@ -54,8 +62,8 @@ export interface PostgresConfig {
 export interface DesktopConfig {
   repoRoot: string
   consoleUrl: string
-  /** 运行形态：dev = 仓库 dev 栈（现行为）；packaged = 安装包内嵌服务栈（M6 落地）。 */
-  mode: 'dev' | 'packaged'
+  /** 运行形态意图：auto=按内嵌栈在位探测（默认）；dev/packaged=显式钉死（docs §11.4）。 */
+  mode: 'auto' | 'dev' | 'packaged'
   services: Record<ManagedServiceId, ServiceSpec>
   restartPolicy: RestartPolicy
   logTailLines: number
@@ -91,6 +99,8 @@ export interface DesktopSnapshot {
     consoleUrl: string
     gatewayPort: number
     consolePort: number
+    /** 实际运行形态（状态页明示：安装包内嵌栈 / 仓库 dev 栈）。 */
+    runMode: 'dev' | 'packaged'
     /** 内嵌 PG 实际端口（让位后 ≠ 配置默认；null = 未启用/未解析）。 */
     pgPort: number | null
     /** 内嵌 PG 是否启用（false = 外部 Postgres）。 */

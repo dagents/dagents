@@ -22,6 +22,7 @@ interface SnapshotView {
     consoleUrl: string
     gatewayPort: number
     consolePort: number
+    runMode: 'dev' | 'packaged'
     pgPort: number | null
     pgEmbedded: boolean
     pgDataDir: string
@@ -211,13 +212,14 @@ function renderSnapshot(snap: SnapshotView): void {
   const footer = document.getElementById('footer')
   if (footer) {
     footer.textContent = ''
-    footer.appendChild(
-      el('span', {
-        text: snap.config.pgEmbedded
-          ? `内嵌 Postgres 已启用（数据目录 ${snap.config.pgDataDir}，卸载不删除）。默认命令是 dev 栈（本机需有仓库检出 + pnpm + node）；安装包内嵌服务栈在后续里程碑上线。可 `
-          : '内嵌 Postgres 已关闭（使用外部数据库）。默认命令是 dev 栈（本机需有仓库检出 + pnpm + node）。可 ',
-      })
-    )
+    const pgPart = snap.config.pgEmbedded
+      ? `内嵌 Postgres 已启用（数据目录 ${snap.config.pgDataDir}，卸载不删除）。`
+      : '内嵌 Postgres 已关闭（使用外部数据库）。'
+    const modePart =
+      snap.config.runMode === 'packaged'
+        ? '服务栈来自安装包内嵌产物（ELECTRON_RUN_AS_NODE 拉起，无需仓库/pnpm/node）。'
+        : '当前是 dev 栈形态（本机需有仓库检出 + pnpm + node）。'
+    footer.appendChild(el('span', { text: `${pgPart}${modePart}可 ` }))
     const link = el('a', { text: '在浏览器打开 console' })
     link.addEventListener('click', () => {
       void desktopApi?.openExternal(snap.config.consoleUrl)

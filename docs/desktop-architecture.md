@@ -480,7 +480,7 @@ app ready
 - purity 测试继续钉死 `orchestrator/` 禁 import electron（pg-service.ts 在扫描范围内）；全部 spawn 走注入。
 - **win 真机实证踩坑（已修）**：desktop dist 是 CJS（tsc module:CommonJS），`await import(file://…)` 被 TS 降级为 `require`——而 `require` 不认 file:// URL，pg 驱动加载报 `Cannot find module 'file:///…'`。修为 `createRequire(...)(绝对路径)` 直 require（pg 本就是 CJS 包）。
 
-## 11. 服务栈打包（stackBundling）
+## 11. 服务栈打包（stackBundling）——M6 已落地（win 真机全链验收过，mac/linux 归 CI）
 
 ### 11.1 运行时选型：ELECTRON_RUN_AS_NODE，不另带 Node
 
@@ -530,6 +530,14 @@ resources/                          ← process.resourcesPath
   3. 附加模式（8080/3000 已监听）→ 不 spawn（现行为保留，内嵌 PG 也不启动）。
 - `dist:win` 扩展为完整打包入口：`pnpm run build && ensure:electron && ensure:postgres && stage-stack && electron-builder --win nsis`；CI desktop.yml 四 job 各加 ensure:postgres（按 matrix 平台取包）与 stage-stack 步骤。
 
+### 11.4.1 M6 落地增补：三个实测坑与对策（全部本 session 真机踩中）
+
+1. **win standalone 构建的 symlink 门 → pnpm patch 兜底**（R11 对策落地）：Next `copyTracedFiles` 对 pnpm 布局的链接原样 `fs.symlink` 复建，win 无开发者模式即 EPERM（本 session 复现两次）。**对策不是开发者模式**而是 `patches/next@15.5.20.patch`（pnpm patchedDependencies，登记于 pnpm-workspace.yaml）：`symlink EPERM && win32` 时目录链接降级 **junction**（pnpm 在 win 本就用 junction，语义等价且无需特权）、文件链接降级实体复制；**POSIX 行为零变化**（catch 只兜 EPERM+win32）。供应链论证：patch 是显式 diff，无 install script 放宽（onlyBuiltDependencies/ignore-scripts 原样）。
+2. **pnpm 布局经分发链 deref 后解析链断裂 → staging 平铺规整**：junction/symlink 在 `cpSync → electron-builder extraResources → NSIS 安装` 三层拷贝中全部 deref 成实体——`apps/console/node_modules/next`（实体）向上 resolve 不到 `.pnpm` 里的同胞依赖，packaged 安装树实测 `Cannot find module 'styled-jsx'`（**仓库内 staging 探针是假阳性**：resolve 会漏到 monorepo 根 node_modules 命中，验证必须断言解析结果落在 staged 树内）。对策：stage-stack.mjs 的 `flattenPnpmToTopLevel` 把 `.pnpm/<entry>/node_modules/<pkg>` 全量提升（O(1) move 优先）到顶层 npm 平铺布局后删除 `.pnpm` + **死链自检非零退**——gateway 实体化 278 包、console 43 包，styled-jsx/node-pty resolve 全部 IN-STAGE。deploy 产出的绝对 junction **不可 move**（目标即断）——deploy 必须直落最终路径。
+3. **win 目录锁噪声**：本机曾有系统进程锁死 staging 空目录壳（对删除/改名/rename 进内容全免疫，explorer 重启也不放）——staging 根换名 `stage/dist-services` 绕道（extraResources from 同步），stage-stack 清理策略改逐子项 + 「EBUSY 且已空则保留壳继续」。同款锁也偶发 `release*/win-unpacked/resources/app.asar`——打包遇 EBUSY 换 `--config.directories.output` 新目录即可。
+
+**验收口径兑现（§15 M6 行）**：NSIS 静默安装（`setup.exe /S /D=<dir>`——Git Bash 下须写 `//S` 防 POSIX 路径转换）到仓库外独立目录 + 清空 userData = 全新机器语义；启动后 **30s 内** `/health {"ok":true,"db":"up"}` + console 200（`<title>Dagents</title>` + `_next/static/*.css` 200）+ 内嵌 PG 55432 LISTENING + 窗口接管（takeover 日志）；优雅退出（WM_CLOSE→will-quit）8080/3000/55432 全释放、0 残留进程；**卸载后 pgdata 存活**（NSIS 默认保留 userData）。dev 模式与附加模式回归不破（dev 全链 initdb→迁移→gateway on 8080；8080 被占→pg 诚实不启动 + gateway 附加）。实测安装包 494MB（R12 预算陈述：无 KPI，唯一警戒线 CI artifact 限额；NSIS 压缩率受 pg DLL/node-pty 二进制拖累属预期）。
+
 ### 11.5 体积预算（无 KPI，只做预算陈述）
 
 | 组成 | raw | 进安装包（NSIS/dmg 压缩后估） |
@@ -541,6 +549,8 @@ resources/                          ← process.resourcesPath
 | **预计 win 安装包** | — | **~245–265MiB** |
 
 darwin 因 PG 141MiB unpacked 会更大（dmg 压缩后另计，CI 实测回填）。outOfScope 明示不做极限优化；唯一主动性裁剪是 staging 排除 src/tsconfig/vitest.config 与 turbo 缓存。
+
+**M6 win 实测回填**：实际安装包 **494MB**（494,001,291B，NSIS lzma）——高于预算陈述，主因 pg 的 20+ 个 DLL/OpenConsole 等原生二进制与 node-pty prebuilds 压缩率低、以及 pnpm 平铺规整后部分硬链接共享退化为独立副本。无 KPI（outOfScope），CI artifact 限额（win 单文件默认无压缩上限限流）为唯一警戒线；若需裁剪，后续可按「按需剔除非 win 平台的 node-pty prebuilds 与 pg DLL」立项。
 
 ## 12. 导航架构：根治「启动态页死路」（navArchitecture）
 
@@ -614,6 +624,20 @@ darwin 因 PG 141MiB unpacked 会更大（dmg 压缩后另计，CI 实测回填�
 | 10 | `node_modules/.pnpm/node-pty@1.1.0`：读 binding.gyp / lib/utils.js / prebuilds/ | N-API（node-addon-api）绑定；prebuilds/{darwin-arm64,darwin-x64,win32-arm64,win32-x64}（**无 linux**）；加载路径 build/Release → prebuilds/<plat>-<arch> |
 
 **未验证（如实记录，归 CI 或后续里程碑）**：mac/linux 打包与 node-pty（约束 2 归 CI matrix；linux 需编译步骤 §11.2）；`@embedded-postgres` linux/darwin 包 pg-symlinks.json 内容与 hydrate 效果；GH windows runner 的 symlink 特权（§11.3 风险预案）；三平台真实安装包体积（§11.5 预算待 CI 回填）。
+
+**M6 验收实测（win32 真机，2026-10-07，全部本 session 实跑）**：
+
+| # | 命令/操作 | 结果 |
+|---|---|---|
+| M6-1 | `pnpm patch next@15.5.20`（junction 兜底，§11.4.1 #1） | EPERM 复现两轮后 patch 生效：standalone 构建完整产出（server.js+static 5MiB）；patch 登记 pnpm-workspace.yaml patchedDependencies + lockfile patch_hash，**onlyBuiltDependencies/ignore-scripts 零改动** ✅ |
+| M6-2 | `node scripts/stage-stack.mjs` ×N | gateway deploy（+287 包，NPM_CONFIG_USERCONFIG 过滤失效代理）+ console standalone 三件套 + **pnpm 平铺规整**（gateway 实体化 278 包/console 43 包 + 死链自检零残留）+ tsconfig 构建污染自动还原；resolve 断言 IN-STAGE（styled-jsx/node-pty/typeorm/@dagents/db）✅ |
+| M6-3 | staged 树探针（打包前） | console server.js（node + PORT=3100）：home 200 + `_next/static/*.css` 200；gateway dist/index.js（node + docker PG DSN）：`/health {"ok":true,"db":"up"}` + `/metrics` 200 ✅（首版探针曾因「仓库内 resolve 泄漏」假阳性——§11.4.1 #2 记录） |
+| M6-4 | `electron-builder --win nsis`（extraResources pg+services） | 494MB 安装包产出（winCodeSign 走 npmmirror 镜像缓存；EBUSY asar 锁换 output 目录绕道——§11.4.1 #3）✅ |
+| M6-5 | **全新机器语义**：卸载旧装 → 清 `%APPDATA%\@dagents` → `setup.exe /S /D=…m6b`（Git Bash `//S`）→ 启动 dagents.exe | **30s 内** gateway `db:up` + console 200（title/css）+ PG 55432 LISTENING + **窗口接管工作台**（takeover 日志）；优雅退出三端口全释放、0 进程；卸载后 pgdata 存活 ✅ |
+| M6-6 | dev / 附加模式回归（R17） | dev 全链（initdb→迁移→DSN 注入→`gateway on 127.0.0.1:8080`→优雅停净）；8080 被哑 listener 占→「附加模式：不启动内嵌 Postgres」日志 + 55432 零监听 + gateway attachMode ✅ |
+| M6-7 | 根门禁 | `pnpm test`（14/14）/`pnpm lint`/`pnpm typecheck` turbo 全绿；desktop vitest 127 用例（含 run-mode 9 + packaged 编排 2 + pg packaged 迁移载体）；check-builder-config 扩展映射型序列项解析 + extraResources 契约断言 ✅ |
+
+**未验证（如实记录，归 CI）**：desktop.yml 四 job 实跑与 artifact 可下载性（配置已扩展：全仓 build（desktop 除外）→ ensure:postgres → stage:stack → 打包；linux 加 python3/make/g++ + deploy --config.ignore-scripts=false；win runner 的 symlink 提权预期与 npmmirror 可达性是验证点）；mac dmg / linux AppImage 体积与 hydrate-symlinks 非 win 行为。
 
 **M5 验收实测（win32 真机，2026-10-07，全部本 session 实跑）**：
 

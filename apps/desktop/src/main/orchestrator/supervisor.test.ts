@@ -479,6 +479,7 @@ describe('内嵌 PG 编排（M5，docs §10.2）', () => {
     dataDir: DATA_DIR,
     migrateScript: 'C:/repo/packages/db/scripts/migrate.mjs',
     pgRequireRoot: 'C:/repo/packages/db',
+    nodeRuntime: { command: 'node', env: {} },
   }
 
   function makeWorld() {
@@ -632,4 +633,96 @@ describe('内嵌 PG 编排（M5，docs §10.2）', () => {
     expect(pgStatus.attempts).toBe(0)
     expect(world.logs.pg.some((l) => l.includes('优雅停止流程中，不触发重启'))).toBe(true)
   })
+})
+
+describe('packaged 编排（M6，docs §11.4）', () => {
+  const PG_BIN = join('C:/stage/pg/native/bin', 'postgres.exe')
+  const pgPaths = {
+    binDir: 'C:/stage/pg/native/bin',
+    dataDir: 'C:/ud/pgdata',
+    migrateScript: 'C:/app/services/gateway/node_modules/@dagents/db/scripts/migrate.mjs',
+    pgRequireRoot: 'C:/app/services/gateway',
+    nodeRuntime: { command: 'C:/app/dagents.exe', env: { ELECTRON_RUN_AS_NODE: '1' } },
+  }
+
+  function makeWorld() {
+    const world = new FakeWorld()
+    world.files.set(PG_BIN, 'bin')
+    world.files.set(join('C:/ud/pgdata', 'PG_VERSION'), '16')
+    world.runOnceQueue = [{ code: 0, stdout: 'db: schema already up to date' }]
+    return world
+  }
+
+  it('三服务全走 execPath + ELECTRON_RUN_AS_NODE + 内嵌产物入口', async () => {
+    const world = makeWorld()
+    const orch = new Orchestrator(defaultConfig('C:/repo'), world.deps, {
+      pgPaths,
+      runMode: 'packaged',
+      packaged: { servicesDir: 'C:/app/services', execPath: 'C:/app/dagents.exe' },
+    })
+    world.httpQueue = [
+      { status: 200, body: '{"ok":true,"db":"up"}' },
+      { status: 200, body: 'ok' },
+    ]
+    orch.start()
+    await world.advance(10)
+    await world.advance(500)
+
+    const snap = orch.snapshot()
+    expect(snap.config.runMode).toBe('packaged')
+    expect(snap.phase).toBe('console') // packaged 全链：pg→migrate→gateway→console 健康
+
+    // gateway：deploy 产物入口 + RUN_AS_NODE + GATEWAY_PORT + 内嵌 DSN
+    const gw = world.spawnedSpecs.find((s) => s.id === 'gateway')
+    expect(gw?.command).toBe('C:/app/dagents.exe')
+    expect(gw?.args.map(normPath)).toEqual(['C:/app/services/gateway/dist/index.js'])
+    expect(normPath(gw?.cwd ?? '')).toBe('C:/app/services/gateway')
+    expect(gw?.env?.ELECTRON_RUN_AS_NODE).toBe('1')
+    expect(gw?.env?.GATEWAY_PORT).toBe('8080')
+    expect(gw?.env?.POSTGRES_URL).toBe('postgresql://dagents@127.0.0.1:55432/dagents')
+
+    // console：standalone server.js（app 目录直下）+ PORT/HOSTNAME/GATEWAY_URL/NODE_ENV=production
+    const cs = world.spawnedSpecs.find((s) => s.id === 'console')
+    expect(cs?.command).toBe('C:/app/dagents.exe')
+    expect(cs?.args.map(normPath)).toEqual(['C:/app/services/console/apps/console/server.js'])
+    expect(cs?.env).toMatchObject({
+      ELECTRON_RUN_AS_NODE: '1',
+      NODE_ENV: 'production',
+      PORT: '3000',
+      HOSTNAME: '127.0.0.1',
+      GATEWAY_URL: 'http://localhost:8080',
+    })
+
+    // 迁移走 staged migrate.mjs 且载体是 execPath（ELECTRON_RUN_AS_NODE）
+    const migrate = world.runOnceSpecs[0]
+    expect(migrate.command).toBe('C:/app/dagents.exe')
+    expect(normPath(migrate.args[0])).toBe(
+      'C:/app/services/gateway/node_modules/@dagents/db/scripts/migrate.mjs'
+    )
+    expect(migrate.env?.ELECTRON_RUN_AS_NODE).toBe('1')
+  })
+
+  it('config.services 的 command 在 packaged 下被忽略（内嵌栈是唯一形态）', async () => {
+    const world = makeWorld()
+    const config = defaultConfig('C:/repo')
+    config.services.gateway.command = 'weird-custom-command'
+    const orch = new Orchestrator(config, world.deps, {
+      pgPaths,
+      runMode: 'packaged',
+      packaged: { servicesDir: 'C:/app/services', execPath: 'C:/app/dagents.exe' },
+    })
+    world.httpQueue = [
+      { status: 200, body: '{"ok":true,"db":"up"}' },
+      { status: 200, body: 'ok' },
+    ]
+    orch.start()
+    await world.advance(10)
+    await world.advance(500)
+    const gw = world.spawnedSpecs.find((s) => s.id === 'gateway')
+    expect(gw?.command).toBe('C:/app/dagents.exe')
+  })
+
+  function normPath(p: string): string {
+    return p.replace(/\\/g, '/')
+  }
 })

@@ -1,5 +1,6 @@
 import { join } from 'node:path'
 import { PgServiceController, resolvePgPaths, type PgDeps, type PgRuntimePaths } from './pg-service'
+import { packagedRunSpecs, type RunMode } from './run-mode'
 import {
   createMachine,
   transition,
@@ -11,6 +12,7 @@ import type {
   DesktopSnapshot,
   ManagedServiceId,
   ServiceId,
+  ServiceRunSpec,
   ServiceState,
   ServiceStatus,
 } from './types'
@@ -30,14 +32,6 @@ export interface SpawnHandle {
 }
 
 export type HttpResult = { status: number; body: string } | { error: string }
-
-/** spawn 规格（pg 由 PgServiceController 运行时构造——端口让位后才定形）。 */
-export interface ServiceRunSpec {
-  command: string
-  args: string[]
-  cwd: string
-  env: Record<string, string>
-}
 
 export interface SupervisorDeps {
   spawnService(
@@ -366,30 +360,57 @@ export class Orchestrator {
   private supervisors: Record<ManagedServiceId, ServiceSupervisor>
   private listeners = new Set<() => void>()
   private gatewayEnv: Record<string, string>
+  private runMode: RunMode
+  private pg: PgServiceController
 
   constructor(
     private config: DesktopConfig,
     private deps: PgDeps,
-    opts: { pgPaths?: PgRuntimePaths; pg?: PgServiceController } = {}
+    opts: {
+      pgPaths?: PgRuntimePaths
+      pg?: PgServiceController
+      /** 实际运行形态（index.ts 经 resolveRunMode 探测；缺省 dev）。 */
+      runMode?: RunMode
+      /** packaged 形态定位（runMode='packaged' 时必带）。 */
+      packaged?: { servicesDir: string; execPath: string }
+    } = {}
   ) {
+    this.runMode = opts.runMode ?? 'dev'
     const make = (id: ManagedServiceId) =>
       new ServiceSupervisor(id, deps, config, () => this.emit())
     // gateway 的 env 在 pg 就绪后追加 POSTGRES_URL（extraEnv 通道，docs §10.2）——
     // 引用同一对象，doSpawn 时才读取，时序安全。
     this.gatewayEnv = { ...config.extraEnv }
+    // packaged：两服务改走内嵌产物入口（ELECTRON_RUN_AS_NODE，docs §11.1/§11.4）；
+    // config.services 的 command/args 仅 dev 形态消费。
+    const packagedSpecs =
+      this.runMode === 'packaged' && opts.packaged
+        ? packagedRunSpecs({
+            servicesDir: opts.packaged.servicesDir,
+            execPath: opts.packaged.execPath,
+            extraEnv: config.extraEnv,
+          })
+        : null
     this.supervisors = {
       gateway: new ServiceSupervisor('gateway', deps, config, () => this.emit(), {
-        runSpec: () => ({
-          command: config.services.gateway.command,
-          args: config.services.gateway.args,
-          cwd: config.repoRoot,
-          env: this.gatewayEnv,
-        }),
+        runSpec: () =>
+          packagedSpecs
+            ? { ...packagedSpecs.gateway, env: { ...packagedSpecs.gateway.env, ...this.gatewayEnv } }
+            : {
+                command: config.services.gateway.command,
+                args: config.services.gateway.args,
+                cwd: config.repoRoot,
+                env: this.gatewayEnv,
+              },
       }),
-      console: make('console'),
+      console: packagedSpecs
+        ? new ServiceSupervisor('console', deps, config, () => this.emit(), {
+            runSpec: () => ({ ...packagedSpecs.console, env: { ...packagedSpecs.console.env } }),
+          })
+        : make('console'),
     }
     // pgPaths 缺省时按 monorepo 布局从 repoRoot 推（dev：desktop 包在 apps/desktop 下；
-    // packaged 模式 M6 由 index.ts 显式传 staging 路径）
+    // packaged 形态由 index.ts 显式传 resources 下的路径）
     this.pg =
       opts.pg ??
       new PgServiceController(config, deps, {
@@ -405,8 +426,6 @@ export class Orchestrator {
         emit: () => this.emit(),
       })
   }
-
-  private pg: PgServiceController
 
   start(): void {
     void this.startAsync()
@@ -493,6 +512,7 @@ export class Orchestrator {
         consoleUrl: this.config.consoleUrl,
         gatewayPort: this.config.services.gateway.port,
         consolePort: this.config.services.console.port,
+        runMode: this.runMode,
         pgPort: this.pg.actualPort,
         pgEmbedded: this.pg.enabled,
         pgDataDir: this.pg.dataDir,

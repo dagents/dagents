@@ -1,7 +1,9 @@
+import { existsSync } from 'node:fs'
 import { join } from 'node:path'
 import { app, shell } from 'electron'
 import { loadConfig } from './orchestrator/config'
 import { resolvePgPaths } from './orchestrator/pg-service'
+import { resolveRunMode } from './orchestrator/run-mode'
 import { Orchestrator } from './orchestrator/supervisor'
 import { registerDesktopIpc } from './ipc'
 import { buildAppMenu } from './menu'
@@ -9,8 +11,10 @@ import { createRuntimeDeps } from './spawn-runtime'
 import { createTakeoverController, type TakeoverController } from './takeover'
 import { createMainWindow, focusMainWindow, getMainWindow } from './windows'
 
-// 主入口（docs §3.1 进程模型 + §10.2 内嵌 PG 编排）：
-//   app ready → 加载配置 → 建编排器（pg bootstrap → gateway/console）→ 窗口（阶段 A 启动态页）
+// 主入口（docs §3.1 进程模型 + §10.2 内嵌 PG 编排 + §11.4 三级模式开关）：
+//   app ready → 加载配置 → 探测运行形态（resources/services/gateway/dist 在位且
+//   config.mode≠'dev' → packaged：ELECTRON_RUN_AS_NODE 拉起内嵌栈；否则 dev 仓库栈）
+//   → 建编排器（pg bootstrap → gateway/console）→ 窗口（阶段 A 启动态页）
 //   → IPC 桥 + 菜单 + 接管控制器 → 编排启动
 //   双健康（computePhase）→ 窗口 loadURL(consoleUrl) 进入阶段 B；
 //   console 崩溃/健康跌落 → 回退阶段 A 显示有界重启与引导。
@@ -36,15 +40,37 @@ if (!gotLock) {
     })
     for (const w of warnings) console.warn(`[desktop-config] ${w}`)
 
+    // 三级模式开关（docs §11.4）：安装包的 resourcesPath 下有 services/gateway/dist
+    // → packaged；dev（electron .）的 resourcesPath 是 electron 发行目录，自然回落 dev。
+    const resourcesDir = process.resourcesPath
+    const packagedServicesDir = join(resourcesDir, 'services')
+    const runMode = resolveRunMode(config, {
+      packagedServicesExists: existsSync(join(packagedServicesDir, 'gateway', 'dist')),
+    })
     const pgPaths = resolvePgPaths(config.postgres, {
       userDataDir: userData,
       desktopDir,
       repoRoot: config.repoRoot,
+      packaged:
+        runMode === 'packaged'
+          ? {
+              servicesDir: packagedServicesDir,
+              pgNativeDir: join(resourcesDir, 'pg', 'native'),
+              execPath: process.execPath,
+            }
+          : undefined,
     })
     orchestrator = new Orchestrator(
       config,
       createRuntimeDeps(config, { logDir: join(userData, 'logs'), pgRequireRoot: pgPaths.pgRequireRoot }),
-      { pgPaths }
+      {
+        pgPaths,
+        runMode,
+        packaged:
+          runMode === 'packaged'
+            ? { servicesDir: packagedServicesDir, execPath: process.execPath }
+            : undefined,
+      }
     )
 
     const win = createMainWindow()

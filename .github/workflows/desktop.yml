@@ -38,7 +38,9 @@ jobs:
           - { name: mac-arm64, os: macos-latest, platform: mac, target: dmg, arch: arm64 }
           - { name: linux-x64, os: ubuntu-latest, platform: linux, target: AppImage, arch: x64 }
     runs-on: ${{ matrix.os }}
-    timeout-minutes: 30
+    # M6 服务栈入包：staging（gateway deploy + console standalone + 内嵌 PG）在打包前实跑，
+    # 全链路耗时显著上升（deploy ~5min + standalone build ~4min + 245MB 级打包）。
+    timeout-minutes: 45
     env:
       ELECTRON_MIRROR: ${{ vars.ELECTRON_MIRROR || 'https://npmmirror.com/mirrors/electron/' }}
       ELECTRON_BUILDER_BINARIES_MIRROR: ${{ vars.ELECTRON_BUILDER_BINARIES_MIRROR || 'https://npmmirror.com/mirrors/electron-builder-binaries/' }}
@@ -55,14 +57,36 @@ jobs:
           node-version: 22
           cache: pnpm
 
+      # linux 无 node-pty prebuild（tarball 只带 darwin/win），需要本地编译
+      # node-gyp 工具链——Dockerfile L47-48 同款；stage-stack 的 deploy 步骤对
+      # linux 自动加 --config.ignore-scripts=false（onlyBuiltDependencies=[node-pty]
+      # 白名单语义，供应链不放宽——其余包的 install script 仍被 .npmrc 阻断）。
+      - name: Install node-pty build toolchain (linux only)
+        if: matrix.platform == 'linux'
+        run: sudo apt-get update && sudo apt-get install -y --no-install-recommends python3 make g++
+
       - name: Install dependencies
         run: pnpm install --frozen-lockfile
+
+      # deploy 拷贝 workspace 包当前产物——先全仓构建（desktop 除外：镜像红线，Dockerfile 同款过滤）
+      - name: Build workspace packages
+        run: pnpm run build --filter='!@dagents/desktop'
 
       - name: Build @dagents/desktop
         run: pnpm --filter @dagents/desktop run build
 
       - name: Ensure electron binary
         run: pnpm --filter @dagents/desktop run ensure:electron
+
+      # 内嵌 PG 二进制（按 matrix 平台取 @embedded-postgres tarball；镜像可覆盖）
+      - name: Ensure embedded postgres
+        run: pnpm --filter @dagents/desktop run ensure:postgres
+        env:
+          DAGENTS_DESKTOP_PG_MIRROR: ${{ vars.DAGENTS_DESKTOP_PG_MIRROR || 'https://registry.npmmirror.com' }}
+
+      # 服务栈 staging：gateway deploy + console standalone 三件套 → stage/services
+      - name: Stage service stack
+        run: pnpm --filter @dagents/desktop run stage:stack
 
       - name: Package (${{ matrix.target }} ${{ matrix.arch }})
         run: >-

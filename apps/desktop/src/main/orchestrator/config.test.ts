@@ -34,7 +34,7 @@ describe('defaultConfig', () => {
     const c = defaultConfig('C:/repo')
     expect(c.repoRoot).toBe('C:/repo')
     expect(c.consoleUrl).toBe('http://localhost:3000')
-    expect(c.mode).toBe('dev')
+    expect(c.mode).toBe('auto')
     expect(c.services.gateway).toEqual({
       command: 'pnpm',
       args: ['--filter', '@dagents/gateway', 'dev'],
@@ -246,7 +246,7 @@ describe('postgres.* 与 mode 合并（docs §10.4 三层不抢连接）', () =>
     expect(warnings.some((w) => w.includes('postgres.binDir'))).toBe(true)
   })
 
-  it('mode：合法 dev/packaged 透传，非法回落 dev + warning', () => {
+  it('mode：合法 auto/dev/packaged 透传，非法回落 auto + warning', () => {
     const mk = (mode: unknown) =>
       JSON.stringify({ mode })
     const good = loadConfig({
@@ -264,7 +264,7 @@ describe('postgres.* 与 mode 合并（docs §10.4 三层不抢连接）', () =>
       startDir: 'C:/r',
       deps: mkDeps({ 'C:/ud/config.json': mk('cloud'), 'C:/r/pnpm-workspace.yaml': '' }),
     })
-    expect(bad.config.mode).toBe('dev')
+    expect(bad.config.mode).toBe('auto')
     expect(bad.warnings.some((w) => w.includes('mode'))).toBe(true)
   })
 })

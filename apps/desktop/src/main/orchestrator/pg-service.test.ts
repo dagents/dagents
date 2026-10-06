@@ -28,6 +28,7 @@ const paths: PgRuntimePaths = {
   dataDir: 'C:/ud/pgdata',
   migrateScript: 'C:/repo/packages/db/scripts/migrate.mjs',
   pgRequireRoot: 'C:/repo/packages/db',
+  nodeRuntime: { command: 'node', env: {} },
 }
 
 // fake fs 的 key 与被测代码 join() 输出同构（win32 反斜杠）
@@ -82,6 +83,19 @@ describe('spec 构造（纯函数）', () => {
     expect(spec.env).toEqual({ POSTGRES_URL: 'postgresql://dagents@127.0.0.1:55432/dagents' })
   })
 
+  it('migrateRunOnceSpec（packaged）：execPath + ELECTRON_RUN_AS_NODE 载体（docs §11.1）', () => {
+    const packaged: PgRuntimePaths = {
+      ...paths,
+      nodeRuntime: { command: 'C:/app/dagents.exe', env: { ELECTRON_RUN_AS_NODE: '1' } },
+    }
+    const spec = migrateRunOnceSpec(packaged, 'postgresql://dagents@127.0.0.1:55432/dagents')
+    expect(spec.command).toBe('C:/app/dagents.exe')
+    expect(spec.env).toEqual({
+      POSTGRES_URL: 'postgresql://dagents@127.0.0.1:55432/dagents',
+      ELECTRON_RUN_AS_NODE: '1',
+    })
+  })
+
   it('pgCtlStopSpec：-m fast -w -t 5 stop', () => {
     const spec = pgCtlStopSpec(paths)
     expect(spec.command.endsWith('pg_ctl.exe')).toBe(true)
@@ -108,6 +122,32 @@ describe('parsePostmasterPid / resolvePgPaths', () => {
     expect(norm(resolved.dataDir)).toBe('C:/ud/pgdata')
     expect(norm(resolved.migrateScript)).toBe('C:/repo/packages/db/scripts/migrate.mjs')
     expect(norm(resolved.pgRequireRoot)).toBe('C:/repo/packages/db')
+    expect(resolved.nodeRuntime).toEqual({ command: 'node', env: {} })
+  })
+
+  it('resolvePgPaths（packaged）：binDir/migrate/pg 驱动/node 载体全指 resources（docs §11.4）', () => {
+    const norm = (p: string) => p.replace(/\\/g, '/')
+    const pg = defaultConfig('C:/repo').postgres
+    const resolved = resolvePgPaths(pg, {
+      userDataDir: 'C:/ud',
+      desktopDir: 'C:/repo/apps/desktop',
+      repoRoot: 'C:/repo',
+      packaged: {
+        servicesDir: 'C:/app/resources/services',
+        pgNativeDir: 'C:/app/resources/pg/native',
+        execPath: 'C:/app/dagents.exe',
+      },
+    })
+    expect(norm(resolved.binDir)).toBe('C:/app/resources/pg/native/bin')
+    expect(norm(resolved.dataDir)).toBe('C:/ud/pgdata') // 数据目录仍在 userData（卸载保留语义）
+    expect(norm(resolved.migrateScript)).toBe(
+      'C:/app/resources/services/gateway/node_modules/@dagents/db/scripts/migrate.mjs'
+    )
+    expect(norm(resolved.pgRequireRoot)).toBe('C:/app/resources/services/gateway')
+    expect(resolved.nodeRuntime).toEqual({
+      command: 'C:/app/dagents.exe',
+      env: { ELECTRON_RUN_AS_NODE: '1' },
+    })
   })
 
   it('resolvePgPaths：显式配置优先', () => {

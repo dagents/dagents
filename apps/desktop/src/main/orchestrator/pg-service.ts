@@ -2,14 +2,10 @@ import { join } from 'node:path'
 import type {
   DesktopConfig,
   PostgresConfig,
+  ServiceRunSpec,
   ServiceStatus,
 } from './types'
-import type {
-  ServiceRunSpec,
-  ServiceSupervisor,
-  SupervisorDeps,
-  SupervisorOptions,
-} from './supervisor'
+import type { ServiceSupervisor, SupervisorDeps, SupervisorOptions } from './supervisor'
 
 // 内嵌 Postgres 服务切片（docs/desktop-architecture.md §10，M5）。
 // 纯度纪律：本文件禁 import electron（purity.test.ts 钉死）；一切副作用经
@@ -22,16 +18,24 @@ export const PG_SUPERUSER = 'dagents'
 export const PG_DATABASE = 'dagents'
 export const PG_HOST = '127.0.0.1'
 
+/** 一次性脚本（迁移）的 node 运行时（dev=PATH 的 node；packaged=execPath+RUN_AS_NODE）。 */
+export interface NodeRuntimeSpec {
+  command: string
+  env: Record<string, string>
+}
+
 /** 解析后的内嵌 PG 运行时路径（config 覆盖值或调用方默认值——index.ts 汇聚）。 */
 export interface PgRuntimePaths {
   /** initdb/postgres/pg_ctl 所在 bin 目录。 */
   binDir: string
   /** 数据目录（userData/pgdata，卸载保留）。 */
   dataDir: string
-  /** 迁移脚本（dev：<repoRoot>/packages/db/scripts/migrate.mjs；packaged M6 指 staged）。 */
+  /** 迁移脚本（dev：<repoRoot>/packages/db/scripts/migrate.mjs；packaged 指 staged）。 */
   migrateScript: string
-  /** pg 驱动解析根（建库用，dev：packages/db；packaged M6 指 services/gateway）。 */
+  /** pg 驱动解析根（建库用，dev：packages/db；packaged 指 services/gateway）。 */
   pgRequireRoot: string
+  /** 迁移子进程的 node 载体（M6 packaged：ELECTRON_RUN_AS_NODE + process.execPath）。 */
+  nodeRuntime: NodeRuntimeSpec
 }
 
 /** 一次性子进程（initdb/pg_ctl/migrate）——与常驻服务的 SpawnHandle 不同生命周期。 */
@@ -127,12 +131,13 @@ export function pgSpawnRunSpec(paths: PgRuntimePaths, port: number): ServiceRunS
   }
 }
 
-/** 迁移：node migrate.mjs + POSTGRES_URL（幂等——runMigrations 跳过已应用项）。 */
+/** 迁移：node migrate.mjs + POSTGRES_URL（幂等——runMigrations 跳过已应用项；
+ * packaged 形态经 ELECTRON_RUN_AS_NODE 载体跑同一脚本，docs §11.1）。 */
 export function migrateRunOnceSpec(paths: PgRuntimePaths, dsn: string): RunOnceSpec {
   return {
-    command: 'node',
+    command: paths.nodeRuntime.command,
     args: [paths.migrateScript],
-    env: { POSTGRES_URL: dsn },
+    env: { POSTGRES_URL: dsn, ...paths.nodeRuntime.env },
     timeoutMs: 300_000,
   }
 }
@@ -466,17 +471,37 @@ function tailOf(text: string, max: number): string {
 
 /**
  * 路径默认值汇聚（纯函数）：config.postgres 的 null 字段按形态取默认。
- * dev：binDir=desktop/stage/pg（ensure-postgres.mjs 产物）、migrate/pg 驱动取 repoRoot。
+ * dev：binDir=desktop/stage/pg（ensure-postgres.mjs 产物）、migrate/pg 驱动取 repoRoot、node 走 PATH。
+ * packaged：binDir/migrate/驱动/node 载体全部指向安装包 resources（docs §11.4）。
  */
 export function resolvePgPaths(
   postgres: PostgresConfig,
-  ctx: { userDataDir: string; desktopDir: string; repoRoot: string }
+  ctx: {
+    userDataDir: string
+    desktopDir: string
+    repoRoot: string
+    /** packaged 形态定位（M6）：services 根、pg native 根、Node 载体。 */
+    packaged?: { servicesDir: string; pgNativeDir: string; execPath: string }
+  }
 ): PgRuntimePaths {
+  if (ctx.packaged) {
+    const { servicesDir, pgNativeDir, execPath } = ctx.packaged
+    return {
+      binDir: postgres.binDir ?? join(pgNativeDir, 'bin'),
+      dataDir: postgres.dataDir ?? join(ctx.userDataDir, 'pgdata'),
+      migrateScript:
+        postgres.migrateScript ??
+        join(servicesDir, 'gateway', 'node_modules', '@dagents', 'db', 'scripts', 'migrate.mjs'),
+      pgRequireRoot: postgres.pgRequireRoot ?? join(servicesDir, 'gateway'),
+      nodeRuntime: { command: execPath, env: { ELECTRON_RUN_AS_NODE: '1' } },
+    }
+  }
   return {
     binDir: postgres.binDir ?? join(ctx.desktopDir, 'stage', 'pg', 'native', 'bin'),
     dataDir: postgres.dataDir ?? join(ctx.userDataDir, 'pgdata'),
     migrateScript:
       postgres.migrateScript ?? join(ctx.repoRoot, 'packages', 'db', 'scripts', 'migrate.mjs'),
     pgRequireRoot: postgres.pgRequireRoot ?? join(ctx.repoRoot, 'packages', 'db'),
+    nodeRuntime: { command: 'node', env: {} },
   }
 }

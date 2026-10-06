@@ -9,6 +9,14 @@ directories:
 files:
   - dist/**
   - package.json
+# M6 服务栈入包（docs §11.4）：内嵌 PG 二进制 + gateway deploy 树 + console standalone
+# 三件套——全走 extraResources（不进 asar：原生二进制/海量小文件/native 模块本就不该进 asar）。
+# 源是 apps/desktop/stage/（ensure-postgres.mjs 与 stage-stack.mjs 产物，gitignore+dockerignore 双护）。
+extraResources:
+  - from: stage/pg/native
+    to: pg/native
+  - from: stage/dist-services
+    to: services
 win:
   target:
     - nsis
@@ -16,6 +24,7 @@ nsis:
   oneClick: false
   allowToChangeInstallationDirectory: true
   artifactName: dagents-${version}-setup.${ext}
+  # 卸载默认保留 userData（pgdata 数据目录）——docs §10.4 产品决策；清理路径见 README
 mac:
   target:
     - dmg

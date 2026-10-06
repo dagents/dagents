@@ -1,9 +1,10 @@
 # dagents 桌面客户端（@dagents/desktop）
 
-给本地优先用户的 win/mac/linux 原生应用：一键拉起并守护本机 gateway+console 服务栈，以独立窗口承载 console 工作台——把「本机模式」从三终端命令行仪式变成双击即用。架构真相源：[`docs/desktop-architecture.md`](../../docs/desktop-architecture.md)。
+给本地优先用户的 win/mac/linux 原生应用：**安装包内嵌 Postgres 与生产级 gateway/console 服务栈**（M6 起），下载安装、双击即用——零仓库检出 / 零 pnpm / 零 node / 零 docker；开发者仍可用 `config.json` 切回仓库 dev 栈或附加到已运行的本机服务。架构真相源：[`docs/desktop-architecture.md`](../../docs/desktop-architecture.md)。
 
 ## 它做什么
 
+- **安装包即一体盒（M6）**：`pnpm dist:win` 产出内嵌全栈的 NSIS 安装包（electron-builder extraResources 携带内嵌 PG 二进制 + gateway 生产 deploy 树 + console standalone 三件套，运行时全走 `ELECTRON_RUN_AS_NODE`——不要求目标机有 node/pnpm/docker）。三级模式开关零配置：安装包内嵌栈在位即 **packaged**；`config.json` 显式 `"mode": "dev"` 回落仓库 dev 栈；8080 已被监听则附加不 spawn。实测 win 全新机器语义：安装→双击→**30s 内** PG 就绪 + gateway `db:up` + 工作台接管；优雅退出端口/进程全净；卸载保留用户数据。
 - **内嵌 Postgres（M5）**：应用自带 PostgreSQL 16 二进制（`@embedded-postgres` tarball 经 `pnpm ensure:postgres` 显式按需下载，不进 npm 依赖）；首启自动 `initdb` 到 `userData/pgdata` → 前台直跑 `postgres`（只绑 127.0.0.1）→ 建库 → 跑迁移 → gateway 经 `POSTGRES_URL` 注入连接——**应用启动即数据库就绪，退出即停净**（`pg_ctl stop -m fast` 优先，树终止兜底）。默认端口 **55432**（避开 5432 原生/15432 infra docker），被占自动 +1 让位（≤20 次），实际端口在日志与状态页明示。
 - **进程编排**：spawn `pnpm --filter @dagents/gateway dev`（:8080）与 `pnpm --filter @dagents/console dev`（:3000）为子进程；健康轮询（gateway `/health` 判 200+`ok:true`，console 判 HTTP 200，pg 判 TCP 端口探活；启动期 500ms/运行期 5s）；意外退出**有界自动重启**（5 分钟窗内 3 次，退避 1s/3s/9s，耗尽转 failed 等手动重试）；停止即整棵进程树终止（win32 `taskkill /T /F`）。启动顺序 **pg → gateway → console**，停止反序；pg 起不来或迁移失败 → gateway 不启动（状态页三卡诚实展示）。
 - **就绪接管**：双服务健康后窗口自动加载 `http://localhost:3000`（console 单真相源，零 UI fork）；console 崩溃/健康跌落自动回退本地启动态页显示恢复过程。
@@ -21,7 +22,9 @@
 
 ## 诚实边界（当前）
 
-- **默认命令是 dev 栈**：本机需有 dagents 仓库检出 + pnpm + node，且先跑 `pnpm --filter @dagents/desktop ensure:postgres` 取 PG 二进制（dev 一次 37MB 下载，缓存复用）。安装包内嵌完整服务栈（零仓库/零 pnpm/零 node）在 M6 上线。
+- **dev 栈形态**（仓库内 `pnpm dev`）需要本机有 dagents 仓库检出 + pnpm + node，且先跑 `pnpm --filter @dagents/desktop ensure:postgres` 取 PG 二进制（dev 一次 37MB 下载，缓存复用）；**安装包形态（packaged）零外部依赖**。
+- 打包（`dist:win`）是完整链 `build → ensure:electron → ensure:postgres → stage-stack → electron-builder`：staging 阶段做 gateway deploy + console standalone 构建 + **pnpm 平铺规整**（分发链不支持 symlink，详见架构文档 §11.4.1）；win 构建依赖 `patches/next@15.5.20.patch`（junction 兜底，无需开发者模式）。
+- 实测 win 安装包 ~494MB（PG DLL 与 node-pty 原生二进制压缩率低；无体积 KPI）。
 - 端口锁定 8080/3000（console BFF 只认 `GATEWAY_URL`），配置里写别的端口会被拒绝并回落默认；**PG 端口不锁**（默认 55432 可配 1024-65535，冲突自动让位）。
 - 不做自动更新/托盘/远程 gateway/深链（outOfScope，详见架构文档 §1）。
 
@@ -43,8 +46,8 @@
 
 ```jsonc
 {
-  "mode": "dev",                            // dev = 仓库 dev 栈（现行为）；packaged = 安装包内嵌栈（M6 落地，当前只是 schema 占位）
-  "repoRoot": "C:/projects/dagents",       // 服务 spawn 的 cwd；缺省=从 app 路径向上找 pnpm-workspace.yaml（打包后必须显式配置）
+  "mode": "auto",                           // auto = 按内嵌栈在位探测（默认：安装包→packaged，仓库内→dev）；显式 dev/packaged 钉死形态
+  "repoRoot": "C:/projects/dagents",       // dev 形态服务 spawn 的 cwd；缺省=从 app 路径向上找 pnpm-workspace.yaml（packaged 形态不使用）
   "consoleUrl": "http://localhost:3000",   // 就绪接管加载的 URL
   "services": {
     "gateway": { "command": "pnpm", "args": ["--filter", "@dagents/gateway", "dev"], "port": 8080 },
@@ -72,8 +75,9 @@
 pnpm --filter @dagents/desktop run build      # tsc → dist/ + 渲染页静态资产同步
 pnpm --filter @dagents/desktop run test       # vitest（编排器单测/真子进程树终止/真端口探测/架构守护）+ 打包配置校验
 pnpm --filter @dagents/desktop run ensure:postgres  # 内嵌 PG 二进制按需下载（37MB，缓存 stage/pg-cache）
+pnpm --filter @dagents/desktop run stage:stack       # 服务栈 staging（gateway deploy + console standalone + pnpm 平铺）
 pnpm --filter @dagents/desktop run dev        # 起 app（electron 二进制按需下载，ELECTRON_MIRROR 可覆盖）
-pnpm --filter @dagents/desktop run dist:win   # 本机 win nsis 打包（--publish never）
+pnpm --filter @dagents/desktop run dist:win   # 完整打包链（build → ensure×2 → stage-stack → nsis，--publish never）
 pnpm --filter @dagents/desktop run smoke      # 安装包解包 exe 启动冒烟（需先 dist:win）
 ```
 

@@ -1,0 +1,26 @@
+diff --git a/dist/build/utils.js b/dist/build/utils.js
+index 7e665b863da5ff4fcc0eccdef0987f6092e24ec0..73b08a5032e8d03450569128d4d66a311c2394cf 100644
+--- a/dist/build/utils.js
++++ b/dist/build/utils.js
+@@ -1222,7 +1222,20 @@ async function copyTracedFiles(dir, distDir, pageKeys, appPageKeys, tracingRoot,
+                         await _fs.promises.symlink(symlink, fileOutputPath);
+                     } catch (e) {
+                         if (e.code !== 'EEXIST') {
+-                            throw e;
++                            /* dagents-patch (desktop M6): win 无开发者模式时 symlink 需特权而 EPERM——
++                               目录链接降级 junction（pnpm 在 win 本就用 junction，语义等价且无需
++                               特权，Node 自动把相对 target 规整为绝对路径）；文件链接降级实体复制。
++                               仅 win32+EPERM 走此兜底，POSIX 行为零变化。 */
++                            if (process.platform === 'win32' && e.code === 'EPERM') {
++                                const st = await _fs.promises.stat(tracedFilePath).catch(()=>null);
++                                if (st && st.isDirectory()) {
++                                    await _fs.promises.symlink(symlink, fileOutputPath, 'junction');
++                                } else {
++                                    await _fs.promises.copyFile(tracedFilePath, fileOutputPath);
++                                }
++                            } else {
++                                throw e;
++                            }
+                         }
+                     }
+                 } else {

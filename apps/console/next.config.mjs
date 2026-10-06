@@ -1,4 +1,6 @@
 /** @type {import('next').NextConfig} */
+import { fileURLToPath } from 'node:url'
+
 const nextConfig = {
   // 隔离构建出口（2026-09-06 E-17）：dev server 运行时 `next build` 覆盖 .next
   // 会把 dev 打成全站 500 —— `NEXT_DIST_DIR=.next-build pnpm build:isolated`
@@ -45,7 +47,10 @@ const nextConfig = {
   // also has a pnpm-lock.yaml, which makes Next infer the wrong workspace
   // root (and trace the whole home dir). Pin tracing to the monorepo root so
   // only the files this app actually uses ship with the build.
-  outputFileTracingRoot: new URL('../../', import.meta.url).pathname,
+  // fileURLToPath（非 .pathname）：win 上 URL.pathname 是「/C:/…」带前导斜杠的
+  // 形态，path.win32.relative 会算出错误相对路径——standalone 产物被静默写进
+  // apps/projects/… 垃圾树且构建仍 exit 0（2026-10-07 本机实测复现）。
+  outputFileTracingRoot: fileURLToPath(new URL('../../', import.meta.url)),
 }
 
 export default nextConfig

@@ -11,9 +11,10 @@
     "test": "vitest run && node scripts/check-builder-config.mjs",
     "lint": "eslint src --ext .ts",
     "dev": "node scripts/ensure-electron.mjs && electron .",
-    "dist:win": "pnpm run build && node scripts/ensure-electron.mjs && electron-builder --win nsis --publish never",
+    "dist:win": "pnpm run build && node scripts/ensure-electron.mjs && node scripts/ensure-postgres.mjs && node scripts/stage-stack.mjs && electron-builder --win nsis --publish never",
     "ensure:electron": "node scripts/ensure-electron.mjs",
     "ensure:postgres": "node scripts/ensure-postgres.mjs",
+    "stage:stack": "node scripts/stage-stack.mjs",
     "smoke": "node scripts/smoke.mjs"
   },
   "devDependencies": {

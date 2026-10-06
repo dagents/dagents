@@ -32,15 +32,43 @@ function parseYaml(text) {
   const root = {}
   const stack = [{ indent: -1, node: root }]
   const lines = text.split(/\r?\n/)
+  const handleKeyLine = (rawLine, indent, ln) => {
+    const m = /^([^:]+):\s*(.*)$/.exec(rawLine.trim())
+    if (!m) throw new Error(`第 ${ln} 行：无法解析「${rawLine.trim()}」`)
+    const [, key, rawVal] = m
+    // 弹栈规则：更浅层弹出；同缩进的「序列项容器」（seqItem）即本键的归属对象，停
+    while (stack.length > 1) {
+      const top = stack[stack.length - 1]
+      if (top.indent < indent) break
+      if (top.indent === indent && top.seqItem) break
+      if (top.indent >= indent) {
+        stack.pop()
+        continue
+      }
+      break
+    }
+    const parent = stack[stack.length - 1].node
+    if (Array.isArray(parent) || typeof parent !== 'object' || parent === null) {
+      throw new Error(`第 ${ln} 行：键出现在非映射上下文「${rawLine.trim()}」`)
+    }
+    if (rawVal === '') {
+      const sentinel = { __pending: true }
+      parent[key] = sentinel
+      stack.push({ indent, node: sentinel, parent, key })
+    } else {
+      parent[key] = parseScalar(rawVal)
+    }
+  }
   for (let i = 0; i < lines.length; i++) {
     const line = lines[i]
     if (!line.trim() || line.trim().startsWith('#')) continue
     const ln = i + 1
 
     if (/^\s*-\s+/.test(line)) {
-      const item = parseScalar(line.trim().replace(/^-\s+/, ''))
-      const indent = line.length - line.trimStart().length
-      while (stack.length > 1 && stack[stack.length - 1].indent > indent) stack.pop()
+      const rest = line.replace(/^\s*-\s+/, '')
+      const dashIndent = line.length - line.trimStart().length
+      const restCol = line.indexOf(rest)
+      while (stack.length > 1 && stack[stack.length - 1].indent > dashIndent) stack.pop()
       const ctx = stack[stack.length - 1]
       if (ctx.node && ctx.node.__pending) {
         const arr = []
@@ -50,26 +78,30 @@ function parseYaml(text) {
       if (!Array.isArray(ctx.node)) {
         throw new Error(`第 ${ln} 行：序列项出现在非序列上下文「${line.trim()}」`)
       }
-      ctx.node.push(item)
+      if (/^[^:#]+:\s*/.test(rest)) {
+        // 映射型序列项（extraResources 的 - from:/to: 形态）：对象入列，行内首键写入，
+        // 对象以 restCol 压栈并标 seqItem（同缩进后续键归入同一项，见 handleKeyLine 弹栈规则）
+        const obj = {}
+        ctx.node.push(obj)
+        stack.push({ indent: restCol, node: obj, seqItem: true })
+        const m = /^([^:]+):\s*(.*)$/.exec(rest.trim())
+        if (!m) throw new Error(`第 ${ln} 行：无法解析「${rest.trim()}」`)
+        const [, key, rawVal] = m
+        if (rawVal === '') {
+          const sentinel = { __pending: true }
+          obj[key] = sentinel
+          stack.push({ indent: restCol, node: sentinel, parent: obj, key })
+        } else {
+          obj[key] = parseScalar(rawVal)
+        }
+      } else {
+        ctx.node.push(parseScalar(rest))
+      }
       continue
     }
 
-    const m = /^([^:]+):\s*(.*)$/.exec(line.trim())
-    if (!m) throw new Error(`第 ${ln} 行：无法解析「${line.trim()}」`)
     const indent = line.length - line.trimStart().length
-    const [, key, rawVal] = m
-    while (stack.length > 1 && stack[stack.length - 1].indent >= indent) stack.pop()
-    const parent = stack[stack.length - 1].node
-    if (Array.isArray(parent) || typeof parent !== 'object' || parent === null) {
-      throw new Error(`第 ${ln} 行：键出现在非映射上下文「${line.trim()}」`)
-    }
-    if (rawVal === '') {
-      const sentinel = { __pending: true }
-      parent[key] = sentinel
-      stack.push({ indent, node: sentinel, parent, key })
-    } else {
-      parent[key] = parseScalar(rawVal)
-    }
+    handleKeyLine(line, indent, ln)
   }
 
   // 空占位哨兵归一化：key: 后既无子映射也无序列项 → 空对象；
@@ -168,6 +200,18 @@ assert(
     config.files.includes('dist/**') &&
     config.files.includes('package.json'),
   'files 必须只含 dist/** 与 package.json（定位 main 入口，别把 src/node_modules 打进包）'
+)
+// M6 服务栈入包契约：extraResources 携带内嵌 PG 与 staged 服务栈（与 stage-stack.mjs
+// 产物路径同源——改名需两处同步）
+const extra = config.extraResources
+const extraPairs = Array.isArray(extra) ? extra.filter((e) => e && typeof e === 'object') : []
+assert(
+  extraPairs.some((e) => e.from === 'stage/pg/native' && e.to === 'pg/native'),
+  'extraResources 缺 pg/native 条目（内嵌 PG 二进制，from=stage/pg/native）'
+)
+assert(
+  extraPairs.some((e) => e.from === 'stage/dist-services' && e.to === 'services'),
+  'extraResources 缺 services 条目（staged 服务栈，from=stage/dist-services——与 stage-stack.mjs 同源）'
 )
 assert(config.directories?.output === 'release', 'directories.output 必须是 release（gitignore 已覆盖）')
 
