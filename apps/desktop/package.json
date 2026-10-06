@@ -3,6 +3,7 @@
   "private": true,
   "version": "0.0.0",
   "description": "dagents 桌面客户端（Electron）：托管本机 gateway+console 服务栈，单窗口承载 console 工作台。架构真相源 docs/desktop-architecture.md",
+  "author": "dagents",
   "main": "dist/main/index.js",
   "scripts": {
     "build": "tsc -p tsconfig.json && node scripts/sync-renderer.mjs",

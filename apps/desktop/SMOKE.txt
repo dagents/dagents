@@ -1,0 +1,1 @@
+M1 冒烟：`pnpm --filter @dagents/desktop run smoke` 启动 dist:win 产出的 release/win-unpacked/dagents.exe（tasklist 见 Electron 多进程形态）→ taskkill /PID /T /F 进程树干净终止，退出码 0。
