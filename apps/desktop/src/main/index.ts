@@ -1,6 +1,6 @@
 import { existsSync } from 'node:fs'
 import { join } from 'node:path'
-import { app, BrowserWindow, Notification, session, shell } from 'electron'
+import { app, BrowserWindow, dialog, Notification, session, shell } from 'electron'
 import { loadConfig } from './orchestrator/config'
 import { resolvePgPaths } from './orchestrator/pg-service'
 import { resolveRunMode } from './orchestrator/run-mode'
@@ -74,10 +74,11 @@ if (!gotLock) {
     // 壳层兼容接线（窗口创建前——session/webContents 钩子要在内容加载前就位）
     wireShellCompatibility(config.consoleUrl)
 
+    const logsDir = join(userData, 'logs')
     orchestrator = new Orchestrator(
       config,
       createRuntimeDeps(config, {
-        logDir: join(userData, 'logs'),
+        logDir: logsDir,
         pgRequireRoot: pgPaths.pgRequireRoot,
       }),
       {
@@ -89,6 +90,8 @@ if (!gotLock) {
             : undefined,
         // takeover 意愿经闭包进快照（契约由 tsc 钉住——index 先建 takeover 再建编排器）
         contentIntent: () => takeover?.contentIntent() ?? 'auto',
+        // 关于面板信息（D2）——快照投影到状态页 footer
+        about: { appVersion: app.getVersion(), logsDir },
       }
     )
 
@@ -108,6 +111,10 @@ if (!gotLock) {
       onRestartServices: () => void orchestrator?.restartAll(),
       onStopServices: () => void orchestrator?.stopAll(),
       onOpenConsoleInBrowser: () => void shell.openExternal(config.consoleUrl),
+      onOpenDataFolder: () =>
+        void shell.openPath(orchestrator?.snapshot().config.pgDataDir ?? userData),
+      onOpenLogsFolder: () => void shell.openPath(logsDir),
+      onAbout: () => showAboutDialog(),
     })
 
     // mac dock 点击：窗口已全关时重建
@@ -220,5 +227,28 @@ function wireShellCompatibility(consoleUrl: string): void {
       if (/^https?:\/\//i.test(url)) void shell.openExternal(url)
       return { action: 'deny' }
     })
+  })
+}
+
+/** 关于面板（D2）：版本/运行形态/数据目录/日志目录/未签名提示/关窗即退出提示。 */
+function showAboutDialog(): void {
+  const orch = orchestrator
+  const snap = orch?.snapshot()
+  const mode = snap?.config.runMode === 'packaged' ? '安装包内嵌服务栈（无需仓库/pnpm/node）' : '开发栈（本机仓库 + pnpm + node）'
+  const dataDir = snap?.config.pgDataDir ?? app.getPath('userData')
+  const logsDir = snap?.config.logsDir ?? join(app.getPath('userData'), 'logs')
+  void dialog.showMessageBox({
+    type: 'none',
+    title: '关于 Dagents',
+    message: `Dagents 桌面客户端 v${app.getVersion()}`,
+    detail: [
+      `运行形态：${mode}`,
+      `数据目录：${dataDir}（卸载不会删除）`,
+      `日志目录：${logsDir}`,
+      '安装包未签名——被 SmartScreen/Gatekeeper 拦截时的绕过方法见 apps/desktop/README.md。',
+      '关闭窗口即退出：gateway / console / 内嵌 Postgres 会一并停止。',
+    ].join('\n'),
+    buttons: ['好的'],
+    defaultId: 0,
   })
 }

@@ -363,6 +363,7 @@ export class Orchestrator {
   private gatewayEnv: Record<string, string>
   private runMode: RunMode
   private contentIntent?: () => ContentIntent
+  private about: { appVersion: string; logsDir: string }
   private pg: PgServiceController
 
   constructor(
@@ -377,10 +378,13 @@ export class Orchestrator {
       packaged?: { servicesDir: string; execPath: string }
       /** 窗口内容意愿注入（takeover 控制器闭包；缺省恒 auto——契约由 tsc 钉住）。 */
       contentIntent?: () => ContentIntent
+      /** 关于面板信息（app.getVersion()/日志目录——纯展示投影，缺省空串）。 */
+      about?: { appVersion: string; logsDir: string }
     } = {}
   ) {
     this.runMode = opts.runMode ?? 'dev'
     this.contentIntent = opts.contentIntent
+    this.about = opts.about ?? { appVersion: '', logsDir: '' }
     const make = (id: ManagedServiceId) =>
       new ServiceSupervisor(id, deps, config, () => this.emit())
     // gateway 的 env 在 pg 就绪后追加 POSTGRES_URL（extraEnv 通道，docs §10.2）——
@@ -522,9 +526,18 @@ export class Orchestrator {
         pgPort: this.pg.actualPort,
         pgEmbedded: this.pg.enabled,
         pgDataDir: this.pg.dataDir,
+        healthTimeoutMs: this.config.restartPolicy.healthTimeoutMs,
+        logsDir: this.about.logsDir,
+        appVersion: this.about.appVersion,
       },
       at: this.deps.now(),
     }
+  }
+
+  /** 单服务日志尾（D7「复制最近 400 行」——主进程侧读环形缓冲，不经快照）。 */
+  logTail(id: ServiceId, n: number): string[] {
+    if (id === 'pg') return this.pg.logTail(n)
+    return this.supervisors[id].logTail(n)
   }
 
   onChange(cb: () => void): () => void {

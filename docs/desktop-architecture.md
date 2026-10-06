@@ -194,22 +194,28 @@ idle ──start──▶ starting ──spawn ok──▶ waiting_health ──
 
 ### 3.4 窗口、菜单、preload 与渲染壳
 
-- **窗口**：单窗口 1440×900，`title: 'dagents'`，`webPreferences: { preload, contextIsolation: true, sandbox: true, nodeIntegration: false }`。窗口关闭（`window-all-closed`）→ 触发全量树终止后退出——**关窗即退出**（outOfScope：不做托盘常驻），这是「无孤儿进程」语义的最简实现。
-- **菜单**（mac 必须有基础菜单否则连复制粘贴都没有）：`Menu.buildFromTemplate` 全 role——appMenu（mac）/editMenu/viewMenu（reload、toggledevtools）/windowMenu，外加一个自定义「服务」菜单：重启服务 / 停止服务 / 打开启动态页 / 在浏览器打开 console。菜单构建器为纯函数（传 role 回调注入）。
+- **窗口**：单窗口（U1 起记忆位置/尺寸/最大化/缩放——`userData/window-state.json`，恢复时与 `getAllDisplays()` workArea 求交集防「窗口消失在拔掉的显示器」，无交集回退主屏居中；最小 960×640，缺省 1440×900），`title: 'Dagents'`，`webPreferences: { preload, contextIsolation: true, sandbox: true, nodeIntegration: false }`。窗口关闭（`window-all-closed`）→ 触发全量树终止后退出——**关窗即退出**（outOfScope：不做托盘常驻），这是「无孤儿进程」语义的最简实现。几何记忆纯逻辑在 `main/window-state.ts`（单测），Electron 薄壳在 `windows.ts`。
+- **菜单**（mac 必须有基础菜单否则连复制粘贴都没有）：`Menu.buildFromTemplate` 全 role——appMenu（mac）/editMenu/viewMenu（reload、toggledevtools）/windowMenu，外加一个自定义「服务」菜单：进入工作台 / 服务状态页 / 重启服务 / 停止服务 / 在浏览器打开 console / 打开数据文件夹 / 打开日志文件夹 / 关于 Dagents（版本+形态+数据目录+日志目录+未签名+关窗即退出，U1）。菜单构建器为纯函数（传 role 回调注入）。
 - **preload** 暴露面（刻意窄）：
 
   ```ts
   window.dagentsDesktop = {
-    getState(): DesktopState            // { phase, services: {gateway, console}, config }
+    getState(): DesktopState            // { phase, services: {gateway, console, pg}, config }
     onState(cb): unsubscribe            // 编排事件（250ms 合并节流）
-    restart(): void                     // 手动重试（failed → start）
+    restart(): void                     // 手动重试（failed → start；bootstrap 管线含其中）
     stop(): void                        // 全停
+    enterWorkbench(): void              // 双向导航（§12.2）
+    showStartupPage(): void             // 钉住服务状态页
     openExternal(url: string): void     // 引导文案里的外链（shell.openExternal）
+    openLogsFolder(): void              // 打开日志目录（无参数——主进程固定路径，杜绝任意目录打开面）
+    openDataFolder(): void              // 打开 pgdata 数据目录
+    copyLogTail(id): number             // 复制某服务最近 400 行日志（主进程 clipboard，无权限/焦点坑）
   }
   ```
 
   preload 对窗口内所有页面注入（包括 console 远程页），但 console 是本机第一方内容（localhost:3000 是我们自己的服务），且暴露面只有服务控制——风险面写进威胁模型备注；不做通用 bridge。
-- **启动态/错误态页**（需求 inScope 第 3 条）：`renderer/` 单文件 TS 编译为经典 script（无框架、零依赖、不入 i18n 体系——桌面壳 MVP 中文文案直写，与仓库中文优先一致）。内容：两服务进度条（state 机状态直译）、日志尾部（等宽字体滚动区）、失败时的重试按钮、Postgres 不可达时的引导文案块（含 `docker compose up` 指令与「在浏览器打开 console」逃生口）。
+- **启动态/服务状态页**（U1 产品化重做）：`renderer/` 零依赖 ESM 模块（`tsconfig.renderer.json` 单独编译为浏览器原生 ESM——主 tsconfig 是 CommonJS，经典 script 加载 CJS 产物会死在 `require is not defined`，真机实跑踩中后修正）。信息层级：header（品牌 + 全局状态灯 + 钉住徽标 + 诚实 meta + 三动作位，「进入工作台」在钉住+双健康时是全页唯一呼吸高亮 box-shadow 2s 脉动）→ bootstrap 失败红横幅（错误原文直译 + 「重试初始化」，任意启动轮次可见）→ 首启五步进度（initdb/迁移/网关/工作台服务/接管，步态 ○◐●✕◔，console 独立步防 ③→⑤ 间 10-30s 无解释停顿）→ 首启教育（CLI agent 需自备；localStorage `dagents.desktop.onboarded.v1` 首启判定，接管/点击即消）→ 三服务卡（状态 chip / 等待预算行「已等 Ns / 预算 Ns」本地 1s 走秒——主进程只在状态变化推帧 / 分级 message / 日志面板标题行「复制最近 400 行」+「打开完整日志」）→ footer 事实行（版本/形态/数据目录可打开）+ 未签名说明。全部文案/投影是纯函数层 `renderer/status-copy.ts`（39 用例钉住真值表：S4 已停留/S5b 意愿等待+原因/S6 db:down 三分叉/SPAWN_FAILED packaged 分叉「安全软件拦截/重装」不泄漏 dev 话术/D8 重启按钮三值/B4 让位 chip/B5 外部跳过步态），`status.ts` 只做 DOM 装配。
+- **应用图标（U1）**：`scripts/generate-icons.mjs` 零依赖确定性生成（4×4 超采样软光栅化 + 手写 PNG/ICO/ICNS 编码 + 写后回读自校验，重跑同字节）——console 品牌三角标几何同源、壳层配色（#0f1115 底 + #7aa2f7 节点）；产物 `build/icon.ico`（16/24/32/48/64/128/256）/`icon.icns`（icp4…ic14）/`icon.png`（512）提交进仓库保 CI 确定性，electron-builder 三平台 `icon:` 显式引用（`check-builder-config.mjs` 断言文件在位与引用同源）。
 
 ### 3.5 配置持久化
 
@@ -602,8 +608,9 @@ darwin 因 PG 141MiB unpacked 会更大（dmg 压缩后另计，CI 实测回填�
 | M5 | **内嵌 PG 切片 + 门禁全绿** | ensure-postgres.mjs；orchestrator pg 服务 + bootstrap 管线（纯度测试覆盖）；config schema（postgres.* + mode）；状态页第三卡 | 根命令 `pnpm test && pnpm lint && pnpm typecheck` 全绿；win 真机：空 userData 首启 → initdb → 迁移 → gateway `db:'up'`；55432 被占自动让位且状态页明示；退出 PG 停净（端口+进程断言） |
 | M6 | **服务栈入包** | stage-stack.mjs（console standalone + gateway deploy + 裁剪落位）；electron-builder extraResources；packaged 模式编排（ELECTRON_RUN_AS_NODE spawn + bootstrap 迁移走 staged migrate.mjs）；dist:win 完整入口；desktop.yml matrix 扩展；.gitignore/.dockerignore 补条目 | win 真机全新机器语义（无仓库/docker/pnpm/node）：安装 → 双击 → 内嵌 PG 自动就绪 → 工作台可用 → 退出 8080/3000/PG 端口与进程全净；CI 四 job 产物可下载；dev 模式与附加模式回归不破 |
 | M7 | **导航修复 + 兼容矩阵 + 收口** | §12 全量（enterWorkbench 通道/意愿态/文案/菜单）；壳层兼容修复（setWindowOpenHandler、AppUserModelID+通知权限、confirm、下载、加速器）；`docs/desktop-compat-matrix.md` 全表真机结论；README/本文档收口 | 痛点①死路场景（钉住→双健康→一键回工作台）真机过；矩阵逐项 100% 复验；「杀 console→自动重启→窗口恢复」回归；根命令门禁最终态全绿 |
+| U1 | **启动态页产品化 + 死路根治（体验侧 uxPlan-1）** | 状态页信息层级重做（全局状态灯/诚实 meta/bootstrap 红横幅/首启五步进度/首启教育/三服务卡分级指引/日志面板 400 行复制+打开完整日志）；文案真值表纯函数层 `renderer/status-copy.ts`（模式分叉：dev 话术不泄漏 packaged）；「进入工作台」呼吸高亮 + S4/S5b/S6/S10 诚实文案；窗口状态记忆（bounds+maximized+zoom，显示器交集回退）；三平台真实图标（零依赖生成器 + build/ 产物入库）；快照 config 增 healthTimeoutMs/logsDir/appVersion；菜单增数据/日志目录与关于面板 | 真机 CDP：S4 钉住+双健康（呼吸高亮+诚实 meta+步条 ⑤◐ 指引）→ 点击回工作台 ✓；pg 崩溃恢复竞态真实触发→红横幅原文+「重试初始化」→恢复自动接管 ✓；等待预算本地 1s 走秒 ✓；Win32 移动缩放 160,120,1188×742 → 优雅关窗 → 重启精确恢复 ✓；优雅退出 8080/3000/55432 全释放 0 残留 ✓；desktop 175 用例/typecheck 双 tsconfig/lint/check-builder-config 全绿 |
 
-（体验侧里程碑由 uxPlan 另行承载，与 M5-M7 并行。）
+（体验侧里程碑 U 系列由 uxPlan 承载，U1 已落地；后续 U 系列沿用本文档 §16 证据表口径。）
 
 ## 16. 第二轮实测证据表（win32 真机，2026-10-07）
 
@@ -633,6 +640,17 @@ darwin 因 PG 141MiB unpacked 会更大（dmg 压缩后另计，CI 实测回填�
 | M7-3 | 矩阵 15 项 | 全表见 docs/desktop-compat-matrix.md：外链（hit-server 收 GET+零子窗口）/剪贴板（Get-Clipboard 读回）/通知（permission granted + onshow）/confirm（**原生可用，翻案**）/终端（xterm 41 行+SSE+真实键入 2 处回显）/下载（落 Downloads）/快捷键零冲突（grep 实录）/Alt+Left·Right（navigationHistory）/标题/localStorage/导航防护/SSE·WS ✅ |
 | M7-4 | 方法学坑（复验者须知） | CDP modifiers 位 Alt=1（8 是 Shift）；xterm 只吃带 text 的真实输入；剪贴板项需先真实点击拿焦点；confirm 阻塞 evaluate（SendKeys 驱动模态）——全记矩阵文档末节 ✅ |
 | M7-5 | 门禁 | desktop vitest 127 过 + typecheck/lint 净；根门禁三件套见下 ✅ |
+
+**U1 验收实测（win32 真机，2026-10-07，全部本 session 实跑；CDP 9444 + Win32 SetWindowPos/CloseMainWindow + PowerShell 探针）**：
+
+| # | 命令/操作 | 结果 |
+|---|---|---|
+| U1-1 | `node scripts/generate-icons.mjs` ×2 + sha256 对比 | 三格式生成 + 内建回读自校验（PNG IHDR/IDAT/CRC、ICO 条目、ICNS magic）过；**重跑同字节（确定性）**；ASCII 渲染抽样像素 = #0f1115 底/#7aa2f7 节点、圆角外 alpha=0 ✅ |
+| U1-2 | `electron . --remote-debugging-port=9444`（dev 全栈）→ CDP 探针 | 冷启 12s 内全栈健康**自动接管**；状态页逐态实证：启动中（五步 ○◐● 推进 + 「已等 Ns/预算 120s」**本地 1s 走秒** 2s→4s）→ 强杀残留触发真实 pg 崩溃恢复竞态 → 红横幅「数据库初始化失败——服务栈启动已停止」+ **错误原文直译**「建库失败：the database system is starting up」+ gateway/console 卡「待命（等待数据库就绪）」→ 点「重试初始化」→ ~35s 恢复自动接管 ✅ |
+| U1-3 | 工作台 → `showStartupPage()` 钉住 → CDP 断言 → 点「进入工作台」 | S4 态全要素：全局灯绿「服务健康」+ meta「服务健康 · 已停留在此页——点『进入工作台』…」（失真文案已灭）+ 钉住徽标 + 步条 ●●●●◐（⑤ note「已就绪——点『进入工作台』」）+ 按钮呼吸高亮（唯一脉动元素）→ 点击 4s 内回 localhost:3000 工作台（死路出口闭环）✅ |
+| U1-4 | Win32 `SetWindowPos(160,120,1188,742)` → `CloseMainWindow()` → 读 `window-state.json` → 重启 → `GetWindowRect` | 落盘 `{"bounds":{160,120,1188,742}}`；重启恢复**逐像素一致**（160,120,1188×742）；优雅退出 8080/3000/55432/9444 全释放、0 electron 残留（机器既有 5432/15432 实例不受扰）✅ |
+| U1-5 | desktop 自检 | vitest **175 过**（+window-state 10 +status-copy 39）/typecheck（主 CJS + renderer ESM 双 tsconfig）/lint/check-builder-config（新增 icon 契约断言）全绿 ✅ |
+| U1-6 | 未验证（如实记录） | Ctrl+= 缩放档位的 E2E 键盘路径（SendKeys 未达 Electron 菜单加速器、CDP Emulation.setPageZoomFactor 在 Electron 44 不可用——zoom 持久化管线由 window-state 单测钉住，bounds/maximized 已 E2E）；菜单「关于/打开文件夹」对话框的人工目击；packaged 形态重打包后的图标四场所（D1）归 CI/desktop.yml |
 
 **M6 验收实测（win32 真机，2026-10-07，全部本 session 实跑）**：
 

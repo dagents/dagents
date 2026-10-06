@@ -113,6 +113,12 @@ export interface DesktopSnapshot {
     pgEmbedded: boolean
     /** 内嵌 PG 数据目录（README 卸载保留策略的落点）。 */
     pgDataDir: string
+    /** 健康等待预算（restartPolicy.healthTimeoutMs 运行时值——渲染层文案不写死 120s）。 */
+    healthTimeoutMs: number
+    /** 子进程日志目录（userData/logs；「打开完整日志」目标）。 */
+    logsDir: string
+    /** 应用版本（app.getVersion()；关于面板/状态页 footer）。 */
+    appVersion: string
   }
   at: number
 }

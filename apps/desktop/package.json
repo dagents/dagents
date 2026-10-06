@@ -6,13 +6,14 @@
   "author": "dagents",
   "main": "dist/main/index.js",
   "scripts": {
-    "build": "tsc -p tsconfig.json && node scripts/sync-renderer.mjs",
-    "typecheck": "tsc --noEmit -p tsconfig.json",
+    "build": "tsc -p tsconfig.json && tsc -p tsconfig.renderer.json && node scripts/sync-renderer.mjs",
+    "typecheck": "tsc --noEmit -p tsconfig.json && tsc --noEmit -p tsconfig.renderer.json",
     "test": "vitest run && node scripts/check-builder-config.mjs",
     "lint": "eslint src --ext .ts",
     "dev": "node scripts/ensure-electron.mjs && electron .",
     "dist:win": "pnpm run build && node scripts/ensure-electron.mjs && node scripts/ensure-postgres.mjs && node scripts/stage-stack.mjs && electron-builder --win nsis --publish never",
     "ensure:electron": "node scripts/ensure-electron.mjs",
+    "icons": "node scripts/generate-icons.mjs",
     "ensure:postgres": "node scripts/ensure-postgres.mjs",
     "stage:stack": "node scripts/stage-stack.mjs",
     "smoke": "node scripts/smoke.mjs"

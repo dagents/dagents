@@ -18,6 +18,12 @@ const api = {
   enterWorkbench: (): Promise<void> => ipcRenderer.invoke('desktop:enterWorkbench'),
   showStartupPage: (): Promise<void> => ipcRenderer.invoke('desktop:showStartupPage'),
   openExternal: (url: string): Promise<void> => ipcRenderer.invoke('desktop:openExternal', url),
+  // 目录出口（U1：D7 打开完整日志 / D2 数据目录可见）——无参数，主进程侧固定两个目录
+  openLogsFolder: (): Promise<void> => ipcRenderer.invoke('desktop:openLogsFolder'),
+  openDataFolder: (): Promise<void> => ipcRenderer.invoke('desktop:openDataFolder'),
+  // D7：复制某服务最近 400 行日志到剪贴板（主进程侧写入；返回实际行数）
+  copyLogTail: (id: 'gateway' | 'console' | 'pg'): Promise<number> =>
+    ipcRenderer.invoke('desktop:copyLogTail', id),
 }
 
 contextBridge.exposeInMainWorld('dagentsDesktop', api)

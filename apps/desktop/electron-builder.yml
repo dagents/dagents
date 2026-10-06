@@ -20,6 +20,9 @@ extraResources:
 win:
   target:
     - nsis
+  # 真实应用图标（U1，体验规格 D1）：任务栏/开始菜单/安装向导/快捷方式四处同源
+  # （scripts/generate-icons.mjs 确定性产物，提交进仓库保证 CI 出包一致）
+  icon: build/icon.ico
 nsis:
   oneClick: false
   allowToChangeInstallationDirectory: true
@@ -29,7 +32,9 @@ mac:
   target:
     - dmg
   category: public.app-category.developer-tools
+  icon: build/icon.icns
 linux:
   target:
     - AppImage
   category: Development
+  icon: build/icon.png

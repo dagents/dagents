@@ -10,6 +10,12 @@ export interface MenuHandlers {
   onRestartServices?: () => void
   onStopServices?: () => void
   onOpenConsoleInBrowser?: () => void
+  /** 打开内嵌 PG 数据目录（数据在用户手里——原则 9 的菜单锚点）。 */
+  onOpenDataFolder?: () => void
+  /** 打开子进程日志目录（D7）。 */
+  onOpenLogsFolder?: () => void
+  /** 关于面板（D2：版本/形态/数据目录/日志目录/未签名/关窗即退出）。 */
+  onAbout?: () => void
 }
 
 export function buildAppMenu(handlers: MenuHandlers = {}): void {
@@ -54,6 +60,23 @@ export function buildAppMenu(handlers: MenuHandlers = {}): void {
           label: '在浏览器打开 console',
           enabled: handlers.onOpenConsoleInBrowser !== undefined,
           click: () => handlers.onOpenConsoleInBrowser?.(),
+        },
+        { type: 'separator' },
+        {
+          label: '打开数据文件夹',
+          enabled: handlers.onOpenDataFolder !== undefined,
+          click: () => handlers.onOpenDataFolder?.(),
+        },
+        {
+          label: '打开日志文件夹',
+          enabled: handlers.onOpenLogsFolder !== undefined,
+          click: () => handlers.onOpenLogsFolder?.(),
+        },
+        { type: 'separator' },
+        {
+          label: '关于 Dagents',
+          enabled: handlers.onAbout !== undefined,
+          click: () => handlers.onAbout?.(),
         },
       ],
     },

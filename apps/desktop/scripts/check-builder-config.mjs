@@ -10,7 +10,7 @@
  * 标量序列 + 标量值 / 整行注释），遇到解析不了的行直接 fail——宁可误杀不可漏放。
  * 用法：node scripts/check-builder-config.mjs [可选：另一份 yml 路径，供负例自检]
  */
-import { readFileSync } from 'node:fs'
+import { existsSync, readFileSync } from 'node:fs'
 import { dirname, join } from 'node:path'
 import { fileURLToPath } from 'node:url'
 
@@ -214,6 +214,16 @@ assert(
   'extraResources 缺 services 条目（staged 服务栈，from=stage/dist-services——与 stage-stack.mjs 同源）'
 )
 assert(config.directories?.output === 'release', 'directories.output 必须是 release（gitignore 已覆盖）')
+
+// U1 真实图标契约（体验规格 D1）：三平台 icon 配置 + build/ 产物在位（提交进仓库）。
+// 产物由 scripts/generate-icons.mjs 确定性生成（重跑同字节），此处只断言存在与引用。
+assert(config.win?.icon === 'build/icon.ico', 'win.icon 必须是 build/icon.ico（真实图标，非 Electron 默认）')
+assert(config.mac?.icon === 'build/icon.icns', 'mac.icon 必须是 build/icon.icns')
+assert(config.linux?.icon === 'build/icon.png', 'linux.icon 必须是 build/icon.png（≥512）')
+const buildDir = join(dirname(configPath), 'build')
+for (const f of ['icon.ico', 'icon.icns', 'icon.png']) {
+  assert(existsSync(join(buildDir, f)), `build/${f} 缺失——先跑 pnpm --filter @dagents/desktop icons（产物应提交进仓库）`)
+}
 
 const signingHits = []
 findSigningKeys(config, '', signingHits)
