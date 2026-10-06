@@ -19,13 +19,40 @@
  * 服务器地址取自 POSTGRES_URL 的 host/凭证（本机 docker :15432、CI 服务
  * 容器 :5432 均适用），只替换库名 —— dev 库从此零触碰。
  */
+import { existsSync, readFileSync } from 'node:fs'
+import { dirname, join } from 'node:path'
 import { Client } from 'pg'
 
 const GW_TEST_DB = 'dagents_gw_test'
 
+/**
+ * 从 cwd 逐级向上找仓库根的 .env 取 POSTGRES_URL —— 只在 process.env 未注入
+ * 时兜底（CI/脚本注入的 env 始终优先）。本机 dev 的真实地址只写在 .env（如
+ * WSL :5432），此前 vitest 不加载 .env 导致回退 localhost:15432、全新 shell
+ * 跑 pnpm test 必挂 ECONNREFUSED。
+ */
+function postgresUrlFromEnvFile(): string | undefined {
+  let dir = process.cwd()
+  for (;;) {
+    const envPath = join(dir, '.env')
+    if (existsSync(envPath)) {
+      for (const line of readFileSync(envPath, 'utf8').split(/\r?\n/)) {
+        const m = line.match(/^\s*(?:export\s+)?POSTGRES_URL\s*=\s*(.*)$/)
+        if (m) return m[1].trim().replace(/^['"]|['"]$/g, '') || undefined
+      }
+      return undefined
+    }
+    const parent = dirname(dir)
+    if (parent === dir) return undefined
+    dir = parent
+  }
+}
+
 export default async function setup(): Promise<void> {
-  const base = process.env.POSTGRES_URL
-    ?? 'postgresql://dagents:dagents_dev@localhost:15432/dagents'
+  const base =
+    process.env.POSTGRES_URL ??
+    postgresUrlFromEnvFile() ??
+    'postgresql://dagents:dagents_dev@localhost:15432/dagents'
 
   const adminUrl = new URL(base)
   adminUrl.pathname = '/postgres'
