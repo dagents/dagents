@@ -21,6 +21,9 @@ WORKDIR /app
 # them missing, pnpm silently installs only the root importer and the later
 # `pnpm run build` dies with "tsup: not found" (per-package devDeps absent).
 COPY package.json pnpm-lock.yaml pnpm-workspace.yaml .npmrc turbo.json ./
+# pnpm-workspace.yaml declares patchedDependencies (next@15.5.20) — install
+# reads the patch file, so it must ship with the manifests.
+COPY patches/ patches/
 COPY apps/gateway/package.json apps/gateway/
 COPY apps/console/package.json apps/console/
 COPY packages/contracts/package.json packages/contracts/
@@ -95,6 +98,7 @@ ENV GATEWAY_HOST=0.0.0.0
 # Copy the install state + manifests. We re-run a production-only install so
 # devDeps (tsup, tsx, vitest, eslint, …) don't ship to the runtime image.
 COPY --from=builder /app/package.json /app/pnpm-workspace.yaml /app/.npmrc /app/pnpm-lock.yaml ./
+COPY --from=builder /app/patches ./patches
 COPY --from=builder /app/apps/gateway/package.json ./apps/gateway/
 COPY --from=builder /app/apps/console/package.json ./apps/console/
 COPY --from=builder /app/packages/contracts/package.json ./packages/contracts/
