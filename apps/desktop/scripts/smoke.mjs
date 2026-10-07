@@ -9,13 +9,29 @@
  * 仅 win32：mac/linux 打包归 CI（约束「本机可验证性」）。
  */
 import { spawn, spawnSync } from 'node:child_process'
-import { existsSync } from 'node:fs'
+import { existsSync, readdirSync } from 'node:fs'
 import { dirname, join } from 'node:path'
 import { fileURLToPath } from 'node:url'
 
 const pkgRoot = join(dirname(fileURLToPath(import.meta.url)), '..')
 const exeName = 'dagents.exe'
-const exePath = join(pkgRoot, 'release', 'win-unpacked', exeName)
+
+/**
+ * 定位 dist:win 产出的解包 exe：优先规范位 release/win-unpacked；其次 package-win.mjs
+ * 因旧输出目录被外部句柄锁死而换道的 release-stale-<n>（取编号最大＝最近一轮）。
+ */
+function findUnpackedExe() {
+  const canonical = join(pkgRoot, 'release', 'win-unpacked', exeName)
+  if (existsSync(canonical)) return canonical
+  const stale = readdirSync(pkgRoot)
+    .filter((n) => /^release-stale-\d+$/.test(n))
+    .sort((a, b) => Number(b.match(/\d+$/)[0]) - Number(a.match(/\d+$/)[0]))
+    .map((n) => join(pkgRoot, n, 'win-unpacked', exeName))
+    .find(existsSync)
+  return stale ?? canonical
+}
+
+const exePath = findUnpackedExe()
 
 function countProcesses(name) {
   const r = spawnSync('tasklist', ['/FI', `IMAGENAME eq ${name}`, '/FO', 'CSV'], {

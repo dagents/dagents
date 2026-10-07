@@ -26,7 +26,7 @@
 ## 诚实边界（当前）
 
 - **dev 栈形态**（仓库内 `pnpm dev`）需要本机有 dagents 仓库检出 + pnpm + node，且先跑 `pnpm --filter @dagents/desktop ensure:postgres` 取 PG 二进制（dev 一次 37MB 下载，缓存复用）；**安装包形态（packaged）零外部依赖**。
-- 打包（`dist:win`）是完整链 `build → ensure:electron → ensure:postgres → stage-stack → electron-builder`：staging 阶段做 gateway deploy + console standalone 构建 + **pnpm 平铺规整**（分发链不支持 symlink，详见架构文档 §11.4.1）；win 构建依赖 `patches/next@15.5.20.patch`（junction 兜底，无需开发者模式）。
+- 打包（`dist:win`）是完整链 `build → ensure:electron → ensure:postgres → stage-stack → package-win`：staging 阶段做 gateway deploy + console standalone 构建 + **pnpm 平铺规整**（分发链不支持 symlink，详见架构文档 §11.4.1）；win 构建依赖 `patches/next@15.5.20.patch`（junction 兜底，无需开发者模式）；末步 package-win.mjs 包装 electron-builder——旧 `release/win-unpacked` 被外部进程句柄锁死（EBUSY）时自动换道 `release-stale-N/` 出包（句柄释放后下轮回原位；CI 直调 electron-builder 不受影响）。
 - 实测 win 安装包 ~494MB（PG DLL 与 node-pty 原生二进制压缩率低；无体积 KPI）。
 - 端口锁定 8080/3000（console BFF 只认 `GATEWAY_URL`），配置里写别的端口会被拒绝并回落默认；**PG 端口不锁**（默认 55432 可配 1024-65535，冲突自动让位）。
 - 不做自动更新/托盘/远程 gateway/深链（outOfScope，详见架构文档 §1）。
@@ -80,7 +80,7 @@ pnpm --filter @dagents/desktop run test       # vitest（编排器单测/真子�
 pnpm --filter @dagents/desktop run ensure:postgres  # 内嵌 PG 二进制按需下载（37MB，缓存 stage/pg-cache）
 pnpm --filter @dagents/desktop run stage:stack       # 服务栈 staging（gateway deploy + console standalone + pnpm 平铺）
 pnpm --filter @dagents/desktop run dev        # 起 app（electron 二进制按需下载，ELECTRON_MIRROR 可覆盖）
-pnpm --filter @dagents/desktop run dist:win   # 完整打包链（build → ensure×2 → stage-stack → nsis，--publish never）
+pnpm --filter @dagents/desktop run dist:win   # 完整打包链（build → ensure×2 → stage-stack → package-win → nsis，--publish never）
 pnpm --filter @dagents/desktop run smoke      # 安装包解包 exe 启动冒烟（需先 dist:win）
 ```
 
