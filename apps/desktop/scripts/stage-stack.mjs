@@ -35,7 +35,7 @@ import {
   writeFileSync,
 } from 'node:fs'
 import { tmpdir } from 'node:os'
-import { dirname, join, resolve } from 'node:path'
+import { dirname, join, resolve, sep } from 'node:path'
 import { fileURLToPath } from 'node:url'
 
 const pkgRoot = join(dirname(fileURLToPath(import.meta.url)), '..')
@@ -148,6 +148,69 @@ function assertNoDeadLinks(nodeModulesDir, label) {
   if (dead.length > 0) {
     fail(
       `${label} 平铺后残留 ${dead.length} 个死链（示例 ${dead.slice(0, 3).join('; ')}）——分发链（NSIS）不容死链`
+    )
+  }
+}
+
+/**
+ * 逃逸符号链接/工作区自引用清扫（2026-10-07 CI win 打包三连败根因，M6 后补）：
+ * pnpm deploy --legacy 在 link-workspace-packages=deep 下会把 file: 工作区依赖以嵌套
+ * 落位泄漏进 deploy 树——node_modules/@dagents/<pkg>/node_modules/@dagents/<pkg2>，形态
+ * 有二：绝对符号链接（指向 <repoRoot>/packages/*）或实体目录（连带 dev node_modules，
+ * 实测 310MB：@dagents 各包的 node_modules 里含 tsup/typescript/@opentelemetry 等 dev 依赖）。
+ * 本机构建时 electron-builder extraResources 把它们整体 deref 进安装包（dev 状态泄漏
+ * +产物膨胀）；CI runner 上工作区 node_modules 的部分链接悬空 → 拷进 win-unpacked 后
+ * 7za 报 "The system cannot find the path" exit 1。
+ * 对策：两种形态一律删除——顶层 node_modules/@dagents/* 已是 deploy 的 prod 实体拷贝，
+ * node 解析自动回退顶层（语义更正确，产物更小）；其余逃逸链接（今日无此形态）deref
+ * 实体化兜底。
+ */
+function sweepEscapingLinks(rootDir, label) {
+  let removedLinks = 0
+  let removedDirs = 0
+  let materialized = 0
+  const selfRef = /node_modules[\\/]@dagents[\\/][^\\/]+[\\/]node_modules[\\/]@dagents[\\/][^\\/]+$/
+  const walk = (dir) => {
+    for (const name of readdirSync(dir)) {
+      if (name.startsWith('.')) continue
+      const p = join(dir, name)
+      if (isLink(p)) {
+        const target = resolve(dirname(p), readlinkSync(p))
+        if (target.startsWith(rootDir + sep)) continue // 树内链接（平铺残留，分发链自会 deref）
+        // 工作区泄漏链接（自引用形状，或目标在仓库内）直接删除——顶层 node_modules/@dagents/*
+        // 已是 deploy 的 prod 实体拷贝，解析自动回退；不 deref（CI runner 上工作区链接
+        // 的深层目标可能悬空，deref 拷贝会炸）
+        if (selfRef.test(p) || target.startsWith(repoRoot + sep)) {
+          rmSync(p, { force: true })
+          removedLinks++
+          continue
+        }
+        // 其余逃逸链接（今日无此形态）：deref 实体化兜底，并继续清扫实体化结果内部
+        const tmp = p + '.materializing'
+        cpSync(p, tmp, { recursive: true, dereference: true })
+        rmSync(p, { force: true })
+        renameSync(tmp, p)
+        materialized++
+        walk(p)
+        continue
+      }
+      if (selfRef.test(p)) {
+        rmSync(p, { recursive: true, force: true })
+        removedDirs++
+        continue
+      }
+      try {
+        if (lstatSync(p).isDirectory()) walk(p)
+      } catch {
+        // 不可读跳过
+      }
+    }
+  }
+  walk(rootDir)
+  if (removedLinks || removedDirs || materialized) {
+    say(
+      `${label} 逃逸链接清扫：删除工作区自引用链接 ${removedLinks} 个、自引用目录 ${removedDirs} 个` +
+        (materialized ? `，实体化逃逸链接 ${materialized} 个` : '')
     )
   }
 }
@@ -277,6 +340,7 @@ for (const must of [
 // pnpm → npm 平铺（同 console：分发链 deref 链接后防断链；gateway 顶层多为直接依赖，
 // 此步兜底间接依赖与懒加载模块）
 flattenPnpmToTopLevel(join(gwDir, 'node_modules'))
+sweepEscapingLinks(gwDir, 'gateway')
 assertNoDeadLinks(join(gwDir, 'node_modules'), 'gateway')
 say(`gateway 树就位：${gwDir}`)
 
@@ -337,6 +401,7 @@ for (const flatTarget of [
   flattenPnpmToTopLevel(flatTarget)
   assertNoDeadLinks(flatTarget, 'console')
 }
+sweepEscapingLinks(csDir, 'console')
 say(`console 树就位：${csDir}（server.js=${join('apps', 'console', 'server.js')}）`)
 
 // 构建临时目录清理（不污染工作树；dev 的 .next 不受影响——NEXT_DIST_DIR 隔离）
