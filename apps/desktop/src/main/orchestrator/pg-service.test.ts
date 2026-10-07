@@ -154,6 +154,7 @@ describe('parsePostmasterPid / resolvePgPaths', () => {
     const resolved = resolvePgPaths(
       {
         embedded: true,
+        embeddedExplicit: true,
         port: 55432,
         dataDir: 'D:/mydata',
         binDir: 'D:/pbbin',
@@ -182,6 +183,8 @@ class PgFake {
   spawned: RunOnceSpec[] = []
   pgQueries: string[] = []
   pgDatabaseExists = true
+  /** connectPg 按次抛错队列（崩溃恢复窗口测试：每次连接 shift 一条，空则正常）。 */
+  pgConnectErrors: string[] = []
   logs: string[] = []
   emits = 0
   private nextPid = 7000
@@ -227,6 +230,8 @@ class PgFake {
     },
     connectPg: async () => {
       const world = this
+      const err = world.pgConnectErrors.shift()
+      if (err !== undefined) throw new Error(err)
       const client: PgClient = {
         async query(sql) {
           world.pgQueries.push(sql)
@@ -383,6 +388,36 @@ describe('PgServiceController bootstrap 管线', () => {
     const res = await driveStart(fake, controller)
     expect(res.ok).toBe(true)
     expect(fake.pgQueries.some((q) => q.includes('CREATE DATABASE dagents'))).toBe(true)
+  })
+
+  it('建库踩崩溃恢复窗口（FATAL starting up）→ 窗口内重试后成功（真机缺陷①）', async () => {
+    const fake = initializedWorld()
+    // 非干净关机后的物理事实：端口已 accept，但前两次连接吃恢复期 FATAL
+    fake.pgConnectErrors = [
+      'the database system is starting up',
+      'the database system is starting up',
+    ]
+    const { controller } = fake.makeController()
+    const res = await driveStart(fake, controller)
+    expect(res.ok).toBe(true)
+    if (res.ok) expect(res.dsn).toBe('postgresql://dagents@127.0.0.1:55432/dagents')
+    expect(fake.logs.some((l) => l.includes('崩溃恢复窗口'))).toBe(true)
+    expect(controller.status().state).toBe('running')
+  })
+
+  it('建库持续失败超过恢复窗口（30s）→ 才判 failed（有界重试）', async () => {
+    const fake = initializedWorld()
+    fake.pgConnectErrors = Array.from({ length: 60 }, () => 'the database system is starting up')
+    const { controller } = fake.makeController()
+    const started = controller.start()
+    await fake.advance(20)
+    fake.simulatePostgresListening()
+    await fake.advance(3_000) // 起库健康 → 进入建库重试环
+    await fake.advance(35_000) // 推过 30s 窗口 → 耗尽判死
+    const res = await started
+    expect(res.ok).toBe(false)
+    if (!res.ok) expect(res.error).toContain('建库失败')
+    expect(controller.status().state).toBe('failed')
   })
 
   it('postgres 起不来（健康持续失败）→ 等待超时 failed', async () => {

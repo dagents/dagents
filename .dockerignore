@@ -42,3 +42,5 @@ packages/e2e/
 # root-anchored, so nested dirs need explicit entries.
 apps/desktop/stage/
 apps/desktop/release/
+# console standalone 打包出口（NEXT_DIST_DIR 隔离产物；root-anchored 故需显式嵌套条目）
+apps/console/.next-build/

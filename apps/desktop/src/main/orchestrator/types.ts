@@ -47,6 +47,12 @@ export interface ServiceRunSpec {
 export interface PostgresConfig {
   /** 内嵌 PG 总开关；false = 外部 Postgres（gateway 走 .env/extraEnv 的 POSTGRES_URL）。 */
   embedded: boolean
+  /**
+   * embedded 是否为 config.json 显式设置（运行时派生字段，不参与序列化）：
+   * dev 模式默认不启用内嵌 PG（防 dev 用户外部/docker 库被静默切到空内嵌库），
+   * 显式 embedded:true/false 是唯一豁免依据——loadConfig 按原始 JSON 是否含该键标记。
+   */
+  embeddedExplicit: boolean
   /** 默认端口 55432（避开 5432 原生 / 15432 infra docker）；被占自动 +1 让位（≤20 次）。 */
   port: number
   /** PG 数据目录；null = 运行时默认 <userData>/pgdata。 */

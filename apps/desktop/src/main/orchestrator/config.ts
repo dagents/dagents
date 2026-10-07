@@ -39,6 +39,9 @@ export function defaultConsoleSpec(): ServiceSpec {
 export function defaultPostgresConfig(): PostgresConfig {
   return {
     embedded: true,
+    // 默认 true 只对 packaged 形态生效——dev 形态由 Orchestrator 按 runMode 门控
+    // 默认关（显式豁免依据本标记，supervisor.ts 构造器）。
+    embeddedExplicit: false,
     port: DEFAULT_PG_PORT,
     dataDir: null,
     binDir: null,
@@ -159,8 +162,13 @@ function mergePostgres(
   const obj = raw as Record<string, unknown>
 
   const embedded = asBool(obj.embedded)
-  if (embedded !== null) pg.embedded = embedded
-  else if (obj.embedded !== undefined) warnings.push('postgres.embedded 非 boolean，已回落默认 true')
+  if (embedded !== null) {
+    pg.embedded = embedded
+    // 显式设置标记：dev 模式「默认不启用内嵌 PG」的唯一豁免依据（AC-7④）
+    pg.embeddedExplicit = true
+  } else if (obj.embedded !== undefined) {
+    warnings.push('postgres.embedded 非 boolean，已回落默认 true')
+  }
 
   // PG 端口不锁值（独立于 LOCKED_PORTS，docs §10.3）：只做合法范围校验
   const port = asPositiveInt(obj.port)

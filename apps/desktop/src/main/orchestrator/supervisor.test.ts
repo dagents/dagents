@@ -501,9 +501,42 @@ describe('内嵌 PG 编排（M5，docs §10.2）', () => {
     return world
   }
 
+  /** dev 形态显式启用内嵌 PG：AC-7④ 豁免条件（embedded 与 embeddedExplicit 同置）。 */
+  function embeddedPgConfig() {
+    const cfg = defaultConfig('C:/repo')
+    cfg.postgres.embedded = true
+    cfg.postgres.embeddedExplicit = true
+    return cfg
+  }
+
+  it('dev 默认不启用内嵌 PG（AC-7④）：未显式 embedded → pg skipped + gateway 不注入 DSN', async () => {
+    const world = makeWorld()
+    // defaultConfig + 不传 runMode（缺省 dev）+ embedded 未显式 → 门控默认关
+    const orch = new Orchestrator(defaultConfig('C:/repo'), world.deps, { pgPaths })
+    world.httpQueue = [
+      { status: 200, body: '{"ok":true,"db":"up"}' }, // gateway（外部库就绪语义）
+      { status: 200, body: 'ok' }, // console
+    ]
+    orch.start()
+    await world.advance(10)
+    await world.advance(500)
+
+    const snap = orch.snapshot()
+    expect(snap.services.pg.state).toBe('idle')
+    expect(snap.services.pg.message).toContain('外部 Postgres')
+    expect(snap.config.pgEmbedded).toBe(false)
+    // 不 spawn pg、bootstrap 零步（initdb/迁移未跑）、gateway env 不注入内嵌 DSN
+    expect(world.spawnedSpecs.some((s) => s.id === 'pg')).toBe(false)
+    expect(world.runOnceSpecs).toEqual([])
+    const gwSpawn = world.spawnedSpecs.find((s) => s.id === 'gateway')
+    expect(gwSpawn?.env?.POSTGRES_URL).toBeUndefined()
+    expect(world.logs.pg.some((l) => l.includes('dev 模式默认不启用'))).toBe(true)
+    expect(snap.phase).toBe('console') // 外部库语义下双健康照常接管
+  })
+
   it('全链路：initdb → postgres 前台直跑 → TCP 健康 → 建库 → 迁移 → gateway 注入 DSN → 双健康', async () => {
     const world = makeWorld()
-    const orch = new Orchestrator(defaultConfig('C:/repo'), world.deps, { pgPaths })
+    const orch = new Orchestrator(embeddedPgConfig(), world.deps, { pgPaths })
     world.httpQueue = [
       { status: 200, body: '{"ok":true,"db":"up"}' }, // gateway
       { status: 200, body: '<!doctype html>' }, // console
@@ -544,7 +577,7 @@ describe('内嵌 PG 编排（M5，docs §10.2）', () => {
     const world = makeWorld()
     world.openPorts.add(55432) // 外部占用默认端口
     world.runOnceQueue[1] = { code: 0, stdout: 'db: applied' }
-    const orch = new Orchestrator(defaultConfig('C:/repo'), world.deps, { pgPaths })
+    const orch = new Orchestrator(embeddedPgConfig(), world.deps, { pgPaths })
     world.httpQueue = [
       { status: 200, body: '{"ok":true,"db":"up"}' },
       { status: 200, body: 'ok' },
@@ -569,7 +602,7 @@ describe('内嵌 PG 编排（M5，docs §10.2）', () => {
   it('迁移失败 → pg failed + gateway 不启动（docker-entrypoint 语义）', async () => {
     const world = makeWorld()
     world.runOnceQueue[1] = { code: 1, stderr: 'TypeError: cannot read migrations' }
-    const orch = new Orchestrator(defaultConfig('C:/repo'), world.deps, { pgPaths })
+    const orch = new Orchestrator(embeddedPgConfig(), world.deps, { pgPaths })
     orch.start()
     await world.advance(10)
     await world.advance(500)
@@ -585,7 +618,7 @@ describe('内嵌 PG 编排（M5，docs §10.2）', () => {
   it('附加模式（8080 已监听）→ 内嵌 PG 不启动，诚实标记', async () => {
     const world = makeWorld()
     world.openPorts.add(8080) // 外部 gateway 实例
-    const orch = new Orchestrator(defaultConfig('C:/repo'), world.deps, { pgPaths })
+    const orch = new Orchestrator(embeddedPgConfig(), world.deps, { pgPaths })
     world.httpQueue = [{ status: 200, body: '{"ok":true,"db":"up"}' }]
     orch.start()
     await world.advance(10)
@@ -602,7 +635,7 @@ describe('内嵌 PG 编排（M5，docs §10.2）', () => {
 
   it('stopAll：console→gateway→pg 顺序，pg_ctl fast 优先 + EXIT 抑制不触发重启', async () => {
     const world = makeWorld()
-    const orch = new Orchestrator(defaultConfig('C:/repo'), world.deps, { pgPaths })
+    const orch = new Orchestrator(embeddedPgConfig(), world.deps, { pgPaths })
     world.httpQueue = [
       { status: 200, body: '{"ok":true,"db":"up"}' },
       { status: 200, body: 'ok' },

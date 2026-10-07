@@ -457,7 +457,7 @@ app ready
 
 - **为什么前台直跑 postgres.exe 而不是 pg_ctl start**：pg_ctl 会 daemonize 出脱离本 app 进程树的服务进程，`taskkill /T` 够不着——违反「退出树终止与端口释放断言同口径」约束。前台直跑保持树归属；本机探测用的是 pg_ctl（probe 简化），直跑形态是 PG 官方支持的标准用法，M5 验收项覆盖。
 - **判活协议**：只看 TCP accept（约束原文「判活只看探活协议不猜进程状态」）。`pg_isready`/`psql`/`createdb` 都不随 tarball 分发（实测 bin/ 仅有 initdb/postgres/pg_ctl + DLL）——端口探活是唯一随包可用的协议级探活；端到端语义由 gateway `/health` 的 `db:'up'` 兜底（现有 computePhase 不变）。
-- **建库**：tarball 无 createdb.exe。DSN 直指 `postgres` 库即可让 migrate 跑通（实测迁移链对任意库工作），但为语义干净：bootstrap 里用 staged gateway 自带的 `pg` 驱动跑一句 `CREATE DATABASE dagents`（幂等，失败码 42P04 忽略）——`pg@8.22.0` 纯 JS 无脚本，已在既有 lockfile 内，**不新增供应链面**。执行载体是 `ELECTRON_RUN_AS_NODE <execPath> stage 内小脚本`，与 migrate 同通道。
+- **建库**：tarball 无 createdb.exe。DSN 直指 `postgres` 库即可让 migrate 跑通（实测迁移链对任意库工作），但为语义干净：bootstrap 里用 staged gateway 自带的 `pg` 驱动跑一句 `CREATE DATABASE dagents`（幂等，失败码 42P04 忽略）——`pg@8.22.0` 纯 JS 无脚本，已在既有 lockfile 内，**不新增供应链面**。执行载体是 `ELECTRON_RUN_AS_NODE <execPath> stage 内小脚本`，与 migrate 同通道。**崩溃恢复窗口重试（2026-10-07 真机缺陷①落地）**：非干净关机后的下一次启动，postgres 端口已 accept（TCP 探活转绿）但仍在 crash recovery——建库连接吃 FATAL `the database system is starting up`；曾因单次失败即判死使整栈卡 failed 等人工「重试初始化」（实测 1s 后即就绪）。现建库步在 `ENSURE_DB_RETRY_WINDOW_MS`（30s）窗口内每 1s 重试，耗尽才 failed。
 - **停止**：优先 `pg_ctl stop -m fast`（干净 checkpoint，数据落盘）；超时 5s 兜底走树终止；端口释放断言与 gateway/console 同口径。**App 退出顺序 = console → gateway → pg**（反依赖序）。
 - **有界重启**：与两服务同策略（5min 窗 3 次，1/3/9s）；PG 起不来时 gateway 的 503 `db:'down'` 降级展示语义原样复用（不重启 gateway——第一轮 §3.2 规则 3）。
 
@@ -472,10 +472,11 @@ app ready
 
 - 数据目录固定 `userData/pgdata/`（**win 真机实测路径 `%APPDATA%\@dagents\desktop\pgdata`**——Electron 对 scoped 包名 `@dagents/desktop` 原样用作目录名，含 `@` 与嵌套层级；若未来设 `productName` 改写该路径，必须携带数据目录迁移说明），README 写明路径与手动清理方法；**卸载默认不删**（NSIS 默认行为 + 不设 `deleteAppDataOnUninstall`），换安装包升级不丢数据（需求 userStory 2）。
 - 主版本内小版本升级（16.x→16.y）随包自动完成（PG 允许同 major 的 PG_VERSION 兼容启动）；**跨 major 升级不做**（pg_upgrade 复杂度不值当），README 明示。不做 docker 数据自动迁移（outOfScope），提供 pg_dump 手动迁移说明。
-- **外部 PG 回退/共存**（三层，全部「不抢连接」）：
+- **外部 PG 回退/共存**（四层，全部「不抢连接」）：
   1. `config.json` 显式 `postgres.embedded: false` → 不 spawn 内嵌 PG；
   2. `extraEnv.POSTGRES_URL` 已设（用户指向自己的 PG，含 15432 docker）→ 自动 `embedded=false`（配置合并时打 warning 说明判定依据）；
-  3. 附加模式（8080/3000 已被外部实例监听）→ 本来就不 spawn 任何东西，内嵌 PG 同样不启动。
+  3. 附加模式（8080/3000 已被外部实例监听）→ 本来就不 spawn 任何东西，内嵌 PG 同样不启动；
+  4. **dev 模式默认不启用内嵌 PG**（2026-10-07 AC 落地）：`runMode==='dev'` 且 config.json 未显式写 `postgres.embedded` 时，编排器构造期置 `embedded=false` 并记日志（`loadConfig` 的 `embeddedExplicit` 标记是唯一豁免依据）——不注入内嵌 DSN，gateway 走 `.env`/`extraEnv` 的 `POSTGRES_URL`（未设时 data-source 的 docker 默认 15432），防 dev 用户外部/docker 库被静默切到空内嵌库；packaged 默认启用不变（零配置即用）。
   外部 PG 的 db-down 引导文案（docker compose 指引）仅在 dev 模式保留；packaged 模式下 db-down 的引导是「内嵌 PG 服务卡片的恢复动作」。
 
 ### 10.5 编排器实现形态（纯度纪律延续）——M5 已落地
@@ -512,7 +513,7 @@ app ready
 - **本轮修了一个真 bug**（已落工作树）：`next.config.mjs` 的 `outputFileTracingRoot: new URL('../../', import.meta.url).pathname` 在 win 上产生 `/C:/…` 前导斜杠形态，`path.win32.relative` 算出错误相对路径——standalone 产物被**静默写进 `apps/projects/…` 垃圾树且构建 exit 0**（本机复现两轮，§16 #9）。改为 `fileURLToPath(new URL('../../', import.meta.url))` 后 standalone 正常落到 `.next-build/standalone/`（镜像仓库布局 `apps/console/ + packages/ + node_modules/`）。linux/docker 一直正常（pathname 在 POSIX 无此病），此修复对 Docker 无行为影响。
 - **win 本机构建的符号链接权限门（如实记录，未绕过）**：Next 的 copyTracedFiles 对 pnpm 布局用 `fs.symlink` 复建符号链接（next/dist/build/utils.js:1219-1222），win 上无 Developer Mode/管理员时 EPERM——本机实测 symlink 探针 DENIED、构建在 standalone 尾段报 `EPERM symlink` 且 server.js 未写出。**对策**：本机构建完整安装包需开一次 Windows 开发者模式（设置→隐私和安全性→开发者选项，或管理员终端跑 dist:win）；stage-stack.mjs 检测构建日志含 EPERM 时给出一句话指引后非零退出。CI 侧 linux/mac 无此问题；GH windows runner 进程提权运行、预期可建（**未本机验证**，desktop.yml win job 是验证点，若踩中则 win 安装包改由本机开启开发者模式产出——README 已有「安装包取得方式」双通道）。
 - 拉起：`ELECTRON_RUN_AS_NODE=1 <execPath> server.js`，env `PORT=3000 HOSTNAME=127.0.0.1 GATEWAY_URL=http://localhost:8080 NODE_ENV=production`（HOSTNAME 语义=docker-entrypoint L117 的 0.0.0.0 改本机回环——桌面形态无需对外）；`.next/static` 与 `public` 按 standalone 约定摆到 server.js 旁的对应位置。
-- **distDir 约定**：打包构建用 `NEXT_DIST_DIR=.next-build`（不踩 dev 的 `.next`——AGENTS.md 已知问题），standalone 内部路径随 distDir 镜像（`standalone/apps/console/.next-build/server.js`），stage-stack.mjs 按此定位并在缺失时报错。`.next-build` 补进根 `.gitignore`（现状未忽略，实测 `git status` 暴露）。
+- **distDir 约定**：打包构建用 `NEXT_DIST_DIR=.next-build`（不踩 dev 的 `.next`——AGENTS.md 已知问题），standalone 内部路径随 distDir 镜像（`standalone/apps/console/.next-build/server.js`），stage-stack.mjs 按此定位并在缺失时报错。`.next-build` 出口补进 `apps/console/.gitignore`（嵌套落位——根 `.gitignore` 无该条目；实测 `git status` 干净）。
 
 ### 11.4 打包布局与模式开关
 
@@ -532,7 +533,7 @@ resources/                          ← process.resourcesPath
 - 源 staging 目录 `apps/desktop/stage/`：`.gitignore` 补条目 + **`.dockerignore` 补条目**（现状两处均未覆盖该路径——`.dockerignore` 的 `dist/`/`.next/` 是顶层锚定，嵌套目录不命中；bfac702 的教训是 desktop 物料进构建上下文会弄挂镜像，双护不可省）。asar 只装 desktop 自身 dist（files 不变），服务栈/pg 全在 extraResources（不进 asar——node-pty 等原生/文件 glob 资源本就不该进 asar）。
 - **模式开关（三级，零配置默认 packaged）**：
   1. `resources/services/gateway` 存在 → **packaged 模式**（默认形态）：spawn 全走 §11.1 命令；repoRoot 不再需要。
-  2. `config.json` 显式 `mode: 'dev'` → dev 模式（现行为：发现 repoRoot + pnpm dev 栈 + 依赖外部 PG）——需求 userStory「开发者仍可指向仓库 dev 栈」。
+  2. `config.json` 显式 `mode: 'dev'` → dev 模式（现行为：发现 repoRoot + pnpm dev 栈 + 依赖外部 PG——**默认不启用内嵌 PG**，显式 `postgres.embedded:true` 才启用，见 §10.4 第 4 层）——需求 userStory「开发者仍可指向仓库 dev 栈」。
   3. 附加模式（8080/3000 已监听）→ 不 spawn（现行为保留，内嵌 PG 也不启动）。
 - `dist:win` 扩展为完整打包入口：`pnpm run build && ensure:electron && ensure:postgres && stage-stack && electron-builder --win nsis`；CI desktop.yml 四 job 各加 ensure:postgres（按 matrix 平台取包）与 stage-stack 步骤。
 

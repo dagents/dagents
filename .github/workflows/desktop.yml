@@ -78,11 +78,14 @@ jobs:
       - name: Ensure electron binary
         run: pnpm --filter @dagents/desktop run ensure:electron
 
-      # 内嵌 PG 二进制（按 matrix 平台取 @embedded-postgres tarball；镜像可覆盖）
+      # 内嵌 PG 二进制（按 matrix 平台取 @embedded-postgres tarball；镜像可覆盖）。
+      # arch 必须传 matrix 目标值：mac-x64 job 跑在 macos-latest（ARM runner）交叉出
+      # x64 dmg——按运行器 arch 取包会错拿 darwin-arm64 二进制。
       - name: Ensure embedded postgres
         run: pnpm --filter @dagents/desktop run ensure:postgres
         env:
           DAGENTS_DESKTOP_PG_MIRROR: ${{ vars.DAGENTS_DESKTOP_PG_MIRROR || 'https://registry.npmmirror.com' }}
+          DAGENTS_DESKTOP_PG_ARCH: ${{ matrix.arch }}
 
       # 服务栈 staging：gateway deploy + console standalone 三件套 → stage/services
       - name: Stage service stack

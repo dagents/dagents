@@ -14,6 +14,13 @@ import type { ServiceSupervisor, SupervisorDeps, SupervisorOptions } from './sup
 export const PG_PORT_DEFAULT = 55432
 /** 端口让位上限（+1 递增探测次数，docs §10.3）。 */
 export const PG_PORT_MAX_TRIES = 20
+/**
+ * 建库连接的崩溃恢复窗口（docs §10.2 建库注，2026-10-07 真机缺陷①）：
+ * 非干净关机后的下一次启动，postgres 端口已 accept（TCP 探活过）但仍在 crash
+ * recovery——建库连接吃 FATAL 'the database system is starting up'。窗口内每 1s
+ * 重试；耗尽才判死（实测恢复常在秒级，30s 覆盖 PG 大数据目录的恢复期）。
+ */
+export const ENSURE_DB_RETRY_WINDOW_MS = 30_000
 export const PG_SUPERUSER = 'dagents'
 export const PG_DATABASE = 'dagents'
 export const PG_HOST = '127.0.0.1'
@@ -314,13 +321,27 @@ export class PgServiceController {
       )
     }
 
-    // 4. 建库（tarball 无 createdb；pg 驱动幂等 CREATE DATABASE）
+    // 4. 建库（tarball 无 createdb；pg 驱动幂等 CREATE DATABASE）。
+    //    崩溃恢复窗口有界重试（ENSURE_DB_RETRY_WINDOW_MS）：非干净关机后端口已开但
+    //    'the database system is starting up'——单次失败即判死会让下一次启动卡
+    //    failed 等人工「重试初始化」（真机缺陷①，重试即恢复）。
     this.message = 'Postgres 已监听，正在确保数据库存在…'
     this.opts.emit()
-    try {
-      await this.ensureDatabase()
-    } catch (e) {
-      return fail(`建库失败：${e instanceof Error ? e.message : String(e)}`)
+    const ensureDbDeadline = this.deps.now() + ENSURE_DB_RETRY_WINDOW_MS
+    for (;;) {
+      try {
+        await this.ensureDatabase()
+        break
+      } catch (e) {
+        const msg = e instanceof Error ? e.message : String(e)
+        if (this.deps.now() >= ensureDbDeadline) {
+          return fail(`建库失败：${msg}`)
+        }
+        this.log(`建库暂不可用（${msg}）——数据库可能处于崩溃恢复窗口，1s 后重试`)
+        this.message = '数据库崩溃恢复中，等待就绪…'
+        this.opts.emit()
+        await new Promise<void>((r) => this.deps.setTimer(() => r(), 1_000))
+      }
     }
 
     // 5. 迁移（幂等；失败 → gateway 不启动，对齐 docker-entrypoint 语义）

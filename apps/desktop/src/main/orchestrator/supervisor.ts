@@ -418,6 +418,17 @@ export class Orchestrator {
           })
         : make('console'),
     }
+    // dev 模式默认不启用内嵌 PG（AC-7④，docs §10.4 第 4 层/§11.4）：dev 用户的外部/
+    // docker 库不得被静默切到空内嵌库——编排器跳过内嵌 PG、不注入 DSN，gateway 走
+    // .env/extraEnv 的 POSTGRES_URL（未设时 data-source 的 docker 默认 15432）。
+    // 豁免：config.json 显式 postgres.embedded=true（loadConfig 标记 embeddedExplicit）。
+    if (this.runMode === 'dev' && config.postgres.embedded && !config.postgres.embeddedExplicit) {
+      config.postgres.embedded = false
+      deps.log(
+        'pg',
+        'dev 模式默认不启用内嵌 Postgres——gateway 连外部库（POSTGRES_URL 未设时走 docker 默认 15432）；需要内嵌时在 config.json 写 "postgres": {"embedded": true}'
+      )
+    }
     // pgPaths 缺省时按 monorepo 布局从 repoRoot 推（dev：desktop 包在 apps/desktop 下；
     // packaged 形态由 index.ts 显式传 resources 下的路径）
     this.pg =
@@ -449,15 +460,19 @@ export class Orchestrator {
     const gatewayAttached = await this.deps.isPortOpen(this.config.services.gateway.port)
     if (gatewayAttached) {
       this.pg.markSkipped('附加模式：gateway 端口已被外部实例监听——不启动内嵌 Postgres（外部栈自带数据库）')
-    } else if (this.pg.enabled) {
+    } else {
+      // enabled=false（显式关 / extraEnv.POSTGRES_URL 自动关 / dev 默认关）时 start()
+      // 走 markSkipped 诚实标记并返回 ok + 空 dsn——gateway 照常启动连外部库，不注入。
       const ready = await this.pg.start()
       if (!ready.ok) {
         this.deps.log('pg', `内嵌 Postgres 未就绪，gateway 不启动（对齐 docker-entrypoint 语义）`)
         this.emit()
         return
       }
-      this.gatewayEnv.POSTGRES_URL = ready.dsn
-      this.deps.log('pg', `gateway 将注入 POSTGRES_URL=${ready.dsn}`)
+      if (ready.dsn !== '') {
+        this.gatewayEnv.POSTGRES_URL = ready.dsn
+        this.deps.log('pg', `gateway 将注入 POSTGRES_URL=${ready.dsn}`)
+      }
     }
     void this.supervisors.gateway.start()
     void this.supervisors.console.start()

@@ -24,9 +24,13 @@ import { fileURLToPath } from 'node:url'
 
 const PG_VERSION = '16.14.0-beta.17'
 
-// 平台映射（CI matrix ↔ 包名；windows-arm64 包不存在于 registry——win 目标仅 x64）
+// 平台映射（CI matrix ↔ 包名；windows-arm64 包不存在于 registry——win 目标仅 x64）。
+// arch 优先取 DAGENTS_DESKTOP_PG_ARCH（CI 交叉编译场景：desktop.yml 的 mac-x64 job
+// 跑在 macos-latest（ARM runner）交叉出 x64 dmg——按运行器 arch 取包会把 darwin-arm64
+// 的 PG 二进制打进 x64 安装包；workflow 显式传目标 arch，缺省回落运行器自身）。
 function platformPackage() {
-  const { platform, arch } = process
+  const { platform } = process
+  const arch = process.env.DAGENTS_DESKTOP_PG_ARCH || process.arch
   if (platform === 'win32' && arch === 'x64') return 'windows-x64'
   if (platform === 'linux' && arch === 'x64') return 'linux-x64'
   if (platform === 'darwin' && arch === 'x64') return 'darwin-x64'

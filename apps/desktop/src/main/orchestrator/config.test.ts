@@ -50,6 +50,7 @@ describe('defaultConfig', () => {
     expect(c.extraEnv).toEqual({})
     expect(c.postgres).toEqual({
       embedded: true,
+      embeddedExplicit: false,
       port: 55432,
       dataDir: null,
       binDir: null,
@@ -206,12 +207,29 @@ describe('postgres.* 与 mode 合并（docs §10.4 三层不抢连接）', () =>
     expect(warnings).toEqual([])
     expect(config.postgres).toEqual({
       embedded: false,
+      embeddedExplicit: true,
       port: 60432,
       dataDir: 'D:/pgdata',
       binDir: 'D:/pgbin',
       migrateScript: 'D:/m.mjs',
       pgRequireRoot: 'D:/gw',
     })
+  })
+
+  it('embeddedExplicit 标记（dev 默认关内嵌 PG 的豁免依据，AC-7④）', () => {
+    const mk = (postgres: unknown) =>
+      loadConfig({
+        userDataDir: 'C:/ud',
+        startDir: 'C:/r',
+        deps: mkDeps({
+          'C:/ud/config.json': JSON.stringify({ postgres }),
+          'C:/r/pnpm-workspace.yaml': '',
+        }),
+      }).config.postgres.embeddedExplicit
+    expect(mk(undefined)).toBe(false) // 未写 postgres/embedded → 默认（dev 门控生效）
+    expect(mk({ port: 55432 })).toBe(false) // 写了 postgres 但未写 embedded → 默认
+    expect(mk({ embedded: true })).toBe(true) // 显式 true → dev 豁免
+    expect(mk({ embedded: false })).toBe(true) // 显式 false → 第①层显式关
   })
 
   it('第②层回退：extraEnv.POSTGRES_URL 已设 → embedded 自动关 + warning', () => {

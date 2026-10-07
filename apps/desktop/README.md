@@ -20,15 +20,16 @@
 - **不做 docker 数据自动迁移**：首轮用户的 infra docker PG（15432）数据请用 `pg_dump`/`pg_restore` 手动搬迁。
 - **跨 major 版本升级不做**（16 → 17 需 pg_upgrade，outOfScope）；同 major（16.x）随包自动兼容。
 - **异常关机残留 `postmaster.pid`**：若属主进程已死会在启动时自动清锁（PG 认可的 stale lock 处置，不动数据）；若属主进程还活着则诚实报错并列出 PID。
-- **外部 PG 三层「不抢连接」**：① `postgres.embedded:false` 显式关；② `extraEnv.POSTGRES_URL` 已设 → 内嵌自动关（启动日志 warning 说明）；③ 附加模式本就不启动。
+- **外部 PG「不抢连接」四层**：① `postgres.embedded:false` 显式关；② `extraEnv.POSTGRES_URL` 已设 → 内嵌自动关（启动日志 warning 说明）；③ 附加模式本就不启动；④ **dev 模式默认关**（未显式 `embedded` 时编排器默认跳过内嵌 PG——见上；显式 `true` 是唯一豁免）。
 - 供应链：PG 二进制不进 package.json/lockfile（主包会拉全 8 平台、平台包带 postinstall）——`scripts/ensure-postgres.mjs` 显式下载（默认镜像 registry.npmmirror.com，`DAGENTS_DESKTOP_PG_MIRROR` 可覆盖，`DAGENTS_DESKTOP_SKIP_POSTGRES=1` 短路），缓存于 `apps/desktop/stage/pg-cache/`（gitignore + dockerignore 双护）。
 
 ## 诚实边界（当前）
 
-- **dev 栈形态**（仓库内 `pnpm dev`）需要本机有 dagents 仓库检出 + pnpm + node，且先跑 `pnpm --filter @dagents/desktop ensure:postgres` 取 PG 二进制（dev 一次 37MB 下载，缓存复用）；**安装包形态（packaged）零外部依赖**。
+- **dev 栈形态**（仓库内 `pnpm dev`）需要本机有 dagents 仓库检出 + pnpm + node；**dev 模式默认不启用内嵌 PG**（2026-10-07 起：编排器跳过内嵌 PG 且不注入 DSN——gateway 走 `.env`/`extraEnv` 的 `POSTGRES_URL`，未设时即 data-source 的 docker 默认 15432，防止 dev 用户的外部/docker 数据被静默切到空内嵌库）；要在 dev 用内嵌 PG 需显式 `"postgres": {"embedded": true}` 并先跑 `pnpm --filter @dagents/desktop ensure:postgres` 取二进制（37MB 下载，缓存复用）；**安装包形态（packaged）零外部依赖**（内嵌 PG 默认启用不变）。
 - 打包（`dist:win`）是完整链 `build → ensure:electron → ensure:postgres → stage-stack → package-win`：staging 阶段做 gateway deploy + console standalone 构建 + **pnpm 平铺规整**（分发链不支持 symlink，详见架构文档 §11.4.1）；win 构建依赖 `patches/next@15.5.20.patch`（junction 兜底，无需开发者模式）；末步 package-win.mjs 包装 electron-builder——旧 `release/win-unpacked` 被外部进程句柄锁死（EBUSY）时自动换道 `release-stale-N/` 出包（句柄释放后下轮回原位；CI 直调 electron-builder 不受影响）。
 - 实测 win 安装包 ~494MB（PG DLL 与 node-pty 原生二进制压缩率低；无体积 KPI）。
 - 端口锁定 8080/3000（console BFF 只认 `GATEWAY_URL`），配置里写别的端口会被拒绝并回落默认；**PG 端口不锁**（默认 55432 可配 1024-65535，冲突自动让位）。
+- **`ELECTRON_RUN_AS_NODE` 会随 env 传给孙进程**（架构文档 R10 边界）：packaged 形态下 gateway/console 经 `dagents.exe` 以 node 模式拉起，该 env 会原样继承给 gateway 再 spawn 的 CLI agent（claude/codex 等）——它们是原生/node 程序**不受影响**；**仅当**你的 CLI agent 本身是 Electron GUI 应用（现网无此形态）时，它会被该变量切到 node 模式而无法弹窗。逃生门：`config.json` 的 `services.*.command` 可改为包装脚本（先剥离 `ELECTRON_RUN_AS_NODE` 再 exec 真 CLI，win 形如 `cmd /c "set ELECTRON_RUN_AS_NODE= && <realcli> %*"`）；`extraEnv` 注入的变量同样随环境传到孙进程，可作包装脚本的参数通道。
 - 不做自动更新/托盘/远程 gateway/深链（outOfScope，详见架构文档 §1）。
 
 ## 安装包未签名说明
@@ -56,7 +57,7 @@
     "gateway": { "command": "pnpm", "args": ["--filter", "@dagents/gateway", "dev"], "port": 8080 },
     "console": { "command": "pnpm", "args": ["--filter", "@dagents/console", "dev"], "port": 3000 }
   },
-  "postgres": {                            // 内嵌 PG（M5）；设 extraEnv.POSTGRES_URL 会自动 embedded:false
+  "postgres": {                            // 内嵌 PG（M5）；设 extraEnv.POSTGRES_URL 会自动 embedded:false；dev 模式默认不启用，需显式 embedded:true（见「诚实边界」）
     "embedded": true,
     "port": 55432,                         // 默认端口（不锁值）；被占自动 +1 让位（≤20 次）
     "dataDir": null,                       // null = userData/pgdata（绝对路径可覆盖）
