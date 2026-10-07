@@ -29,6 +29,10 @@ COPY packages/db/package.json packages/db/
 COPY packages/workflow/package.json packages/workflow/
 COPY packages/agent-adapters/package.json packages/agent-adapters/
 COPY packages/daemon/package.json packages/daemon/
+# Manifest only — the lockfile carries the apps/desktop importer, so its
+# package.json must exist or --frozen-lockfile fails with exit 254 (lockfile ↔
+# workspace mismatch). Source stays excluded; the build filter below skips it.
+COPY apps/desktop/package.json apps/desktop/
 
 # Build toolchain for node-pty: its npm tarball ships prebuilds only for
 # win32/darwin — on linux the native module must be compiled at install time
@@ -98,6 +102,9 @@ COPY --from=builder /app/packages/shared/package.json ./packages/shared/
 COPY --from=builder /app/packages/db/package.json ./packages/db/
 COPY --from=builder /app/packages/workflow/package.json ./packages/workflow/
 COPY --from=builder /app/packages/agent-adapters/package.json ./packages/agent-adapters/
+# Same importer-consistency rule as the builder: the prod install below also
+# reads the full lockfile. Desktop is devDeps-only, so --prod installs nothing.
+COPY --from=builder /app/apps/desktop/package.json ./apps/desktop/
 
 # corepack again so the runtime pnpm matches the builder's (needed by the
 # entrypoint's migration filter). The runtime install keeps .npmrc's
