@@ -56,7 +56,7 @@
 {
   "mode": "auto",                           // auto = 按内嵌栈在位探测（默认：安装包→packaged，仓库内→dev）；显式 dev/packaged 钉死形态
   "repoRoot": "C:/projects/dagents",       // dev 形态服务 spawn 的 cwd；缺省=从 app 路径向上找 pnpm-workspace.yaml（packaged 形态不使用）
-  "consoleUrl": "http://localhost:3000",   // 就绪接管加载的 URL
+  "consoleUrl": "",                        // 接管工作台 URL。不写（或 ""）= 由端口计划派生 http://localhost:<console 实际端口>（让位/附加后端口仍正确）；显式写 http(s) URL 则接管 URL 以它为准（逃生门），端口计划的让位派生值不生效（启动日志告警）；非 http(s) 值回落派生 + 告警
   "services": {
     "gateway": { "command": "pnpm", "args": ["--filter", "@dagents/gateway", "dev"], "port": 8080 },
     "console": { "command": "pnpm", "args": ["--filter", "@dagents/console", "dev"], "port": 3000 }
@@ -75,7 +75,7 @@
 }
 ```
 
-`port` 字段只在等于默认值时被接受（其余回落 + 启动日志告警）。子进程日志落盘 `userData/logs/<svc>.log`（10MB 单代轮转），排障先看这里。
+`port` 字段接受 1024-65535：写**非默认**端口值即**钉死**（被陌生程序占用时诚实失败不让位，见上「端口语义」）；写默认值与不写行为一致（作为让位探测起点）。子进程日志落盘 `userData/logs/<svc>.log`（10MB 单代轮转），排障先看这里。
 
 ## 开发
 

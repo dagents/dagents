@@ -225,7 +225,7 @@ idle ──start──▶ starting ──spawn ok──▶ waiting_health ──
   ```ts
   interface DesktopConfig {
     repoRoot: string                       // 默认：dev 模式下取 app 进程 cwd 向上找 pnpm-workspace.yaml
-    consoleUrl: string                     // 默认 http://localhost:3000
+    consoleUrl: string                     // 默认 ''——由端口计划派生（§18.2）；显式 http(s) 值=接管 URL 逃生门
     services: {
       gateway:  { command: string; args: string[]; port: number }   // 默认 pnpm --filter @dagents/gateway dev / 8080
       console:  { command: string; args: string[]; port: number }   // 默认 pnpm --filter @dagents/console dev / 3000
@@ -745,7 +745,8 @@ PortPlan { gateway: {mode:'attach'|'spawn'|'failed', port, yielded, reason},
            console: {...同构...},
            pg:      {port, yielded}|null（skipped 时 null）,
            gatewayUrl: `http://localhost:${gateway.port}`   ← 派生
-           consoleUrl: `http://localhost:${console.port}`   ← 派生，接管窗口唯一 URL 源 }
+           consoleUrl: `http://localhost:${console.port}`   ← 派生，接管窗口唯一 URL 源
+                                                               （config.consoleUrl 显式值优先——见下条） }
 ```
 
 | 注入点 | env/值 | 落点（现状 → 目标） |
@@ -760,6 +761,8 @@ PortPlan { gateway: {mode:'attach'|'spawn'|'failed', port, yielded, reason},
 | 健康探测 | 实际端口 | `supervisor.ts` `portOf`（`supervisor.ts:143-147` 读 config 固定值）→ 读 plan（`SupervisorOptions.port` 已支持注入，pg 先例 `pg-service.ts:311`） |
 | 快照 facts / 状态页 | 全矩阵 | `DesktopSnapshot.config`（`types.ts:109-128`）增 `gatewayYielded/consoleYielded` + 各服务 `message` 沿用 pg yielded 文案语义（`pg-service.ts:81-85,403-407` 平移：「端口 :3001（默认 3000 被占用，已让位）」/「附加模式（检测到 dagents 实例）」/「dev 形态固定端口被占——腾端口或改 packaged 形态」） |
 | 渲染层文案 | 动态 | `renderer/status.ts:60-61` 静态「端口 :8080/:3000」→ 读快照实际端口 |
+
+- **`config.consoleUrl` 优先级（显式值逃生门，实现 `config.ts:267-275` + `supervisor.ts:473-477`）**：默认 `''` = 由端口计划派生（上式——让位/附加形态下接管端口天然正确）；`config.json` 显式写合法 http(s) URL 时**接管 URL 以它为准**（附加到远程/自定义地址的逃生门），端口计划的让位派生值**不生效**——加载时 warning 明示、非 http(s) 值回落派生 + 告警，既有配置面绝不静默失效（写死 `http://localhost:3000` 的旧配置在让位形态下会接管到错误端口，告警即提示撤掉显式值）。运行时单源是 `supervisor.ts` 的 `consoleUrl()` getter（显式值 → plan 派生 → config 默认端口三级），下游（takeover / 菜单「在浏览器打开」/ 导航防护 allowlist）全部经 getter 现读（§18.7 #4/#5）。
 
 **时序**：`Orchestrator.startAsync`（`supervisor.ts:459-479`）开头先求 `PortPlan`（探测+身份判别，一次），再按现编排走 pg bootstrap → gateway/console spawn/attach。plan 存 orchestrator 实例字段，`restartAll`（`supervisor.ts:511-514`）重跑 startAsync 时**重新求 plan**（重探测+重判别——§18.7 自愈入口）；单服务有界重启（状态机内）**复用 plan 同端口**（见 §18.7 竞态决策）。
 
