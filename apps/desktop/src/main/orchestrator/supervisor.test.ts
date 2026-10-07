@@ -538,6 +538,61 @@ describe('Orchestrator 门面', () => {
     expect(snap.config.consolePort).toBe(3000)
     expect(snap.services.console.state).toBe('running')
   })
+
+  it('探测-绑定竞态自愈（§18.6 全链）：让位端口被抢→bind 失败有界重试→耗尽诚实 failed→restartAll 重求 plan 恢复', async () => {
+    const world = new FakeWorld()
+    const cfg = twoServiceConfig()
+    const realSpawn = world.deps.spawnService.bind(world.deps)
+    const realHttpGet = world.deps.httpGet.bind(world.deps)
+    let raceActive = true // 探测后抢注开关（耗尽判死后关掉再走恢复）
+    let consoleSpawns = 0
+    // 竞态模拟：console 每次 spawn 紧跟「外部抢注 3001 + 子进程退出」——
+    // bind EADDRINUSE 即退出的物理事实（§18.10 #3 实测竞态窗口存在）
+    world.deps.spawnService = (id, spec) => {
+      const handle = realSpawn(id, spec)
+      if (id === 'console' && raceActive) {
+        consoleSpawns++
+        world.openPorts.add(3001)
+        queueMicrotask(() => (handle as FakeSpawnHandle).markExited(1))
+      }
+      return handle
+    }
+    // 健康路由：gateway 恒健康；console 健康按 3001 占用状态分叉（抢注者是陌生 web 服务）
+    world.deps.httpGet = async (url, timeoutMs) => {
+      if (timeoutMs >= 10_000) return { status: 200, body: '<title>Vite + TS</title>' } // 身份问询恒陌生
+      if (url.includes('/health')) return { status: 200, body: '{"ok":true,"svc":"gateway","db":"up"}' }
+      if (url.endsWith(':3001/')) {
+        return world.openPorts.has(3001)
+          ? { status: 200, body: '<title>SomeOtherApp</title>' }
+          : { status: 200, body: DAGENTS_HTML }
+      }
+      return realHttpGet(url, timeoutMs)
+    }
+
+    const orch = new Orchestrator(cfg, world.deps, { runMode: 'packaged' })
+    world.openPorts.add(3000) // 陌生程序占默认 → 计划让位 3001
+    orch.start()
+    await world.advance(10)
+    await world.advance(25_000) // 退避 1/3/9s × 3 次重启全部耗尽（§3.2 有界语义）
+
+    const failed = orch.snapshot()
+    expect(failed.config.consoleYielded).toBe(true) // 计划曾让位（快照如实）
+    expect(failed.services.console.state).toBe('failed') // 预算耗尽诚实 failed
+    expect(failed.services.console.message).toContain('预算耗尽')
+    expect(consoleSpawns).toBe(4) // 初次 + 3 次重启，第 4 次退出后判死（不无限重试）
+    expect(failed.services.gateway.state).toBe('running') // gateway 不受牵连
+
+    // 一键重启（菜单「重启服务」通道）：抢占者退场 → 重求 plan → 让位 3001 自起恢复
+    raceActive = false
+    world.openPorts.delete(3001)
+    await orch.restartAll()
+    await world.advance(10)
+    await world.advance(600)
+    const recovered = orch.snapshot()
+    expect(recovered.services.console.state).toBe('running')
+    expect(recovered.config.consolePort).toBe(3001) // 3000 仍被占 → 依旧让位 3001
+    expect(recovered.phase).toBe('console') // 双健康恢复接管
+  })
 })
 
 describe('内嵌 PG 编排（M5，docs §10.2 + §18 端口计划）', () => {

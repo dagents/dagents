@@ -208,10 +208,11 @@ function wireShellCompatibility(consoleUrl: () => string): void {
     //   同源 → 受管子窗（继承 preload、0.8×主窗、24px 级联；title 随页面文档 C15）
     //   异源 http(s)/mailto（含 :8080/:3001）→ 系统默认浏览器
     //   其余协议 → deny（无裸 Electron 子窗口）
-    // origin 每次现读 getter（端口让位后 restartAll 会换 origin，docs §18.2）
-    const consoleOrigin = consoleOriginOf(consoleUrl())
+    // origin 必须在 handler 回调内现读 getter（docs §18.2）：主窗创建早于端口计划求出
+    // （startAsync 在窗口创建后才跑），创建期捕获会把 origin 钉死在默认 :3000——让位
+    // 形态下同源链接被误判 external 进系统浏览器（M10 S6 真机抓到的 M8 回归）。
     wc.setWindowOpenHandler(({ url }) => {
-      const decision = classifyOpenUrl(url, consoleOrigin)
+      const decision = classifyOpenUrl(url, consoleOriginOf(consoleUrl()))
       if (decision === 'managed') {
         expectManagedChild()
         const main = getMainWindow()

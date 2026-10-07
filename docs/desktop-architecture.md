@@ -834,17 +834,35 @@ PortPlan { gateway: {mode:'attach'|'spawn'|'failed', port, yielded, reason},
 - **win 本机三场景实测**（哑 listener = M5-4 同款真实证手法）：①哑 listener 占三默认端口 → packaged 启动全让位 + 窗口接管 + WS 可用（CDP 断言 wsUrl）+ 状态页让位明示；②真 dev 栈在跑（pnpm dev）→ 双附加不 spawn 不代杀，退出 dev 栈存活；③dev 形态 + 哑 listener 占 8080 → 诚实失败 + 指引文案。
 - **零回归复验**：第一、二轮清单逐条（packaged 全新机器 30s 就绪 / 优雅退出三端口+进程净 / 卸载保 pgdata / dev 全链 / U1·U2 项）；根门禁 `pnpm test && pnpm lint && pnpm typecheck` turbo 全绿；linux CI desktop 测试归绿（遗留债①清偿后）。
 
-### 18.9 第三轮里程碑
+### 18.9 第三轮里程碑（全部落地：M8=429df11 · M9=a84046c · M10=本轮提交）
 
 | # | 里程碑 | 交付内容 | 验收口径 |
 |---|---|---|---|
-| M8 | **分配+注入骨架 + 门禁全绿** | `port-plan.ts`/`identity.ts` 纯函数层（含单测）；config 钉死语义（LOCKED_PORTS 退役）；run-mode/supervisor/index/takeover 注入链接线（consoleUrl getter 化）；**同文件同轮清偿遗留债①**（config.test C:/ 族 + pg-service.test platformExe 夹具平台无关化） | 根命令三件套全绿；win 本机：场景①（哑 listener 占三端口 → packaged 全让位 + 双健康接管）+ 场景③（dev 固定端口诚实失败）实测过；场景②附加回归不破；linux CI desktop 测试归绿 |
-| M9 | **消费面收编 + console 直连面** | 快照/状态页/菜单/导航防护全量单源（含 status.ts 文案）；console `/api/runtime` 路由 + ws-client/daemons-view 运行时解析；README 端口节改写 + AGENTS.md 端口表注 | win 本机：让位形态下 WS 直连可用（CDP 断言 connected）、daemons 命令地址正确；fetch 失败降级路径（拔 GATEWAY_URL）不回归；smoke.mjs 增冲突模式断言让位端口 |
-| M10 | **混合态 + 竞态自愈 + 全量回归收口** | 混合态矩阵实测（gateway 附加+console 让位）；restartAll 重探测链路验证；第一、二轮验收清单逐条复验；文档终态 | win 本机：混合态（真 dev 栈占 8080 + 哑 listener 占 3000）全链可用且状态页如实分标；优雅退出实际端口全净；U1/U2 零回归；根门禁最终态全绿 |
+| M8 ✅ | **分配+注入骨架 + 门禁全绿** | `port-plan.ts`/`identity.ts` 纯函数层（含单测）；config 钉死语义（LOCKED_PORTS 退役）；run-mode/supervisor/index/takeover 注入链接线（consoleUrl getter 化）；**同文件同轮清偿遗留债①**（config.test C:/ 族 + pg-service.test platformExe 夹具平台无关化） | 根命令三件套全绿（turbo 14/14·9/9·14/14）；win 本机三场景 25 项 ALL PASS；linux CI 失败源构造性归零 |
+| M9 ✅ | **消费面收编 + console 直连面** | 快照/状态页/菜单/导航防护全量单源（含 status.ts 文案）；console `/api/runtime` 路由 + ws-client/daemons-view 运行时解析；README 端口节改写 + AGENTS.md 端口表注 | win 本机：让位形态 WS 直连（CDP 页面内 /api/runtime + dagents.exe ESTABLISHED 跨采样证据）+ daemons 地址正确 + 拔 GATEWAY_URL 降级不回归；smoke 冲突模式 exit 0 |
+| M10 ✅ | **混合态 + 竞态自愈 + 全量回归收口** | 混合态矩阵实测（gateway 附加+console 让位）；restartAll 重探测链路验证（单测+真机）；第一、二轮验收清单逐条复验；**S6 抓到并修复 M8 回归**（setWindowOpenHandler 闭包钉死默认 origin——主窗创建早于端口计划，同源链接让位形态下误入系统浏览器；改 handler 回调内现读 getter）；文档终态 | 本节 §18.10 落地证据表 |
 
 ### 18.10 第三轮实测证据表（win32 真机，2026-10-07，全部本 session 实跑）
 
 环境：Windows 10 19045，node v22.23.3；探测脚本落 `%TEMP%\dagents-port-audit\`（后即删）；打包产物取 `apps/desktop/release-m6b/win-unpacked/resources/services/`（d9f40ef 验收过的同一份物料）。
+
+**落地证据表（M8-M10 实施侧，win32 真机全实跑；M8/M9 见对应提交说明，此处收口 M9 WS/CDP 与 M10 全量）**：
+
+| # | 里程碑 | 命令/操作 | 结果 |
+|---|---|---|---|
+| L1 | M9 | dist:win 全链重建 + console 级验收（release 产物 standalone + 注入 env） | `/api/runtime` 在让位端口形态（gateway@8081/BFF 注入同款）返回 `{gatewayUrl:8081, wsUrl:ws://8081/ws}`；wsUrl 真拨（Node WebSocket）open 成功；**拔 GATEWAY_URL → 双双默认 8080 回落（降级不回归）**——5/5 |
+| L2 | M9 | Electron 打包全链 CDP（哑 listener 占三默认端口 + `--remote-debugging-port`） | 三服务让位 8081/3001/55433 + `/health svc=gateway db=up` + 窗口接管 :3001（takeover=1/rollback=0）+ **页面内**（表达式自带 location.href 自证）`fetch('/api/runtime')` → 200 实际端口 payload + **WS 直连证据**：netstat 双采样（隔 4s）均存在属主为 dagents.exe 的 :8081 ESTABLISHED（长连跨采样窗=WS；健康探测是毫秒级瞬态）+ 树终止让位端口全释放——9/9 |
+| L3 | M9 | `node scripts/smoke.mjs conflict` / 默认模式 | 冲突模式 exit 0（netstat 断言 8081/3001/55433 LISTENING + 哑 listener 存活 + 树终止释放）；默认模式回归 exit 0 |
+| L4 | M10 | 混合态矩阵（真 dagents gateway@8080 附加 + 哑 listener@3000 让位自起，orchestrator 直驱打包物料） | gateway attachMode+卡标「附加模式」；console 让位自起 :3001（consoleYielded+文案）；pg skipped；**console BFF GATEWAY_URL 指附加实例**（:3001 `/api/gateway-health` reachable + `/api/runtime` gatewayUrl=8080）；stopAll 后外部 gateway 存活（不代杀）——10/10 |
+| L5 | M10 | 探测-绑定竞态自愈（deps.isPortOpen 注入钩子：探测 3001 空闲应答前真实抢注） | 真 bind 失败→有界重试 1/3/9s×3 **耗尽≈15s 诚实 failed（预算耗尽文案）**、抢注者未被误杀、gateway 不受牵连；**一键重启（restartAll=菜单「重启服务」通道）重求 plan**→console 让位自起恢复 :3001→phase console→stopAll 全净——7/7（FakeWorld 单测同链路 39/39 钉住） |
+| L6 | M10 | packaged 全新机器（全新 userData/pgdata） | **就绪 10.7s ≤30s**（initdb→迁移→gateway→console→双健康）；默认端口三件套无让位；优雅退出 8080/3000/55432 全释放；**停库后 pgdata/PG_VERSION+base 保留**（nsis 卸载保留 userData 的配置侧证：electron-builder.yml nsis 块默认不删）——6/6 |
+| L7 | M10 | dev 全链（真实 `pnpm --filter @dagents/gateway|console dev` + 显式 embedded PG） | 固定端口三件套 **55432/8080/3000 零漂移**；gateway dev 健康 svc=gateway db=up（内嵌 DSN 注入生效）；console dev 首页 title=Dagents；BFF `/api/runtime` 默认 8080（零注入差异）；优雅退出 dev 栈三端口全释放（pnpm 树终止）——5/5；另 dev+陌生占用 8080 → 诚实 failed 带指引不盲附加（三场景③复验）——2/2 |
+| L8 | M10 | U2 敏感面复验（真 exe 让位形态；M8/M9 在 U1/U2 面上唯一触碰=index.ts origin/allowlist 接线，window-open-policy/managed-children/windows/window-state 四文件 M8 后零改动——git log 核实） | 异源 http → hit-server 收到请求（系统浏览器承接）+ Electron page targets 不增 ✓；file:// 导航被拦（页面仍在 :3001）✓；优雅关窗（WM_CLOSE）→ 让位端口全释放 + 哑 listener 存活 ✓；**同源受管子窗首测失败→定位为 M8 回归**（setWindowOpenHandler 闭包在主窗创建期捕获 origin=默认 :3000，早于端口计划求出——让位形态同源链接误入系统浏览器）→ 改 handler 回调内现读 getter 修复 + 重打包复验 ✓（详见 L9） |
+| L9 | M10 | L8 修复后复验（重打包 exe 同场景） | 同源 `window.open('http://localhost:3001/agents?tab=plaza')` → 受管子窗（:3001 origin）出现 + 主窗不跳转；外链/file://拦/优雅关窗不回归 |
+
+**三轮收口结论**：三场景（陌生让位/真 dagents 附加/dev 诚实失败）+ 混合态 + 竞态自愈 + 第一二轮清单（30s 就绪/优雅退出实际端口全净/卸载保 pgdata/dev 全链/U1·U2 敏感面）全绿；唯一回归（L8）已修复复验。U1/U2 深表项（终端输入流/缩放持久/localStorage 跨重启等）M10 未逐项重驱——四文件零改动 + 单测全绿 + L8/L9 复验覆盖被触碰面，全量重驱留有真实诉求时进行。
+
+（下表为设计期勘验证据，保留作机制依据）
 
 | # | 命令/操作 | 结果 |
 |---|---|---|
