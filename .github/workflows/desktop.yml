@@ -65,6 +65,19 @@ jobs:
         if: matrix.platform == 'linux'
         run: sudo apt-get update && sudo apt-get install -y --no-install-recommends python3 make g++
 
+      # GH Windows runner 的 Defender 实时防护会在 pnpm install 落盘时误杀个别构建
+      # 依赖文件（2026-10-07 三轮实证：builder-util 需要的 source-map-support 目录
+      # 在而主文件消失 → node MODULE_NOT_FOUND；linux/mac 与本机均无此象）。构建目录
+      # 与 pnpm store 加排除是 GH win runner 的标准做法（微软文档亦推荐构建目录排除）。
+      - name: Windows Defender exclusions (win only)
+        if: matrix.platform == 'win'
+        shell: pwsh
+        run: |
+          $store = (pnpm store path --silent | Out-String).Trim()
+          Add-MpPreference -ExclusionPath $env:GITHUB_WORKSPACE
+          if ($store) { Add-MpPreference -ExclusionPath $store }
+          Write-Host "Defender exclusions added: $env:GITHUB_WORKSPACE ; $store"
+
       - name: Install dependencies
         run: pnpm install --frozen-lockfile
 
@@ -91,17 +104,25 @@ jobs:
       - name: Stage service stack
         run: pnpm --filter @dagents/desktop run stage:stack
 
-      # ── win runner 链接异常对策（2026-10-07，run 37560202910/37562774716 三轮实证）──
-      # GH Windows runner 上 pnpm install 后 builder-util@26.15.3 的 node_modules 里
-      # 独缺 source-map-support（chalk/debug/js-yaml 等兄弟包全在），连 root 显式
-      # devDep 也一样缺失；同 lockfile/同 pnpm 的 linux/mac job 与本机 win 全新
-      # clone+frozen install 均无法复现。此步为构建工具环境的自愈（不影响产物：
-      # source-map-support 只被 electron-builder 构建期加载），从 .pnpm 实体包
-      # 复制到缺失位置并复核解析，兼输出三轮排查所需的在场痕迹。
+      # ── win runner source-map-support 误杀对策与诊断（2026-10-07，三轮实证）──
+      # Defender 落盘误杀假设的物证收集（Get-MpThreatDetection + 目录内容）+ 兜底
+      # 自愈（.pnpm 实体包复制补位；排除步生效后预期全 True 且无 self-healed）。
+      # 只影响构建工具环境（source-map-support 仅 electron-builder 构建期加载），
+      # 不入产物。
       - name: Trace + ensure source-map-support (win only)
         if: matrix.platform == 'win'
         shell: pwsh
         run: |
+          try {
+            Get-MpThreatDetection -ErrorAction SilentlyContinue |
+              Where-Object { "$($_.Resources)" -match 'source-map' } |
+              Select-Object -First 3 | Format-List | Out-String | Write-Host
+          } catch { Write-Host "threat query unavailable: $_" }
+          foreach ($d in @('node_modules/source-map-support')) {
+            if (Test-Path $d) {
+              Get-ChildItem $d | ForEach-Object { Write-Host ("pkg file: " + $_.Name) }
+            } else { Write-Host "pkg dir missing: $d" }
+          }
           $src = Get-ChildItem node_modules/.pnpm -Directory -Filter 'source-map-support@*' | Select-Object -First 1
           if (-not $src) { Write-Host "::error::.pnpm 无 source-map-support 实体包（store 侧缺失，需人工排查）"; exit 1 }
           $srcDir = Join-Path $src.FullName 'node_modules/source-map-support'
@@ -110,11 +131,11 @@ jobs:
               ForEach-Object { (Join-Path $_.FullName 'node_modules') + '/source-map-support' }
           )
           foreach ($t in $targets) {
-            $present = Test-Path $t
-            Write-Host ("pre-package {0} => {1}" -f $t, $present)
+            $present = Test-Path (Join-Path $t 'package.json')
+            Write-Host ("pre-package {0}/package.json => {1}" -f $t, $present)
             if (-not $present) {
-              New-Item -ItemType Directory -Force -Path (Split-Path $t) | Out-Null
-              Copy-Item -Recurse -Force $srcDir $t
+              New-Item -ItemType Directory -Force -Path $t | Out-Null
+              Copy-Item -Recurse -Force "$srcDir\*" $t
               Write-Host ("self-healed: {0}" -f $t)
             }
           }
