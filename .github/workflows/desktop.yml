@@ -104,42 +104,59 @@ jobs:
       - name: Stage service stack
         run: pnpm --filter @dagents/desktop run stage:stack
 
-      # ── win runner source-map-support 误杀对策与诊断（2026-10-07，三轮实证）──
-      # Defender 落盘误杀假设的物证收集（Get-MpThreatDetection + 目录内容）+ 兜底
-      # 自愈（.pnpm 实体包复制补位；排除步生效后预期全 True 且无 self-healed）。
-      # 只影响构建工具环境（source-map-support 仅 electron-builder 构建期加载），
-      # 不入产物。
-      - name: Trace + ensure source-map-support (win only)
+      # ── win runner source-map-support 悬空链接对策（2026-10-07 五轮实证收口）──
+      # GH Windows runner 上 pnpm install 后 builder-util 声明依赖 source-map-support
+      # 的链接位是悬空 reparse point（Get-Item 在而目标 .pnpm 包不在；chalk 等兄弟包
+      # 全正常；Defender 无检测记录、workspace+store 排除无效、同 lockfile 同 pnpm 的
+      # linux/mac job 与本机 win 全新 clone 全链复现均正常——判定为 runner 侧 pnpm
+      # 链接病，仅此一包命中）。两层确定性修复，只影响构建工具环境（该包仅美化
+      # electron-builder 构建期堆栈，不入产物）：
+      #   ① .pnpm 实体包健康 → 实体复制补位（先拆悬空链接）；
+      #   ② 兜底：builder-util 的顶层 eager require 降级为 try/catch 可选。
+      - name: Ensure source-map-support resolvable (win only)
         if: matrix.platform == 'win'
         shell: pwsh
         run: |
-          try {
-            Get-MpThreatDetection -ErrorAction SilentlyContinue |
-              Where-Object { "$($_.Resources)" -match 'source-map' } |
-              Select-Object -First 3 | Format-List | Out-String | Write-Host
-          } catch { Write-Host "threat query unavailable: $_" }
-          foreach ($d in @('node_modules/source-map-support')) {
-            if (Test-Path $d) {
-              Get-ChildItem $d | ForEach-Object { Write-Host ("pkg file: " + $_.Name) }
-            } else { Write-Host "pkg dir missing: $d" }
+          $store = Get-ChildItem node_modules/.pnpm -Directory -Filter 'source-map-support@*' -ErrorAction SilentlyContinue | Select-Object -First 1
+          $storeFiles = 0
+          if ($store) {
+            $storeFiles = (Get-ChildItem (Join-Path $store.FullName 'node_modules/source-map-support') -ErrorAction SilentlyContinue | Measure-Object).Count
           }
-          $src = Get-ChildItem node_modules/.pnpm -Directory -Filter 'source-map-support@*' | Select-Object -First 1
-          if (-not $src) { Write-Host "::error::.pnpm 无 source-map-support 实体包（store 侧缺失，需人工排查）"; exit 1 }
-          $srcDir = Join-Path $src.FullName 'node_modules/source-map-support'
-          $targets = @('node_modules/source-map-support') + @(
-            Get-ChildItem node_modules/.pnpm -Directory -Filter 'builder-util@*' |
-              ForEach-Object { (Join-Path $_.FullName 'node_modules') + '/source-map-support' }
-          )
-          foreach ($t in $targets) {
-            $present = Test-Path (Join-Path $t 'package.json')
-            Write-Host ("pre-package {0}/package.json => {1}" -f $t, $present)
-            if (-not $present) {
-              New-Item -ItemType Directory -Force -Path $t | Out-Null
-              Copy-Item -Recurse -Force "$srcDir\*" $t
-              Write-Host ("self-healed: {0}" -f $t)
+          Write-Host ("diag store pkg: {0} files={1}" -f ($(if ($store) { $store.Name } else { '<absent>' })), $storeFiles)
+          $rootLink = Get-Item 'node_modules/source-map-support' -Force -ErrorAction SilentlyContinue
+          Write-Host ("diag root link: exists={0} linkType={1} target={2}" -f [bool]$rootLink, $rootLink.LinkType, (($rootLink.Target -join ',') ?? '<none>'))
+          $fixed = $false
+          if ($store -and $storeFiles -gt 0) {
+            $srcDir = Join-Path $store.FullName 'node_modules/source-map-support'
+            $targets = @('node_modules/source-map-support') + @(
+              Get-ChildItem node_modules/.pnpm -Directory -Filter 'builder-util@*' -ErrorAction SilentlyContinue |
+                ForEach-Object { Join-Path $_.FullName 'node_modules/source-map-support' }
+            )
+            foreach ($t in $targets) {
+              if (-not (Test-Path (Join-Path $t 'package.json'))) {
+                if (Test-Path $t) { cmd /c rmdir "$t" 2>&1 | Out-Null; Remove-Item $t -Force -Recurse -ErrorAction SilentlyContinue }
+                New-Item -ItemType Directory -Force -Path $t | Out-Null
+                Copy-Item -Recurse -Force "$srcDir\*" $t
+                Write-Host ("healed: {0}" -f $t)
+                $fixed = $true
+              }
             }
           }
-          node -e "console.log('resolve:', require.resolve('source-map-support'))"
+          if (-not $fixed) {
+            $util = Get-ChildItem node_modules/.pnpm -Directory -Filter 'builder-util@*' -ErrorAction SilentlyContinue |
+              ForEach-Object { Join-Path $_.FullName 'node_modules/builder-util/out/util.js' } |
+              Where-Object { Test-Path $_ } | Select-Object -First 1
+            if ($util) {
+              $content = Get-Content $util -Raw
+              $patched = $content.Replace(
+                'const source_map_support_1 = require("source-map-support");',
+                'const source_map_support_1 = (() => { try { return require("source-map-support") } catch { return { install() {} } } })();'
+              )
+              if ($patched -ne $content) { Set-Content -Path $util -Value $patched -NoNewline; Write-Host ("patched eager require: {0}" -f $util) }
+              else { Write-Host "::warning::builder-util util.js 未匹配到目标 require 行（版本漂移？请人工核对）" }
+            } else { Write-Host "::warning::未定位 builder-util（版本漂移？请人工核对）" }
+          }
+          pnpm --filter @dagents/desktop exec electron-builder --version
 
       - name: Package (${{ matrix.target }} ${{ matrix.arch }})
         run: >-
