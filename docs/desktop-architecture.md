@@ -496,7 +496,7 @@ app ready
 
 - **实测依据**（§16 #6–#8）：electron 44.5.1 内嵌 Node 24.21.0（modules 149 / napi 10）；`pnpm deploy --prod --legacy` 产出的 gateway（含 node-pty）在其下正常启动，`/health` 返回 `{"ok":true,"db":"up"}`、`/metrics` 200。
 - 对比「另带 node 分发」：每平台 +1 个 ~30MB 二进制与一条版本升级链，收益仅剩「Node 版本与仓库 engines 解耦」——但 gateway 本就在 Electron 主进程同机同版本下开发验证（dev 模式跑的是系统 Node 22，packaged 跑 24，两者 Node 22+ 特性面一致，`engines: node>=22` 满足）；N-API 兼容已实测。供应链上 Electron 二进制本来就要审（ensure-electron 通道），多一个 Node 分发反而多一条审计面。**判负。**
-- spawn 细节：gateway/console 子进程 env 显式注入 `ELECTRON_RUN_AS_NODE: '1'`；`process.execPath` 在 dev 模式（`electron .`）同样成立（dev 模式默认仍走 pnpm dev 栈，packaged spawn 仅在 packaged 模式启用，见 11.4）。
+- spawn 细节：gateway/console 子进程 env **以父环境（process.env）为全量基底**（2026-10-07 真机缺陷修复：曾为极简 env——PATH 缺失致 gateway 内 spawn claude/hermes CLI 全部 ENOENT；现顺序为 父环境 → `ELECTRON_RUN_AS_NODE: '1'` → extraEnv → 计划端口）；`process.execPath` 在 dev 模式（`electron .`）同样成立（dev 模式默认仍走 pnpm dev 栈，packaged spawn 仅在 packaged 模式启用，见 11.4）。
 - 已知边界（记入 §17 风险 R10）：`ELECTRON_RUN_AS_NODE` 会随 env 传给孙进程——gateway spawn 的 claude/codex 等 CLI 不受影响（非 Electron 程序）；仅当用户的 CLI agent 本身是 Electron GUI 应用时才会被切到 node 模式（现网无此形态，README 记录该边界与 extraEnv 覆盖逃生门）。
 
 ### 11.2 gateway 产物形态

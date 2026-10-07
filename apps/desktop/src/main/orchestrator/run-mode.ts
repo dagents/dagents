@@ -37,10 +37,15 @@ export interface PackagedStack {
  *              （standalone 三件套镜像树；PORT/HOSTNAME/GATEWAY_URL/NODE_ENV=production）
  * 端口不再写字面量——全部来自 PortPlan（实际端口单一事实源；让位后 8081/3001 等
  * 直接进 env，gateway/index.ts 与 console server.js 均运行时读）。
- * env 顺序：extraEnv（用户逃生门）→ 计划端口 → POSTGRES_URL 由 Orchestrator 最后注入（gateway）。
+ * env 顺序：parentEnv（父环境全量继承——PATH 供 gateway 内 spawn CLI agent 解析，
+ * SYSTEMROOT/TEMP/USERPROFILE 等系统键同样是子进程正常行为的前提）→
+ * ELECTRON_RUN_AS_NODE → extraEnv（用户逃生门）→ 计划端口 →
+ * POSTGRES_URL 由 Orchestrator 最后注入（gateway）。
  */
 export function packagedRunSpecs(
   p: PackagedStack & {
+    /** 父进程环境基底（Electron main 的 process.env 由调用方注入，保持本函数纯可测）。 */
+    parentEnv: Record<string, string>
     extraEnv: Record<string, string>
     /** 计划注入：gateway/console 实际端口与 console BFF 的 gateway 地址。 */
     gatewayPort: number
@@ -50,7 +55,7 @@ export function packagedRunSpecs(
 ): { gateway: ServiceRunSpec; console: ServiceRunSpec } {
   const gwDir = join(p.servicesDir, 'gateway')
   const csDir = join(p.servicesDir, 'console')
-  const base = { ELECTRON_RUN_AS_NODE: '1', ...p.extraEnv }
+  const base = { ...p.parentEnv, ELECTRON_RUN_AS_NODE: '1', ...p.extraEnv }
   return {
     gateway: {
       command: p.execPath,

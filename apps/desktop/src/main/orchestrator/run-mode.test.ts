@@ -31,10 +31,22 @@ describe('packagedRunSpecs（ELECTRON_RUN_AS_NODE 拉起内嵌栈，docs §11.1/
   const specs = packagedRunSpecs({
     servicesDir: 'C:/app/resources/services',
     execPath: 'C:/app/dagents.exe',
+    parentEnv: {
+      PATH: 'C:/Windows/system32;C:/Users/u/AppData/Local/hermes/bin',
+      SYSTEMROOT: 'C:/Windows',
+      DAGENTS_FOO: 'from-parent',
+    },
     extraEnv: { DAGENTS_FOO: 'bar' },
     gatewayPort: 8080,
     consolePort: 3000,
     gatewayUrl: 'http://localhost:8080',
+  })
+
+  it('父环境全量继承且 extraEnv 覆盖胜出（PATH 是 gateway 内 spawn CLI agent 的前提）', () => {
+    expect(specs.gateway.env.PATH).toBe('C:/Windows/system32;C:/Users/u/AppData/Local/hermes/bin')
+    expect(specs.gateway.env.SYSTEMROOT).toBe('C:/Windows')
+    expect(specs.gateway.env.DAGENTS_FOO).toBe('bar') // extraEnv 逃生门覆盖父环境
+    expect(specs.console.env.PATH).toBe('C:/Windows/system32;C:/Users/u/AppData/Local/hermes/bin')
   })
 
   it('gateway：execPath + deploy 产物 dist/index.js + GATEWAY_PORT（计划注入）', () => {
@@ -63,7 +75,8 @@ describe('packagedRunSpecs（ELECTRON_RUN_AS_NODE 拉起内嵌栈，docs §11.1/
   it('端口参数化（让位形态）：8081/3001 与派生 gatewayUrl 直接进 env，无字面量残留', () => {
     const yielded = packagedRunSpecs({
       servicesDir: 'C:/app/resources/services',
-      execPath: 'C:/app/dagents.exe',
+      execPath: 'C:/app/dagers.exe',
+      parentEnv: {},
       extraEnv: {},
       gatewayPort: 8081,
       consolePort: 3001,
@@ -75,7 +88,8 @@ describe('packagedRunSpecs（ELECTRON_RUN_AS_NODE 拉起内嵌栈，docs §11.1/
     // extraEnv 写了计划键也会被计划值覆盖（placement 单源——展开顺序在后）
     const hijacked = packagedRunSpecs({
       servicesDir: 'C:/app/resources/services',
-      execPath: 'C:/app/dagents.exe',
+      execPath: 'C:/app/dagers.exe',
+      parentEnv: {},
       extraEnv: { GATEWAY_PORT: '9999', PORT: '9999', GATEWAY_URL: 'http://evil' },
       gatewayPort: 8080,
       consolePort: 3000,

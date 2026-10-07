@@ -389,6 +389,7 @@ export class Orchestrator {
   private packaged: { servicesDir: string; execPath: string } | null
   private contentIntent?: () => ContentIntent
   private about: { appVersion: string; logsDir: string }
+  private parentEnv: Record<string, string>
   private pg: PgServiceController
   /** 实际端口单一事实源（docs §18.2）：startAsync 求出、restartAll 重求。 */
   private portPlan: PortPlan | null = null
@@ -407,12 +408,17 @@ export class Orchestrator {
       contentIntent?: () => ContentIntent
       /** 关于面板信息（app.getVersion()/日志目录——纯展示投影，缺省空串）。 */
       about?: { appVersion: string; logsDir: string }
+      /** 服务子进程的环境基底。生产不变量：index.ts 必须显式传 process.env——
+       * PATH 等父环境键必须被继承，否则 gateway 内 spawn CLI agent（claude/hermes）ENOENT；
+       * 缺省空对象让测试确定性（CI 全局 env 不渗入断言）。 */
+      parentEnv?: Record<string, string>
     } = {}
   ) {
     this.runMode = opts.runMode ?? 'dev'
     this.packaged = opts.packaged ?? null
     this.contentIntent = opts.contentIntent
     this.about = opts.about ?? { appVersion: '', logsDir: '' }
+    this.parentEnv = opts.parentEnv ?? {}
     // gateway 的 env 在 pg 就绪后追加 POSTGRES_URL（extraEnv 通道，docs §10.2）——
     // 引用同一对象，doSpawn 时才读取，时序安全。
     this.gatewayEnv = { ...config.extraEnv }
@@ -485,7 +491,9 @@ export class Orchestrator {
   /**
    * 服务 spawn 规格（dev/packaged 同源注入，docs §18.4）：端口 env 不写字面量，
    * 全部来自 PortPlan——gateway GATEWAY_PORT、console PORT + BFF GATEWAY_URL；
-   * env 顺序 extraEnv（用户逃生门）→ 计划端口（placement 单源）→ gatewayEnv
+   * env 顺序 parentEnv（父环境全量——PATH 是 gateway 内 spawn CLI agent 的前提，
+   * 2026-10-07 真机缺陷：极简 env 使 spawn claude/hermes ENOENT）→
+   * extraEnv（用户逃生门）→ 计划端口（placement 单源）→ gatewayEnv
    * （POSTGRES_URL 由 pg bootstrap 追加，展开在最后自然胜出）。
    */
   private buildRunSpec(id: ManagedServiceId): ServiceRunSpec {
@@ -495,6 +503,7 @@ export class Orchestrator {
       const specs = packagedRunSpecs({
         servicesDir: this.packaged.servicesDir,
         execPath: this.packaged.execPath,
+        parentEnv: this.parentEnv,
         extraEnv: this.config.extraEnv,
         gatewayPort,
         consolePort,
@@ -510,7 +519,7 @@ export class Orchestrator {
         command: spec.command,
         args: spec.args,
         cwd: this.config.repoRoot,
-        env: { ...this.gatewayEnv, GATEWAY_PORT: String(gatewayPort) },
+        env: { ...this.parentEnv, ...this.gatewayEnv, GATEWAY_PORT: String(gatewayPort) },
       }
     }
     return {
@@ -518,6 +527,7 @@ export class Orchestrator {
       args: spec.args,
       cwd: this.config.repoRoot,
       env: {
+        ...this.parentEnv,
         ...this.config.extraEnv,
         PORT: String(consolePort),
         GATEWAY_URL: this.gatewayUrl(),

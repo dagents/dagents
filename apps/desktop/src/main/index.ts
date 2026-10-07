@@ -96,6 +96,8 @@ if (!gotLock) {
       {
         pgPaths,
         runMode,
+        // 服务子进程环境基底：父环境全量（PATH 是 gateway 内 spawn CLI agent 的前提）
+        parentEnv: process.env as unknown as Record<string, string>,
         packaged:
           runMode === 'packaged'
             ? { servicesDir: packagedServicesDir, execPath: process.execPath }

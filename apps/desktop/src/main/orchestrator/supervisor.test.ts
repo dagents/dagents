@@ -659,6 +659,36 @@ describe('内嵌 PG 编排（M5，docs §10.2 + §18 端口计划）', () => {
     expect(snap.phase).toBe('console') // 外部库语义下双健康照常接管
   })
 
+  it('dev 形态父环境全量继承（2026-10-07 真机缺陷：极简 env 致 gateway 内 spawn CLI agent ENOENT）', async () => {
+    const world = makeWorld()
+    const orch = new Orchestrator(defaultConfig(join(ROOT, 'repo')), world.deps, {
+      pgPaths,
+      parentEnv: {
+        PATH: 'C:/Windows/system32;C:/Users/u/AppData/Local/hermes/bin',
+        SYSTEMROOT: 'C:/Windows',
+        POSTGRES_URL: 'postgresql://parent@127.0.0.1:9999/parent',
+      },
+    })
+    world.httpQueue = [
+      { status: 200, body: '{"ok":true,"db":"up"}' },
+      { status: 200, body: DAGENTS_HTML },
+    ]
+    orch.start()
+    await world.advance(10)
+    await world.advance(500)
+
+    const gwSpawn = world.spawnedSpecs.find((s) => s.id === 'gateway')
+    const csSpawn = world.spawnedSpecs.find((s) => s.id === 'console')
+    // PATH/SYSTEMROOT 必须进服务子进程（gateway 内 spawn claude/hermes 的前提）
+    expect(gwSpawn?.env?.PATH).toBe('C:/Windows/system32;C:/Users/u/AppData/Local/hermes/bin')
+    expect(gwSpawn?.env?.SYSTEMROOT).toBe('C:/Windows')
+    expect(csSpawn?.env?.PATH).toBe('C:/Windows/system32;C:/Users/u/AppData/Local/hermes/bin')
+    // 注入链键仍胜出：GATEWAY_PORT/PORT 来自计划，POSTGRES_URL 未被父环境抢占
+    //（gatewayEnv 在 pg bootstrap 后追加，父环境的同名键不得越过注入链）
+    expect(gwSpawn?.env?.GATEWAY_PORT).toBe('8080')
+    expect(csSpawn?.env?.PORT).toBe('3000')
+  })
+
   it('全链路：计划 → initdb → postgres 前台直跑 → TCP 健康 → 建库 → 迁移 → gateway 注入 DSN → 双健康', async () => {
     const world = makeWorld()
     const orch = new Orchestrator(embeddedPgConfig(), world.deps, { pgPaths })
