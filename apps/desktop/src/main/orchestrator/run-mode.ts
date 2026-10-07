@@ -31,14 +31,22 @@ export interface PackagedStack {
 }
 
 /**
- * packaged 两服务的 spawn 规格：
+ * packaged 两服务的 spawn 规格（docs §11.4 + §18.2 注入链，M8 参数化）：
  *   gateway  = <execPath> services/gateway/dist/index.js（ELECTRON_RUN_AS_NODE + GATEWAY_PORT）
  *   console  = <execPath> services/console/apps/console/.next-build/server.js
  *              （standalone 三件套镜像树；PORT/HOSTNAME/GATEWAY_URL/NODE_ENV=production）
- * env 顺序：extraEnv（用户逃生门）→ POSTGRES_URL 由 Orchestrator 最后注入（gateway）。
+ * 端口不再写字面量——全部来自 PortPlan（实际端口单一事实源；让位后 8081/3001 等
+ * 直接进 env，gateway/index.ts 与 console server.js 均运行时读）。
+ * env 顺序：extraEnv（用户逃生门）→ 计划端口 → POSTGRES_URL 由 Orchestrator 最后注入（gateway）。
  */
 export function packagedRunSpecs(
-  p: PackagedStack & { extraEnv: Record<string, string> }
+  p: PackagedStack & {
+    extraEnv: Record<string, string>
+    /** 计划注入：gateway/console 实际端口与 console BFF 的 gateway 地址。 */
+    gatewayPort: number
+    consolePort: number
+    gatewayUrl: string
+  }
 ): { gateway: ServiceRunSpec; console: ServiceRunSpec } {
   const gwDir = join(p.servicesDir, 'gateway')
   const csDir = join(p.servicesDir, 'console')
@@ -48,7 +56,7 @@ export function packagedRunSpecs(
       command: p.execPath,
       args: [join(gwDir, 'dist', 'index.js')],
       cwd: gwDir,
-      env: { ...base, GATEWAY_PORT: '8080' },
+      env: { ...base, GATEWAY_PORT: String(p.gatewayPort) },
     },
     console: {
       command: p.execPath,
@@ -59,9 +67,10 @@ export function packagedRunSpecs(
       env: {
         ...base,
         NODE_ENV: 'production',
-        PORT: '3000',
+        // HOSTNAME 显式 127.0.0.1——避免 win 系统 HOSTNAME=机器名劫持绑定面
+        PORT: String(p.consolePort),
         HOSTNAME: '127.0.0.1',
-        GATEWAY_URL: 'http://localhost:8080',
+        GATEWAY_URL: p.gatewayUrl,
       },
     },
   }

@@ -20,6 +20,7 @@ export type ServiceEvent =
   | { type: 'START' }
   | { type: 'SPAWNED'; pid?: number; attach?: boolean }
   | { type: 'SPAWN_FAILED'; error: string }
+  | { type: 'PLACEMENT_FAILED'; error: string }
   | { type: 'HEALTH_OK'; db: 'up' | 'down' | 'unknown' }
   | { type: 'HEALTH_FAIL'; error: string }
   | { type: 'HEALTH_TIMEOUT' }
@@ -179,6 +180,20 @@ export function transition(
         machine: patch(m, {
           state: 'failed',
           message: `启动失败：${event.error}——检查命令是否在 PATH（桌面启动环境 PATH 可能与终端不同）与 repoRoot 是否有效，然后点「重试」。`,
+        }),
+        effects: [],
+      }
+    }
+
+    case 'PLACEMENT_FAILED': {
+      // 端口计划失败（docs §18.1，M8）：idle/stopped → failed，直接展示 plan 的
+      // reason（指引已由 port-plan 给出——不叠 SPAWN_FAILED 的 PATH 引导噪声）。
+      if (state !== 'idle' && state !== 'stopped') return { machine: m, effects: [] }
+      return {
+        machine: patch(m, {
+          state: 'failed',
+          attachMode: false,
+          message: `端口分配失败：${event.error}`,
         }),
         effects: [],
       }

@@ -31,8 +31,16 @@ export interface RestartPolicy {
 export interface ServiceSpec {
   command: string
   args: string[]
-  /** 端口锁 8080/3000（console BFF 只认 GATEWAY_URL——AGENTS.md 已知问题）。 */
+  /**
+   * 默认端口 8080/3000（docs §18.4）：空闲即用；被陌生程序占时按形态分流
+   * （dev 诚实失败 / packaged 让位递增），判定在 port-plan.ts。
+   */
   port: number
+  /**
+   * config.json 是否显式钉死了非默认端口（运行时派生标记，同 postgres.embeddedExplicit
+   * 先例）：钉死端口被陌生程序占时两形态都诚实 failed 不让位。
+   */
+  portExplicit: boolean
 }
 
 /** 实际 spawn 规格（supervisor 消费；packaged 形态由 run-mode.ts 运行时构造）。 */
@@ -43,7 +51,7 @@ export interface ServiceRunSpec {
   env: Record<string, string>
 }
 
-/** 内嵌 Postgres 配置（docs §10；端口独立于 LOCKED_PORTS——不锁值，让位策略见 pg-service）。 */
+/** 内嵌 Postgres 配置（docs §10 + §18.4：port 是让位探测起点，分配判定在 port-plan）。 */
 export interface PostgresConfig {
   /** 内嵌 PG 总开关；false = 外部 Postgres（gateway 走 .env/extraEnv 的 POSTGRES_URL）。 */
   embedded: boolean
@@ -67,6 +75,10 @@ export interface PostgresConfig {
 
 export interface DesktopConfig {
   repoRoot: string
+  /**
+   * 接管 URL 逃生门：''（默认）= 由端口计划派生 http://localhost:<console 实际端口>
+   * （docs §18.2 单一事实源）；显式 http(s) URL = 用户钉死接管目标（附加/远程场景）。
+   */
   consoleUrl: string
   /** 运行形态意图：auto=按内嵌栈在位探测（默认）；dev/packaged=显式钉死（docs §11.4）。 */
   mode: 'auto' | 'dev' | 'packaged'

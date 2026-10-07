@@ -27,14 +27,17 @@ describe('resolveRunMode（三级开关：显式 dev > 显式 packaged > auto �
   })
 })
 
-describe('packagedRunSpecs（ELECTRON_RUN_AS_NODE 拉起内嵌栈，docs §11.1/§11.4）', () => {
+describe('packagedRunSpecs（ELECTRON_RUN_AS_NODE 拉起内嵌栈，docs §11.1/§11.4 + §18.2 注入）', () => {
   const specs = packagedRunSpecs({
     servicesDir: 'C:/app/resources/services',
     execPath: 'C:/app/dagents.exe',
     extraEnv: { DAGENTS_FOO: 'bar' },
+    gatewayPort: 8080,
+    consolePort: 3000,
+    gatewayUrl: 'http://localhost:8080',
   })
 
-  it('gateway：execPath + deploy 产物 dist/index.js + GATEWAY_PORT', () => {
+  it('gateway：execPath + deploy 产物 dist/index.js + GATEWAY_PORT（计划注入）', () => {
     expect(specs.gateway.command).toBe('C:/app/dagents.exe')
     expect(specs.gateway.args.map(norm)).toEqual(['C:/app/resources/services/gateway/dist/index.js'])
     expect(norm(specs.gateway.cwd)).toBe('C:/app/resources/services/gateway')
@@ -43,7 +46,7 @@ describe('packagedRunSpecs（ELECTRON_RUN_AS_NODE 拉起内嵌栈，docs §11.1/
     expect(specs.gateway.env.DAGENTS_FOO).toBe('bar') // extraEnv 逃生门保留
   })
 
-  it('console：execPath + standalone server.js + PORT/HOSTNAME/GATEWAY_URL/NODE_ENV', () => {
+  it('console：execPath + standalone server.js + PORT/HOSTNAME/GATEWAY_URL/NODE_ENV（计划注入）', () => {
     expect(specs.console.args.map(norm)).toEqual([
       'C:/app/resources/services/console/apps/console/server.js',
     ])
@@ -55,5 +58,31 @@ describe('packagedRunSpecs（ELECTRON_RUN_AS_NODE 拉起内嵌栈，docs §11.1/
       HOSTNAME: '127.0.0.1',
       GATEWAY_URL: 'http://localhost:8080',
     })
+  })
+
+  it('端口参数化（让位形态）：8081/3001 与派生 gatewayUrl 直接进 env，无字面量残留', () => {
+    const yielded = packagedRunSpecs({
+      servicesDir: 'C:/app/resources/services',
+      execPath: 'C:/app/dagents.exe',
+      extraEnv: {},
+      gatewayPort: 8081,
+      consolePort: 3001,
+      gatewayUrl: 'http://localhost:8081',
+    })
+    expect(yielded.gateway.env.GATEWAY_PORT).toBe('8081')
+    expect(yielded.console.env.PORT).toBe('3001')
+    expect(yielded.console.env.GATEWAY_URL).toBe('http://localhost:8081')
+    // extraEnv 写了计划键也会被计划值覆盖（placement 单源——展开顺序在后）
+    const hijacked = packagedRunSpecs({
+      servicesDir: 'C:/app/resources/services',
+      execPath: 'C:/app/dagents.exe',
+      extraEnv: { GATEWAY_PORT: '9999', PORT: '9999', GATEWAY_URL: 'http://evil' },
+      gatewayPort: 8080,
+      consolePort: 3000,
+      gatewayUrl: 'http://localhost:8080',
+    })
+    expect(hijacked.gateway.env.GATEWAY_PORT).toBe('8080')
+    expect(hijacked.console.env.PORT).toBe('3000')
+    expect(hijacked.console.env.GATEWAY_URL).toBe('http://localhost:8080')
   })
 })

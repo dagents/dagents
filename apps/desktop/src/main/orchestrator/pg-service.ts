@@ -1,4 +1,5 @@
 import { join } from 'node:path'
+import type { PgPlacement } from './port-plan'
 import type {
   DesktopConfig,
   PostgresConfig,
@@ -7,13 +8,12 @@ import type {
 } from './types'
 import type { ServiceSupervisor, SupervisorDeps, SupervisorOptions } from './supervisor'
 
-// 内嵌 Postgres 服务切片（docs/desktop-architecture.md §10，M5）。
+// 内嵌 Postgres 服务切片（docs/desktop-architecture.md §10，M5；§18 端口计划，M8）。
 // 纯度纪律：本文件禁 import electron（purity.test.ts 钉死）；一切副作用经
 // PgExtraDeps 注入（真接线 ../spawn-runtime.ts）。对 supervisor.ts 仅 type import。
+// 端口让位探测已平移至 port-plan.ts（pickPgPort 语义：packaged 递增/dev 固定/耗尽
+// 诚实失败）——controller 消费计划好的 placement，不再自行探测。
 
-export const PG_PORT_DEFAULT = 55432
-/** 端口让位上限（+1 递增探测次数，docs §10.3）。 */
-export const PG_PORT_MAX_TRIES = 20
 /**
  * 建库连接的崩溃恢复窗口（docs §10.2 建库注，2026-10-07 真机缺陷①）：
  * 非干净关机后的下一次启动，postgres 端口已 accept（TCP 探活过）但仍在 crash
@@ -77,34 +77,12 @@ export interface PgExtraDeps {
 
 export type PgDeps = SupervisorDeps & PgExtraDeps
 
-/** 端口让位结果：yielded = 实际端口 ≠ 配置默认（状态页明示依据）。 */
-export interface PgPortChoice {
-  port: number
-  yielded: boolean
-  tried: number
-}
-
-/**
- * 挑 PG 端口：默认端口空闲直接用；被占 +1 递增（≤maxTries 次）；
- * 全部被占返回 null（诚实失败——不猜不抢，docs §10.3）。
- */
-export async function pickPgPort(
-  preferred: number,
-  isPortOpen: (port: number) => Promise<boolean>,
-  maxTries = PG_PORT_MAX_TRIES
-): Promise<PgPortChoice | null> {
-  for (let i = 0; i < maxTries; i++) {
-    const port = preferred + i
-    if (!(await isPortOpen(port))) return { port, yielded: i > 0, tried: i + 1 }
-  }
-  return null
-}
-
 export function pgDsn(port: number, database: string): string {
   return `postgresql://${PG_SUPERUSER}@${PG_HOST}:${port}/${database}`
 }
 
-function platformExe(binDir: string, name: string): string {
+/** 平台差异可执行名（win32 加 .exe）——导出供测试夹具同源化（不再硬编码 .exe）。 */
+export function platformExe(binDir: string, name: string): string {
   return join(binDir, process.platform === 'win32' ? `${name}.exe` : name)
 }
 
@@ -244,7 +222,15 @@ export class PgServiceController {
     this.opts.emit()
   }
 
-  async start(): Promise<{ ok: true; dsn: string } | { ok: false; error: string }> {
+  /**
+   * 启动管线（docs §10.2 + §18.1，M8）：端口分配由调用方的 PortPlan 预先判定
+   * （planPortAllocation：packaged 递增让位 / dev 固定端口诚实失败 / 耗尽 failed），
+   * 本方法消费 placement 并完成 initdb（幂等）→ postgres 前台直跑 → 建库 → 迁移。
+   * placement=null 仅当 gateway 附加（Orchestrator 不调用本方法）或 enabled=false。
+   */
+  async start(
+    placement: PgPlacement | null
+  ): Promise<{ ok: true; dsn: string } | { ok: false; error: string }> {
     if (this.phase === 'supervised' || this.phase === 'preparing') {
       // 重复 start 幂等（Orchestrator.startAsync 单点调用，防御性兜底）
       return { ok: false, error: '内嵌 PG 启动管线已在进行中' }
@@ -268,18 +254,17 @@ export class PgServiceController {
       )
     }
 
-    // 1. 端口让位（docs §10.3：55432 起递增 ≤20；全占诚实失败）
-    const preferred = this.config.postgres.port
-    const choice = await pickPgPort(preferred, (p) => this.deps.isPortOpen(p))
-    if (choice === null) {
-      return fail(
-        `端口 ${preferred}–${preferred + PG_PORT_MAX_TRIES - 1} 全被占用——内嵌 Postgres 无处可听，请释放其一或改 postgres.port`
-      )
+    // 1. 端口计划（docs §18.1——探测在 port-plan 完成，这里只消费结果）
+    if (placement === null) {
+      return fail('端口计划缺失（gateway 自起但内嵌 PG 未获分配端口）——内部一致性错误，请点「重试服务」')
     }
-    this.port = choice.port
-    this.portYielded = choice.yielded
-    if (choice.yielded) {
-      this.log(`默认端口 ${preferred} 被占用，让位至 ${choice.port}（第 ${choice.tried} 次探测命中）`)
+    if (placement.mode === 'failed') {
+      return fail(placement.reason)
+    }
+    this.port = placement.port
+    this.portYielded = placement.yielded
+    if (placement.yielded) {
+      this.log(`默认端口 ${this.config.postgres.port} 被占用，让位至 ${placement.port}`)
     }
 
     // 2. initdb 幂等初始化
@@ -308,8 +293,7 @@ export class PgServiceController {
         return open ? { status: 200, body: '' } : { error: `TCP ${PG_HOST}:${port} 无监听` }
       },
       runSpec: () => pgSpawnRunSpec(this.paths, this.port as number),
-      port: this.port,
-      attachable: false,
+      port: () => this.port as number,
     })
     await this.sup.start()
     const wait = await this.waitUntilSettled(this.config.restartPolicy.healthTimeoutMs + 5_000)

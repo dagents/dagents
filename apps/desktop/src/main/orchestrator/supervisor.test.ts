@@ -1,11 +1,11 @@
 import { describe, expect, it } from 'vitest'
-import { join } from 'node:path'
+import { join, resolve } from 'node:path'
 import { defaultConfig } from './config'
+import { probeUrl } from './identity'
 import type { PgClient, PgDeps, RunOnceSpec } from './pg-service'
 import {
   computePhase,
   healthResultToEvent,
-  healthUrl,
   Orchestrator,
   ServiceSupervisor,
   type HttpResult,
@@ -13,9 +13,15 @@ import {
 } from './supervisor'
 import type { ServiceId, ServiceStatus } from './types'
 
-// supervisor 单测：假时钟/假 HTTP/假 spawn 全速驱动（docs §6 编排器核心场景），
-// 不碰真进程真网络——真子进程树终止与真端口探测在 tree-kill.test.ts / ports.test.ts。
-// M5 起 FakeWorld 同时实现 PgDeps（runOnce/connectPg/假文件系统）驱动内嵌 PG 管线。
+// supervisor 单测：假时钟/假 HTTP/假 spawn 全速驱动（docs §6 编排器核心场景 +
+// §18 端口计划接线），不碰真进程真网络——真子进程树终止与真端口探测在
+// tree-kill.test.ts / ports.test.ts。
+// M5 起 FakeWorld 同时实现 PgDeps（runOnce/connectPg/假文件系统）驱动内嵌 PG 管线；
+// M8 起 httpGet 按超时参数分流：身份问询（10s，port-plan 发起）走 identityQueue，
+// 健康轮询（4s）走 httpQueue——两通道互不抢答。
+
+/** console 首页 dagents 形状（身份判别 + 健康判活共用，§18.3）。 */
+const DAGENTS_HTML = '<!doctype html><html><head><title>Dagents</title></head></html>'
 
 /** 假世界：手动时钟 + 定时器队列 + 可编排的 HTTP 应答队列 + spawn 记录。 */
 class FakeWorld {
@@ -24,8 +30,11 @@ class FakeWorld {
   private timerSeq = 1
   logs: Record<ServiceId, string[]> = { gateway: [], console: [], pg: [] }
   httpQueue: HttpResult[] = []
+  /** 身份问询应答队列（端口被占时 port-plan 消费；空则视 stranger 的 error 应答）。 */
+  identityQueue: HttpResult[] = []
   httpRequests: string[] = []
-  /** 端口占用集合（附加模式 / PG 让位测试的开关）。 */
+  identityRequests: string[] = []
+  /** 端口占用集合（附加模式 / 让位测试的开关）。 */
   openPorts = new Set<number>()
   spawnedSpecs: { id: ServiceId; command: string; args: string[]; cwd: string; env?: Record<string, string> }[] = []
   killedPids: number[] = []
@@ -61,6 +70,12 @@ class FakeWorld {
     },
     httpGet: async (url, timeoutMs) => {
       expect(timeoutMs).toBeGreaterThan(0)
+      // 身份问询（10s 超时，docs §18.3）与健康轮询（4s）按超时分流
+      if (timeoutMs >= 10_000) {
+        this.identityRequests.push(url)
+        const next = this.identityQueue.shift()
+        return next ?? { error: 'TimeoutError (identity queue empty → stranger)' }
+      }
       this.httpRequests.push(url)
       const next = this.httpQueue.shift()
       return next ?? { error: 'ECONNREFUSED (queue empty)' }
@@ -158,11 +173,17 @@ class FakeSpawnHandle implements SpawnHandle {
   }
 }
 
+/** 平台无关绝对路径根（遗留债①：isAbsolute/join 语义两平台同真）。 */
+const ROOT = resolve('/')
+/** pg 夹具路径（两个 PG describe 共用）。 */
+const PG_ROOT = join(ROOT, 'stage', 'pg', 'native', 'bin')
+const DATA_DIR = join(ROOT, 'ud', 'pgdata')
+
 function makeSup(id: ServiceId, world: FakeWorld) {
-  return new ServiceSupervisor(id, world.deps, defaultConfig('C:/repo'), () => {})
+  return new ServiceSupervisor(id, world.deps, defaultConfig(join(ROOT, 'repo')), () => {})
 }
 
-describe('healthResultToEvent（判活协议 docs §3.1）', () => {
+describe('healthResultToEvent（判活协议 docs §3.1 + §18.3 console 身份特征）', () => {
   it('gateway：200+ok:true → HEALTH_OK up', () => {
     expect(healthResultToEvent('gateway', { status: 200, body: '{"ok":true,"db":"up"}' })).toEqual({
       type: 'HEALTH_OK',
@@ -171,7 +192,7 @@ describe('healthResultToEvent（判活协议 docs §3.1）', () => {
   })
 
   it('gateway：503+db:down → HEALTH_OK down（进程活着，DB 未就绪——不重启）', () => {
-    expect(healthResultToEvent('gateway', { status: 503, body: '{"ok":false,"db":"down"}' })).toEqual({
+    expect(healthResultToEvent('gateway', { status: 503, body: '{"ok":false,"svc":"gateway","db":"down"}' })).toEqual({
       type: 'HEALTH_OK',
       db: 'down',
     })
@@ -189,14 +210,19 @@ describe('healthResultToEvent（判活协议 docs §3.1）', () => {
     })
   })
 
-  it('console：任何 2xx → HEALTH_OK（db unknown）', () => {
-    expect(healthResultToEvent('console', { status: 200, body: '<!doctype html>...' })).toEqual({
+  it('console：2xx + title Dagents → HEALTH_OK（db unknown）', () => {
+    expect(healthResultToEvent('console', { status: 200, body: DAGENTS_HTML })).toEqual({
       type: 'HEALTH_OK',
       db: 'unknown',
     })
-    expect(healthResultToEvent('console', { status: 204, body: '' })).toEqual({
-      type: 'HEALTH_OK',
-      db: 'unknown',
+  })
+
+  it('console：2xx 但 title 非 Dagents（陌生 web 服务占端口）→ HEALTH_FAIL（病灶②收口）', () => {
+    expect(healthResultToEvent('console', { status: 200, body: '<title>Vite + TS</title>' })).toMatchObject({
+      type: 'HEALTH_FAIL',
+    })
+    expect(healthResultToEvent('console', { status: 204, body: '' })).toMatchObject({
+      type: 'HEALTH_FAIL',
     })
   })
 
@@ -218,14 +244,14 @@ describe('healthResultToEvent（判活协议 docs §3.1）', () => {
     })
   })
 
-  it('healthUrl：gateway /health、console 根路径', () => {
-    expect(healthUrl('gateway', 8080)).toBe('http://localhost:8080/health')
-    expect(healthUrl('console', 3000)).toBe('http://localhost:3000/')
+  it('probeUrl：gateway /health、console 根路径（身份问询与健康探测同面）', () => {
+    expect(probeUrl('gateway', 8080)).toBe('http://localhost:8080/health')
+    expect(probeUrl('console', 3000)).toBe('http://localhost:3000/')
   })
 })
 
 describe('ServiceSupervisor', () => {
-  it('spawn 路径：start → spawn(默认命令+repoRoot cwd) → 健康轮询 → running', async () => {
+  it('spawn 路径：start → spawn(默认命令+repoRoot cwd+计划端口 env) → 健康轮询 → running', async () => {
     const world = new FakeWorld()
     const sup = makeSup('gateway', world)
     world.httpQueue = [
@@ -240,7 +266,9 @@ describe('ServiceSupervisor', () => {
         id: 'gateway',
         command: 'pnpm',
         args: ['--filter', '@dagents/gateway', 'dev'],
-        cwd: 'C:/repo',
+        cwd: join(ROOT, 'repo'),
+        // 裸 supervisor 走默认 runSpec（extraEnv 通道）；计划端口 env（GATEWAY_PORT）
+        // 由 Orchestrator.buildRunSpec 注入——该面在下方 Orchestrator 用例断言
         env: {},
       },
     ])
@@ -251,12 +279,13 @@ describe('ServiceSupervisor', () => {
     expect(sup.status.db).toBe('up')
   })
 
-  it('附加路径：端口已听 → 不 spawn，直接 waiting_health(attachMode) → running', async () => {
+  it('附加路径：start({attach:true}) 指令 → 不 spawn，直接 waiting_health(attachMode) → running', async () => {
     const world = new FakeWorld()
     world.openPorts.add(8080)
-    world.httpQueue = [{ status: 200, body: '{"ok":true,"db":"up"}' }]
+    world.httpQueue = [{ status: 200, body: '{"ok":true,"svc":"gateway","db":"up"}' }]
     const sup = makeSup('gateway', world)
-    await sup.start()
+    // 附加判定已上移 port-plan（身份判别）；supervisor 只按指令落地（§18.2）
+    await sup.start({ attach: true })
     expect(world.spawnedSpecs).toEqual([])
     expect(sup.status.attachMode).toBe(true)
     expect(sup.state).toBe('waiting_health')
@@ -264,11 +293,22 @@ describe('ServiceSupervisor', () => {
     expect(sup.state).toBe('running')
   })
 
+  it('端口计划失败 → failPlacement：idle 直接 failed，文案直载 reason', () => {
+    const world = new FakeWorld()
+    const sup = makeSup('console', world)
+    sup.failPlacement('dev 形态固定端口 3000 被非 dagents 程序占用——不让位')
+    expect(sup.state).toBe('failed')
+    expect(sup.status.message).toContain('端口分配失败')
+    expect(sup.status.message).toContain('不让位')
+    expect(world.spawnedSpecs).toEqual([])
+    expect(world.logs.console.some((l) => l.includes('非 dagents'))).toBe(false) // 不经 spawn
+  })
+
   it('子进程退出 → 退避 1s 后重启（真定时器语义）', async () => {
     const world = new FakeWorld()
     world.httpQueue = [
-      { status: 200, body: '{"ok":true,"db":"up"}' },
-      { status: 200, body: '{"ok":true,"db":"up"}' },
+      { status: 200, body: DAGENTS_HTML },
+      { status: 200, body: DAGENTS_HTML },
     ]
     const sup = makeSup('console', world)
     await sup.start()
@@ -401,7 +441,7 @@ describe('computePhase（就绪接管判定——db down 不接管）', () => {
 describe('Orchestrator 门面', () => {
   /** 双服务焦点用例的配置：关内嵌 PG（pg 管线有自己的用例组）。 */
   function twoServiceConfig() {
-    const cfg = defaultConfig('C:/repo')
+    const cfg = defaultConfig(join(ROOT, 'repo'))
     cfg.postgres.embedded = false
     return cfg
   }
@@ -413,18 +453,19 @@ describe('Orchestrator 门面', () => {
     orch.onChange(() => events.push(1))
     world.httpQueue = [
       { status: 200, body: '{"ok":true,"db":"up"}' },
-      { status: 200, body: 'ok' },
+      { status: 200, body: DAGENTS_HTML },
     ]
     orch.start()
     await world.advance(10)
     await world.advance(600)
     const snap = orch.snapshot()
-    expect(snap.phase).toBe('console') // 双健康（gateway ok:true + console 200）→ 接管
+    expect(snap.phase).toBe('console') // 双健康（gateway ok:true + console title Dagents）→ 接管
     expect(snap.services.gateway.state).toBe('running')
     expect(snap.services.console.state).toBe('running')
     expect(snap.config.gatewayPort).toBe(8080)
     expect(snap.config.consolePort).toBe(3000)
-    expect(snap.config.repoRoot).toBe('C:/repo')
+    expect(snap.config.consoleUrl).toBe('http://localhost:3000') // 计划派生（§18.2）
+    expect(snap.config.repoRoot).toBe(join(ROOT, 'repo'))
     expect(events.length).toBeGreaterThan(0)
   })
 
@@ -433,7 +474,7 @@ describe('Orchestrator 门面', () => {
     const orch = new Orchestrator(twoServiceConfig(), world.deps)
     world.httpQueue = [
       { status: 200, body: '{"ok":true,"db":"up"}' },
-      { status: 200, body: 'ok' },
+      { status: 200, body: DAGENTS_HTML },
     ]
     orch.start()
     await world.advance(10)
@@ -453,12 +494,12 @@ describe('Orchestrator 门面', () => {
     expect(world.killedPids.length).toBe(2) // 两棵树都终止了
   })
 
-  it('restartAll：停 → 起双服务', async () => {
+  it('restartAll：停 → 起双服务（重求端口计划）', async () => {
     const world = new FakeWorld()
     const orch = new Orchestrator(twoServiceConfig(), world.deps)
     world.httpQueue = [
       { status: 200, body: '{"ok":true,"db":"up"}' },
-      { status: 200, body: 'ok' },
+      { status: 200, body: DAGENTS_HTML },
     ]
     orch.start()
     await world.advance(10)
@@ -468,17 +509,45 @@ describe('Orchestrator 门面', () => {
     expect(orch.snapshot().services.gateway.state).toBe('waiting_health')
     expect(world.spawnedSpecs.length).toBeGreaterThanOrEqual(4)
   })
+
+  it('restartAll 重探测：让位过的端口腾出后回到默认端口（§18.6 自愈入口）', async () => {
+    const world = new FakeWorld()
+    const cfg = twoServiceConfig()
+    const orch = new Orchestrator(cfg, world.deps, { runMode: 'packaged' })
+    world.openPorts.add(3000) // 陌生程序占 3000
+    world.identityQueue = [{ status: 200, body: '<title>Vite + TS</title>' }] // console 身份=陌生
+    world.httpQueue = [
+      { status: 200, body: '{"ok":true,"db":"up"}' },
+      { status: 200, body: DAGENTS_HTML }, // 让位 3001 上的 console 健康
+    ]
+    orch.start()
+    await world.advance(10)
+    await world.advance(600)
+    expect(orch.snapshot().config.consolePort).toBe(3001)
+
+    // 占用者退场 → restartAll 重求计划 → 回默认 3000
+    world.openPorts.delete(3000)
+    world.httpQueue = [
+      { status: 200, body: '{"ok":true,"db":"up"}' },
+      { status: 200, body: DAGENTS_HTML },
+    ]
+    await orch.restartAll()
+    await world.advance(10)
+    await world.advance(600)
+    const snap = orch.snapshot()
+    expect(snap.config.consolePort).toBe(3000)
+    expect(snap.services.console.state).toBe('running')
+  })
 })
 
-describe('内嵌 PG 编排（M5，docs §10.2）', () => {
-  // fake fs 的 key 必须与被测代码 join() 的输出同构（win32 反斜杠）
-  const PG_BIN = join('C:/stage/pg/native/bin', 'postgres.exe')
-  const DATA_DIR = 'C:/ud/pgdata'
+describe('内嵌 PG 编排（M5，docs §10.2 + §18 端口计划）', () => {
+  // fake fs 的 key 与被测代码 platformExe()/join() 输出同构（平台无关，遗留债①）
+  const PG_BIN = join(PG_ROOT, process.platform === 'win32' ? 'postgres.exe' : 'postgres')
   const pgPaths = {
-    binDir: 'C:/stage/pg/native/bin',
+    binDir: PG_ROOT,
     dataDir: DATA_DIR,
-    migrateScript: 'C:/repo/packages/db/scripts/migrate.mjs',
-    pgRequireRoot: 'C:/repo/packages/db',
+    migrateScript: join(ROOT, 'repo', 'packages', 'db', 'scripts', 'migrate.mjs'),
+    pgRequireRoot: join(ROOT, 'repo', 'packages', 'db'),
     nodeRuntime: { command: 'node', env: {} },
   }
 
@@ -503,7 +572,7 @@ describe('内嵌 PG 编排（M5，docs §10.2）', () => {
 
   /** dev 形态显式启用内嵌 PG：AC-7④ 豁免条件（embedded 与 embeddedExplicit 同置）。 */
   function embeddedPgConfig() {
-    const cfg = defaultConfig('C:/repo')
+    const cfg = defaultConfig(join(ROOT, 'repo'))
     cfg.postgres.embedded = true
     cfg.postgres.embeddedExplicit = true
     return cfg
@@ -512,10 +581,10 @@ describe('内嵌 PG 编排（M5，docs §10.2）', () => {
   it('dev 默认不启用内嵌 PG（AC-7④）：未显式 embedded → pg skipped + gateway 不注入 DSN', async () => {
     const world = makeWorld()
     // defaultConfig + 不传 runMode（缺省 dev）+ embedded 未显式 → 门控默认关
-    const orch = new Orchestrator(defaultConfig('C:/repo'), world.deps, { pgPaths })
+    const orch = new Orchestrator(defaultConfig(join(ROOT, 'repo')), world.deps, { pgPaths })
     world.httpQueue = [
       { status: 200, body: '{"ok":true,"db":"up"}' }, // gateway（外部库就绪语义）
-      { status: 200, body: 'ok' }, // console
+      { status: 200, body: DAGENTS_HTML }, // console
     ]
     orch.start()
     await world.advance(10)
@@ -530,16 +599,17 @@ describe('内嵌 PG 编排（M5，docs §10.2）', () => {
     expect(world.runOnceSpecs).toEqual([])
     const gwSpawn = world.spawnedSpecs.find((s) => s.id === 'gateway')
     expect(gwSpawn?.env?.POSTGRES_URL).toBeUndefined()
+    expect(gwSpawn?.env?.GATEWAY_PORT).toBe('8080') // dev 形态同源注入（§18.4）
     expect(world.logs.pg.some((l) => l.includes('dev 模式默认不启用'))).toBe(true)
     expect(snap.phase).toBe('console') // 外部库语义下双健康照常接管
   })
 
-  it('全链路：initdb → postgres 前台直跑 → TCP 健康 → 建库 → 迁移 → gateway 注入 DSN → 双健康', async () => {
+  it('全链路：计划 → initdb → postgres 前台直跑 → TCP 健康 → 建库 → 迁移 → gateway 注入 DSN → 双健康', async () => {
     const world = makeWorld()
     const orch = new Orchestrator(embeddedPgConfig(), world.deps, { pgPaths })
     world.httpQueue = [
       { status: 200, body: '{"ok":true,"db":"up"}' }, // gateway
-      { status: 200, body: '<!doctype html>' }, // console
+      { status: 200, body: DAGENTS_HTML }, // console
     ]
     orch.start()
     await world.advance(10) // pg spawn + 首轮 TCP 探活 → running
@@ -565,22 +635,29 @@ describe('内嵌 PG 编排（M5，docs §10.2）', () => {
     expect(commands[1]).toContain('node')
     expect(world.runOnceSpecs[1].env?.POSTGRES_URL).toBe('postgresql://dagents@127.0.0.1:55432/dagents')
 
-    // gateway env 注入内嵌 DSN（extraEnv 通道）
+    // gateway env 注入内嵌 DSN + 计划端口（extraEnv 通道）
     const gwSpawn = world.spawnedSpecs.find((s) => s.id === 'gateway')
     expect(gwSpawn?.env?.POSTGRES_URL).toBe('postgresql://dagents@127.0.0.1:55432/dagents')
+    expect(gwSpawn?.env?.GATEWAY_PORT).toBe('8080')
+
+    // console env：计划端口 + BFF gateway 地址（同源注入）
+    const csSpawn = world.spawnedSpecs.find((s) => s.id === 'console')
+    expect(csSpawn?.env?.PORT).toBe('3000')
+    expect(csSpawn?.env?.GATEWAY_URL).toBe('http://localhost:8080')
 
     // 建库查询走了维护库
     expect(world.pgQueries.some((q) => q.includes('pg_database'))).toBe(true)
   })
 
-  it('端口让位：55432 被占 → 55433，DSN/状态明示', async () => {
+  it('端口让位（packaged）：55432 被占 → 55433，DSN/状态明示', async () => {
     const world = makeWorld()
     world.openPorts.add(55432) // 外部占用默认端口
     world.runOnceQueue[1] = { code: 0, stdout: 'db: applied' }
-    const orch = new Orchestrator(embeddedPgConfig(), world.deps, { pgPaths })
+    // 让位仅 packaged 形态（dev 固定端口不让位，§18.4）
+    const orch = new Orchestrator(embeddedPgConfig(), world.deps, { pgPaths, runMode: 'packaged' })
     world.httpQueue = [
       { status: 200, body: '{"ok":true,"db":"up"}' },
-      { status: 200, body: 'ok' },
+      { status: 200, body: DAGENTS_HTML },
     ]
     orch.start()
     await world.advance(10)
@@ -599,6 +676,21 @@ describe('内嵌 PG 编排（M5，docs §10.2）', () => {
     expect(world.logs.pg.some((l) => l.includes('让位'))).toBe(true)
   })
 
+  it('dev 形态 55432 被占 → 内嵌 PG 诚实 failed（固定端口纪律，§18.4）', async () => {
+    const world = makeWorld()
+    world.openPorts.add(55432)
+    const orch = new Orchestrator(embeddedPgConfig(), world.deps, { pgPaths }) // 缺省 dev
+    orch.start()
+    await world.advance(10)
+    await world.advance(500)
+
+    const snap = orch.snapshot()
+    expect(snap.services.pg.state).toBe('failed')
+    expect(snap.services.pg.message).toContain('不让位')
+    expect(world.spawnedSpecs.some((s) => s.id === 'pg')).toBe(false)
+    expect(world.spawnedSpecs.some((s) => s.id === 'gateway')).toBe(false) // pg 失败 → gateway 不启动
+  })
+
   it('迁移失败 → pg failed + gateway 不启动（docker-entrypoint 语义）', async () => {
     const world = makeWorld()
     world.runOnceQueue[1] = { code: 1, stderr: 'TypeError: cannot read migrations' }
@@ -615,11 +707,12 @@ describe('内嵌 PG 编排（M5，docs §10.2）', () => {
     expect(snap.phase).toBe('boot')
   })
 
-  it('附加模式（8080 已监听）→ 内嵌 PG 不启动，诚实标记', async () => {
+  it('附加模式（8080 是真 dagents）→ 不 spawn gateway/pg，身份判别放行', async () => {
     const world = makeWorld()
     world.openPorts.add(8080) // 外部 gateway 实例
+    world.identityQueue = [{ status: 200, body: '{"ok":true,"svc":"gateway","db":"up"}' }]
     const orch = new Orchestrator(embeddedPgConfig(), world.deps, { pgPaths })
-    world.httpQueue = [{ status: 200, body: '{"ok":true,"db":"up"}' }]
+    world.httpQueue = [{ status: 200, body: '{"ok":true,"svc":"gateway","db":"up"}' }]
     orch.start()
     await world.advance(10)
     await world.advance(500)
@@ -630,7 +723,30 @@ describe('内嵌 PG 编排（M5，docs §10.2）', () => {
     expect(world.spawnedSpecs.some((s) => s.id === 'pg')).toBe(false)
     expect(world.runOnceSpecs).toEqual([]) // initdb 也没跑
     expect(snap.services.gateway.attachMode).toBe(true) // gateway 附加语义原样
+    expect(world.spawnedSpecs.some((s) => s.id === 'gateway')).toBe(false) // 不 spawn
     expect(snap.config.pgPort).toBe(null)
+    // 身份问询确实发生（10s 通道）且问的是 /health
+    expect(world.identityRequests).toEqual(['http://localhost:8080/health'])
+  })
+
+  it('附加端口是陌生程序（8080 无 svc）→ dev 诚实 failed，pg skipped，console 不起', async () => {
+    const world = makeWorld()
+    world.openPorts.add(8080)
+    world.identityQueue = [{ status: 200, body: '{"ok":true}' }] // 盲附加病灶形态
+    const orch = new Orchestrator(embeddedPgConfig(), world.deps, { pgPaths }) // 缺省 dev
+    orch.start()
+    await world.advance(10)
+    await world.advance(500)
+
+    const snap = orch.snapshot()
+    expect(snap.services.gateway.state).toBe('failed')
+    expect(snap.services.gateway.message).toContain('端口分配失败')
+    expect(snap.services.gateway.message).toContain('dev 形态固定端口 8080')
+    expect(snap.services.gateway.attachMode).toBe(false) // 不再盲附加
+    expect(snap.services.pg.state).toBe('idle')
+    expect(snap.services.pg.message).toContain('gateway 端口分配失败')
+    expect(snap.services.console.state).toBe('idle') // 下游不启动
+    expect(world.spawnedSpecs).toEqual([]) // 全栈零 spawn
   })
 
   it('stopAll：console→gateway→pg 顺序，pg_ctl fast 优先 + EXIT 抑制不触发重启', async () => {
@@ -638,7 +754,7 @@ describe('内嵌 PG 编排（M5，docs §10.2）', () => {
     const orch = new Orchestrator(embeddedPgConfig(), world.deps, { pgPaths })
     world.httpQueue = [
       { status: 200, body: '{"ok":true,"db":"up"}' },
-      { status: 200, body: 'ok' },
+      { status: 200, body: DAGENTS_HTML },
     ]
     orch.start()
     await world.advance(10)
@@ -666,36 +782,75 @@ describe('内嵌 PG 编排（M5，docs §10.2）', () => {
     expect(pgStatus.attempts).toBe(0)
     expect(world.logs.pg.some((l) => l.includes('优雅停止流程中，不触发重启'))).toBe(true)
   })
+
+  it('stopAll 附加态：外部实例端口不校验不误报（退出不代杀语义）', async () => {
+    const world = makeWorld()
+    world.openPorts.add(8080)
+    world.openPorts.add(3000)
+    world.identityQueue = [
+      { status: 200, body: '{"ok":true,"svc":"gateway","db":"up"}' },
+      { status: 200, body: DAGENTS_HTML },
+    ]
+    const orch = new Orchestrator(twoServiceAttachConfig(), world.deps, { pgPaths })
+    world.httpQueue = [
+      { status: 200, body: '{"ok":true,"svc":"gateway","db":"up"}' },
+      { status: 200, body: DAGENTS_HTML },
+    ]
+    orch.start()
+    await world.advance(10)
+    await world.advance(600)
+    expect(orch.snapshot().phase).toBe('console') // 双附加双健康
+
+    const stopPromise = orch.stopAll()
+    await world.advance(100)
+    const report = await stopPromise
+    expect(report.gateway).toBe(true)
+    expect(report.console).toBe(true)
+    // 外部实例仍占着端口（我们不杀）——但不再误报「仍被占用」
+    expect(world.openPorts.has(8080)).toBe(true)
+    expect(world.openPorts.has(3000)).toBe(true)
+    expect(world.logs.gateway.some((l) => l.includes('仍被占用'))).toBe(false)
+    expect(world.logs.console.some((l) => l.includes('仍被占用'))).toBe(false)
+    expect(world.killedPids).toEqual([]) // 附加态无 pid 天然不杀
+  })
 })
 
-describe('packaged 编排（M6，docs §11.4）', () => {
-  const PG_BIN = join('C:/stage/pg/native/bin', 'postgres.exe')
+/** 附加场景配置：pg 不嵌入（外部栈语义）。 */
+function twoServiceAttachConfig() {
+  const cfg = defaultConfig(join(ROOT, 'repo'))
+  cfg.postgres.embedded = false
+  return cfg
+}
+
+describe('packaged 编排（M6，docs §11.4 + §18.2 计划注入）', () => {
+  const PG_BIN = join(PG_ROOT, process.platform === 'win32' ? 'postgres.exe' : 'postgres')
+  const APP = join(ROOT, 'app')
   const pgPaths = {
-    binDir: 'C:/stage/pg/native/bin',
-    dataDir: 'C:/ud/pgdata',
-    migrateScript: 'C:/app/services/gateway/node_modules/@dagents/db/scripts/migrate.mjs',
-    pgRequireRoot: 'C:/app/services/gateway',
-    nodeRuntime: { command: 'C:/app/dagents.exe', env: { ELECTRON_RUN_AS_NODE: '1' } },
+    binDir: PG_ROOT,
+    dataDir: DATA_DIR,
+    migrateScript: join(APP, 'services', 'gateway', 'node_modules', '@dagents', 'db', 'scripts', 'migrate.mjs'),
+    pgRequireRoot: join(APP, 'services', 'gateway'),
+    nodeRuntime: { command: join(APP, 'dagents.exe'), env: { ELECTRON_RUN_AS_NODE: '1' } },
   }
 
   function makeWorld() {
     const world = new FakeWorld()
     world.files.set(PG_BIN, 'bin')
-    world.files.set(join('C:/ud/pgdata', 'PG_VERSION'), '16')
+    world.files.set(join(DATA_DIR, 'PG_VERSION'), '16')
     world.runOnceQueue = [{ code: 0, stdout: 'db: schema already up to date' }]
     return world
   }
 
-  it('三服务全走 execPath + ELECTRON_RUN_AS_NODE + 内嵌产物入口', async () => {
+  it('三服务全走 execPath + ELECTRON_RUN_AS_NODE + 内嵌产物入口（端口 env 计划注入）', async () => {
     const world = makeWorld()
-    const orch = new Orchestrator(defaultConfig('C:/repo'), world.deps, {
+    const orch = new Orchestrator(defaultConfig(join(ROOT, 'repo')), world.deps, {
       pgPaths,
       runMode: 'packaged',
-      packaged: { servicesDir: 'C:/app/services', execPath: 'C:/app/dagents.exe' },
+      packaged: { servicesDir: join(APP, 'services'), execPath: join(APP, 'dagents.exe') },
     })
     world.httpQueue = [
       { status: 200, body: '{"ok":true,"db":"up"}' },
-      { status: 200, body: 'ok' },
+      { status: 200, body: DAGENTS_HTML },
     ]
     orch.start()
     await world.advance(10)
@@ -707,17 +862,19 @@ describe('packaged 编排（M6，docs §11.4）', () => {
 
     // gateway：deploy 产物入口 + RUN_AS_NODE + GATEWAY_PORT + 内嵌 DSN
     const gw = world.spawnedSpecs.find((s) => s.id === 'gateway')
-    expect(gw?.command).toBe('C:/app/dagents.exe')
-    expect(gw?.args.map(normPath)).toEqual(['C:/app/services/gateway/dist/index.js'])
-    expect(normPath(gw?.cwd ?? '')).toBe('C:/app/services/gateway')
+    expect(gw?.command).toBe(join(APP, 'dagents.exe'))
+    expect(gw?.args.map(normPath)).toEqual([normPath(join(APP, 'services', 'gateway', 'dist', 'index.js'))])
+    expect(normPath(gw?.cwd ?? '')).toBe(normPath(join(APP, 'services', 'gateway')))
     expect(gw?.env?.ELECTRON_RUN_AS_NODE).toBe('1')
     expect(gw?.env?.GATEWAY_PORT).toBe('8080')
     expect(gw?.env?.POSTGRES_URL).toBe('postgresql://dagents@127.0.0.1:55432/dagents')
 
     // console：standalone server.js（app 目录直下）+ PORT/HOSTNAME/GATEWAY_URL/NODE_ENV=production
     const cs = world.spawnedSpecs.find((s) => s.id === 'console')
-    expect(cs?.command).toBe('C:/app/dagents.exe')
-    expect(cs?.args.map(normPath)).toEqual(['C:/app/services/console/apps/console/server.js'])
+    expect(cs?.command).toBe(join(APP, 'dagents.exe'))
+    expect(cs?.args.map(normPath)).toEqual([
+      normPath(join(APP, 'services', 'console', 'apps', 'console', 'server.js')),
+    ])
     expect(cs?.env).toMatchObject({
       ELECTRON_RUN_AS_NODE: '1',
       NODE_ENV: 'production',
@@ -728,31 +885,58 @@ describe('packaged 编排（M6，docs §11.4）', () => {
 
     // 迁移走 staged migrate.mjs 且载体是 execPath（ELECTRON_RUN_AS_NODE）
     const migrate = world.runOnceSpecs[0]
-    expect(migrate.command).toBe('C:/app/dagents.exe')
-    expect(normPath(migrate.args[0])).toBe(
-      'C:/app/services/gateway/node_modules/@dagents/db/scripts/migrate.mjs'
+    expect(migrate.command).toBe(join(APP, 'dagents.exe'))
+    expect(normPath(migrate.args[0] ?? '')).toBe(
+      normPath(join(APP, 'services', 'gateway', 'node_modules', '@dagents', 'db', 'scripts', 'migrate.mjs'))
     )
     expect(migrate.env?.ELECTRON_RUN_AS_NODE).toBe('1')
   })
 
   it('config.services 的 command 在 packaged 下被忽略（内嵌栈是唯一形态）', async () => {
     const world = makeWorld()
-    const config = defaultConfig('C:/repo')
+    const config = defaultConfig(join(ROOT, 'repo'))
     config.services.gateway.command = 'weird-custom-command'
     const orch = new Orchestrator(config, world.deps, {
       pgPaths,
       runMode: 'packaged',
-      packaged: { servicesDir: 'C:/app/services', execPath: 'C:/app/dagents.exe' },
+      packaged: { servicesDir: join(APP, 'services'), execPath: join(APP, 'dagents.exe') },
     })
     world.httpQueue = [
       { status: 200, body: '{"ok":true,"db":"up"}' },
-      { status: 200, body: 'ok' },
+      { status: 200, body: DAGENTS_HTML },
     ]
     orch.start()
     await world.advance(10)
     await world.advance(500)
     const gw = world.spawnedSpecs.find((s) => s.id === 'gateway')
-    expect(gw?.command).toBe('C:/app/dagents.exe')
+    expect(gw?.command).toBe(join(APP, 'dagents.exe'))
+  })
+
+  it('让位形态：3000 陌生占用 → console 让位 3001，PORT/GATEWAY_URL/consoleUrl 全单源', async () => {
+    const world = makeWorld()
+    world.openPorts.add(3000) // 陌生 dev server 占默认端口
+    world.identityQueue = [{ status: 200, body: '<title>Vite + TS</title>' }] // console 身份=陌生
+    const orch = new Orchestrator(defaultConfig(join(ROOT, 'repo')), world.deps, {
+      pgPaths,
+      runMode: 'packaged',
+      packaged: { servicesDir: join(APP, 'services'), execPath: join(APP, 'dagents.exe') },
+    })
+    world.httpQueue = [
+      { status: 200, body: '{"ok":true,"db":"up"}' }, // gateway（8080 未占）
+      { status: 200, body: DAGENTS_HTML }, // 让位 3001 上的 console 健康
+    ]
+    orch.start()
+    await world.advance(10)
+    await world.advance(600)
+
+    const snap = orch.snapshot()
+    expect(snap.phase).toBe('console') // 让位后照样双健康接管
+    expect(snap.config.consolePort).toBe(3001)
+    expect(snap.config.consoleUrl).toBe('http://localhost:3001') // 窗口接管 URL 单源派生
+    const cs = world.spawnedSpecs.find((s) => s.id === 'console')
+    expect(cs?.env?.PORT).toBe('3001')
+    expect(cs?.env?.GATEWAY_URL).toBe('http://localhost:8080') // BFF 指实际 gateway
+    expect(world.logs.console.some((l) => l.includes('让位'))).toBe(true)
   })
 
   function normPath(p: string): string {

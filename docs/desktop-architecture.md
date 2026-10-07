@@ -467,6 +467,7 @@ app ready
 - 选 55432 的理由：避开 5432（用户自装 PG 常用）、15432（infra docker compose 的宿主映射约定——首轮用户机器上最可能的占用者）、54329+ 无特殊含义但 55432 与 15432 同构易记。
 - **冲突自动让位**：启动前 probe 默认端口，被占则 +1 递增探测（上限 20 次），实际端口写进：pg 服务日志、状态页 facts（「端口 :55433（默认 55432 被占用，已让位）」）、注入 gateway 的 `POSTGRES_URL`。全部失败 → pg 进 `failed` + 状态页明示（诚实边界，不猜不抢）。
 - 只绑 `127.0.0.1`，与 gateway 默认绑定面一致。
+- **（第三轮注，2026-10-07）**：本节的让位机制自 §18 起推广为三服务同构（gateway/console 让位 + 监听者身份判别）；`LOCKED_PORTS` 端口锁退役为「默认端口 + 可让位」。pg 的 `pickPgPort`（`pg-service.ts:91-101`）是该机制的第一个实装形态，§18 以它为模板平移——本节语义在 pg 范围内不变，冲突处以 §18 为准。
 
 ### 10.4 数据目录、升级与外部 PG 共存
 
@@ -707,4 +708,169 @@ darwin 因 PG 141MiB unpacked 会更大（dmg 压缩后另计，CI 实测回填�
 
 ---
 
-*第二轮设计完。第一轮 §1–§9 仍是壳体/编排器/供应链机制的真相源；两轮冲突处（Postgres 编排边界、启动态页出口、dev 栈默认形态）以 §10–§17 为准。*
+## 18. 动态端口化（portYielding）——第三轮设计（2026-10-07）
+
+**目标**：三端口（gateway 8080 / console 3000 / pg 55432）被任何非 dagents 程序占用时，桌面客户端自动让位到空闲端口并完整可用（含浏览器直连 WS）；被**真 dagents 实例**占用时附加模式照旧（不 spawn/不代杀/退出不误杀）；dev 工作流固定端口零扰动。端口冲突从「客户端用不了」降级为状态页一行让位说明。
+
+**病灶机制复核（全部源码定位，第三轮立项依据）**：①端口写死——`LOCKED_PORTS` 8080/3000 配置锁（`config.ts:21-24`）+ packaged 字面量注入（`run-mode.ts:51,62-64`），用户改端口被拒回落（`config.ts:117-119`）；②盲附加——端口开即附加不问监听者是谁（`supervisor.ts:170-175`）：3000 被陌生 web 服务占时 console「附加成功」（任意 2xx 即判健康，`supervisor.ts:94-96`）且窗口接管加载错页面；8080 被占时 gateway 健康探测永败 → 120s HEALTH_TIMEOUT → 按意外退出重启 → 预算耗尽 failed；③pg 的 55432 已有让位机制（`pickPgPort`）但独立成篇未统一。
+
+### 18.1 端口分配机制（allocation）——三服务同构
+
+以 pg 的 `pickPgPort`（`pg-service.ts:91-101`）为模板平移推广为纯函数层新模块 `orchestrator/port-plan.ts`：
+
+```
+对每个服务（gateway/console/pg）独立求 placement：
+  1. 身份探测默认端口（gateway:8080 / console:3000 / pg:55432——或 config 钉死端口）：
+     端口无人听          → spawn 于默认端口（yielded=false）
+     端口开且是真 dagents → attach（不 spawn；仅 gateway/console，pg 无此分支）
+     端口开但是陌生监听者 → dev 形态：诚实 failed（指引文案，不静默让位）
+                           packaged 形态（默认端口/未钉死时）：+1 递增探测候选
+                           （gateway 8080+i / console 3000+i / pg 55432+i，上限 20 次，
+                           与 PG_PORT_MAX_TRIES 同构）
+     探测全部被占        → 诚实 failed + 状态页明示（不猜不抢）
+  2. config 显式钉死端口（services.<id>.port 写值）→ 两形态都固定：被陌生程序占即
+     诚实 failed（与 dev 形态同语义），不让位。
+```
+
+- **分配顺序**：pg → gateway → console（依赖方向：gateway 的 `POSTGRES_URL` 依赖 pg 端口，console 的 `GATEWAY_URL` 依赖 gateway 端口）。gateway 判定 attach 时 pg 置 skipped（外部栈自带数据库——现行为 `supervisor.ts:460-463` 保留，判定依据从「端口开」升级为「身份判别为 dagents」）。
+- **PG 不能 bind 0 的应对**：postgres 的 `-p` 只接受具体端口（0 无效），且子进程端口必须经 env/args 先验传入——所以三服务统一走「探测式分配」而非「bind 0 回读」。bind 0 回读在「探测→释放→子进程绑定」链条里同样留竞态窗口（§18.7 实测），并不更安全，反而多一次释放抖动；探测式对三服务同构、与 pg 现机制零差。
+- **探测开销**：无人监听端口的 TCP 探测在 win 本机实测 **1ms/次**（ECONNREFUSED 快失败，§18.11 #5）——20 个候选最坏 ~20ms（有人占的候选 300ms 超时兜底，最坏 20×300ms=6s，仅全占满时走到）。
+
+### 18.2 注入链（injection）——实际端口单一事实源
+
+**placement 求出后一次性注入，全链从同一 `PortPlan` 对象推导**（纯数据，进快照、进日志、进 env）：
+
+```
+PortPlan { gateway: {mode:'attach'|'spawn'|'failed', port, yielded, reason},
+           console: {...同构...},
+           pg:      {port, yielded}|null（skipped 时 null）,
+           gatewayUrl: `http://localhost:${gateway.port}`   ← 派生
+           consoleUrl: `http://localhost:${console.port}`   ← 派生，接管窗口唯一 URL 源 }
+```
+
+| 注入点 | env/值 | 落点（现状 → 目标） |
+|---|---|---|
+| gateway 端口 | `GATEWAY_PORT` | `run-mode.ts:51` 字面量 `'8080'` → `String(plan.gateway.port)`；dev 形态同注入（`pnpm --filter @dagents/gateway dev` 的 tsx 进程读同一 env，`gateway/src/index.ts:16`，§18.11 #6 实测语义） |
+| pg DSN | `POSTGRES_URL` | 现机制不变（`supervisor.ts:473`），端口来自 plan.pg |
+| console 端口 | `PORT` | `run-mode.ts:62` 字面量 `'3000'` → `String(plan.console.port)`；standalone server.js 运行时读（`parseInt(process.env.PORT)||3000`，§18.11 #2 实测）；dev 形态（next dev）同读 PORT |
+| console BFF → gateway | `GATEWAY_URL` | `run-mode.ts:64` 字面量 → `plan.gatewayUrl`；BFF 服务端运行时读（`apps/console/src/lib/config.ts:13`，§18.11 #4 实测真打通） |
+| 窗口接管 | consoleUrl | `takeover.ts:27` 构造期固定 → `consoleUrl: () => plan.consoleUrl` getter（loadConsole 时读） |
+| 导航防护 allowlist | consoleUrl | `index.ts:236` 闭包捕获构造期值 → 同 getter（`wireShellCompatibility` 签名改传 getter，`index.ts:81,205` 同步） |
+| 菜单「在浏览器打开」 | consoleUrl | `index.ts:119` → 点击时读快照 |
+| 健康探测 | 实际端口 | `supervisor.ts` `portOf`（`supervisor.ts:143-147` 读 config 固定值）→ 读 plan（`SupervisorOptions.port` 已支持注入，pg 先例 `pg-service.ts:311`） |
+| 快照 facts / 状态页 | 全矩阵 | `DesktopSnapshot.config`（`types.ts:109-128`）增 `gatewayYielded/consoleYielded` + 各服务 `message` 沿用 pg yielded 文案语义（`pg-service.ts:81-85,403-407` 平移：「端口 :3001（默认 3000 被占用，已让位）」/「附加模式（检测到 dagents 实例）」/「dev 形态固定端口被占——腾端口或改 packaged 形态」） |
+| 渲染层文案 | 动态 | `renderer/status.ts:60-61` 静态「端口 :8080/:3000」→ 读快照实际端口 |
+
+**时序**：`Orchestrator.startAsync`（`supervisor.ts:459-479`）开头先求 `PortPlan`（探测+身份判别，一次），再按现编排走 pg bootstrap → gateway/console spawn/attach。plan 存 orchestrator 实例字段，`restartAll`（`supervisor.ts:511-514`）重跑 startAsync 时**重新求 plan**（重探测+重判别——§18.7 自愈入口）；单服务有界重启（状态机内）**复用 plan 同端口**（见 §18.7 竞态决策）。
+
+### 18.3 监听者身份判别（attachSemantics）——附加语义保留的核心
+
+**端口开 ≠ 附加。附加判定从「端口开」（`supervisor.ts:170-175`）升级为「端口开且是 dagents」。** 纯函数层新模块 `orchestrator/identity.ts`（判别逻辑 + 单测全覆盖三态）：
+
+| 服务 | 判别特征 | 三态 |
+|---|---|---|
+| gateway | `GET /health` → HTTP 200 + JSON `svc === 'gateway'`（`apps/gateway/src/app.ts:38-45` 协议既有；含 db:down 503 形态——按进程活语义也算 dagents） | dagents / stranger / unreachable（端口关） |
+| console | `GET /` → HTTP 2xx + `<title>` 含 `Dagents`（`apps/console/src/app/layout.tsx:9`；§18.11 #3 实测 standalone 形态 title 即 "Dagents"） | 同上 |
+
+- 判别输入是「已抓取的 HTTP 结果」（`httpGet` 经 `SupervisorDeps` 注入，身份探测复用该通道）——纯函数零网络依赖，可全测。
+- **无响应 TCP（accept 不应答/非 HTTP 程序）→ 按 stranger 处理**（让位/dev 诚实失败）——只有 dagents 协议特征才放行附加，安全默认（§18.11 #8 实测）。
+- **与第一轮 8080/3000 探测的兼容**：探测手法不变（`ports.ts:6-19` socket connect）；只在其上多叠一层 HTTP 身份问询。真 dagents dev 栈在跑（pnpm dev 双端口）→ 双双判 dagents → 附加模式语义与第一轮完全一致（不 spawn、不代杀、`exitSuppressed` 不涉外部进程、退出只杀自己 spawn 的树——现有 taskkill 只对 `handle.pid` 自己的子进程发，附加态从未 spawn 故无 pid 可杀，语义天然保留）。
+- **冷编译窗口**：dev console 首访懒编译 4-15s（AGENTS.md 已知特性）——身份探测给 10s 超时 + 1 次重试（仅启动路径一次，最坏 20s）；仍超时按 stranger（dev 形态诚实失败并提示「检测到疑似 dagents 但未及应答，重试或确认端口」）。
+- 混合态各端口独立判定（userStory 5）：gateway 附加（真 dagents）+ console 让位自起 → console `GATEWAY_URL=plan.gatewayUrl`（附加实例 8080）；每服务状态页如实标注「附加 / 自起 :N / 让位至 :N」。
+
+### 18.4 dev 兼容与 config 钉死（devCompat）
+
+| 形态 | 默认端口策略 | 被真 dagents 占 | 被陌生程序占 |
+|---|---|---|---|
+| dev（mode dev / 仓库形态） | **固定 8080/3000/55432 不漂移**（仓库工具链 pnpm dev / e2e / restart-gateway.sh / AGENTS.md 端口表零扰动） | 附加（现状语义） | **诚实 failed + 指引**（腾端口 / 换 packaged 形态 / config 钉死其他端口），不静默让位 |
+| packaged（默认形态） | 默认端口 + **自动让位**（§18.1） | 附加 | 让位递增探测 |
+| config 显式钉死 | `services.<id>.port` 写值即钉死（两形态同语义） | 附加 | 诚实 failed（不让位） |
+
+- **config schema 变更**：`LOCKED_PORTS`（`config.ts:21-24`）与「写非默认端口被拒」语义（`config.ts:115-121`）退役——`mergeService` 改为接受 1024–65535 合法端口（校验对齐 pg 的 `config.ts:174-178`），新增 `portExplicit` 派生标记（同 `postgres.embeddedExplicit` 先例，`config.ts:167-171`）区分「显式钉死」与「形态默认」。`postgres.port` 可配语义原样保留。
+- **旧 config 回落行为**：旧 config 写 `port: 8080/3000`（=默认值）行为不变；写过非默认值（此前被拒回落+告警）→ **现在被接受为钉死端口**——从「拒绝+回落」放宽为「接受+钉死」，是超集变化，README 升级注记明示；坏 JSON 全量默认值兜底不变。
+- dev 形态也让注入链走同一代码路径（placement=固定端口，env 注入同款）——dev/packaged 同源，无分叉实现。
+
+### 18.5 console 客户端直连面修正（console 侧唯一改动面，逐处论证）
+
+**病灶**：端口漂移后浏览器侧两处直连 gateway 的面会断——①WS `ws://localhost:8080/ws`（`apps/console/src/lib/ws-client.ts:63-68`，`NEXT_PUBLIC_WS_URL` 是 **build 期内联**，源码注释自证，运行时 env 救不了已构建的 client bundle）→ WS 断流只剩轮询降级；②daemons 注册命令展示内建 8080（`apps/console/src/components/daemons-view.tsx:1002-1007`）→ 复制到远程机器的命令连不上网关。
+
+**方案：新增 BFF 路由 `apps/console/src/app/api/runtime/route.ts`**（`GET`，`force-dynamic`，返回 `{ wsUrl, gatewayUrl }`——服务端运行时读 `GATEWAY_URL`（`config.ts:13` 通道）派生 `ws://<host>:<port>/ws`；未设时回落默认 8080——dev/e2e 行为零变化）：
+
+1. `ws-client.ts`：`ensureSocket` 首连前 `fetch('/api/runtime')` 解析 wsUrl（模块级缓存一次）；`NEXT_PUBLIC_WS_URL` 显式设置时优先（e2e/自定义构建逃生门）；fetch 失败回落现行默认——**降级不回归**（漂移场景下 WS 断→轮询，即现状最差行为）。
+2. `daemons-view.tsx`：对话框打开时同源取 `gatewayUrl`（失败回落现行 hostname 推导）。
+
+**为什么壳层/env 注入解决不了（逐处）**：WS URL 在**浏览器进程**里使用——主进程 env 注入只达 server 侧（BFF 已实测运行时生效，§18.11 #4），client bundle 是构建期定死的产物；`webContents.executeJavaScript` 注入 `window.__WS_URL__` 只在 Electron 窗口内生效且与页面加载竞态，「在浏览器打开」（`index.ts:119`）场景即失效。BFF 路由是浏览器可达的唯一服务端运行时通道，~15 行 route + ~10 行 ws-client 改动，是最小面。gateway 侧 WS 端点本身随 `GATEWAY_PORT` 走（`gateway/src/index.ts:242-244` 单一 listen 同时挂 HTTP+WS），零改动。
+
+### 18.6 探测-绑定竞态与自愈（不引入新机制）
+
+- **窗口实测存在**（§18.11 #3）：探测空闲 → 第三方抢注 → 后到者 bind 撞 `EADDRINUSE`。窗口长度 = 探测到子进程 bind（秒级），概率极低但非零。
+- **收口路径（全部既有机制）**：子进程 bind 失败即退出（EXIT 事件）→ 状态机有界重启（1/3/9s 退避，5min 窗 3 次）→ **同端口重试**（plan 不变——绝大多数抢注是瞬态的，1s 后已释放；监听 socket 关闭即释放端口，win 实测 200/200 立即重绑成功，§18.11 #2）→ 预算耗尽诚实 failed（状态页明示「端口 :N 被抢占」）。**完整重探测在 `restartAll` 重跑 startAsync 时发生**（菜单「重启服务」/重试按钮——既有通道，重新求 plan 含身份判别）。不引入端口预留（bind 持有到子进程就绪需跨进程移交，PG 场景不可行）也不引入级联重启（gateway 换端口导致 console `GATEWAY_URL` 失配的场景收敛到 restartAll 单点重编排——mid-session 自动换端口引发的联动复杂度大于收益，诚实失败+一键重启语义更清晰）。
+
+### 18.7 消费方审计（path 级全量）
+
+| # | 消费方 | 现状 | 处置 |
+|---|---|---|---|
+| 1 | `apps/desktop/src/main/orchestrator/config.ts:21-29` | `LOCKED_PORTS` + 端口锁文案 | 退役 → `DEFAULT_PORTS`；`config.ts:115-121` 改接受+钉死；`config.ts:56` consoleUrl 默认值 → 派生 |
+| 2 | `apps/desktop/src/main/orchestrator/run-mode.ts:51,62-64` | GATEWAY_PORT/PORT/GATEWAY_URL 字面量 | 参数化（plan 注入） |
+| 3 | `apps/desktop/src/main/orchestrator/supervisor.ts:94-96,143-147,165-179,459-479` | console 任意 2xx 即健康；portOf 读 config；attach 只看端口开；startAsync isPortOpen 判附加 | 身份判别接管 attach 判定；portOf 读 plan；healthUrl 不变（已是参数） |
+| 4 | `apps/desktop/src/main/index.ts:81,107,119,205,236` | consoleUrl 构造期捕获五处 | 全改 getter/快照读 |
+| 5 | `apps/desktop/src/main/takeover.ts:27,44,59-61` | consoleUrl 构造期固定 | deps 改 `consoleUrl: () => string` |
+| 6 | `apps/desktop/src/main/renderer/status.ts:60-61` | 静态端口文案 | 读快照 |
+| 7 | `apps/console/src/lib/ws-client.ts:63-68` | build 期 WS URL | §18.5 /api/runtime 运行时解析 |
+| 8 | `apps/console/src/components/daemons-view.tsx:1002-1007` | 内建 8080 | §18.5 |
+| 9 | `apps/console/src/lib/config.ts:13`（GATEWAY_URL 服务端读） | 运行时 ✓ | 零改动（§18.11 #4 实测） |
+| 10 | `apps/gateway/src/index.ts:16,19`（GATEWAY_PORT/GATEWAY_HOST） | 运行时 ✓ | **gateway 零改动**（§18.11 #6 实测） |
+| 11 | console standalone `server.js`（PORT/HOSTNAME） | 运行时 ✓（HOSTNAME 已显式注入 127.0.0.1，`run-mode.ts:63`——避免 win 系统变量 HOSTNAME=机器名劫持绑定面） | 零改动（§18.11 #2 实测） |
+| 12 | `apps/desktop/scripts/smoke.mjs` | 只断言进程树生命周期，**无端口断言**（通读核实） | M2 增端口冲突场景模式（哑 listener + netstat 断言让位端口） |
+| 13 | `.github/workflows/desktop.yml` | 无端口字面量（grep 核实，仅 source-map 对策） | 零改动 |
+| 14 | e2e（`apps/console/tests/e2e/helpers/seed.ts:36` E2E_GATEWAY_URL / README :98 GATEWAY_URL 配方） | 自起 dev 栈固定端口，与桌面动态端口无交集 | 零改动 |
+| 15 | `restart-gateway.sh` / AGENTS.md 端口表 / `infra` docker（15432） | 仓库约定固定端口 | 零改动；AGENTS.md 端口表补「桌面形态默认可让位」一行注 |
+| 16 | `apps/desktop/README.md:31`（端口锁一节） | 写「锁定 8080/3000，写别的被拒」 | 改写为默认+让位+钉死语义（M2） |
+| 17 | 遗留债①测试夹具：`config.test.ts` C:/ 路径族（win-only isAbsolute 语义，linux CI 失败源）、`pg-service.test.ts:35` 硬编码 `postgres.exe`（`platformExe` 同源化） | 平台相关 | 与端口改造同文件同轮清偿（夹具改用 `node:path` 原生推导/platformExe 复用，零生产行为变化） |
+
+### 18.8 测试与验收策略
+
+- **纯函数单测（新增/扩展）**：`port-plan.test.ts`（矩阵：dev×stranger=诚实失败 / dev×dagents=附加 / packaged×free=默认 / packaged×stranger=让位+1 / 钉死×stranger=失败 / 候选耗尽=诚实失败 / 混合态 / gateway 附加→pg skipped / gatewayUrl·consoleUrl 派生）；`identity.test.ts`（三态×两服务，真形状响应体驱动——§18.11 #6-#10 的形状即用例）；`config.test.ts`（钉死语义+旧 config 回落）；`run-mode.test.ts`（env 参数化）；`supervisor.test.ts`（placement 指令接线）。purity 守护自动覆盖新模块（`purity.test.ts` 成对断言：impl/test 文件成对存在——新模块必须带测试）。
+- **win 本机三场景实测**（哑 listener = M5-4 同款真实证手法）：①哑 listener 占三默认端口 → packaged 启动全让位 + 窗口接管 + WS 可用（CDP 断言 wsUrl）+ 状态页让位明示；②真 dev 栈在跑（pnpm dev）→ 双附加不 spawn 不代杀，退出 dev 栈存活；③dev 形态 + 哑 listener 占 8080 → 诚实失败 + 指引文案。
+- **零回归复验**：第一、二轮清单逐条（packaged 全新机器 30s 就绪 / 优雅退出三端口+进程净 / 卸载保 pgdata / dev 全链 / U1·U2 项）；根门禁 `pnpm test && pnpm lint && pnpm typecheck` turbo 全绿；linux CI desktop 测试归绿（遗留债①清偿后）。
+
+### 18.9 第三轮里程碑
+
+| # | 里程碑 | 交付内容 | 验收口径 |
+|---|---|---|---|
+| M8 | **分配+注入骨架 + 门禁全绿** | `port-plan.ts`/`identity.ts` 纯函数层（含单测）；config 钉死语义（LOCKED_PORTS 退役）；run-mode/supervisor/index/takeover 注入链接线（consoleUrl getter 化）；**同文件同轮清偿遗留债①**（config.test C:/ 族 + pg-service.test platformExe 夹具平台无关化） | 根命令三件套全绿；win 本机：场景①（哑 listener 占三端口 → packaged 全让位 + 双健康接管）+ 场景③（dev 固定端口诚实失败）实测过；场景②附加回归不破；linux CI desktop 测试归绿 |
+| M9 | **消费面收编 + console 直连面** | 快照/状态页/菜单/导航防护全量单源（含 status.ts 文案）；console `/api/runtime` 路由 + ws-client/daemons-view 运行时解析；README 端口节改写 + AGENTS.md 端口表注 | win 本机：让位形态下 WS 直连可用（CDP 断言 connected）、daemons 命令地址正确；fetch 失败降级路径（拔 GATEWAY_URL）不回归；smoke.mjs 增冲突模式断言让位端口 |
+| M10 | **混合态 + 竞态自愈 + 全量回归收口** | 混合态矩阵实测（gateway 附加+console 让位）；restartAll 重探测链路验证；第一、二轮验收清单逐条复验；文档终态 | win 本机：混合态（真 dev 栈占 8080 + 哑 listener 占 3000）全链可用且状态页如实分标；优雅退出实际端口全净；U1/U2 零回归；根门禁最终态全绿 |
+
+### 18.10 第三轮实测证据表（win32 真机，2026-10-07，全部本 session 实跑）
+
+环境：Windows 10 19045，node v22.23.3；探测脚本落 `%TEMP%\dagents-port-audit\`（后即删）；打包产物取 `apps/desktop/release-m6b/win-unpacked/resources/services/`（d9f40ef 验收过的同一份物料）。
+
+| # | 命令/操作 | 结果 |
+|---|---|---|
+| 1 | `node check-ports.mjs`（直载 `apps/desktop/src/main/orchestrator/ports.ts` 的 probePort + 真 socket） | ports.ts 源码可直载复用（探测手法零新增依赖）；200 次探测全符合预期 |
+| 2 | 同上 §A：`listen(0)→close→立即重绑同端口 ×200` | **200/200 成功**（260ms 总耗时）——win 监听 socket 关闭即释放，无 TIME_WAIT 阻挡重绑；同端口有界重试可行 |
+| 3 | 同上 §B：探测空闲 → 第三方抢注 → 后到者 bind | 后到者 `EADDRINUSE`——**竞态窗口真实存在**，自愈走既有有界重启+restartAll 重探测（§18.6） |
+| 4 | 同上 §C：127.0.0.1-only 监听者 | `probe(127.0.0.1)` 命中=true——gateway 默认绑定面（`index.ts:19` 127.0.0.1）与探测同面 |
+| 5 | 同上 §D：无人监听端口单次探测 | **1ms**（ECONNREFUSED 快失败）——20 候选最坏探测代价可忽略 |
+| 6 | 同上 §E1：陌生程序 `200 {"ok":true}`（无 svc） | 判别=stranger——**盲附加病灶的正是此形态**（现行 2xx 即健康的 console 面、现行 attach 面都会误判） |
+| 7 | 同上 §E2：陌生 HTML 页（Vite/Next 形态占 3000） | gateway 判 stranger（非 JSON）/ console 判 stranger（title 非 Dagents） |
+| 8 | 同上 §E3：无响应 TCP（accept 不应答） | kind=timeout → 按 stranger 处理（安全默认：只有 dagents 特征才附加） |
+| 9 | 同上 §E4/E5：dagents 形态（`/health svc:'gateway'` / title 'Dagents'） | 双双判 dagents——附加判别特征成立 |
+| 10 | `node check-gateway.mjs`：packaged gateway + `GATEWAY_PORT=18080 POSTGRES_URL=…5432` | `gateway on 127.0.0.1:18080`；`/health` → `{"ok":true,"svc":"gateway","db":"up"}`（**端口与 DSN 均 env 运行时生效**）；`/livez` svc:'gateway'；taskkill 树终后 18080 释放 |
+| 11 | `node check-console.mjs`：console standalone + `PORT=3457 GATEWAY_URL=http://127.0.0.1:19081`（哑 gateway 19081 应答 svc:'gateway'） | `Ready in 320ms` 绑 **3457**（默认 3000 未用）；首页 title=**"Dagents"**；`/api/gateway-health` → `{"ok":true,"reachable":true,"svc":"gateway"}`——**BFF GATEWAY_URL 运行时打到达 19081**；收尾 3457/19081 双释放 |
+
+### 18.11 第三轮风险增补（R1–R15 保留）
+
+| # | 风险 | 对策 |
+|---|---|---|
+| R16 | dev console 冷编译窗口（4-15s 懒编译）身份探测超时 → 真 dagents 被误判 stranger → dev 形态诚实失败（非误附加，方向安全） | 身份探测 10s 超时+1 重试；失败文案给「重试」指引；dev 用户同时跑 desktop dev 形态 + 仓库 console 的小众场景，文档明示 |
+| R17 | WS 运行时解析失败（/api/runtime 不可达）回落默认 8080 → 漂移场景 WS 断流只剩轮询 | 即现状最差行为（降级不回归）；connected=false 已驱动轮询回退（ws-client 架构既有）；浏览器控制台告警一行 |
+| R18 | 让位候选段撞常见 dev 端口（3001=Langfuse 等） | 探测式分配天然跳过已占端口；只在空闲候选落位，无抢占 |
+| R19 | 旧 config 写过非默认 port 的用户（此前被拒回落）升级后端口语义变化 | 行为是放宽（接受为钉死）非破坏；README 升级注记 + config 加载告警改写 |
+| R20 | 竞态窗口残量（探测后 bind 前被抢） | §18.6：同端口有界重试 → 耗尽诚实 failed → restartAll 重探测；实测窗口存在但概率极低（探测→bind 秒级） |
+| R21 | 三轮叠加验收面变大（新三场景 + 一二轮全清单） | M10 里程碑单列全量复验；场景脚本化（smoke 冲突模式）降低复验成本 |
+
+---
+
+*第三轮设计完。第一轮 §1–§9 仍是壳体/编排器/供应链机制的真相源；三轮冲突处（端口策略、附加判定、config 端口语义）以 §18 为准；§10.3 已加注指向。*

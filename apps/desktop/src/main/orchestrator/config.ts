@@ -18,22 +18,38 @@ export const DEFAULT_RESTART_POLICY: RestartPolicy = {
   healthTimeoutMs: 120_000,
 }
 
-export const LOCKED_PORTS: Record<ManagedServiceId, number> = {
+/**
+ * 默认端口（docs §18.4，M8）：8080/3000 与仓库默认一致——默认端口空闲即用，
+ * 被陌生程序占时按形态分流（dev 诚实失败 / packaged 让位递增），由 port-plan 判定。
+ * （旧 LOCKED_PORTS 端口锁退役：写非默认端口不再被拒，而是被接受为「钉死」——
+ * 钉死端口被陌生程序占时两形态都诚实 failed 不让位，见 port-plan.ts。）
+ */
+export const DEFAULT_PORTS: Record<ManagedServiceId, number> = {
   gateway: 8080,
   console: 3000,
 }
 
 export const DEFAULT_PG_PORT = 55432
 
-const PORT_LOCK_REASON =
-  '端口锁定 8080/3000（console BFF 只认 GATEWAY_URL——AGENTS.md 已知问题），已回落默认端口'
+/** 端口计划注入的 env 键——extraEnv 写了这些键会被计划值覆盖（placement 单源）。 */
+const PLACEMENT_ENV_KEYS = ['GATEWAY_PORT', 'PORT', 'GATEWAY_URL'] as const
 
 export function defaultGatewaySpec(): ServiceSpec {
-  return { command: 'pnpm', args: ['--filter', '@dagents/gateway', 'dev'], port: 8080 }
+  return {
+    command: 'pnpm',
+    args: ['--filter', '@dagents/gateway', 'dev'],
+    port: DEFAULT_PORTS.gateway,
+    portExplicit: false,
+  }
 }
 
 export function defaultConsoleSpec(): ServiceSpec {
-  return { command: 'pnpm', args: ['--filter', '@dagents/console', 'dev'], port: 3000 }
+  return {
+    command: 'pnpm',
+    args: ['--filter', '@dagents/console', 'dev'],
+    port: DEFAULT_PORTS.console,
+    portExplicit: false,
+  }
 }
 
 export function defaultPostgresConfig(): PostgresConfig {
@@ -53,7 +69,9 @@ export function defaultPostgresConfig(): PostgresConfig {
 export function defaultConfig(repoRoot: string): DesktopConfig {
   return {
     repoRoot,
-    consoleUrl: 'http://localhost:3000',
+    // '' = 由端口计划派生（http://localhost:<console 实际端口>，docs §18.2）；
+    // 显式写值仍是接管 URL 的逃生门（附加/远程场景）——计划只在未写时接管。
+    consoleUrl: '',
     mode: 'auto',
     services: {
       gateway: defaultGatewaySpec(),
@@ -112,12 +130,20 @@ function mergeService(
   const args = asStringArray(obj.args)
   if (args) spec.args = args
 
-  // 端口锁（约束 5）：schema 保留 port 字段但只接受默认值，其余回落并告警
+  // 端口语义（docs §18.4，M8）：接受 1024–65535 合法端口；非默认值 = 钉死
+  // （portExplicit——被陌生程序占时诚实 failed 不让位）；写默认值行为与不写一致
+  // （旧 config「写 8080/3000」零变化；此前被拒的非默认值现在是超集放宽：接受+钉死）。
   const port = asPositiveInt(obj.port)
-  if (port !== null && port !== LOCKED_PORTS[id]) {
-    warnings.push(`services.${id}.port=${port} 被拒绝：${PORT_LOCK_REASON}`)
+  if (port !== null) {
+    if (port >= 1024 && port <= 65_535) {
+      spec.port = port
+      spec.portExplicit = port !== DEFAULT_PORTS[id]
+    } else {
+      warnings.push(
+        `services.${id}.port=${port} 越界（1024–65535），已回落默认 ${DEFAULT_PORTS[id]}`
+      )
+    }
   }
-  spec.port = LOCKED_PORTS[id]
   return spec
 }
 
@@ -170,7 +196,7 @@ function mergePostgres(
     warnings.push('postgres.embedded 非 boolean，已回落默认 true')
   }
 
-  // PG 端口不锁值（独立于 LOCKED_PORTS，docs §10.3）：只做合法范围校验
+  // PG 端口可配语义保留（docs §18.4）：只做合法范围校验，作为让位探测的起点端口
   const port = asPositiveInt(obj.port)
   if (port !== null) {
     if (port >= 1024 && port <= 65_535) pg.port = port
@@ -239,8 +265,14 @@ export function loadConfig(
   if (repoRoot) config.repoRoot = repoRoot
 
   const consoleUrl = asString(obj.consoleUrl)
-  if (consoleUrl && /^https?:\/\//.test(consoleUrl)) config.consoleUrl = consoleUrl
-  else if (consoleUrl) warnings.push(`consoleUrl "${consoleUrl}" 非 http(s) URL，已回落默认值`)
+  if (consoleUrl && /^https?:\/\//.test(consoleUrl)) {
+    config.consoleUrl = consoleUrl
+    warnings.push(
+      `consoleUrl 已显式设置（${consoleUrl}）——接管 URL 以它为准，端口计划的让位派生值不生效（docs §18.2）`
+    )
+  } else if (consoleUrl) {
+    warnings.push(`consoleUrl "${consoleUrl}" 非 http(s) URL，已回落端口计划派生值`)
+  }
 
   const mode = asString(obj.mode)
   if (mode === 'auto' || mode === 'dev' || mode === 'packaged') config.mode = mode
@@ -261,6 +293,15 @@ export function loadConfig(
       if (typeof v === 'string') env[k] = v
     }
     config.extraEnv = env
+    // placement 单源（docs §18.2）：端口计划的 env 注入后于 extraEnv 展开——写了
+    // 这些键的用户值会被实际端口覆盖，提前告警防「env 旁路制造半残态」的误解。
+    for (const key of PLACEMENT_ENV_KEYS) {
+      if (env[key] !== undefined) {
+        warnings.push(
+          `extraEnv.${key} 与端口计划注入冲突——spawn 时以编排器探测的实际端口为准（extraEnv 值不生效）`
+        )
+      }
+    }
   }
 
   // postgres.* 在 extraEnv 之后合并（第 ② 层回退依赖 extraEnv.POSTGRES_URL 判定）

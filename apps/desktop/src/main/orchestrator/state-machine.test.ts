@@ -229,6 +229,31 @@ describe('停止语义（规则 2：树终止 + 清预算 + 清 timer，幂等�
   })
 })
 
+describe('端口计划失败（docs §18.1，M8：placement 由 port-plan 预先判定）', () => {
+  it('idle + PLACEMENT_FAILED → failed，message 直载 plan reason（不叠 PATH 引导）', () => {
+    const m = createMachine('gateway')
+    const r = transition(m, { type: 'PLACEMENT_FAILED', error: 'dev 形态固定端口 8080 被占用' }, policy, now)
+    expect(r.machine.status.state).toBe('failed')
+    expect(r.machine.status.message).toBe('端口分配失败：dev 形态固定端口 8080 被占用')
+    expect(r.effects).toEqual([]) // 未 spawn 过——无 kill 无重启
+  })
+
+  it('stopped + PLACEMENT_FAILED → failed（restartAll 重探测再失败的入口）', () => {
+    let m = createMachine('console')
+    m = transition(m, { type: 'START' }, policy, now).machine
+    m = transition(m, { type: 'STOP' }, policy, now).machine
+    const r = transition(m, { type: 'PLACEMENT_FAILED', error: 'x' }, policy, now)
+    expect(r.machine.status.state).toBe('failed')
+  })
+
+  it('running 下 PLACEMENT_FAILED 被忽略（计划只在启动路径生效）', () => {
+    const m = driveToRunning()
+    const r = transition(m, { type: 'PLACEMENT_FAILED', error: 'x' }, policy, now)
+    expect(r.machine).toBe(m)
+    expect(r.effects).toEqual([])
+  })
+})
+
 describe('附加模式（端口已听不 spawn）', () => {
   it('idle + SPAWNED{attach} → waiting_health(attachMode)，EXIT 不重启 → failed 引导', () => {
     let m = createMachine('gateway')

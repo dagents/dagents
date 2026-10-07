@@ -1,5 +1,5 @@
 import { describe, expect, it } from 'vitest'
-import { join } from 'node:path'
+import { join, resolve } from 'node:path'
 import { defaultConfig } from './config'
 import {
   initdbSpec,
@@ -8,71 +8,61 @@ import {
   pgCtlStopSpec,
   pgDsn,
   pgSpawnRunSpec,
-  pickPgPort,
   PgServiceController,
+  platformExe,
   resolvePgPaths,
   type PgClient,
   type PgDeps,
   type PgRuntimePaths,
   type RunOnceSpec,
 } from './pg-service'
+import type { PgPlacement } from './port-plan'
 import { ServiceSupervisor, type SupervisorOptions } from './supervisor'
 import type { ServiceStatus } from './types'
 
-// pg-service 单测（docs §10）：纯函数（挑端口/spec 构造/DSN/pid 解析/路径解析）+
-// controller bootstrap 管线（注入假 deps 全速驱动）。真 initdb/postgres 链路归
-// M5 真机验收，不进单测。
+// pg-service 单测（docs §10 + §18，M8）：纯函数（spec 构造/DSN/pid 解析/路径解析）+
+// controller bootstrap 管线（注入假 deps 全速驱动）。端口让位探测已平移 port-plan.ts
+// （pickPgPort 退役），controller 消费计划好的 placement——矩阵测试见 port-plan.test.ts。
+// 夹具平台无关化（遗留债①）：路径经 node:path 推导、可执行名经 platformExe 同源化，
+// linux CI 不再因 win-only 语义失败。
+// 真 initdb/postgres 链路归 M5 真机验收，不进单测。
+
+/** 平台无关绝对路径根（win: C:\；posix: /）——isAbsolute 语义两平台同真。 */
+const ROOT = resolve('/')
 
 const paths: PgRuntimePaths = {
-  binDir: 'C:/stage/pg/native/bin',
-  dataDir: 'C:/ud/pgdata',
-  migrateScript: 'C:/repo/packages/db/scripts/migrate.mjs',
-  pgRequireRoot: 'C:/repo/packages/db',
+  binDir: join(ROOT, 'dagents-desktop', 'stage', 'pg', 'native', 'bin'),
+  dataDir: join(ROOT, 'ud', 'pgdata'),
+  migrateScript: join(ROOT, 'repo', 'packages', 'db', 'scripts', 'migrate.mjs'),
+  pgRequireRoot: join(ROOT, 'repo', 'packages', 'db'),
   nodeRuntime: { command: 'node', env: {} },
 }
 
-// fake fs 的 key 与被测代码 join() 输出同构（win32 反斜杠）
-const PG_BIN = join('C:/stage/pg/native/bin', 'postgres.exe')
-const PG_VERSION_FILE = join('C:/ud/pgdata', 'PG_VERSION')
-const POSTMASTER_PID = join('C:/ud/pgdata', 'postmaster.pid')
+// fake fs 的 key 与被测代码 platformExe()/join() 输出同构（含平台可执行后缀）
+const PG_BIN = platformExe(paths.binDir, 'postgres')
+const PG_VERSION_FILE = join(paths.dataDir, 'PG_VERSION')
+const POSTMASTER_PID = join(paths.dataDir, 'postmaster.pid')
 
-describe('pickPgPort（让位策略 docs §10.3）', () => {
-  it('默认端口空闲 → 直用，未让位', async () => {
-    expect(await pickPgPort(55432, async () => false)).toEqual({
-      port: 55432,
-      yielded: false,
-      tried: 1,
-    })
-  })
+/** 默认端口计划（placement 由 Orchestrator 的 port-plan 求出后传入）。 */
+const PLACE_DEFAULT: PgPlacement = { mode: 'spawn', port: 55432, yielded: false }
 
-  it('默认被占 → +1 递增直到空闲（明示让位）', async () => {
-    const busy = new Set([55432, 55433])
-    const choice = await pickPgPort(55432, async (p) => busy.has(p))
-    expect(choice).toEqual({ port: 55434, yielded: true, tried: 3 })
-  })
-
-  it('全部被占（≤20 次）→ null 诚实失败', async () => {
-    expect(await pickPgPort(55432, async () => true, 20)).toBeNull()
-  })
-})
-
-describe('spec 构造（纯函数）', () => {
+describe('spec 构造（纯函数，平台无关）', () => {
   it('pgDsn：无密码 trust + 本机回环', () => {
     expect(pgDsn(55432, 'dagents')).toBe('postgresql://dagents@127.0.0.1:55432/dagents')
   })
 
-  it('initdbSpec：-U dagents -E UTF8 --locale=C -A trust', () => {
+  it('initdbSpec：-U dagents -E UTF8 --locale=C -A trust（可执行名平台同源）', () => {
     const spec = initdbSpec(paths)
-    expect(spec.command.endsWith('initdb.exe')).toBe(true)
+    expect(spec.command).toBe(platformExe(paths.binDir, 'initdb'))
     expect(spec.args).toEqual([
-      '-D', 'C:/ud/pgdata', '-U', 'dagents', '-E', 'UTF8', '--locale=C', '-A', 'trust',
+      '-D', paths.dataDir, '-U', 'dagents', '-E', 'UTF8', '--locale=C', '-A', 'trust',
     ])
   })
 
   it('pgSpawnRunSpec：前台直跑 + 端口/host 注入', () => {
     const spec = pgSpawnRunSpec(paths, 55433)
-    expect(spec.command.endsWith('postgres.exe')).toBe(true)
-    expect(spec.args).toEqual(['-D', 'C:/ud/pgdata', '-p', '55433', '-h', '127.0.0.1'])
+    expect(spec.command).toBe(platformExe(paths.binDir, 'postgres'))
+    expect(spec.args).toEqual(['-D', paths.dataDir, '-p', '55433', '-h', '127.0.0.1'])
     expect(spec.cwd).toBe(paths.binDir)
   })
 
@@ -86,10 +76,10 @@ describe('spec 构造（纯函数）', () => {
   it('migrateRunOnceSpec（packaged）：execPath + ELECTRON_RUN_AS_NODE 载体（docs §11.1）', () => {
     const packaged: PgRuntimePaths = {
       ...paths,
-      nodeRuntime: { command: 'C:/app/dagents.exe', env: { ELECTRON_RUN_AS_NODE: '1' } },
+      nodeRuntime: { command: join(ROOT, 'app', 'dagents.exe'), env: { ELECTRON_RUN_AS_NODE: '1' } },
     }
     const spec = migrateRunOnceSpec(packaged, 'postgresql://dagents@127.0.0.1:55432/dagents')
-    expect(spec.command).toBe('C:/app/dagents.exe')
+    expect(spec.command).toBe(join(ROOT, 'app', 'dagents.exe'))
     expect(spec.env).toEqual({
       POSTGRES_URL: 'postgresql://dagents@127.0.0.1:55432/dagents',
       ELECTRON_RUN_AS_NODE: '1',
@@ -98,8 +88,8 @@ describe('spec 构造（纯函数）', () => {
 
   it('pgCtlStopSpec：-m fast -w -t 5 stop', () => {
     const spec = pgCtlStopSpec(paths)
-    expect(spec.command.endsWith('pg_ctl.exe')).toBe(true)
-    expect(spec.args).toEqual(['-D', 'C:/ud/pgdata', '-m', 'fast', '-w', '-t', '5', 'stop'])
+    expect(spec.command).toBe(platformExe(paths.binDir, 'pg_ctl'))
+    expect(spec.args).toEqual(['-D', paths.dataDir, '-m', 'fast', '-w', '-t', '5', 'stop'])
   })
 })
 
@@ -112,40 +102,40 @@ describe('parsePostmasterPid / resolvePgPaths', () => {
 
   it('resolvePgPaths：null 字段落默认（userData/pgdata + desktop staging + repo db）', () => {
     const norm = (p: string) => p.replace(/\\/g, '/')
-    const pg = defaultConfig('C:/repo').postgres
+    const pg = defaultConfig(join(ROOT, 'repo')).postgres
     const resolved = resolvePgPaths(pg, {
-      userDataDir: 'C:/ud',
-      desktopDir: 'C:/repo/apps/desktop',
-      repoRoot: 'C:/repo',
+      userDataDir: join(ROOT, 'ud'),
+      desktopDir: join(ROOT, 'repo', 'apps', 'desktop'),
+      repoRoot: join(ROOT, 'repo'),
     })
-    expect(norm(resolved.binDir)).toBe('C:/repo/apps/desktop/stage/pg/native/bin')
-    expect(norm(resolved.dataDir)).toBe('C:/ud/pgdata')
-    expect(norm(resolved.migrateScript)).toBe('C:/repo/packages/db/scripts/migrate.mjs')
-    expect(norm(resolved.pgRequireRoot)).toBe('C:/repo/packages/db')
+    expect(norm(resolved.binDir)).toBe(norm(join(ROOT, 'repo', 'apps', 'desktop', 'stage', 'pg', 'native', 'bin')))
+    expect(norm(resolved.dataDir)).toBe(norm(join(ROOT, 'ud', 'pgdata')))
+    expect(norm(resolved.migrateScript)).toBe(norm(join(ROOT, 'repo', 'packages', 'db', 'scripts', 'migrate.mjs')))
+    expect(norm(resolved.pgRequireRoot)).toBe(norm(join(ROOT, 'repo', 'packages', 'db')))
     expect(resolved.nodeRuntime).toEqual({ command: 'node', env: {} })
   })
 
   it('resolvePgPaths（packaged）：binDir/migrate/pg 驱动/node 载体全指 resources（docs §11.4）', () => {
     const norm = (p: string) => p.replace(/\\/g, '/')
-    const pg = defaultConfig('C:/repo').postgres
+    const pg = defaultConfig(join(ROOT, 'repo')).postgres
     const resolved = resolvePgPaths(pg, {
-      userDataDir: 'C:/ud',
-      desktopDir: 'C:/repo/apps/desktop',
-      repoRoot: 'C:/repo',
+      userDataDir: join(ROOT, 'ud'),
+      desktopDir: join(ROOT, 'repo', 'apps', 'desktop'),
+      repoRoot: join(ROOT, 'repo'),
       packaged: {
-        servicesDir: 'C:/app/resources/services',
-        pgNativeDir: 'C:/app/resources/pg/native',
-        execPath: 'C:/app/dagents.exe',
+        servicesDir: join(ROOT, 'app', 'resources', 'services'),
+        pgNativeDir: join(ROOT, 'app', 'resources', 'pg', 'native'),
+        execPath: join(ROOT, 'app', 'dagents.exe'),
       },
     })
-    expect(norm(resolved.binDir)).toBe('C:/app/resources/pg/native/bin')
-    expect(norm(resolved.dataDir)).toBe('C:/ud/pgdata') // 数据目录仍在 userData（卸载保留语义）
+    expect(norm(resolved.binDir)).toBe(norm(join(ROOT, 'app', 'resources', 'pg', 'native', 'bin')))
+    expect(norm(resolved.dataDir)).toBe(norm(join(ROOT, 'ud', 'pgdata'))) // 数据目录仍在 userData（卸载保留语义）
     expect(norm(resolved.migrateScript)).toBe(
-      'C:/app/resources/services/gateway/node_modules/@dagents/db/scripts/migrate.mjs'
+      norm(join(ROOT, 'app', 'resources', 'services', 'gateway', 'node_modules', '@dagents', 'db', 'scripts', 'migrate.mjs'))
     )
-    expect(norm(resolved.pgRequireRoot)).toBe('C:/app/resources/services/gateway')
+    expect(norm(resolved.pgRequireRoot)).toBe(norm(join(ROOT, 'app', 'resources', 'services', 'gateway')))
     expect(resolved.nodeRuntime).toEqual({
-      command: 'C:/app/dagents.exe',
+      command: join(ROOT, 'app', 'dagents.exe'),
       env: { ELECTRON_RUN_AS_NODE: '1' },
     })
   })
@@ -156,17 +146,21 @@ describe('parsePostmasterPid / resolvePgPaths', () => {
         embedded: true,
         embeddedExplicit: true,
         port: 55432,
-        dataDir: 'D:/mydata',
-        binDir: 'D:/pbbin',
-        migrateScript: 'D:/m.mjs',
-        pgRequireRoot: 'D:/gateway',
+        dataDir: join(ROOT, 'mydata'),
+        binDir: join(ROOT, 'pbbin'),
+        migrateScript: join(ROOT, 'm.mjs'),
+        pgRequireRoot: join(ROOT, 'gateway'),
       },
-      { userDataDir: 'C:/ud', desktopDir: 'C:/d', repoRoot: 'C:/repo' }
+      {
+        userDataDir: join(ROOT, 'ud'),
+        desktopDir: join(ROOT, 'd'),
+        repoRoot: join(ROOT, 'repo'),
+      }
     )
-    expect(resolved.dataDir).toBe('D:/mydata')
-    expect(resolved.binDir).toBe('D:/pbbin')
-    expect(resolved.migrateScript).toBe('D:/m.mjs')
-    expect(resolved.pgRequireRoot).toBe('D:/gateway')
+    expect(resolved.dataDir).toBe(join(ROOT, 'mydata'))
+    expect(resolved.binDir).toBe(join(ROOT, 'pbbin'))
+    expect(resolved.migrateScript).toBe(join(ROOT, 'm.mjs'))
+    expect(resolved.pgRequireRoot).toBe(join(ROOT, 'gateway'))
   })
 })
 
@@ -247,7 +241,7 @@ class PgFake {
 
   makeController(opts: { healthTimeoutMs?: number } = {}) {
     const world = this
-    const config = defaultConfig('C:/repo')
+    const config = defaultConfig(join(ROOT, 'repo'))
     if (opts.healthTimeoutMs !== undefined) config.restartPolicy.healthTimeoutMs = opts.healthTimeoutMs
     const controller = new PgServiceController(config, world.deps, {
       paths,
@@ -271,7 +265,9 @@ class PgFake {
     const target = this.now + ms
     for (let guard = 0; guard < 400; guard++) {
       for (let i = 0; i < 8; i++) await Promise.resolve()
-      const due = [...this.timers.entries()].filter(([, t]) => t.at <= target).sort((a, b) => a[1].at - b[1].at)
+      const due = [...this.timers.entries()]
+        .filter(([, t]) => t.at <= target)
+        .sort((a, b) => a[1].at - b[1].at)
       if (due.length === 0) break
       for (const [id, t] of due) {
         this.timers.delete(id)
@@ -307,8 +303,8 @@ describe('PgServiceController bootstrap 管线', () => {
   }
 
   /** 驱动 start 至落定（spawn 后模拟端口监听）。 */
-  async function driveStart(fake: PgFake, controller: PgServiceController) {
-    const started = controller.start()
+  async function driveStart(fake: PgFake, controller: PgServiceController, placement: PgPlacement = PLACE_DEFAULT) {
+    const started = controller.start(placement)
     await fake.advance(5)
     fake.simulatePostgresListening()
     await fake.advance(3_000)
@@ -316,30 +312,47 @@ describe('PgServiceController bootstrap 管线', () => {
   }
 
   it('二进制缺失 → failed + 指引 ensure:postgres，不碰文件系统', async () => {
-    const fake = new PgFake() // 无 postgres.exe
+    const fake = new PgFake() // 无 postgres 可执行
     const { controller } = fake.makeController()
-    const res = await controller.start()
+    const res = await controller.start(PLACE_DEFAULT)
     expect(res.ok).toBe(false)
     if (!res.ok) expect(res.error).toContain('ensure:postgres')
     expect(controller.status().state).toBe('failed')
     expect(fake.runOnceSpecs).toEqual([])
   })
 
-  it('端口全被占 → failed 诚实失败（≤20 次让位耗尽）', async () => {
+  it('端口计划 failed（候选耗尽/dev 固定端口被占）→ 透传诚实失败，未 spawn postgres', async () => {
     const fake = freshWorld()
-    for (let p = 55432; p < 55432 + 20; p++) fake.openPorts.add(p)
     const { controller } = fake.makeController()
-    const res = await controller.start()
+    const res = await controller.start({
+      mode: 'failed',
+      reason: '端口 55432–55451 全被占用——内嵌 Postgres 无处可听，请释放其一或改 postgres.port',
+    })
     expect(res.ok).toBe(false)
     if (!res.ok) expect(res.error).toContain('全被占用')
-    expect(fake.spawned).toEqual([]) // 未 spawn postgres
+    expect(controller.status().state).toBe('failed')
+    expect(fake.spawned).toEqual([])
+  })
+
+  it('让位 placement（port-plan 已探测）→ 用计划端口起库，DSN/日志同步', async () => {
+    const fake = initializedWorld()
+    const { controller } = fake.makeController()
+    const res = await driveStart(fake, controller, { mode: 'spawn', port: 55433, yielded: true })
+    expect(res.ok).toBe(true)
+    if (res.ok) expect(res.dsn).toBe('postgresql://dagents@127.0.0.1:55433/dagents')
+    expect(fake.spawned[0]?.args).toContain('55433')
+    expect(fake.logs.some((l) => l.includes('让位'))).toBe(true)
+    expect(controller.actualPort).toBe(55433)
+    // 状态投影沿用 yielded 文案语义（docs §10.3）
+    expect(controller.status().message).toContain('55433')
+    expect(controller.status().message).toContain('55432')
   })
 
   it('initdb 失败 → failed 带输出尾，不 spawn postgres', async () => {
     const fake = freshWorld()
     fake.runOnceQueue[0] = { code: 1, stderr: 'initdb: error: directory exists but not empty' }
     const { controller } = fake.makeController()
-    const res = await controller.start()
+    const res = await controller.start(PLACE_DEFAULT)
     expect(res.ok).toBe(false)
     if (!res.ok) expect(res.error).toContain('not empty')
     expect(controller.status().state).toBe('failed')
@@ -374,7 +387,7 @@ describe('PgServiceController bootstrap 管线', () => {
     fake.files.set(POSTMASTER_PID, '4242\nC:/ud/pgdata\n55432\n')
     fake.alivePids.add(4242)
     const { controller } = fake.makeController()
-    const res = await controller.start()
+    const res = await controller.start(PLACE_DEFAULT)
     expect(res.ok).toBe(false)
     if (!res.ok) expect(res.error).toContain('4242')
     expect(fake.files.has(POSTMASTER_PID)).toBe(true) // 未删
@@ -409,7 +422,7 @@ describe('PgServiceController bootstrap 管线', () => {
     const fake = initializedWorld()
     fake.pgConnectErrors = Array.from({ length: 60 }, () => 'the database system is starting up')
     const { controller } = fake.makeController()
-    const started = controller.start()
+    const started = controller.start(PLACE_DEFAULT)
     await fake.advance(20)
     fake.simulatePostgresListening()
     await fake.advance(3_000) // 起库健康 → 进入建库重试环
@@ -424,7 +437,7 @@ describe('PgServiceController bootstrap 管线', () => {
     const fake = initializedWorld()
     // healthTimeoutMs 压到 2s：supervisor 重启链与 controller 等待（2s+5s）都快速可达
     const { controller } = fake.makeController({ healthTimeoutMs: 2_000 })
-    const started = controller.start()
+    const started = controller.start(PLACE_DEFAULT)
     await fake.advance(20) // spawn + 轮询开始（端口不开 → 持续失败）
     await fake.advance(9_000) // 推过 controller 等待 deadline（2s+5s）→ timeout
     const res = await started
@@ -462,7 +475,7 @@ describe('PgServiceController bootstrap 管线', () => {
     expect(await stopped).toBe(true)
     expect(controller.status().state).toBe('stopped')
     const ctl = fake.runOnceSpecs.find((s) => s.command.includes('pg_ctl'))
-    expect(ctl?.args).toEqual(['-D', 'C:/ud/pgdata', '-m', 'fast', '-w', '-t', '5', 'stop'])
+    expect(ctl?.args).toEqual(['-D', paths.dataDir, '-m', 'fast', '-w', '-t', '5', 'stop'])
     expect(fake.logs.some((l) => l.includes('停净'))).toBe(true)
   })
 
@@ -477,11 +490,11 @@ describe('PgServiceController bootstrap 管线', () => {
     expect(fake.logs.some((l) => l.includes('附加模式'))).toBe(true)
   })
 
-  it('enabled=false → start 直接 skipped（外部 PG 不抢连接）', async () => {
+  it('enabled=false → start 直接 skipped（外部 PG 不抢连接；placement 不消费）', async () => {
     const fake = new PgFake()
     const { config, controller } = fake.makeController()
     config.postgres.embedded = false
-    const res = await controller.start()
+    const res = await controller.start(null)
     expect(res.ok).toBe(true)
     expect(controller.status().state).toBe('idle')
     expect(controller.status().message).toContain('外部 Postgres')

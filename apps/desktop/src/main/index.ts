@@ -77,8 +77,14 @@ if (!gotLock) {
           : undefined,
     })
 
+    // 接管 URL 单源（docs §18.2）：config 显式 consoleUrl（逃生门）优先，否则由
+    // 编排器端口计划派生（让位/附加后端口正确）——getter 形式，五处消费全现读。
+    const consoleUrlOf = () =>
+      orchestrator?.consoleUrl() ??
+      (config.consoleUrl !== '' ? config.consoleUrl : `http://localhost:${config.services.console.port}`)
+
     // 壳层兼容接线（窗口创建前——session/webContents 钩子要在内容加载前就位）
-    wireShellCompatibility(config.consoleUrl)
+    wireShellCompatibility(consoleUrlOf)
 
     const logsDir = join(userData, 'logs')
     orchestrator = new Orchestrator(
@@ -104,7 +110,7 @@ if (!gotLock) {
     const win = createMainWindow()
     takeover = createTakeoverController({
       win,
-      consoleUrl: config.consoleUrl,
+      consoleUrl: consoleUrlOf,
       log: (line) => console.log(`[takeover] ${line}`),
     })
     registerDesktopIpc(win, orchestrator, {
@@ -116,7 +122,7 @@ if (!gotLock) {
       onShowStartupPage: () => takeover?.showStartupPage(),
       onRestartServices: () => void orchestrator?.restartAll(),
       onStopServices: () => void orchestrator?.stopAll(),
-      onOpenConsoleInBrowser: () => void shell.openExternal(config.consoleUrl),
+      onOpenConsoleInBrowser: () => void shell.openExternal(consoleUrlOf()),
       onOpenDataFolder: () =>
         void shell.openPath(orchestrator?.snapshot().config.pgDataDir ?? userData),
       onOpenLogsFolder: () => void shell.openPath(logsDir),
@@ -152,8 +158,8 @@ if (!gotLock) {
   })
 }
 
-/** 壳层兼容接线（docs §13，M7）：外链/导航防护/通知/下载/历史返回。 */
-function wireShellCompatibility(consoleUrl: string): void {
+/** 壳层兼容接线（docs §13，M7；§18.2 consoleUrl getter 化，M8）：外链/导航防护/通知/下载/历史返回。 */
+function wireShellCompatibility(consoleUrl: () => string): void {
   const ses = session.defaultSession
 
   // 通知权限：request（new Notification 触发）与 check（Notification.permission 查询）
@@ -202,7 +208,8 @@ function wireShellCompatibility(consoleUrl: string): void {
     //   同源 → 受管子窗（继承 preload、0.8×主窗、24px 级联；title 随页面文档 C15）
     //   异源 http(s)/mailto（含 :8080/:3001）→ 系统默认浏览器
     //   其余协议 → deny（无裸 Electron 子窗口）
-    const consoleOrigin = consoleOriginOf(consoleUrl)
+    // origin 每次现读 getter（端口让位后 restartAll 会换 origin，docs §18.2）
+    const consoleOrigin = consoleOriginOf(consoleUrl())
     wc.setWindowOpenHandler(({ url }) => {
       const decision = classifyOpenUrl(url, consoleOrigin)
       if (decision === 'managed') {
@@ -230,10 +237,11 @@ function wireShellCompatibility(consoleUrl: string): void {
       return { action: 'deny' }
     })
     // 导航防护：窗口只许本机 consoleUrl 与启动态页（file://）——拖放文件到窗口、
-    // 意外重定向等一律拒绝，窗口内容只归编排器管（受管子窗同样只许 console 同源）
+    // 意外重定向等一律拒绝，窗口内容只归编排器管（受管子窗同样只许 console 同源）。
+    // allowlist 每次事件现读 getter（让位端口会变，docs §18.2）
     wc.on('will-navigate', (event, url) => {
-      const allowed =
-        url === consoleUrl || url.startsWith(`${consoleUrl}/`) || url.startsWith('file://')
+      const cu = consoleUrl()
+      const allowed = url === cu || url.startsWith(`${cu}/`) || url.startsWith('file://')
       if (!allowed) event.preventDefault()
     })
     // 历史返回/前进（console 为 SPA，pushState 也在 navigationHistory 里）

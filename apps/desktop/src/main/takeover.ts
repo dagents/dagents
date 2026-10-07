@@ -24,7 +24,8 @@ export type ContentIntent = 'auto' | 'boot' | 'console'
 
 export interface TakeoverDeps {
   win: BrowserWindow
-  consoleUrl: string
+  /** 实际接管 URL——getter 形式（docs §18.2）：端口让位后运行时才定，loadConsole 时现读。 */
+  consoleUrl: () => string
   log: (line: string) => void
 }
 
@@ -55,10 +56,11 @@ export function createTakeoverController(deps: TakeoverDeps): TakeoverController
 
   const loadConsole = (reason: string) => {
     if (win.isDestroyed()) return
+    const url = consoleUrl()
     content = 'loading'
-    log(`接管工作台 → ${consoleUrl}（${reason}）`)
+    log(`接管工作台 → ${url}（${reason}）`)
     win
-      .loadURL(consoleUrl)
+      .loadURL(url)
       .then(() => {
         content = 'console'
       })
