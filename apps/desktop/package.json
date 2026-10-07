@@ -1,0 +1,31 @@
+{
+  "name": "@dagents/desktop",
+  "private": true,
+  "version": "0.0.0",
+  "description": "dagents 桌面客户端（Electron）：托管本机 gateway+console 服务栈，单窗口承载 console 工作台。架构真相源 docs/desktop-architecture.md",
+  "author": "dagents",
+  "main": "dist/main/index.js",
+  "scripts": {
+    "build": "tsc -p tsconfig.json && tsc -p tsconfig.renderer.json && node scripts/sync-renderer.mjs",
+    "typecheck": "tsc --noEmit -p tsconfig.json && tsc --noEmit -p tsconfig.renderer.json",
+    "test": "vitest run && node scripts/check-builder-config.mjs",
+    "lint": "eslint src --ext .ts",
+    "dev": "node scripts/ensure-electron.mjs && electron .",
+    "dist:win": "pnpm run build && node scripts/ensure-electron.mjs && node scripts/ensure-postgres.mjs && node scripts/stage-stack.mjs && node scripts/package-win.mjs",
+    "ensure:electron": "node scripts/ensure-electron.mjs",
+    "icons": "node scripts/generate-icons.mjs",
+    "ensure:postgres": "node scripts/ensure-postgres.mjs",
+    "stage:stack": "node scripts/stage-stack.mjs",
+    "smoke": "node scripts/smoke.mjs"
+  },
+  "devDependencies": {
+    "@types/node": "^20.0.0",
+    "electron": "44.5.1",
+    "electron-builder": "26.15.3",
+    "typescript": "^5.5.0",
+    "vitest": "^2.0.0"
+  },
+  "engines": {
+    "node": ">=22"
+  }
+}

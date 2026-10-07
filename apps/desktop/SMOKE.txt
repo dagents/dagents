@@ -1,0 +1,1 @@
+M1 冒烟：`pnpm --filter @dagents/desktop run smoke` 启动 dist:win 产出的解包 dagents.exe（规范位 release/win-unpacked；旧输出被外部句柄锁死换道时取最近一轮 release-stale-<n>/win-unpacked，smoke.mjs 自动定位）→ tasklist 见 Electron 多进程形态 → taskkill /PID /T /F 进程树干净终止，退出码 0。

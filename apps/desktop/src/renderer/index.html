@@ -1,0 +1,579 @@
+<!doctype html>
+<html lang="zh-CN">
+  <head>
+    <meta charset="utf-8" />
+    <meta
+      http-equiv="Content-Security-Policy"
+      content="default-src 'self'; style-src 'self' 'unsafe-inline'"
+    />
+    <title>Dagents</title>
+    <style>
+      /* 服务状态页（U1 产品化重做）：无框架零依赖经典 script；状态由 status.ts 消费
+       * status-copy.ts 纯文案层渲染。状态色系统全 app 唯一（沿用 index 暗色 token）：
+       * 绿运行 / 黄等待与降级 / 红失败 / 蓝附加 / 紫自动重启 / 灰停止。 */
+      :root {
+        color-scheme: dark;
+        --bg: #0f1115;
+        --panel: #161a22;
+        --panel-2: #12151c;
+        --border: #2c3340;
+        --text: #e6e8ee;
+        --muted: #9aa3b2;
+        --accent: #7aa2f7;
+        --ok: #4ade80;
+        --warn: #fbbf24;
+        --err: #f87171;
+        --running: #22c55e;
+        --waiting: #eab308;
+        --restarting: #a78bfa;
+        --failed: #ef4444;
+        --stopped: #6b7280;
+        --attach: #7aa2f7;
+      }
+      * {
+        box-sizing: border-box;
+      }
+      body {
+        margin: 0;
+        background: var(--bg);
+        color: var(--text);
+        font-family: 'Segoe UI', 'Microsoft YaHei', system-ui, sans-serif;
+        font-size: 14px;
+        line-height: 1.5;
+      }
+
+      /* ---- header：品牌 + 全局状态灯（左）+ 钉住徽标 + 动作位（右）+ 诚实 meta ---- */
+      header {
+        padding: 14px 20px 12px;
+        border-bottom: 1px solid var(--border);
+        background: linear-gradient(180deg, #12151d 0%, var(--bg) 100%);
+      }
+      .top-row {
+        display: flex;
+        align-items: center;
+        gap: 14px;
+        flex-wrap: wrap;
+      }
+      .brand {
+        display: flex;
+        align-items: center;
+        gap: 10px;
+        min-width: 0;
+      }
+      .brand h1 {
+        font-size: 17px;
+        margin: 0;
+        letter-spacing: 0.2px;
+      }
+      .brand .sub {
+        color: var(--muted);
+        font-size: 12px;
+        font-weight: 400;
+        margin-left: 2px;
+      }
+      .brand-mark {
+        display: inline-flex;
+        width: 26px;
+        height: 26px;
+        flex: none;
+      }
+      .light {
+        display: inline-flex;
+        align-items: center;
+        gap: 7px;
+        font-size: 12.5px;
+        color: var(--muted);
+        padding: 3px 10px;
+        border: 1px solid var(--border);
+        border-radius: 999px;
+        background: var(--panel-2);
+      }
+      .light .dot {
+        width: 9px;
+        height: 9px;
+        border-radius: 50%;
+        background: var(--stopped);
+        flex: none;
+      }
+      .light.tone-ok .dot {
+        background: var(--ok);
+        box-shadow: 0 0 6px rgba(74, 222, 128, 0.7);
+      }
+      .light.tone-ok {
+        color: var(--ok);
+        border-color: rgba(74, 222, 128, 0.45);
+      }
+      .light.tone-warn .dot {
+        background: var(--warn);
+      }
+      .light.tone-warn {
+        color: var(--warn);
+        border-color: rgba(251, 191, 36, 0.45);
+      }
+      .light.tone-err .dot {
+        background: var(--err);
+      }
+      .light.tone-err {
+        color: var(--err);
+        border-color: rgba(248, 113, 113, 0.5);
+      }
+      .light.tone-restarting .dot {
+        background: var(--restarting);
+      }
+      .light.tone-restarting {
+        color: var(--restarting);
+        border-color: rgba(167, 139, 250, 0.45);
+      }
+      .light.tone-accent .dot {
+        background: var(--accent);
+      }
+      .light.tone-accent {
+        color: var(--accent);
+        border-color: rgba(122, 162, 247, 0.45);
+      }
+      .chip.pin {
+        color: var(--restarting);
+        border-color: var(--restarting);
+      }
+      header .actions {
+        margin-left: auto;
+        display: flex;
+        gap: 8px;
+      }
+      .meta {
+        margin: 9px 0 0;
+        color: var(--muted);
+        font-size: 12.5px;
+      }
+
+      button {
+        background: var(--panel);
+        color: var(--text);
+        border: 1px solid var(--border);
+        border-radius: 6px;
+        padding: 5px 14px;
+        font-size: 13px;
+        cursor: pointer;
+      }
+      button:hover:not(:disabled) {
+        border-color: var(--accent);
+      }
+      button:disabled {
+        opacity: 0.45;
+        cursor: default;
+      }
+      button.primary {
+        border-color: var(--accent);
+        color: var(--accent);
+      }
+      /* S4 死路出口：钉住 + 双健康时「进入工作台」是全页唯一呼吸高亮（box-shadow 2s 脉动） */
+      button.breathe {
+        animation: breathe 2s ease-in-out infinite;
+      }
+      @keyframes breathe {
+        0%,
+        100% {
+          box-shadow: 0 0 0 0 rgba(122, 162, 247, 0.55);
+        }
+        50% {
+          box-shadow: 0 0 0 7px rgba(122, 162, 247, 0);
+        }
+      }
+
+      /* ---- bootstrap 失败红横幅（B6：任意启动轮次可见，独立于首启进度） ---- */
+      .banner {
+        display: flex;
+        align-items: center;
+        gap: 14px;
+        margin: 14px 20px 0;
+        padding: 10px 14px;
+        border-radius: 10px;
+        border: 1px solid rgba(239, 68, 68, 0.55);
+        background: rgba(239, 68, 68, 0.1);
+      }
+      .banner-body {
+        min-width: 0;
+        flex: 1;
+      }
+      .banner-body b {
+        color: var(--err);
+        font-size: 13.5px;
+        display: block;
+      }
+      .banner-body span {
+        display: block;
+        color: #fecaca;
+        font-size: 12px;
+        margin-top: 2px;
+        white-space: pre-wrap;
+        word-break: break-all;
+        font-family: 'Cascadia Mono', Consolas, monospace;
+      }
+
+      /* ---- 首启五步进度（B1：④ console 独立步防 ③→⑤ 无解释停顿；步态 ○◐●✕◔） ---- */
+      .steps-wrap {
+        padding: 16px 20px 0;
+      }
+      .steps {
+        display: flex;
+        align-items: center;
+        gap: 0;
+        flex-wrap: wrap;
+        row-gap: 8px;
+        list-style: none;
+        margin: 0;
+        padding: 10px 14px;
+        background: var(--panel-2);
+        border: 1px solid var(--border);
+        border-radius: 10px;
+      }
+      .step {
+        display: flex;
+        align-items: center;
+        gap: 8px;
+        color: var(--muted);
+        font-size: 12.5px;
+        white-space: nowrap;
+      }
+      .step .glyph {
+        font-size: 14px;
+        width: 1.2em;
+        text-align: center;
+        flex: none;
+      }
+      .step .note {
+        font-size: 11px;
+        color: var(--muted);
+      }
+      .step + .step::before {
+        content: '';
+        display: inline-block;
+        width: 26px;
+        height: 2px;
+        background: var(--border);
+        margin: 0 10px;
+        border-radius: 1px;
+      }
+      .step.mark-done {
+        color: var(--text);
+      }
+      .step.mark-done .glyph {
+        color: var(--running);
+      }
+      .step.mark-done + .step::before {
+        background: rgba(34, 197, 94, 0.5);
+      }
+      .step.mark-active {
+        color: var(--accent);
+      }
+      .step.mark-active .glyph {
+        color: var(--accent);
+      }
+      .step.mark-failed {
+        color: var(--err);
+      }
+      .step.mark-failed .glyph {
+        color: var(--err);
+      }
+      .step.mark-skipped {
+        color: var(--muted);
+        font-style: italic;
+      }
+
+      /* ---- 首启教育（B3：CLI agent 需自备——诚实优先于安抚） ---- */
+      .onboarding {
+        margin: 14px 20px 0;
+        padding: 12px 16px;
+        border: 1px dashed rgba(122, 162, 247, 0.5);
+        border-radius: 10px;
+        background: rgba(122, 162, 247, 0.06);
+      }
+      .onboarding b {
+        font-size: 13px;
+        color: var(--accent);
+        display: block;
+        margin-bottom: 6px;
+      }
+      .onboarding ol {
+        margin: 0 0 10px;
+        padding-left: 20px;
+        color: var(--text);
+        font-size: 12.5px;
+      }
+      .onboarding li {
+        margin: 3px 0;
+      }
+      .onboarding li::marker {
+        color: var(--accent);
+      }
+
+      /* ---- 三服务卡：repeat(3,1fr)，<1100px 纵向堆叠 ---- */
+      main {
+        display: grid;
+        grid-template-columns: repeat(3, 1fr);
+        gap: 14px;
+        padding: 16px 20px;
+      }
+      @media (max-width: 1100px) {
+        main {
+          grid-template-columns: 1fr;
+        }
+      }
+      .svc {
+        background: var(--panel);
+        border: 1px solid var(--border);
+        border-radius: 10px;
+        padding: 14px 16px;
+        display: flex;
+        flex-direction: column;
+        min-height: 320px;
+      }
+      /* 外部/附加模式下 PG 卡整体灰态并写明原因（visualNotes） */
+      .svc.inert {
+        opacity: 0.62;
+      }
+      .svc-head {
+        display: flex;
+        align-items: center;
+        gap: 8px;
+        flex-wrap: wrap;
+      }
+      .svc-head h2 {
+        font-size: 14px;
+        margin: 0 8px 0 0;
+      }
+      .svc .role {
+        color: var(--muted);
+        font-size: 11.5px;
+        margin: 6px 0 0;
+      }
+      .chip {
+        font-size: 11px;
+        padding: 2px 8px;
+        border-radius: 999px;
+        border: 1px solid var(--border);
+        color: var(--muted);
+      }
+      .chip.state-running {
+        color: var(--running);
+        border-color: var(--running);
+      }
+      .chip.state-waiting_health,
+      .chip.state-starting,
+      .chip.state-idle {
+        color: var(--waiting);
+        border-color: var(--waiting);
+      }
+      .chip.state-restarting {
+        color: var(--restarting);
+        border-color: var(--restarting);
+      }
+      .chip.state-failed {
+        color: var(--failed);
+        border-color: var(--failed);
+      }
+      .chip.state-stopped {
+        color: var(--stopped);
+        border-color: var(--stopped);
+      }
+      .chip.db-down {
+        color: var(--warn);
+        border-color: var(--warn);
+      }
+      .chip.db-up {
+        color: var(--ok);
+        border-color: var(--ok);
+      }
+      .chip.attach {
+        color: var(--attach);
+        border-color: var(--attach);
+      }
+      /* B4 让位端口黄 chip */
+      .chip.yield {
+        color: var(--warn);
+        border-color: var(--warn);
+      }
+      .chip.ext {
+        color: var(--stopped);
+        border-color: var(--stopped);
+      }
+      .facts {
+        color: var(--muted);
+        font-size: 12px;
+        margin: 8px 0 0;
+      }
+      /* 等待预算行（原则 3：已等多久 / 预算多少，本地 1s 走秒） */
+      .budget {
+        color: var(--waiting);
+        font-size: 12px;
+        margin-top: 4px;
+        font-variant-numeric: tabular-nums;
+      }
+      .budget:empty {
+        display: none;
+      }
+      .message {
+        margin: 8px 0 0;
+        padding: 8px 10px;
+        border-radius: 8px;
+        font-size: 12.5px;
+        line-height: 1.6;
+        white-space: pre-wrap;
+      }
+      .message:empty {
+        display: none;
+      }
+      /* 错误引导分级（principles：事实 + 对策 + 动作） */
+      .message.tone-err {
+        background: rgba(239, 68, 68, 0.1);
+        border: 1px solid rgba(239, 68, 68, 0.4);
+        color: #fca5a5;
+      }
+      .message.tone-warn {
+        background: rgba(251, 191, 36, 0.08);
+        border: 1px solid rgba(251, 191, 36, 0.35);
+        color: #fde68a;
+      }
+      .message.tone-restarting {
+        background: rgba(167, 139, 250, 0.09);
+        border: 1px solid rgba(167, 139, 250, 0.4);
+        color: #ddd6fe;
+      }
+      .message.tone-muted {
+        background: rgba(107, 114, 128, 0.12);
+        border: 1px solid rgba(107, 114, 128, 0.4);
+        color: var(--muted);
+      }
+      .message.tone-info {
+        background: rgba(122, 162, 247, 0.07);
+        border: 1px solid rgba(122, 162, 247, 0.3);
+        color: #c7d5f9;
+      }
+      /* 日志面板：等宽 pin-to-bottom；标题行「复制最近 400 行」+「打开完整日志」（D7） */
+      .log-head {
+        margin-top: auto;
+        display: flex;
+        align-items: center;
+        gap: 8px;
+        padding-top: 10px;
+      }
+      .log-head .log-title {
+        font-size: 11px;
+        color: var(--muted);
+        letter-spacing: 1px;
+      }
+      .log-head button {
+        margin-left: auto;
+        font-size: 11px;
+        padding: 2px 8px;
+        border-radius: 5px;
+      }
+      .log-head button + button {
+        margin-left: 0;
+      }
+      .log {
+        background: #0b0d12;
+        border: 1px solid var(--border);
+        border-radius: 8px;
+        padding: 8px 10px;
+        font-family: 'Cascadia Mono', Consolas, monospace;
+        font-size: 11.5px;
+        line-height: 1.55;
+        color: #b6c2d4;
+        overflow-y: auto;
+        height: 180px;
+        white-space: pre-wrap;
+        word-break: break-all;
+        margin: 6px 0 0;
+      }
+
+      /* ---- footer 事实行 + 关于（D2 内联版） ---- */
+      footer {
+        padding: 0 20px 6px;
+        color: var(--muted);
+        font-size: 11.5px;
+        line-height: 1.8;
+      }
+      footer a {
+        color: var(--accent);
+        cursor: pointer;
+      }
+      .about {
+        padding: 0 20px 14px;
+        color: var(--muted);
+        font-size: 11.5px;
+        line-height: 1.7;
+      }
+      .about code {
+        font-family: 'Cascadia Mono', Consolas, monospace;
+        color: var(--text);
+        background: var(--panel);
+        border: 1px solid var(--border);
+        padding: 0 5px;
+        border-radius: 4px;
+      }
+    </style>
+  </head>
+  <body>
+    <header>
+      <div class="top-row">
+        <div class="brand">
+          <svg class="brand-mark" viewBox="0 0 32 32" aria-hidden="true">
+            <rect width="32" height="32" rx="7" fill="#161a22" stroke="#2c3340" />
+            <g
+              fill="none"
+              stroke="#7aa2f7"
+              stroke-width="2"
+              stroke-linecap="round"
+              stroke-linejoin="round"
+            >
+              <circle cx="10" cy="10" r="2.6" fill="#7aa2f7" stroke="none" />
+              <circle cx="22" cy="10" r="2.6" />
+              <circle cx="16" cy="23" r="2.6" fill="#7aa2f7" stroke="none" />
+              <path d="M11.2 11.2 L14.8 20.8" />
+              <path d="M20.8 11.2 L17.2 20.8" />
+              <path d="M12.5 10 L19.5 10" />
+            </g>
+          </svg>
+          <h1>Dagents<span class="sub">桌面客户端 · 服务编排</span></h1>
+        </div>
+        <span class="light" id="global-light"><i class="dot"></i><span id="global-light-label">连接主进程…</span></span>
+        <span class="chip pin" id="pin-chip" hidden>已钉住本页</span>
+        <div class="actions">
+          <button id="btn-enter-workbench" class="primary" disabled>进入工作台（等待服务健康）</button>
+          <button id="btn-restart" disabled>重启服务</button>
+          <button id="btn-stop" disabled>停止服务</button>
+        </div>
+      </div>
+      <p class="meta" id="meta">连接主进程…</p>
+    </header>
+
+    <div class="banner" id="banner" hidden>
+      <div class="banner-body">
+        <b id="banner-title"></b>
+        <span id="banner-detail"></span>
+      </div>
+      <button id="banner-action" class="primary">重试初始化</button>
+    </div>
+
+    <div class="steps-wrap" id="steps-wrap" hidden>
+      <ol class="steps" id="steps"></ol>
+    </div>
+
+    <section class="onboarding" id="onboarding" hidden>
+      <b id="onboarding-title">首次启动 · 两点说明</b>
+      <ol id="onboarding-list"></ol>
+      <button id="onboarding-dismiss">我知道了</button>
+    </section>
+
+    <main id="grid"></main>
+    <footer id="footer"></footer>
+    <aside class="about">
+      <b>安装包未签名</b>——首次启动被系统拦下时的绕过方法：Windows SmartScreen 点「更多信息 →
+      仍要运行」；macOS Gatekeeper 对 App 右键选「打开」，或终端执行
+      <code>xattr -dr com.apple.quarantine /Applications/dagents.app</code>；Linux AppImage
+      需先 <code>chmod +x</code> 再运行。详见仓库 apps/desktop/README.md「安装包未签名说明」。
+    </aside>
+    <script type="module" src="./status.js"></script>
+  </body>
+</html>

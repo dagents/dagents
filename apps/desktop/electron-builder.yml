@@ -1,0 +1,40 @@
+appId: dev.dagents.desktop
+productName: dagents
+# 可执行文件名显式钉死：scoped 包名 @dagents/desktop 会被推导成「@dagentsdesktop」，
+# Linux AppImage 工具链拒绝 @ 字符（CI linux-x64 job 实跑踩中）；win/mac 产物名不变（本就是 dagents）
+executableName: dagents
+directories:
+  output: release
+# 只带 tsc 产物与 main 入口定位文件；本包零 runtime 依赖 → node_modules 无需入包
+files:
+  - dist/**
+  - package.json
+# M6 服务栈入包（docs §11.4）：内嵌 PG 二进制 + gateway deploy 树 + console standalone
+# 三件套——全走 extraResources（不进 asar：原生二进制/海量小文件/native 模块本就不该进 asar）。
+# 源是 apps/desktop/stage/（ensure-postgres.mjs 与 stage-stack.mjs 产物，gitignore+dockerignore 双护）。
+extraResources:
+  - from: stage/pg/native
+    to: pg/native
+  - from: stage/dist-services
+    to: services
+win:
+  target:
+    - nsis
+  # 真实应用图标（U1，体验规格 D1）：任务栏/开始菜单/安装向导/快捷方式四处同源
+  # （scripts/generate-icons.mjs 确定性产物，提交进仓库保证 CI 出包一致）
+  icon: build/icon.ico
+nsis:
+  oneClick: false
+  allowToChangeInstallationDirectory: true
+  artifactName: dagents-${version}-setup.${ext}
+  # 卸载默认保留 userData（pgdata 数据目录）——docs §10.4 产品决策；清理路径见 README
+mac:
+  target:
+    - dmg
+  category: public.app-category.developer-tools
+  icon: build/icon.icns
+linux:
+  target:
+    - AppImage
+  category: Development
+  icon: build/icon.png

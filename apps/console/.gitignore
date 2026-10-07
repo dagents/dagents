@@ -18,3 +18,5 @@ tsconfig.tsbuildinfo
 tests/e2e/screenshots/
 test-results/
 playwright-report/
+# 隔离构建出口（NEXT_DIST_DIR，desktop M6 staging 与 dev .next 互踩防护）
+.next-build/

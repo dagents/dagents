@@ -1,0 +1,176 @@
+# Desktop 打包 CI —— apps/desktop 三平台安装包（docs/desktop-architecture.md §4.2）。
+#
+# 与 ci.yml 的分工：纯检查（vitest / tsc / eslint / 打包配置齐备性）由 ci.yml 的
+# turbo 全 workspace 遍历自动覆盖（desktop 的 test script 自带 check-builder-config），
+# 本文件只做打包产物 job——win nsis 本机已实证链路，mac dmg（x64/arm64）与
+# linux AppImage 归此处实跑（需求 userStory 6「从 CI 拿到本平台安装包」）。
+#
+# pnpm install 零开关：electron 44.x 无 install script（架构文档 §2.4 实测），
+# ignore-scripts=true 原样成立；二进制由 ensure:electron 显式按需下载。
+# 镜像默认 npmmirror（受限网络实测可用），可用仓库变量 ELECTRON_MIRROR /
+# ELECTRON_BUILDER_BINARIES_MIRROR 覆盖（如维护者偏好直连 GitHub）。
+# 产物 upload-artifact 归档供人工取用——无发布基础设施（outOfScope：不做自动更新）。
+
+name: Desktop
+
+on:
+  push:
+    branches: [main]
+  pull_request:
+    paths:
+      - 'apps/desktop/**'
+      - 'pnpm-lock.yaml'
+      - '.github/workflows/desktop.yml'
+
+concurrency:
+  group: desktop-${{ github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  package:
+    name: 打包 ${{ matrix.name }}
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          - { name: win-x64, os: windows-latest, platform: win, target: nsis, arch: x64 }
+          - { name: mac-x64, os: macos-latest, platform: mac, target: dmg, arch: x64 }
+          - { name: mac-arm64, os: macos-latest, platform: mac, target: dmg, arch: arm64 }
+          - { name: linux-x64, os: ubuntu-latest, platform: linux, target: AppImage, arch: x64 }
+    runs-on: ${{ matrix.os }}
+    # M6 服务栈入包：staging（gateway deploy + console standalone + 内嵌 PG）在打包前实跑，
+    # 全链路耗时显著上升（deploy ~5min + standalone build ~4min + 245MB 级打包）。
+    timeout-minutes: 45
+    env:
+      ELECTRON_MIRROR: ${{ vars.ELECTRON_MIRROR || 'https://npmmirror.com/mirrors/electron/' }}
+      ELECTRON_BUILDER_BINARIES_MIRROR: ${{ vars.ELECTRON_BUILDER_BINARIES_MIRROR || 'https://npmmirror.com/mirrors/electron-builder-binaries/' }}
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Setup pnpm
+        uses: pnpm/action-setup@v4
+
+      - name: Setup Node
+        uses: actions/setup-node@v4
+        with:
+          node-version: 22
+          cache: pnpm
+
+      # linux 无 node-pty prebuild（tarball 只带 darwin/win），需要本地编译
+      # node-gyp 工具链——Dockerfile L47-48 同款；stage-stack 的 deploy 步骤对
+      # linux 自动加 --config.ignore-scripts=false（onlyBuiltDependencies=[node-pty]
+      # 白名单语义，供应链不放宽——其余包的 install script 仍被 .npmrc 阻断）。
+      - name: Install node-pty build toolchain (linux only)
+        if: matrix.platform == 'linux'
+        run: sudo apt-get update && sudo apt-get install -y --no-install-recommends python3 make g++
+
+      # GH Windows runner 的 Defender 实时防护会在 pnpm install 落盘时误杀个别构建
+      # 依赖文件（2026-10-07 三轮实证：builder-util 需要的 source-map-support 目录
+      # 在而主文件消失 → node MODULE_NOT_FOUND；linux/mac 与本机均无此象）。构建目录
+      # 与 pnpm store 加排除是 GH win runner 的标准做法（微软文档亦推荐构建目录排除）。
+      - name: Windows Defender exclusions (win only)
+        if: matrix.platform == 'win'
+        shell: pwsh
+        run: |
+          $store = (pnpm store path --silent | Out-String).Trim()
+          Add-MpPreference -ExclusionPath $env:GITHUB_WORKSPACE
+          if ($store) { Add-MpPreference -ExclusionPath $store }
+          Write-Host "Defender exclusions added: $env:GITHUB_WORKSPACE ; $store"
+
+      - name: Install dependencies
+        run: pnpm install --frozen-lockfile
+
+      # deploy 拷贝 workspace 包当前产物——先全仓构建（desktop 除外：镜像红线，Dockerfile 同款过滤）
+      - name: Build workspace packages
+        run: pnpm run build --filter='!@dagents/desktop'
+
+      - name: Build @dagents/desktop
+        run: pnpm --filter @dagents/desktop run build
+
+      - name: Ensure electron binary
+        run: pnpm --filter @dagents/desktop run ensure:electron
+
+      # 内嵌 PG 二进制（按 matrix 平台取 @embedded-postgres tarball；镜像可覆盖）。
+      # arch 必须传 matrix 目标值：mac-x64 job 跑在 macos-latest（ARM runner）交叉出
+      # x64 dmg——按运行器 arch 取包会错拿 darwin-arm64 二进制。
+      - name: Ensure embedded postgres
+        run: pnpm --filter @dagents/desktop run ensure:postgres
+        env:
+          DAGENTS_DESKTOP_PG_MIRROR: ${{ vars.DAGENTS_DESKTOP_PG_MIRROR || 'https://registry.npmmirror.com' }}
+          DAGENTS_DESKTOP_PG_ARCH: ${{ matrix.arch }}
+
+      # 服务栈 staging：gateway deploy + console standalone 三件套 → stage/services
+      - name: Stage service stack
+        run: pnpm --filter @dagents/desktop run stage:stack
+
+      # ── win runner source-map-support 悬空链接对策（2026-10-07 五轮实证收口）──
+      # GH Windows runner 上 pnpm install 后 builder-util 声明依赖 source-map-support
+      # 的链接位是悬空 reparse point（Get-Item 在而目标 .pnpm 包不在；chalk 等兄弟包
+      # 全正常；Defender 无检测记录、workspace+store 排除无效、同 lockfile 同 pnpm 的
+      # linux/mac job 与本机 win 全新 clone 全链复现均正常——判定为 runner 侧 pnpm
+      # 链接病，仅此一包命中）。两层确定性修复，只影响构建工具环境（该包仅美化
+      # electron-builder 构建期堆栈，不入产物）：
+      #   ① .pnpm 实体包健康 → 实体复制补位（先拆悬空链接）；
+      #   ② 兜底：builder-util 的顶层 eager require 降级为 try/catch 可选。
+      - name: Ensure source-map-support resolvable (win only)
+        if: matrix.platform == 'win'
+        shell: pwsh
+        run: |
+          $store = Get-ChildItem node_modules/.pnpm -Directory -Filter 'source-map-support@*' -ErrorAction SilentlyContinue | Select-Object -First 1
+          $storeFiles = 0
+          if ($store) {
+            $storeFiles = (Get-ChildItem (Join-Path $store.FullName 'node_modules/source-map-support') -ErrorAction SilentlyContinue | Measure-Object).Count
+          }
+          Write-Host ("diag store pkg: {0} files={1}" -f ($(if ($store) { $store.Name } else { '<absent>' })), $storeFiles)
+          $rootLink = Get-Item 'node_modules/source-map-support' -Force -ErrorAction SilentlyContinue
+          Write-Host ("diag root link: exists={0} linkType={1} target={2}" -f [bool]$rootLink, $rootLink.LinkType, (($rootLink.Target -join ',') ?? '<none>'))
+          $fixed = $false
+          if ($store -and $storeFiles -gt 0) {
+            $srcDir = Join-Path $store.FullName 'node_modules/source-map-support'
+            $targets = @('node_modules/source-map-support') + @(
+              Get-ChildItem node_modules/.pnpm -Directory -Filter 'builder-util@*' -ErrorAction SilentlyContinue |
+                ForEach-Object { Join-Path $_.FullName 'node_modules/source-map-support' }
+            )
+            foreach ($t in $targets) {
+              if (-not (Test-Path (Join-Path $t 'package.json'))) {
+                if (Test-Path $t) { cmd /c rmdir "$t" 2>&1 | Out-Null; Remove-Item $t -Force -Recurse -ErrorAction SilentlyContinue }
+                New-Item -ItemType Directory -Force -Path $t | Out-Null
+                Copy-Item -Recurse -Force "$srcDir\*" $t
+                Write-Host ("healed: {0}" -f $t)
+                $fixed = $true
+              }
+            }
+          }
+          if (-not $fixed) {
+            $util = Get-ChildItem node_modules/.pnpm -Directory -Filter 'builder-util@*' -ErrorAction SilentlyContinue |
+              ForEach-Object { Join-Path $_.FullName 'node_modules/builder-util/out/util.js' } |
+              Where-Object { Test-Path $_ } | Select-Object -First 1
+            if ($util) {
+              $content = Get-Content $util -Raw
+              $patched = $content.Replace(
+                'const source_map_support_1 = require("source-map-support");',
+                'const source_map_support_1 = (() => { try { return require("source-map-support") } catch { return { install() {} } } })();'
+              )
+              if ($patched -ne $content) { Set-Content -Path $util -Value $patched -NoNewline; Write-Host ("patched eager require: {0}" -f $util) }
+              else { Write-Host "::warning::builder-util util.js 未匹配到目标 require 行（版本漂移？请人工核对）" }
+            } else { Write-Host "::warning::未定位 builder-util（版本漂移？请人工核对）" }
+          }
+          pnpm --filter @dagents/desktop exec electron-builder --version
+
+      - name: Package (${{ matrix.target }} ${{ matrix.arch }})
+        run: >-
+          pnpm --filter @dagents/desktop exec electron-builder
+          --${{ matrix.platform }} ${{ matrix.target }} --${{ matrix.arch }} --publish never
+
+      - name: Upload artifacts
+        uses: actions/upload-artifact@v4
+        with:
+          name: dagents-desktop-${{ matrix.name }}
+          path: |
+            apps/desktop/release/*.exe
+            apps/desktop/release/*.exe.blockmap
+            apps/desktop/release/*.dmg
+            apps/desktop/release/*.AppImage
+          retention-days: 14
+          if-no-files-found: error

@@ -40,6 +40,7 @@
 
 import { useEffect, useRef, useSyncExternalStore } from 'react'
 import type { ConsoleWsFrame } from '@dagents/contracts'
+import { resolveWsUrl, type RuntimeConfig } from './ws-url'
 
 /** Public handle returned by `useWsFrame`. */
 export interface UseWsFrameResult {
@@ -60,11 +61,25 @@ let refCount = 0
 const frameListeners = new Set<FrameListener>()
 const storeListeners = new Set<() => void>()
 
-/** WS hub URL. `NEXT_PUBLIC_WS_URL` is inlined by Next at build so the browser
- *  can dial the hub directly (the hub is a platform endpoint, not behind the
- *  Next API route). Defaults to the local gateway's WS surface on :8080. */
-function wsUrl(): string {
-  return (process.env.NEXT_PUBLIC_WS_URL ?? 'ws://localhost:8080/ws').replace(/\/+$/, '')
+/**
+ * WS hub URL 解析（桌面动态端口 M9，docs §18.5）：`NEXT_PUBLIC_WS_URL` 是 build
+ * 期内联，救不了端口漂移（gateway 让位到 8081 时浏览器仍拨 8080）。三级解析
+ * （explicit → BFF /api/runtime 运行时 → 默认 8080）在首连前做一次并缓存；
+ * 重连复用已解析值（端口漂移只在编排器 restartAll 发生，会重启 console——
+ * 页面本身不经历 mid-session 换端口）。任何失败回落默认 = 现状最差行为（轮询），
+ * 降级不回归（R17）。
+ */
+let wsUrlPromise: Promise<string> | null = null
+
+function resolvingWsUrl(): Promise<string> {
+  if (wsUrlPromise === null) {
+    wsUrlPromise = resolveWsUrl(async () => {
+      const res = await fetch('/api/runtime')
+      if (!res.ok) return null
+      return (await res.json()) as RuntimeConfig
+    })
+  }
+  return wsUrlPromise
 }
 
 function notifyStore(): void {
@@ -100,13 +115,23 @@ function scheduleReconnect(): void {
   }, delay)
 }
 
-/** Lazily open the singleton socket if one is not already open/connecting. */
+/** Lazily open the singleton socket if one is not already open/connecting.
+ *  URL 解析是异步的（首连一次）：解析落地且仍有订阅者时才拨号。 */
 function ensureSocket(): void {
   if (socket != null) return
   if (typeof WebSocket === 'undefined') return // SSR / jsdom without a stub
+  void resolvingWsUrl().then((url) => {
+    // 竞态护栏：解析期间最后一个订阅者可能已离开（teardown 关 socket）——
+    // 无订阅者时不拨号，避免悬挂连接
+    if (socket != null || refCount <= 0) return
+    openSocket(url)
+  })
+}
+
+function openSocket(url: string): void {
   let ws: WebSocket
   try {
-    ws = new WebSocket(wsUrl())
+    ws = new WebSocket(url)
   } catch {
     scheduleReconnect()
     return
@@ -278,6 +303,7 @@ export const __testing = {
     socket = null
     connected = false
     reconnectAttempt = 0
+    wsUrlPromise = null
     clearReconnect()
     chatSubscriptionCounts.clear()
   },

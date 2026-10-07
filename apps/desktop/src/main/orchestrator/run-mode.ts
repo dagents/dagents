@@ -1,0 +1,82 @@
+import { join } from 'node:path'
+import type { DesktopConfig, ServiceRunSpec } from './types'
+
+// 运行形态解析与 packaged 服务规格（docs/desktop-architecture.md §11.4，M6）。
+// 纯函数——resourcesPath/execPath 由调用方（index.ts）探测注入，可全测。
+
+export type RunMode = 'dev' | 'packaged'
+
+/**
+ * 三级模式开关（零配置默认 packaged）：
+ *   1. config.mode 显式 'dev' → dev（仓库 dev 栈：pnpm dev + 外部/内嵌 PG）
+ *   2. config.mode 显式 'packaged' → packaged
+ *   3. 'auto'（默认）→ 安装包内嵌栈在位（resources/services/gateway/dist）则 packaged，
+ *      否则 dev（仓库形态：resourcesPath 指向 electron 发行目录，不含 services）。
+ * 附加模式（8080 已监听）与 mode 正交——packaged 下同样不 spawn（startAsync 判定）。
+ */
+export function resolveRunMode(
+  config: Pick<DesktopConfig, 'mode'>,
+  opts: { packagedServicesExists: boolean }
+): RunMode {
+  if (config.mode === 'dev') return 'dev'
+  if (config.mode === 'packaged') return 'packaged'
+  return opts.packagedServicesExists ? 'packaged' : 'dev'
+}
+
+export interface PackagedStack {
+  /** resources/services（安装包 extraResources 落位根）。 */
+  servicesDir: string
+  /** ELECTRON_RUN_AS_NODE 载体（打包后 = dagents.exe；dev 探测场景不适用）。 */
+  execPath: string
+}
+
+/**
+ * packaged 两服务的 spawn 规格（docs §11.4 + §18.2 注入链，M8 参数化）：
+ *   gateway  = <execPath> services/gateway/dist/index.js（ELECTRON_RUN_AS_NODE + GATEWAY_PORT）
+ *   console  = <execPath> services/console/apps/console/.next-build/server.js
+ *              （standalone 三件套镜像树；PORT/HOSTNAME/GATEWAY_URL/NODE_ENV=production）
+ * 端口不再写字面量——全部来自 PortPlan（实际端口单一事实源；让位后 8081/3001 等
+ * 直接进 env，gateway/index.ts 与 console server.js 均运行时读）。
+ * env 顺序：parentEnv（父环境全量继承——PATH 供 gateway 内 spawn CLI agent 解析，
+ * SYSTEMROOT/TEMP/USERPROFILE 等系统键同样是子进程正常行为的前提）→
+ * ELECTRON_RUN_AS_NODE → extraEnv（用户逃生门）→ 计划端口 →
+ * POSTGRES_URL 由 Orchestrator 最后注入（gateway）。
+ */
+export function packagedRunSpecs(
+  p: PackagedStack & {
+    /** 父进程环境基底（Electron main 的 process.env 由调用方注入，保持本函数纯可测）。 */
+    parentEnv: Record<string, string>
+    extraEnv: Record<string, string>
+    /** 计划注入：gateway/console 实际端口与 console BFF 的 gateway 地址。 */
+    gatewayPort: number
+    consolePort: number
+    gatewayUrl: string
+  }
+): { gateway: ServiceRunSpec; console: ServiceRunSpec } {
+  const gwDir = join(p.servicesDir, 'gateway')
+  const csDir = join(p.servicesDir, 'console')
+  const base = { ...p.parentEnv, ELECTRON_RUN_AS_NODE: '1', ...p.extraEnv }
+  return {
+    gateway: {
+      command: p.execPath,
+      args: [join(gwDir, 'dist', 'index.js')],
+      cwd: gwDir,
+      env: { ...base, GATEWAY_PORT: String(p.gatewayPort) },
+    },
+    console: {
+      command: p.execPath,
+      // server.js 在 standalone 镜像树 app 目录直下（distDir 层不镜像入口，实测）；
+      // static/public 已由 stage-stack 摆到 server.js 解析得到的位置（<app>/<distDir>/static、<app>/public）
+      args: [join(csDir, 'apps', 'console', 'server.js')],
+      cwd: csDir,
+      env: {
+        ...base,
+        NODE_ENV: 'production',
+        // HOSTNAME 显式 127.0.0.1——避免 win 系统 HOSTNAME=机器名劫持绑定面
+        PORT: String(p.consolePort),
+        HOSTNAME: '127.0.0.1',
+        GATEWAY_URL: p.gatewayUrl,
+      },
+    },
+  }
+}

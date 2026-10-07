@@ -36,3 +36,11 @@ docs/
 
 # CI / e2e fixtures that shouldn't bloat the build context
 packages/e2e/
+
+# Desktop client staging (embedded PG binaries / bundled service stack) — desktop
+# assets must never leak into service images (bfac702 lesson). Patterns here are
+# root-anchored, so nested dirs need explicit entries.
+apps/desktop/stage/
+apps/desktop/release/
+# console standalone 打包出口（NEXT_DIST_DIR 隔离产物；root-anchored 故需显式嵌套条目）
+apps/console/.next-build/

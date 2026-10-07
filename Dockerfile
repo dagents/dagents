@@ -21,6 +21,9 @@ WORKDIR /app
 # them missing, pnpm silently installs only the root importer and the later
 # `pnpm run build` dies with "tsup: not found" (per-package devDeps absent).
 COPY package.json pnpm-lock.yaml pnpm-workspace.yaml .npmrc turbo.json ./
+# pnpm-workspace.yaml declares patchedDependencies (next@15.5.20) — install
+# reads the patch file, so it must ship with the manifests.
+COPY patches/ patches/
 COPY apps/gateway/package.json apps/gateway/
 COPY apps/console/package.json apps/console/
 COPY packages/contracts/package.json packages/contracts/
@@ -29,6 +32,10 @@ COPY packages/db/package.json packages/db/
 COPY packages/workflow/package.json packages/workflow/
 COPY packages/agent-adapters/package.json packages/agent-adapters/
 COPY packages/daemon/package.json packages/daemon/
+# Manifest only — the lockfile carries the apps/desktop importer, so its
+# package.json must exist or --frozen-lockfile fails with exit 254 (lockfile ↔
+# workspace mismatch). Source stays excluded; the build filter below skips it.
+COPY apps/desktop/package.json apps/desktop/
 
 # Build toolchain for node-pty: its npm tarball ships prebuilds only for
 # win32/darwin — on linux the native module must be compiled at install time
@@ -56,10 +63,13 @@ RUN mkdir /pty-build \
 # .next / .git so this only moves real source files.
 COPY . .
 
-# turbo builds every workspace in dependency order (contracts → shared/db → …
+# turbo builds every workspace in dependency order (contracts → shared/db/…
 # → gateway / console). Each package's build script emits to its own dist/ (or
-# .next/ for the console).
-RUN pnpm run build
+# .next/ for the console). The desktop client (@dagents/desktop) is excluded:
+# this image ships the server stack only — the manifest COPY above never
+# includes apps/desktop, so electron (its type dep) is absent from the install
+# graph, and its artifacts are not copied to the runtime stage either.
+RUN pnpm run build --filter='!@dagents/desktop'
 
 # =============================================================================
 # Stage 2 — runtime
@@ -88,6 +98,7 @@ ENV GATEWAY_HOST=0.0.0.0
 # Copy the install state + manifests. We re-run a production-only install so
 # devDeps (tsup, tsx, vitest, eslint, …) don't ship to the runtime image.
 COPY --from=builder /app/package.json /app/pnpm-workspace.yaml /app/.npmrc /app/pnpm-lock.yaml ./
+COPY --from=builder /app/patches ./patches
 COPY --from=builder /app/apps/gateway/package.json ./apps/gateway/
 COPY --from=builder /app/apps/console/package.json ./apps/console/
 COPY --from=builder /app/packages/contracts/package.json ./packages/contracts/
@@ -95,6 +106,9 @@ COPY --from=builder /app/packages/shared/package.json ./packages/shared/
 COPY --from=builder /app/packages/db/package.json ./packages/db/
 COPY --from=builder /app/packages/workflow/package.json ./packages/workflow/
 COPY --from=builder /app/packages/agent-adapters/package.json ./packages/agent-adapters/
+# Same importer-consistency rule as the builder: the prod install below also
+# reads the full lockfile. Desktop is devDeps-only, so --prod installs nothing.
+COPY --from=builder /app/apps/desktop/package.json ./apps/desktop/
 
 # corepack again so the runtime pnpm matches the builder's (needed by the
 # entrypoint's migration filter). The runtime install keeps .npmrc's
