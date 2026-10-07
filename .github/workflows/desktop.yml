@@ -91,6 +91,35 @@ jobs:
       - name: Stage service stack
         run: pnpm --filter @dagents/desktop run stage:stack
 
+      # ── win runner 链接异常对策（2026-10-07，run 37560202910/37562774716 三轮实证）──
+      # GH Windows runner 上 pnpm install 后 builder-util@26.15.3 的 node_modules 里
+      # 独缺 source-map-support（chalk/debug/js-yaml 等兄弟包全在），连 root 显式
+      # devDep 也一样缺失；同 lockfile/同 pnpm 的 linux/mac job 与本机 win 全新
+      # clone+frozen install 均无法复现。此步为构建工具环境的自愈（不影响产物：
+      # source-map-support 只被 electron-builder 构建期加载），从 .pnpm 实体包
+      # 复制到缺失位置并复核解析，兼输出三轮排查所需的在场痕迹。
+      - name: Trace + ensure source-map-support (win only)
+        if: matrix.platform == 'win'
+        shell: pwsh
+        run: |
+          $src = Get-ChildItem node_modules/.pnpm -Directory -Filter 'source-map-support@*' | Select-Object -First 1
+          if (-not $src) { Write-Host "::error::.pnpm 无 source-map-support 实体包（store 侧缺失，需人工排查）"; exit 1 }
+          $srcDir = Join-Path $src.FullName 'node_modules/source-map-support'
+          $targets = @('node_modules/source-map-support') + @(
+            Get-ChildItem node_modules/.pnpm -Directory -Filter 'builder-util@*' |
+              ForEach-Object { (Join-Path $_.FullName 'node_modules') + '/source-map-support' }
+          )
+          foreach ($t in $targets) {
+            $present = Test-Path $t
+            Write-Host ("pre-package {0} => {1}" -f $t, $present)
+            if (-not $present) {
+              New-Item -ItemType Directory -Force -Path (Split-Path $t) | Out-Null
+              Copy-Item -Recurse -Force $srcDir $t
+              Write-Host ("self-healed: {0}" -f $t)
+            }
+          }
+          node -e "console.log('resolve:', require.resolve('source-map-support'))"
+
       - name: Package (${{ matrix.target }} ${{ matrix.arch }})
         run: >-
           pnpm --filter @dagents/desktop exec electron-builder

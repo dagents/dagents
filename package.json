@@ -16,12 +16,11 @@
     "typecheck": "node scripts/guard-build.mjs && turbo run typecheck"
   },
   "devDependencies": {
-    "@typescript-eslint/eslint-plugin": "^8.65.0",
-    "@typescript-eslint/parser": "^8.65.0",
     "eslint": "^8.57.0",
+    "@typescript-eslint/parser": "^8.65.0",
+    "@typescript-eslint/eslint-plugin": "^8.65.0",
     "eslint-plugin-react-hooks": "^5.2.0",
     "prettier": "^3.3.3",
-    "source-map-support": "0.5.21",
     "turbo": "^2.0.0",
     "typescript": "^5.5.0"
   },
