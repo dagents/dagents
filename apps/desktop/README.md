@@ -28,7 +28,11 @@
 - **dev 栈形态**（仓库内 `pnpm dev`）需要本机有 dagents 仓库检出 + pnpm + node；**dev 模式默认不启用内嵌 PG**（2026-10-07 起：编排器跳过内嵌 PG 且不注入 DSN——gateway 走 `.env`/`extraEnv` 的 `POSTGRES_URL`，未设时即 data-source 的 docker 默认 15432，防止 dev 用户的外部/docker 数据被静默切到空内嵌库）；要在 dev 用内嵌 PG 需显式 `"postgres": {"embedded": true}` 并先跑 `pnpm --filter @dagents/desktop ensure:postgres` 取二进制（37MB 下载，缓存复用）；**安装包形态（packaged）零外部依赖**（内嵌 PG 默认启用不变）。
 - 打包（`dist:win`）是完整链 `build → ensure:electron → ensure:postgres → stage-stack → package-win`：staging 阶段做 gateway deploy + console standalone 构建 + **pnpm 平铺规整**（分发链不支持 symlink，详见架构文档 §11.4.1）；win 构建依赖 `patches/next@15.5.20.patch`（junction 兜底，无需开发者模式）；末步 package-win.mjs 包装 electron-builder——旧 `release/win-unpacked` 被外部进程句柄锁死（EBUSY）时自动换道 `release-stale-N/` 出包（句柄释放后下轮回原位；CI 直调 electron-builder 不受影响）。
 - 实测 win 安装包 ~494MB（PG DLL 与 node-pty 原生二进制压缩率低；无体积 KPI）。
-- 端口锁定 8080/3000（console BFF 只认 `GATEWAY_URL`），配置里写别的端口会被拒绝并回落默认；**PG 端口不锁**（默认 55432 可配 1024-65535，冲突自动让位）。
+- **端口语义（2026-10-07 三服务同构端口分配起，旧「端口锁 8080/3000」退役）**：三服务（gateway 8080 / console 3000 / 内嵌 PG 55432）统一「默认端口空闲即用 → 被占按监听者身份分流 → 候选 +1 递增探测（≤20）→ 耗尽诚实失败（状态页明示）」：
+  - **被真 dagents 实例占用**（gateway `/health` 带 `svc:"gateway"` / console 首页 title `Dagents`）→ **附加模式**：不 spawn、不代杀、退出不误杀；
+  - **被陌生程序占用**：**packaged（安装包）形态自动让位**（8081/3001/55433…，状态页与服务卡黄 chip 明示实际端口与原因，菜单「在浏览器打开」打开的即实际端口）；**dev 形态固定端口不让位**——诚实失败 + 指引（腾端口或改用 packaged 形态），不打乱 pnpm dev / e2e / restart-gateway.sh 的固定端口约定；
+  - **config 钉死**：`services.<id>.port` 写**非默认**端口值即钉死（两形态同语义：被陌生程序占诚实失败不让位）；`postgres.port` 语义保留（默认 55432，可配 1024-65535，作为让位探测起点）。
+  - **旧 config 升级注记**：此前写非默认端口会被拒绝并回落默认；现在被接受为钉死——行为是放宽（超集）非破坏。写默认值（8080/3000）与不写行为一致；`extraEnv` 写 `GATEWAY_PORT`/`PORT`/`GATEWAY_URL` 会被实际端口计划覆盖（加载时告警）。
 - **`ELECTRON_RUN_AS_NODE` 会随 env 传给孙进程**（架构文档 R10 边界）：packaged 形态下 gateway/console 经 `dagents.exe` 以 node 模式拉起，该 env 会原样继承给 gateway 再 spawn 的 CLI agent（claude/codex 等）——它们是原生/node 程序**不受影响**；**仅当**你的 CLI agent 本身是 Electron GUI 应用（现网无此形态）时，它会被该变量切到 node 模式而无法弹窗。逃生门：`config.json` 的 `services.*.command` 可改为包装脚本（先剥离 `ELECTRON_RUN_AS_NODE` 再 exec 真 CLI，win 形如 `cmd /c "set ELECTRON_RUN_AS_NODE= && <realcli> %*"`）；`extraEnv` 注入的变量同样随环境传到孙进程，可作包装脚本的参数通道。
 - 不做自动更新/托盘/远程 gateway/深链（outOfScope，详见架构文档 §1）。
 

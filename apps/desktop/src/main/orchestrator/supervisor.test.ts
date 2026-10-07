@@ -725,6 +725,10 @@ describe('内嵌 PG 编排（M5，docs §10.2 + §18 端口计划）', () => {
     expect(snap.services.gateway.attachMode).toBe(true) // gateway 附加语义原样
     expect(world.spawnedSpecs.some((s) => s.id === 'gateway')).toBe(false) // 不 spawn
     expect(snap.config.pgPort).toBe(null)
+    // M9：附加态服务卡 message 铺设计划附加说明（decoratePlacement）
+    expect(snap.services.gateway.state).toBe('running')
+    expect(snap.services.gateway.message).toContain('附加模式')
+    expect(snap.services.gateway.message).toContain('不代杀')
     // 身份问询确实发生（10s 通道）且问的是 /health
     expect(world.identityRequests).toEqual(['http://localhost:8080/health'])
   })
@@ -933,6 +937,12 @@ describe('packaged 编排（M6，docs §11.4 + §18.2 计划注入）', () => {
     expect(snap.phase).toBe('console') // 让位后照样双健康接管
     expect(snap.config.consolePort).toBe(3001)
     expect(snap.config.consoleUrl).toBe('http://localhost:3001') // 窗口接管 URL 单源派生
+    expect(snap.config.consoleYielded).toBe(true) // M9：快照 yielded 标记（渲染层 chip 数据源）
+    expect(snap.config.gatewayYielded).toBe(false)
+    // M9：服务卡 message 铺设计划让位文案（decoratePlacement，pg yielded 语义平移）
+    expect(snap.services.console.state).toBe('running')
+    expect(snap.services.console.message).toContain('3001')
+    expect(snap.services.console.message).toContain('已让位')
     const cs = world.spawnedSpecs.find((s) => s.id === 'console')
     expect(cs?.env?.PORT).toBe('3001')
     expect(cs?.env?.GATEWAY_URL).toBe('http://localhost:8080') // BFF 指实际 gateway

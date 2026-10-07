@@ -316,13 +316,24 @@ export function waitingBudgetLine(svc: ServiceStatus, snap: DesktopSnapshot, now
   return `已等 ${formatElapsed(now - svc.startedAt)} / 预算 ${Math.round(budgetMs / 1000)}s`
 }
 
-// ---- 让位端口 chip（B4）----
+// ---- 让位端口 chip（B4；M9 三服务化：gateway/console 读快照 yielded 标记）----
 
 export function pgPortChip(snap: DesktopSnapshot): { text: string } | null {
   const pg = snap.services.pg
   if (snap.config.pgPort === null) return null
   if (!(pg.message ?? '').includes('已让位')) return null
   return { text: `端口 :${snap.config.pgPort}（默认被占用，已让位）` }
+}
+
+/** gateway/console 让位黄 chip：数据源是快照 config 的 yielded 标记 + 实际端口（§18.2 单源）。 */
+export function serviceYieldChip(
+  snap: DesktopSnapshot,
+  id: 'gateway' | 'console'
+): { text: string } | null {
+  const yielded = id === 'gateway' ? snap.config.gatewayYielded : snap.config.consoleYielded
+  if (!yielded) return null
+  const port = id === 'gateway' ? snap.config.gatewayPort : snap.config.consolePort
+  return { text: `端口 :${port}（默认被占用，已让位）` }
 }
 
 // ---- footer 事实行（D2 内联版；关于面板在菜单「关于 Dagents」）----

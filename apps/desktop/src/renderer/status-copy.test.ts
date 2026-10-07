@@ -12,6 +12,7 @@ import {
   metaLine,
   pgPortChip,
   restartAction,
+  serviceYieldChip,
   stopAction,
   waitingBudgetLine,
 } from './status-copy'
@@ -43,6 +44,10 @@ function snap(over: {
   pgEmbedded?: boolean
   pgPort?: number | null
   healthTimeoutMs?: number
+  gatewayYielded?: boolean
+  consoleYielded?: boolean
+  gatewayPort?: number
+  consolePort?: number
 } = {}): DesktopSnapshot {
   const runMode = over.runMode ?? 'packaged'
   const pgEmbedded = over.pgEmbedded ?? true
@@ -58,8 +63,10 @@ function snap(over: {
     config: {
       repoRoot: 'C:/repo',
       consoleUrl: 'http://localhost:3000',
-      gatewayPort: 8080,
-      consolePort: 3000,
+      gatewayPort: over.gatewayPort ?? 8080,
+      consolePort: over.consolePort ?? 3000,
+      gatewayYielded: over.gatewayYielded ?? false,
+      consoleYielded: over.consoleYielded ?? false,
       runMode,
       pgPort: over.pgPort ?? 55432,
       pgEmbedded,
@@ -325,8 +332,8 @@ describe('等待预算（原则 3：等待回答等多久/预算多少）', () =
   })
 })
 
-describe('让位端口与 footer（B4/D2）', () => {
-  it('让位 → 黄 chip 文案', () => {
+describe('让位端口与 footer（B4/D2；M9 三服务化）', () => {
+  it('pg 让位 → 黄 chip 文案', () => {
     const s = snap({
       pgPort: 55433,
       pg: { state: 'running', message: '端口 :55433（默认 55432 被占用，已让位）' },
@@ -335,9 +342,21 @@ describe('让位端口与 footer（B4/D2）', () => {
     expect(pgPortChip(s)?.text).toContain('已让位')
   })
 
-  it('未让位 → 无 chip', () => {
+  it('pg 未让位 → 无 chip', () => {
     const s = snap({ pg: { state: 'running', message: '端口 :55432 · 数据目录 C:/ud/pgdata' } })
     expect(pgPortChip(s)).toBeNull()
+  })
+
+  it('gateway/console 让位 → 黄 chip 读快照实际端口（§18.2 单源）', () => {
+    const s = snap({ gatewayYielded: true, gatewayPort: 8081, consoleYielded: true, consolePort: 3001 })
+    expect(serviceYieldChip(s, 'gateway')?.text).toBe('端口 :8081（默认被占用，已让位）')
+    expect(serviceYieldChip(s, 'console')?.text).toBe('端口 :3001（默认被占用，已让位）')
+  })
+
+  it('gateway/console 未让位 → 无 chip（默认端口形态零噪声）', () => {
+    const s = snap()
+    expect(serviceYieldChip(s, 'gateway')).toBeNull()
+    expect(serviceYieldChip(s, 'console')).toBeNull()
   })
 
   it('footer：packaged/dev 模式行 + 数据目录行 + 版本行', () => {

@@ -19,6 +19,7 @@ import {
   metaLine,
   pgPortChip,
   restartAction,
+  serviceYieldChip,
   stopAction,
   waitingBudgetLine,
   type BootStep,
@@ -55,10 +56,14 @@ const SERVICE_TITLES: Record<ServiceId, string> = {
   pg: 'postgres · 数据库',
 }
 
-/** 卡片副标题（信息层级：每个服务「是什么」一句话）。 */
+/**
+ * 卡片副标题（信息层级：每个服务「是什么」一句话）。端口不写死在这里——
+ * 让位后实际端口由 facts 行动态读快照（§18.2 单源；M9 前静态 :8080/:3000
+ * 在让位形态下是错的事实）。
+ */
 const SERVICE_ROLES: Record<ServiceId, string> = {
-  gateway: '本地 API 网关，连接工作台与执行引擎（端口 :8080）',
-  console: '工作台界面服务（浏览器里看到的页面，端口 :3000）',
+  gateway: '本地 API 网关，连接工作台与执行引擎',
+  console: '工作台界面服务（浏览器里看到的页面）',
   pg: '本机数据存储，工作流 / 会话 / 配置都在这里',
 }
 
@@ -209,14 +214,18 @@ function renderService(svc: ServiceStatus, snap: DesktopSnapshot, card: HTMLElem
     if (message.textContent !== (copy?.text ?? '')) message.textContent = copy?.text ?? ''
   }
 
-  // pg 卡专属：让位黄 chip（B4）+ 外部/附加灰态（visualNotes）
+  // 让位黄 chip（B4，M9 三服务化）：gateway/console 读快照 yielded 标记（§18.2），
+  // pg 沿用 message 判定（pgPortChip）
+  const yieldChip = card.querySelector<HTMLElement>('[data-role="yield"]')
+  const chip =
+    svc.id === 'pg' ? pgPortChip(snap) : serviceYieldChip(snap, svc.id as 'gateway' | 'console')
+  if (yieldChip) {
+    yieldChip.hidden = chip === null
+    if (chip && yieldChip.textContent !== chip.text) yieldChip.textContent = chip.text
+  }
+
+  // pg 卡专属：外部/附加灰态（visualNotes）
   if (svc.id === 'pg') {
-    const yieldChip = card.querySelector<HTMLElement>('[data-role="yield"]')
-    const chip = pgPortChip(snap)
-    if (yieldChip) {
-      yieldChip.hidden = chip === null
-      if (chip && yieldChip.textContent !== chip.text) yieldChip.textContent = chip.text
-    }
     const extChip = card.querySelector<HTMLElement>('[data-role="ext"]')
     const external = !snap.config.pgEmbedded || (svc.state === 'idle' && svc.message !== null)
     if (extChip) extChip.hidden = !external

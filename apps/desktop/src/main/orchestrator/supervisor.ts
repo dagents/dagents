@@ -649,8 +649,8 @@ export class Orchestrator {
       phase: computePhase(this.supervisors.gateway.status, this.supervisors.console.status),
       contentIntent: this.contentIntent?.() ?? 'auto',
       services: {
-        gateway: this.supervisors.gateway.status,
-        console: this.supervisors.console.status,
+        gateway: this.decoratePlacement('gateway', this.supervisors.gateway.status),
+        console: this.decoratePlacement('console', this.supervisors.console.status),
         pg: this.pg.status(),
       },
       logTail: {
@@ -663,6 +663,8 @@ export class Orchestrator {
         consoleUrl: this.consoleUrl(),
         gatewayPort: this.planPort('gateway'),
         consolePort: this.planPort('console'),
+        gatewayYielded: this.portPlan?.gateway.yielded ?? false,
+        consoleYielded: this.portPlan?.console.yielded ?? false,
         runMode: this.runMode,
         pgPort: this.pg.actualPort,
         pgEmbedded: this.pg.enabled,
@@ -673,6 +675,24 @@ export class Orchestrator {
       },
       at: this.deps.now(),
     }
+  }
+
+  /**
+   * 端口计划文案投影（M9，docs §18.2）：gateway/console running 且机器层无更紧急
+   * message 时，把计划 reason（让位说明/附加模式说明）铺到服务卡——沿用 pg 的
+   * yielded message 语义（pg-service status()），状态页每服务如实分标
+   * 「附加 / 自起 :N / 让位至 :N」（userStory 5）。db-down 引导等既有 message 优先。
+   */
+  private decoratePlacement(id: ManagedServiceId, status: ServiceStatus): ServiceStatus {
+    const plan = this.portPlan
+    if (plan === null) return status
+    if (status.state !== 'running' || status.message !== null) return status
+    const placement = plan[id]
+    if (placement.mode === 'attach') return { ...status, message: placement.reason }
+    if (placement.mode === 'spawn' && placement.yielded) {
+      return { ...status, message: placement.reason }
+    }
+    return status
   }
 
   /** 单服务日志尾（D7「复制最近 400 行」——主进程侧读环形缓冲，不经快照）。 */

@@ -123,6 +123,13 @@ export interface DesktopSnapshot {
     consoleUrl: string
     gatewayPort: number
     consolePort: number
+    /**
+     * gateway/console 是否让位（实际端口 ≠ 默认，docs §18.2）：渲染层让位黄 chip
+     * 与「实际端口」文案的数据源（pg 沿用既有 message 判定——pgPortChip）。
+     * 字段只增不改语义（R23：preload 窄暴露面契约）。
+     */
+    gatewayYielded: boolean
+    consoleYielded: boolean
     /** 实际运行形态（状态页明示：安装包内嵌栈 / 仓库 dev 栈）。 */
     runMode: 'dev' | 'packaged'
     /** 内嵌 PG 实际端口（让位后 ≠ 配置默认；null = 未启用/未解析）。 */

@@ -998,12 +998,40 @@ const AGENT_TYPE_OPTIONS = CLI_KINDS
  * daemon 启动命令里的网关地址：本机访问就是默认 8080；从其他机器访问
  * console 时用当前 hostname 推导（此前硬编码 localhost，复制到远程机器
  * 的命令永远连不上网关）。
+ * M9（§18.5）：优先取 /api/runtime 的实际 gateway 地址（桌面端口让位后
+ * 8080 已不是事实——复制出去的命令必须带实际端口）；fetch 失败回落本推导。
  */
-function gatewayUrlForCommand(): string {
+function gatewayUrlForCommand(runtimeGatewayUrl: string | null): string {
   if (typeof window === 'undefined') return 'http://localhost:8080'
-  return window.location.hostname === 'localhost'
-    ? 'http://localhost:8080'
-    : `http://${window.location.hostname}:8080`
+  if (window.location.hostname !== 'localhost') {
+    // 远程访问：host 用当前访问面（网关与 console 同机部署惯例），端口仍取
+    // 实际端口（runtime 拿不到时回落默认 8080）
+    let port = '8080'
+    if (runtimeGatewayUrl !== null) {
+      try {
+        port = new URL(runtimeGatewayUrl).port || '8080'
+      } catch {
+        // 形状异常——默认端口
+      }
+    }
+    return `http://${window.location.hostname}:${port}`
+  }
+  return runtimeGatewayUrl ?? 'http://localhost:8080'
+}
+
+/** 对话框打开时取 /api/runtime 的 gatewayUrl（失败静默回落 null → 现行推导）。 */
+async function fetchRuntimeGatewayUrl(): Promise<string | null> {
+  try {
+    const res = await fetch('/api/runtime')
+    if (!res.ok) return null
+    const body = (await res.json()) as { gatewayUrl?: unknown }
+    if (typeof body.gatewayUrl === 'string' && /^https?:\/\//.test(body.gatewayUrl)) {
+      return body.gatewayUrl
+    }
+    return null
+  } catch {
+    return null
+  }
 }
 
 function RegisterDaemonDialog({
@@ -1020,6 +1048,18 @@ function RegisterDaemonDialog({
   const [cmds, setCmds] = useState<string[] | null>(null)
   // 「已复制」确认 — 复制按钮此前点了毫无反馈。
   const [copied, setCopied] = useState<string | null>(null)
+  // /api/runtime 的实际 gateway 地址（§18.5：桌面让位后 8080 不再是事实）；
+  // null = 未取到（生成命令时回落 hostname 推导）
+  const [runtimeGatewayUrl, setRuntimeGatewayUrl] = useState<string | null>(null)
+  useEffect(() => {
+    let alive = true
+    void fetchRuntimeGatewayUrl().then((url) => {
+      if (alive && url !== null) setRuntimeGatewayUrl(url)
+    })
+    return () => {
+      alive = false
+    }
+  }, [])
   useEffect(() => {
     if (!copied) return
     const timer = window.setTimeout(() => setCopied(null), 1500)
@@ -1059,7 +1099,7 @@ function RegisterDaemonDialog({
       return
     }
     // CLI 一次只接受一种 agentType — 每种类型生成一条命令。
-    const base = gatewayUrlForCommand()
+    const base = gatewayUrlForCommand(runtimeGatewayUrl)
     setCmds(selectedTypes.map((k) => `pnpm --filter @dagents/daemon dev -- ${base} ${label.trim()} ${k}`))
   }
 
