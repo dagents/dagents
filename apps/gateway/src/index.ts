@@ -6,12 +6,13 @@ import { app } from './app.js'
 import { wsHub } from './ws-hub.js'
 import { executionRegistry } from './execution-registry.js'
 import { startRetentionTimer } from './retention.js'
+import { sweepDanglingExecutions } from './boot-sweep.js'
 import { markOrphanedHumanInputs } from './routes/human-input.js'
 import { reportErrorToSink } from './lib/error-sink.js'
 import { retryUntilDeadline, DB_INIT_RETRY_MS } from './lib/db-init-retry.js'
 
 const tracing = startTracing('gateway')
-const log = createLogger({ svc: 'gateway:reaper' })
+const log = createLogger({ svc: 'gateway:main' })
 
 const port = Number(process.env.GATEWAY_PORT ?? 8080)
 // 默认绑定 127.0.0.1，防止网关被局域网直接访问绕过 console 代理层。
@@ -33,111 +34,11 @@ await retryUntilDeadline(() => initDb(), {
 })
 
 /**
- * Boot sweep (execution-cancellation spec D7 / architecture AD-6): a gateway
- * restart kills every in-flight execution — inline CLI spawns, engine runs,
- * HumanInput pending promises all lived in this process and nothing will ever
- * write their terminal state. Converge the dangling DB rows so nothing stays
- * 'running' forever: affected chats get a visible system message, runs flip
- * to failed. ('cancelled' stays reserved for explicit user cancels.)
- *
- * 2026-09-17 补洞：run_node_spans 的 'running' 行（唯一写入方就是本进程，
- * boot 时任何 running span 必然悬空）与「认领 daemon 已离线」的
- * dispatch_tasks 一并收敛 —— 此前这两类会永久停在运行中态。
+ * Boot sweep（execution-cancellation spec D7 / architecture AD-6）：收敛悬空
+ * 执行行——2026-10-07 可恢复性地基起 runs/spans 收敛为 stopped(interrupted)、
+ * checkpoint 收敛 resumable（中断可恢复，详见 boot-sweep.ts 文件头）。从
+ * index.ts 内联抽出为独立模块，gateway 单测可做 DB 断言。
  */
-async function sweepDanglingExecutions(): Promise<void> {
-  // 每步独立容错：一条 SQL 失败（如列名演进）不能让其余收敛项陪葬
-  //（首版实现整段一个 try/catch，run_node_spans 的列名错就连带
-  // dispatch_tasks 也不收敛了 —— e2e 库 boot 日志暴露）。
-  const step = async (name: string, sql: string, params: unknown[] = []): Promise<void> => {
-    try {
-      const { affected } = await runQuery(sql, params)
-      if (affected && affected > 0) {
-        log.warn('boot sweep step converged rows', { step: name, count: affected })
-      }
-    } catch (err) {
-      log.warn('boot sweep step failed', {
-        step: name,
-        error: err instanceof Error ? err.message : String(err),
-      })
-    }
-  }
-
-  try {
-    const { records } = await runQuery<{ id: string }>(
-      `SELECT id FROM chats WHERE status = 'running'`,
-      [],
-    )
-    if (records.length > 0) {
-      for (const chat of records) {
-        await runQuery(
-          `INSERT INTO chat_messages (chat_id, role, content, created_at)
-           VALUES ($1::uuid, 'system', '执行被 gateway 重启中断（如有需要请重新发起）', NOW())`,
-          [chat.id],
-        ).catch(() => {
-          // best-effort message — the status flip below is what matters
-        })
-      }
-      await runQuery(
-        `UPDATE chats SET status = 'failed', updated_at = NOW() WHERE status = 'running'`,
-        [],
-      )
-      log.warn('boot sweep: dangling chats converged to failed', { count: records.length })
-    }
-    await step(
-      'runs',
-      `UPDATE runs SET status = 'failed', finished_at = NOW() WHERE status IN ('running', 'pending')`,
-    )
-    // run_node_spans 的 'running' 行（唯一写入方就是本进程，boot 时任何
-    // running span 必然悬空）。列名是 finished_at（对齐 entity 映射）。
-    await step(
-      'run_node_spans',
-      `UPDATE run_node_spans
-          SET status = 'failed',
-              error = COALESCE(error, 'gateway 重启中断（boot sweep）'),
-              finished_at = COALESCE(finished_at, NOW())
-        WHERE status = 'running'`,
-    )
-    // dispatch_tasks：daemon 与 gateway 是两个进程 —— daemon 活着时它的
-    // claimed/running 任务仍会正常回报终态，不能一刀切。只收敛「认领
-    // daemon 已离线」的任务；未被认领的 queued 任务留给调度路径（daemon
-    // 重连后仍可 claim）。
-    // 持久挂起超时收敛（断点续跑 P2）：deadline 已过的 awaiting run →
-    // failed + checkpoint terminal（应答窗 = HUMAN_INPUT_TIMEOUT_MS）。
-    await step(
-      'run_checkpoints_expired_awaiting',
-      `UPDATE runs r
-          SET status = 'failed', finished_at = NOW()
-         FROM run_checkpoints c
-        WHERE c.run_id = r.id
-          AND r.status = 'awaiting_input'
-          AND c.status = 'awaiting_input'
-          AND (c.awaiting->>'deadlineAt')::timestamptz < NOW()`,
-    )
-    await step(
-      'run_checkpoints_terminalize',
-      `UPDATE run_checkpoints
-          SET status = 'terminal', updated_at = NOW()
-        WHERE status = 'awaiting_input'
-          AND (awaiting->>'deadlineAt')::timestamptz < NOW()`,
-    )
-    await step(
-      'dispatch_tasks',
-      `UPDATE dispatch_tasks t
-          SET status = 'failed',
-              finished_at = NOW(),
-              failure_reason = 'claiming daemon offline (gateway boot sweep)'
-        WHERE t.status IN ('claimed', 'running')
-          AND t.claimed_by_daemon_id IS NOT NULL
-          AND EXISTS (
-            SELECT 1 FROM daemons d
-             WHERE d.id = t.claimed_by_daemon_id
-               AND (d.status = 'offline' OR d.last_heartbeat_at < NOW() - interval '15 seconds')
-          )`,
-    )
-  } catch (err) {
-    log.warn('boot sweep failed', { error: err instanceof Error ? err.message : String(err) })
-  }
-}
 await sweepDanglingExecutions()
 // HumanInput 挂起态是进程内 Promise（单进程红线）—— 重启即死。挂起时写进
 // 会话历史的提示（"直接在本聊天中回复即可"）在重启后成为谎言：用户回复会

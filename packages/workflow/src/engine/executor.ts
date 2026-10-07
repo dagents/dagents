@@ -8,9 +8,11 @@ import type {
   ITokenUsage,
 } from '../types/execution.js'
 import { NodeRegistry } from './node-registry.js'
-import { HumanInputPendingError } from './errors.js'
+import { HumanInputPendingError, SeedHashMismatchError } from './errors.js'
 import { RuntimeState } from './runtime.js'
 import { runUserCode } from '../nodes/custom-function/user-code-exec.js'
+import { computeInputHash } from '../utils/input-hash.js'
+import { resolveVariables } from '../utils/variables.js'
 
 /** Result of a DAG execution. */
 export interface ExecutionResult {
@@ -56,7 +58,7 @@ export interface ExecuteOptions {
    * synchronous from the executor's perspective: async work should be
    * fire-and-forget inside the callback so it never stalls a wave.
    */
-  onNodeStart?: (node: { nodeId: string; nodeName: string }) => void
+  onNodeStart?: (node: { nodeId: string; nodeName: string; ordinal?: number }) => void
   onNodeEnd?: (node: IExecutedNode) => void
   /**
    * 节点增量产出钩子（2026-08-30 流式展示）：LLM/Agent 节点生成过程中
@@ -69,6 +71,14 @@ export interface ExecuteOptions {
   ) => void
   /** 断点续跑种子（§6.3）：命中 seedOutputs 的节点跳过执行。 */
   resume?: ResumeOptions
+  /**
+   * JournalFacade 接缝（2026-10-07 可恢复性地基，design-recover §3.1(e)）：
+   * 宿主注入的 journal 读写面——引擎保持 DB-free。写入：节点终态
+   * （done/failed/cached）时 recordDecision（与 onNodeEnd 相邻，落 decision
+   * 行）；查询：lookup 供迭代体断点项短路寻址。resume/暖缓存的种子组装
+   * 全部在 gateway 侧完成（引擎内不做 DB 查询）。
+   */
+  journal?: JournalFacade
   /**
    * 执行状态快照钩子（§6.2）：每波次收敛 / 迭代每项完成 / 终态前回调。
    * 同步 fire-and-forget（宿主自行节流落库），绝不阻塞调度。
@@ -93,6 +103,13 @@ const RETRY_BACKOFF_BASE_MS = 200
 export interface IterationProgress {
   completed: number
   itemOutputs: Array<Record<string, unknown>>
+  /**
+   * 每项 body 节点输出映射（2026-10-07 地基，design-recover §3.1(c)3）：
+   * `[i][nodeId] = output`。gateway 从 journal 的 per-ordinal decision 行组装
+   * 传入；引擎据此在串行路径为第 i 项预填迭代体克隆，让种子跳过机制对迭代
+   * 体生效（项粒度短路）。引擎只消费不生产（快照经 progress 透传保真）。
+   */
+  itemNodeOutputs?: Array<Record<string, Record<string, unknown>>>
 }
 
 /** 断点续跑种子（§6.3 ResumeOptions 的载荷）。 */
@@ -103,6 +120,41 @@ export interface ResumeOptions {
   seedRuntime?: Record<string, unknown>
   /** 迭代游标：controllerId → 进度。 */
   iterationProgress?: Record<string, IterationProgress>
+  /**
+   * 种子携带的 expected input_hash（2026-10-07 地基，resume 严格校验用）：
+   * journal decision 行的 payload.inputHash。引擎跳过种子节点前按当前
+   * runtime 预演重算对比，不一致抛 SeedHashMismatchError（AC-R1-3）。暖缓存
+   * 校验在 gateway 侧已完成（不传）；checkpoint 老种子无 hash（缺省跳过
+   * 校验照旧种子化，PRD R1.7）。
+   */
+  seedHashes?: Record<string, string>
+  /** 种子来源标注（cached 钩子/journal lineage 载荷用）。 */
+  seedSource?: { kind: 'resume' | 'warm-cache'; fromRunId: string }
+}
+
+/**
+ * journal decision 行的引擎侧形状（写入条目 = 查询结果，design-recover §1.1
+ * payload 契约）。持久化与 runId/flowId 补齐由宿主的 journal-writer 承载。
+ */
+export interface JournalDecision {
+  nodeId: string
+  /** per-node 执行实例序号（AD-R4）。 */
+  ordinal: number
+  status: 'done' | 'failed' | 'cached'
+  /** AD-R3 口径指纹（computeInputHash 单源）；老种子路径可缺省。 */
+  inputHash?: string
+  input?: Record<string, unknown>
+  output?: Record<string, unknown>
+  tokens?: ITokenUsage | null
+  resolvedModel?: string
+  /** cached 决策的继承标注（R2 谱系）。 */
+  lineage?: { inheritedFromRunId: string; inheritedTokens?: number }
+}
+
+/** 引擎侧 journal 接缝（宿主注入；引擎 DB-free 红线不破，§3.1(e)）。 */
+export interface JournalFacade {
+  recordDecision(entry: JournalDecision): void
+  lookup(nodeId: string, ordinal: number): Promise<JournalDecision | null>
 }
 
 /**
@@ -156,6 +208,12 @@ interface RunContext {
   isolatedFailures: string[]
   /** 已消耗 tokens（tokenBudget 对账用，2026-10-04）。 */
   tokensSpent: number
+  /**
+   * per-node 执行实例计数器（2026-10-07 地基，AD-R4）：nodeId → 已占位次数。
+   * 节点开始执行（或种子跳过占位）时 takeOrdinal +1；迭代体并行项经
+   * childCtx 展开共享同一 Map（引用传递），跨项分配天然唯一。
+   */
+  nodeOrdinals: Map<string, number>
   onCheckpoint?: (snapshot: RunCheckpointSnapshot) => void
 }
 
@@ -256,6 +314,7 @@ export class DagExecutor {
         onCheckpoint: opts.onCheckpoint,
         isolatedFailures: [],
         tokensSpent: 0,
+        nodeOrdinals: new Map(),
       }
 
       // 种子节点计入 finalOutput 判定（续跑后无新节点执行时最终产出仍正确）
@@ -395,6 +454,7 @@ export class DagExecutor {
     isLast: boolean,
     nodeId?: string,
     nodeName?: string,
+    ordinal?: number,
   ): IExecutionContext {
     const { opts } = ctx
     return {
@@ -403,6 +463,7 @@ export class DagExecutor {
       state: ctx.runtime.state,
       isLastNode: isLast,
       sseStreamer: opts.sseStreamer,
+      nodeOrdinal: ordinal,
       startInput: opts.startInput,
       sessionId: opts.sessionId,
       signal: opts.signal,
@@ -435,6 +496,7 @@ export class DagExecutor {
     ctx: RunContext,
     flowNode: FlowNode,
     nodeInput: unknown,
+    ordinal?: number,
   ): Promise<INodeOutput> {
     const nodeInstance = this.registry.get(flowNode.data.name as string)
     if (!nodeInstance) {
@@ -445,19 +507,20 @@ export class DagExecutor {
     // EditNodeDialog）把配置嵌套在 `data.inputs.<field>`。节点统一从
     // `nodeData.inputs.<field>` 读 —— 平铺键打底、嵌套 inputs 覆盖，
     // 这样画布保存后改的值生效，且老 flow 不受影响。
-    const flat = flowNode.data as Record<string, unknown>
-    const nested = flat?.inputs
-    const mergedInputs =
-      nested && typeof nested === 'object' && !Array.isArray(nested)
-        ? { ...flat, ...(nested as Record<string, unknown>) }
-        : { ...flat }
+    const mergedInputs = mergedNodeInputs(flowNode)
     const nodeData: INodeData = {
       id: flowNode.id,
       name: flowNode.data.name as string,
       inputs: mergedInputs,
     }
     const isLast = this.isLastExecutableNode(flowNode, ctx.outgoingEdges, ctx.opts.isLastNode)
-    const runCtx = this.buildNodeContext(ctx, isLast, flowNode.id, flowNode.data.name as string)
+    const runCtx = this.buildNodeContext(
+      ctx,
+      isLast,
+      flowNode.id,
+      flowNode.data.name as string,
+      ordinal,
+    )
 
     const retriesRaw = mergedInputs.retries
     const retries =
@@ -509,6 +572,7 @@ export class DagExecutor {
     entryEdges: FlowEdge[],
     outputs: Map<string, Record<string, unknown>>,
     seed: Map<string, Record<string, unknown>>,
+    preseeded?: Set<string>,
   ): Promise<{
     processed: Set<string>
     error?: string
@@ -536,11 +600,57 @@ export class DagExecutor {
     const processed = new Set<string>()
     // 断点续跑（§6.3）：outputs 里已有的节点视为已执行 —— 计入 processed
     // 并释放其出边的 pending 计数（首次波次装配即从断点之后开始）。
-    // 仅根图生效：迭代体每项拿的是上游 outputs 的克隆，若误判会把
-    // 前一项的 body 当「已完成」跳过（嵌套迭代 2×2 塌成 1×2 的教训）。
-    if (outputs === ctx.rootOutputs) {
+    // 根图判定 outputs === ctx.rootOutputs；迭代体的 per-ordinal 预填
+    // （2026-10-07 地基，§3.1(c)3）不能用该判据 —— 克隆里混着上游根输出，
+    // 只有 preseeded 显式列出的 body 节点才按种子短路（嵌套迭代 2×2 塌成
+    // 1×2 的教训对两种来源都成立）。
+    const rootSeeds = outputs === ctx.rootOutputs
+    const itemSeeds = preseeded ?? new Set<string>()
+    if (rootSeeds || itemSeeds.size > 0) {
       for (const id of outputs.keys()) {
         if (!scope.has(id) || processed.has(id)) continue
+        if (!rootSeeds && !itemSeeds.has(id)) continue
+        // 种子哈希对账（§3.1(c)1）：种子携带 expected input_hash 时，跳过前
+        // 用当前 runtime 对该节点做 mergeInputs + resolveVariables 预演重算
+        // ——上游种子输出已在 outputs 里，预演与真实执行同路径。不一致抛
+        // SeedHashMismatchError，冒泡为 run failed（AC-R1-3）。无 hash 的
+        // checkpoint 老种子跳过校验照旧种子化（PRD R1.7）。
+        const seedHash = rootSeeds ? ctx.opts.resume?.seedHashes?.[id] : undefined
+        const flowNode = nodeById.get(id)
+        if (seedHash && flowNode) {
+          const incoming = this.activeIncomingEdges(ctx, id, outputs)
+          const previewInput = incoming.length > 0 ? this.mergeInputs(incoming, outputs) : ctx.input
+          const got = nodeInputHash(ctx, flowNode, previewInput)
+          if (got !== seedHash) throw new SeedHashMismatchError(id, seedHash, got)
+        }
+        // cached 钩子回放（§3.1(c)2）：种子节点跳过时发 nodeEnd(cached) ——
+        // span-writer 落 cached span（徽章）、live registry 发 nodeEnd 帧、
+        // journal 记 cached decision（lineage 载荷）。种子占位取 ordinal
+        // （AD-R4：迭代 body 第 n 项的预填占第 n 号，断点项短路键稳定）。
+        const ordinal = takeOrdinal(ctx, id)
+        const seedOutput = outputs.get(id) ?? {}
+        const nowIso = new Date().toISOString()
+        ctx.opts.onNodeEnd?.({
+          nodeId: id,
+          nodeName: (flowNode?.data.name as string) ?? id,
+          startedAt: nowIso,
+          endedAt: nowIso,
+          status: 'cached',
+          input: {},
+          output: seedOutput,
+          tokens: null,
+          ordinal,
+        })
+        ctx.opts.journal?.recordDecision({
+          nodeId: id,
+          ordinal,
+          status: 'cached',
+          ...(seedHash ? { inputHash: seedHash } : {}),
+          output: seedOutput,
+          ...(ctx.opts.resume?.seedSource
+            ? { lineage: { inheritedFromRunId: ctx.opts.resume.seedSource.fromRunId } }
+            : {}),
+        })
         processed.add(id)
         for (const edge of ctx.outgoingEdges.get(id) ?? []) {
           if (scope.has(edge.target)) {
@@ -594,9 +704,12 @@ export class DagExecutor {
                 : this.mergeInputs(incoming, outputs)
 
           const startedAt = new Date().toISOString()
+          // 实例序号占位（AD-R4）：节点开始执行时取号（per-node 从 0 单调递增
+          // —— 非迭代节点恒 0，迭代 body 第 n 次执行 = n）。
+          const ordinal = takeOrdinal(ctx, nodeId)
           try {
-            opts.onNodeStart?.({ nodeId, nodeName: flowNode.data.name as string })
-            const output = await this.runNode(ctx, flowNode, nodeInput)
+            opts.onNodeStart?.({ nodeId, nodeName: flowNode.data.name as string, ordinal })
+            const output = await this.runNode(ctx, flowNode, nodeInput, ordinal)
             const executed: IExecutedNode = {
               nodeId,
               nodeName: flowNode.data.name as string,
@@ -607,9 +720,21 @@ export class DagExecutor {
               output: output.output,
               tokens: output.usage ?? null,
               cost: null,
+              ordinal,
             }
             executedNodes.push(executed)
             opts.onNodeEnd?.(executed)
+            // journal decision（§3.1(e) 写入接缝）：节点终态与 onNodeEnd 相邻
+            // 记档——inputHash 按 AD-R3 口径（配置预演 + 引擎输入原样）。
+            opts.journal?.recordDecision({
+              nodeId,
+              ordinal,
+              status: 'done',
+              inputHash: nodeInputHash(ctx, flowNode, nodeInput),
+              input: this.toRecord(nodeInput),
+              output: output.output,
+              tokens: output.usage ?? null,
+            })
             runtime.merge(output.state)
             // Expose the node's output to template variables under its
             // node id (the canvas variable picker inserts `{{<nodeId>}}`),
@@ -657,9 +782,20 @@ export class DagExecutor {
               output: {},
               tokens: errUsage ?? null,
               error: message,
+              ordinal,
             }
             executedNodes.push(executed)
             opts.onNodeEnd?.(executed)
+            // 失败也是终态：decision 记档（resume 种子过滤 status IN done/cached，
+            // failed 行不进种子，但「试过且失败」的事实入档）。
+            opts.journal?.recordDecision({
+              nodeId,
+              ordinal,
+              status: 'failed',
+              inputHash: nodeInputHash(ctx, flowNode, nodeInput),
+              input: this.toRecord(nodeInput),
+              tokens: errUsage ?? null,
+            })
             // 失败分支隔离（2026-10-04）：节点声明 isolateFailure 时，失败
             // 只塌缩本分支（无产出 → 下游自然剪枝），不中断整个 run。
             const isolated = mergedNodeFlag(flowNode, 'isolateFailure') === true
@@ -960,7 +1096,11 @@ export class DagExecutor {
         iterations.push(itemOutputsByIdx.get(i) ?? {})
         completed = i + 1
         lastBodyOutput = itemOutputsByIdx.get(i) ?? {}
-        ctx.iterationProgress.set(controller.id, { completed, itemOutputs: [...iterations] })
+        ctx.iterationProgress.set(controller.id, {
+          completed,
+          itemOutputs: [...iterations],
+          ...(progress.itemNodeOutputs ? { itemNodeOutputs: progress.itemNodeOutputs } : {}),
+        })
       }
       const highestDone = Math.max(-1, ...[...doneIdx.values()])
       if (highestDone >= 0) {
@@ -990,7 +1130,27 @@ export class DagExecutor {
 
         const iterationOutputs = new Map(globalOutputs)
         iterationOutputs.delete(controller.id)
-        const result = await this.runWaves(ctx, plan.body, plan.entryEdges, iterationOutputs, seed)
+        // per-ordinal 种子预填（2026-10-07 地基，§3.1(c)3）：progress.
+        // itemNodeOutputs[i] 的 body 节点输出预填进本项克隆，runWaves 按
+        // preseeded 短路（断点项的 body 不重跑，占原 ordinal）。仅串行路径；
+        // 嵌套迭代 v1 不承诺 per-ordinal 短路（内层控制器每轮重置游标）。
+        const preseeded = new Set<string>()
+        const prefill = progress.itemNodeOutputs?.[i]
+        if (prefill) {
+          for (const [pid, pout] of Object.entries(prefill)) {
+            if (!plan.body.has(pid)) continue
+            iterationOutputs.set(pid, pout)
+            preseeded.add(pid)
+          }
+        }
+        const result = await this.runWaves(
+          ctx,
+          plan.body,
+          plan.entryEdges,
+          iterationOutputs,
+          seed,
+          preseeded,
+        )
         if (result.error) {
           return { output: {}, error: result.error }
         }
@@ -1010,8 +1170,14 @@ export class DagExecutor {
         iterations.push(iterationFinal)
         lastBodyOutput = iterationFinal
         completed = i + 1
-        // 游标增量维护 + 快照（§6.2：迭代每项完成后）
-        ctx.iterationProgress.set(controller.id, { completed, itemOutputs: [...iterations] })
+        // 游标增量维护 + 快照（§6.2：迭代每项完成后）。itemNodeOutputs 是
+        // gateway 组装的 per-ordinal 种子载荷——引擎不生产只透传（快照保真，
+        // 崩溃后 resume 仍能拿到断点项种子）。
+        ctx.iterationProgress.set(controller.id, {
+          completed,
+          itemOutputs: [...iterations],
+          ...(progress.itemNodeOutputs ? { itemNodeOutputs: progress.itemNodeOutputs } : {}),
+        })
         if (ctx.onCheckpoint && ctx.rootOutputs === globalOutputs) {
           this.fireCheckpoint(ctx, globalOutputs)
         }
@@ -1391,4 +1557,53 @@ function mergedNodeFlag(flowNode: FlowNode, key: string): unknown {
   const nested = flat?.inputs as Record<string, unknown> | undefined
   if (nested && typeof nested === 'object' && nested[key] !== undefined) return nested[key]
   return flat?.[key]
+}
+
+/**
+ * 节点 mergedInputs（平铺 `data.<field>` 打底、嵌套 `data.inputs.<field>`
+ * 覆盖）——runNode 的节点数据归一化与 hash 预演（nodeInputHash）共用同源，
+ * 口径漂移即 hash 漂移，单点抽取。
+ */
+function mergedNodeInputs(flowNode: FlowNode): Record<string, unknown> {
+  const flat = (flowNode.data ?? {}) as Record<string, unknown>
+  const nested = flat.inputs
+  if (nested && typeof nested === 'object' && !Array.isArray(nested)) {
+    return { ...flat, ...(nested as Record<string, unknown>) }
+  }
+  return { ...flat }
+}
+
+/**
+ * resolveVariables 预演（AD-R3）：深拷贝后对字符串逐个解析——**只用于 hash，
+ * 不改变传给节点的输入**。未引用变量保持字面量（与节点侧解析行为一致，
+ * 同一函数保证预演与真实解析的口径是同一个）。
+ */
+function previewResolved(value: unknown, state: Record<string, unknown>): unknown {
+  if (typeof value === 'string') return resolveVariables(value, state)
+  if (Array.isArray(value)) return value.map((item) => previewResolved(item, state))
+  if (value !== null && typeof value === 'object') {
+    if (value instanceof Date) return value.toISOString()
+    const out: Record<string, unknown> = {}
+    for (const [k, v] of Object.entries(value as Record<string, unknown>)) {
+      out[k] = previewResolved(v, state)
+    }
+    return out
+  }
+  return value
+}
+
+/** AD-R3 口径的节点输入指纹：nodeType + 配置预演 + 引擎输入原样（单源）。 */
+function nodeInputHash(ctx: RunContext, flowNode: FlowNode, nodeInput: unknown): string {
+  return computeInputHash({
+    nodeType: String(flowNode.data?.name ?? ''),
+    resolvedConfig: previewResolved(mergedNodeInputs(flowNode), ctx.runtime.state),
+    nodeInput,
+  })
+}
+
+/** 占用该节点的下一个执行实例序号（AD-R4：从 0 单调递增）。 */
+function takeOrdinal(ctx: RunContext, nodeId: string): number {
+  const next = ctx.nodeOrdinals.get(nodeId) ?? 0
+  ctx.nodeOrdinals.set(nodeId, next + 1)
+  return next
 }

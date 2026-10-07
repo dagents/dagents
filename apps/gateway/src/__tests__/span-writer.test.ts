@@ -152,6 +152,7 @@ describe('span-writer 过程事件保真（2026-09-06 终端视图裁决）', ()
       status: 'success',
       input: {},
       output: { text: '最终正文' },
+      ordinal: 0,
     } satisfies IExecutedNode)
     await flushWrites()
 
@@ -186,6 +187,7 @@ describe('span-writer 过程事件保真（2026-09-06 终端视图裁决）', ()
       status: 'success',
       input: {},
       output: {},
+      ordinal: 0,
     } satisfies IExecutedNode)
     await flushWrites()
     const out = finalOutput()!
@@ -242,6 +244,7 @@ describe('span-writer user_input 快节拍（2026-09-08 可操作终端）', () 
       status: 'success',
       input: {},
       output: { text: '完成' },
+      ordinal: 0,
     } as IExecutedNode)
     await flushWrites()
     const output = finalOutput()

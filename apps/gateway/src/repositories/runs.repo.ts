@@ -47,8 +47,17 @@ export function toNodeSpanStatus(raw: string): NodeSpanStatus {
       return 'running'
     case 'cancel':
     case 'cancelled':
-    case 'STOPPED':
     case 'paused':
+      return 'paused'
+    // 2026-10-07 可恢复性地基（随写方批次改齐，design-recover §1.3）：
+    // cached = 种子命中跳过执行的节点终态（引擎 cached 钩子回放）；
+    // stopped = boot sweep 对悬空 running span 的收敛。DB CHECK 词表由
+    // 1720000106200 一次放宽到位（三方共同前置）。
+    case 'cached':
+      return 'cached'
+    case 'stopped':
+      return 'stopped'
+    case 'STOPPED':
       return 'paused'
     default:
       return 'unknown'

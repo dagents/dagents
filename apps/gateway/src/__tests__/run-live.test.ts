@@ -199,6 +199,7 @@ describe('run-live registry（帧缓冲与订阅）', () => {
       input: {},
       output: {},
       error: 'boom',
+      ordinal: 0,
     })
     const att = attachRunLive(RUN, () => {})
     const end = att!.hello.replay.find((f) => f.type === 'nodeEnd') as {
@@ -223,6 +224,7 @@ describe('run-live registry（帧缓冲与订阅）', () => {
       endedAt: new Date().toISOString(),
       status: 'success',
       input: {},
+      ordinal: 0,
       output: {},
     })
     for (let i = 0; i < 200; i++) {

@@ -37,6 +37,11 @@ export type NodeSpanStatus =
   // A node the execution reached but Flowise left without a recognised state
   // (kept distinct from `done` so the inspector can flag an unknown outcome).
   | 'unknown'
+  // 2026-10-07 可恢复性地基（CHECK 放宽迁移 1720000106200 三方共同前置）：
+  // 'cached' = 种子命中跳过执行的节点终态（R2 暖缓存 / resume 已完成节点）；
+  // 'stopped' = boot sweep 对悬空 running span 的收敛（gateway 重启中断）。
+  | 'cached'
+  | 'stopped'
 
 @Entity({ name: 'run_node_spans' })
 @Index('idx_run_node_spans_run', ['runId'])
@@ -73,6 +78,15 @@ export class RunNodeSpan {
   /** Mapped node-card status (see `mapNodeSpanStatus`). */
   @Column({ name: 'status', type: 'text' })
   status!: NodeSpanStatus
+
+  /**
+   * per-node 执行实例序号（2026-10-07 地基，AD-R4）：标注列——终端视图
+   * `nodeId[ordinal]` 与 R8 stdin 行用；**不参与键**（唯一索引保持
+   * (run_id, node_id) 的末次覆盖投影语义，迭代的 per-ordinal 完整事实在
+   * run_node_journal）。存量行默认 0。
+   */
+  @Column({ type: 'integer', default: 0 })
+  ordinal!: number
 
   /** When the node started (Flowise does not record per-node start; null when unknown). */
   @Column({ name: 'started_at', type: 'timestamptz', nullable: true })

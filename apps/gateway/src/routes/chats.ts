@@ -749,7 +749,7 @@ chatRoutes.get('/:id/stream', async (c) => {
       // runs 行：chat 触发的工作流运行也进 flow 运行历史，且画布旁观
       // （canvas?run=）依赖它判断终态。best-effort —— 失败不影响流。
       try {
-        const runStatus = toRunStatus(result.status)
+        const runStatus = toRunStatus(result.status).status
         // 运行实时终端：chat 流式运行 settle 上报终态（画布旁观者关流）。
         live.finish(runStatus)
         await upsertChatWorkflowRunRow({

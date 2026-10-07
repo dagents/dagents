@@ -13,7 +13,10 @@ import type { IServerSideEventStreamer } from './stream.js'
  *  'partial_success'（2026-10-04 失败分支隔离）：声明了 isolateFailure 的节点
  *  失败后下游剪枝、其余分支照常完成——run 有产出但带失败节点，不是纯成功。
  *  'budget_exceeded'（2026-10-04 run 级 token 预算）：累计用量越过
- *  tokenBudget，调度器主动停机——区别于失败：产出截至停机点，根因明确。 */
+ *  tokenBudget，调度器主动停机——区别于失败：产出截至停机点，根因明确。
+ *  'cached'（2026-10-07 可恢复性地基）：种子命中的节点跳过执行——只出现在
+ *  节点终态（IExecutedNode.status，resume/暖缓存钩子回放），run 级终态永不取
+ *  此值。 */
 export type ExecutionStatus =
   | 'idle'
   | 'running'
@@ -23,6 +26,7 @@ export type ExecutionStatus =
   | 'awaiting'
   | 'partial_success'
   | 'budget_exceeded'
+  | 'cached'
 
 /** Token usage reported by an LLM call. */
 export interface ITokenUsage {
@@ -94,6 +98,13 @@ export interface IExecutedNode {
   tokens?: ITokenUsage | null
   /** Monetary cost of the node's LLM call, when reported. */
   cost?: number | null
+  /**
+   * per-node 执行实例序号（2026-10-07 可恢复性地基，AD-R4）：每 nodeId 从 0
+   * 单调递增——非迭代节点恒 0；迭代 body 第 n 次执行 = n（单层下恰等于项
+   * 索引）。种子跳过（cached）的节点同样按其占位取号。span 标注、journal
+   * decision 键 `(nodeId, ordinal)`、R8 会话寻址共用。
+   */
+  ordinal: number
 }
 
 /** One chunk of a streamed LLM response. */
@@ -148,6 +159,12 @@ export interface IExecutionContext {
   sessionId?: string
   /** Abort signal — nodes should check this for long-running operations. */
   signal?: AbortSignal
+  /**
+   * 当前节点实例的执行序号（2026-10-07 地基）：与 IExecutedNode.ordinal 同源
+   * （executor 按 per-node 计数器分配）。下游 llmClient.chat 的会话铸造
+   * （R8 CliChatParams.ordinal，第 5 批接线）与 span 标注共用；根图节点恒 0。
+   */
+  nodeOrdinal?: number
   /** The runtime state container (deprecated alias — use `state` directly). */
   agentflowRuntime?: { state: Record<string, unknown> }
   /**

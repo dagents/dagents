@@ -40,12 +40,21 @@ export { NodeRegistry } from './engine/node-registry.js'
 export { RuntimeState } from './engine/runtime.js'
 export { DagExecutor } from './engine/executor.js'
 export type { ExecutionResult } from './engine/executor.js'
-export type { ResumeOptions, IterationProgress, RunCheckpointSnapshot } from './engine/executor.js'
-export { HumanInputPendingError } from './engine/errors.js'
+export type {
+  ResumeOptions,
+  IterationProgress,
+  RunCheckpointSnapshot,
+  JournalDecision,
+  JournalFacade,
+} from './engine/executor.js'
+export { HumanInputPendingError, SeedHashMismatchError } from './engine/errors.js'
 export { SseStreamer } from './engine/sse-streamer.js'
 
 // Utils (Task 3+ — uncomment when modules landed)
 export { resolveVariables } from './utils/variables.js'
+// 2026-10-07 可恢复性地基：inputHash 单源（引擎种子校验与 gateway 暖缓存/
+// resume 校验共用，不得出现第二套 hash——PRD R2 风险条款）
+export { canonicalJson, computeInputHash, NON_DETERMINISTIC_KEYS } from './utils/input-hash.js'
 export { parseFlowData, flowDataSchema } from './utils/flow-data.js'
 export { findAgentReferences } from './utils/agent-refs.js'
 export { validateFlowTopology, resolveNodeType } from './utils/validate-topology.js'

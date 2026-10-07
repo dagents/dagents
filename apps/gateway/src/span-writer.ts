@@ -38,6 +38,17 @@ export interface IncrementalSpanWriter {
   writtenNodes: Set<string>
 }
 
+/**
+ * 引擎节点终态 → span 终态（2026-10-07 可恢复性地基，随 cached 写方改齐）：
+ * cached（种子命中跳过）是独立 span 终态（DB CHECK 词表由 1720000106200
+ * 放宽）——只改状态映射，不动 upsert 键（design-recover §⑦ 共享表约束）。
+ */
+function spanEndStatus(engineStatus: string): NodeSpanStatus {
+  if (engineStatus === 'failed') return 'failed'
+  if (engineStatus === 'cached') return 'cached'
+  return 'done'
+}
+
 export function makeIncrementalSpanWriter(deps: SpanWriterDeps): IncrementalSpanWriter {
   const { runId, flowId, nodeLabelById, nodeTypeById, log } = deps
   const writtenNodes = new Set<string>()
@@ -209,7 +220,7 @@ export function makeIncrementalSpanWriter(deps: SpanWriterDeps): IncrementalSpan
       }
       const started = en.startedAt ? new Date(en.startedAt) : new Date()
       const finished = en.endedAt ? new Date(en.endedAt) : new Date()
-      persist(en.nodeId, en.status === 'failed' ? 'failed' : 'done', {
+      persist(en.nodeId, spanEndStatus(en.status), {
         startedAt: started,
         finishedAt: finished,
         durationMs: Math.max(0, finished.getTime() - started.getTime()),

@@ -7,6 +7,7 @@ import {
 import { NodeRegistry } from '@dagents/workflow'
 import type { Logger } from '@dagents/shared'
 import { runQuery } from '@dagents/db'
+import type { RunStatus, RunStopReason } from '@dagents/db'
 import { allNodes } from '@dagents/workflow'
 import { makeIncrementalSpanWriter, type IncrementalSpanWriter } from '../span-writer.js'
 import { forRunLive, type RunLiveTap } from '../run-live-registry.js'
@@ -172,7 +173,7 @@ export function assembleWorkflowEngine(
       isLastNode: true,
       signal: execOpts.signal,
     })
-    sub.live.finish(toRunStatus(result.status))
+    sub.live.finish(toRunStatus(result.status).status)
     return { output: result.finalOutput ?? {}, status: result.status }
   }
 
@@ -255,15 +256,25 @@ export function assembleWorkflowEngine(
  * 2026-10-04：partial_success（失败分支隔离后的有产出终态）与
  * budget_exceeded（token 预算停机）作为独立终态如实落库——runs.status
  * 是 text 列，console 侧按标签映射渲染。
+ *
+ * 2026-10-07 可恢复性地基（design-recover §3.3(a)，词汇单点）：返回形状扩为
+ * `{ status, stopReason? }`——为 R3 状态机（cancelled→stopped 写新 + superseded
+ * 归属）预留单一出口；**本批先兼容旧调用**：cancelled 仍翻 cancelled（写新
+ * 翻转与 resume-execution.ts 手写映射收敛是第 1 批），旧调用点改取 `.status`
+ * 即行为逐字不变。RunStatus 九态与迁移 1720000111000 的 CHECK 同源。
  */
 export function toRunStatus(
   executionStatus: string,
-): 'completed' | 'cancelled' | 'failed' | 'partial_success' | 'budget_exceeded' {
-  if (executionStatus === 'success') return 'completed'
-  if (executionStatus === 'cancelled') return 'cancelled'
-  if (executionStatus === 'partial_success') return 'partial_success'
-  if (executionStatus === 'budget_exceeded') return 'budget_exceeded'
-  return 'failed'
+  // eslint-disable-next-line @typescript-eslint/no-unused-vars -- 第 1 批（cancelled→stopped 写新）落地 superseded 归属时启用；地基批次先固定签名
+  ctx?: { superseded?: boolean },
+): { status: RunStatus; stopReason?: RunStopReason } {
+  if (executionStatus === 'success') return { status: 'completed' }
+  // 第 1 批（cancelled→stopped 写新）落地后此处翻转为：
+  //   { status: 'stopped', stopReason: ctx?.superseded ? 'superseded' : 'user' }
+  if (executionStatus === 'cancelled') return { status: 'cancelled' }
+  if (executionStatus === 'partial_success') return { status: 'partial_success' }
+  if (executionStatus === 'budget_exceeded') return { status: 'budget_exceeded' }
+  return { status: 'failed' }
 }
 
 /**

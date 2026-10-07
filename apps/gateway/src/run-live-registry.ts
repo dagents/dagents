@@ -46,7 +46,7 @@ interface RunLiveEntry {
 
 /** 引擎侧的发射入口（assembleWorkflowEngine 组合钩子时持有）。 */
 export interface RunLiveTap {
-  nodeStart: (node: { nodeId: string; nodeName: string }) => void
+  nodeStart: (node: { nodeId: string; nodeName: string; ordinal?: number }) => void
   nodeEnd: (node: IExecutedNode) => void
   delta: (node: { nodeId: string; nodeName: string }, chunk: IStreamDelta) => void
   /** run settle（终态写入 runs 行时调用；status 与 runs 行一致）。 */
@@ -217,7 +217,15 @@ export function forRunLive(
   }
   return {
     nodeStart: (n) => {
-      emit(entry, { type: 'nodeStart', nodeId: n.nodeId, nodeName: n.nodeName, nodeType: nodeTypeOf?.(n.nodeId) ?? null })
+      emit(entry, {
+        type: 'nodeStart',
+        nodeId: n.nodeId,
+        nodeName: n.nodeName,
+        nodeType: nodeTypeOf?.(n.nodeId) ?? null,
+        // 2026-10-07 地基：per-node 实例序号（AD-R4）随帧透传——终端 stdin
+        // 行 `nodeId[ordinal]` 与并发迭代插话寻址用；缺省 0。
+        ...(n.ordinal != null ? { ordinal: n.ordinal } : {}),
+      })
     },
     nodeEnd: (en) => {
       const durationMs = Math.max(
@@ -228,10 +236,13 @@ export function forRunLive(
         type: 'nodeEnd',
         nodeId: en.nodeId,
         nodeName: en.nodeName,
-        status: en.status === 'failed' ? 'failed' : 'done',
+        // 2026-10-07 地基：cached（种子命中跳过）作为独立帧终态（契约枚举
+        // 追加，帧形状不变——console 双 builder 兼容）。
+        status: en.status === 'failed' ? 'failed' : en.status === 'cached' ? 'cached' : 'done',
       }
       if (en.error) frame.error = en.error
       if (Number.isFinite(durationMs)) frame.durationMs = durationMs
+      if (en.ordinal != null) frame.ordinal = en.ordinal
       emit(entry, frame)
     },
     delta: (n, chunk) => {

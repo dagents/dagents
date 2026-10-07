@@ -2,9 +2,15 @@ export { AppDataSource, initDb, runQuery, withTransaction } from './data-source.
 export { LlmProvider } from './entities/llm-provider.entity.js'
 export type { LlmProviderStatus } from './entities/llm-provider.entity.js'
 export { Run } from './entities/run.entity.js'
-export type { RunStatus, AgentDaemonCall } from './entities/run.entity.js'
+export type { RunStatus, RunStopReason, AgentDaemonCall } from './entities/run.entity.js'
 export { RunNodeSpan } from './entities/run-node-span.entity.js'
 export type { NodeSpanStatus } from './entities/run-node-span.entity.js'
+// 2026-10-07 可恢复性地基：journal 真相源（R1 决策 + R7 事件同表）
+export { RunNodeJournal } from './entities/run-node-journal.entity.js'
+export type {
+  RunNodeJournalKind,
+  JournalDecisionPayload,
+} from './entities/run-node-journal.entity.js'
 export { PipelineVersion } from './entities/pipeline-version.entity.js'
 export { AuditLog } from './entities/audit-log.entity.js'
 export type { AuditActorType, AuditTargetType } from './entities/audit-log.entity.js'

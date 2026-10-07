@@ -1,14 +1,19 @@
-import { describe, it, expect, vi } from 'vitest'
+import { describe, it, expect } from 'vitest'
 import { DagExecutor } from '../engine/executor.js'
 import { HumanInputPendingError } from '../engine/errors.js'
 import { NodeRegistry } from '../engine/node-registry.js'
 import type { INode, INodeData, INodeOutput, IExecutionContext } from '../types/index.js'
 import type { FlowData } from '../types/flow.js'
 import { IterationNode } from '../nodes/iteration/iteration.node.js'
+import type { IExecutedNode } from '../types/index.js'
+import type { JournalDecision, JournalFacade } from '../engine/executor.js'
 
 /**
  * 断点续跑引擎语义（design-run-checkpoint-resume.md §6.3 / §8）：
  * 种子跳过是结构保证、迭代游标续跑、HumanInputPendingError → awaiting。
+ * 2026-10-07 可恢复性地基新增：种子哈希对账（AC-R1-3）、cached 钩子回放、
+ * per-ordinal 迭代体种子（AC-R1-2 引擎面）、ordinal 实例序号（AD-R4）、
+ * journal decision 写入接缝。
  */
 
 function spyNode(name: string, impl?: (input: unknown) => Record<string, unknown>): INode & { calls: unknown[] } {
@@ -202,6 +207,348 @@ describe('resume：HumanInputPendingError → awaiting', () => {
     })
     // 下游未执行
     expect(downstream.calls).toHaveLength(0)
+  })
+})
+
+describe('resume：种子哈希对账 + cached 钩子回放（2026-10-07 地基）', () => {
+  /** 干净跑一遍收集 journal decisions，产出「种子 + 种子哈希」的标准路径。 */
+  async function runOnceCollect(
+    registry: NodeRegistry,
+    flow: FlowData,
+    hooks: {
+      onNodeEnd?: (n: IExecutedNode) => void
+      journal?: JournalFacade
+    } = {},
+  ) {
+    const decisions: JournalDecision[] = []
+    const executor = new DagExecutor(registry)
+    const result = await executor.execute(flow, 'go', {
+      chatId: 'c1',
+      runId: 'r-h',
+      state: {},
+      isLastNode: false,
+      onNodeEnd: hooks.onNodeEnd,
+      journal:
+        hooks.journal ?? {
+          recordDecision: (e) => decisions.push(e),
+          lookup: async () => null,
+        },
+    })
+    return { result, decisions }
+  }
+
+  it('种子哈希一致：跳过执行且发 nodeEnd(cached) 钩子 + cached decision', async () => {
+    const a = spyNode('nodeA')
+    const b = spyNode('nodeB')
+    const registry = new NodeRegistry()
+    registry.register(a)
+    registry.register(b)
+    const flow: FlowData = {
+      nodes: [
+        { id: 'a', data: { name: 'nodeA' } },
+        { id: 'b', data: { name: 'nodeB' } },
+      ],
+      edges: [{ id: 'e1', source: 'a', target: 'b' }],
+    }
+
+    // 第一次跑：收集 a 的 decision（status=done + inputHash）
+    const first = await runOnceCollect(registry, flow)
+    const aDecision = first.decisions.find((d) => d.nodeId === 'a')
+    expect(aDecision?.status).toBe('done')
+    expect(typeof aDecision?.inputHash).toBe('string')
+
+    // 第二次跑（resume 语义）：seedHashes 命中 → a 跳过 + cached 钩子。
+    // 种子 = 第一次跑 a 的真实输出（decision 行携带）。重置 calls 计数以
+    // 单独观测第二次跑的执行面。
+    a.calls.length = 0
+    const ends: IExecutedNode[] = []
+    const decisions2: JournalDecision[] = []
+    const executor = new DagExecutor(registry)
+    const result = await executor.execute(flow, 'go', {
+      chatId: 'c1',
+      runId: 'r-h2',
+      state: {},
+      isLastNode: false,
+      resume: {
+        seedOutputs: { a: (aDecision!.output ?? {}) as Record<string, unknown> },
+        seedHashes: { a: aDecision!.inputHash! },
+        seedSource: { kind: 'resume', fromRunId: 'r-h' },
+      },
+      onNodeEnd: (n) => ends.push(n),
+      journal: { recordDecision: (e) => decisions2.push(e), lookup: async () => null },
+    })
+
+    expect(result.status).toBe('success')
+    expect(a.calls).toHaveLength(0) // 结构保证：未重执行
+    // cached 钩子：a 以 cached 终态回放（不进 executedNodes —— 记账口径）
+    const cachedEnd = ends.find((n) => n.nodeId === 'a')
+    expect(cachedEnd?.status).toBe('cached')
+    expect(cachedEnd?.ordinal).toBe(0)
+    expect(ends.find((n) => n.nodeId === 'a' && n.status === 'success')).toBeUndefined()
+    expect(result.executedNodes.find((n) => n.nodeId === 'a')).toBeUndefined()
+    // journal：a 记 cached decision 且携带 lineage（谱系指向来源 run）
+    const cachedDecision = decisions2.find((d) => d.nodeId === 'a')
+    expect(cachedDecision?.status).toBe('cached')
+    expect(cachedDecision?.lineage).toEqual({ inheritedFromRunId: 'r-h' })
+    expect(cachedDecision?.inputHash).toBe(aDecision!.inputHash)
+    // b 真实执行（done decision + ordinal 0）
+    const bDecision = decisions2.find((d) => d.nodeId === 'b')
+    expect(bDecision?.status).toBe('done')
+  })
+
+  it('AC-R1-3：种子哈希不一致 → 结构化失败（nodeId + expected/got），run failed', async () => {
+    const a = spyNode('nodeA')
+    const b = spyNode('nodeB')
+    const registry = new NodeRegistry()
+    registry.register(a)
+    registry.register(b)
+    const flow: FlowData = {
+      nodes: [
+        { id: 'a', data: { name: 'nodeA' } },
+        { id: 'b', data: { name: 'nodeB' } },
+      ],
+      edges: [{ id: 'e1', source: 'a', target: 'b' }],
+    }
+    const executor = new DagExecutor(registry)
+    const result = await executor.execute(flow, 'go', {
+      chatId: 'c1',
+      runId: 'r-h3',
+      state: {},
+      isLastNode: false,
+      resume: {
+        seedOutputs: { a: { content: 'STALE' } },
+        // 上游输入变了 → 重算 hash 必然对不上一个伪造的旧 hash
+        seedHashes: { a: '0'.repeat(40) },
+      },
+    })
+    expect(result.status).toBe('failed')
+    // 结构化错误：nodeId + expected/got 双 hash 都进 message（AC-R1-3）
+    expect(result.error).toContain('「a」')
+    expect(result.error).toContain('0000000000') // expected（伪造旧 hash 前缀）
+  })
+
+  it('无 seedHashes 的老种子（checkpoint 兜底）跳过校验照旧种子化', async () => {
+    const a = spyNode('nodeA')
+    const b = spyNode('nodeB')
+    const c = spyNode('nodeC')
+    const registry = new NodeRegistry()
+    registry.register(a)
+    registry.register(b)
+    registry.register(c)
+    const executor = new DagExecutor(registry)
+    const result = await executor.execute(chainFlow(), 'go', {
+      chatId: 'c1',
+      runId: 'r-h4',
+      state: {},
+      isLastNode: false,
+      resume: { seedOutputs: { a: { content: 'A-SEEDED' } } },
+    })
+    expect(result.status).toBe('success')
+    expect(a.calls).toHaveLength(0)
+  })
+})
+
+describe('resume：per-ordinal 迭代体种子（AC-R1-2 引擎面）', () => {
+  function iterFlow(): FlowData {
+    return {
+      nodes: [
+        { id: 'it', data: { name: 'iterationAgentflow', items: '["i1", "i2", "i3"]' } },
+        { id: 'b', data: { name: 'bodyNode' } },
+      ],
+      edges: [{ id: 'e1', source: 'it', target: 'b', sourceHandle: 'iteration' }],
+    }
+  }
+
+  /**
+   * 断点场景：3 项，第 1 项（index 0）已完成（completed=1，产出在
+   * itemOutputs）；第 2 项（index 1）执行到一半崩溃——body 节点 b 已完成，
+   * 其输出在 journal 的 per-ordinal decision 行里，gateway 组装为
+   * itemNodeOutputs[1]。resume 后：index 0 不进循环（前缀聚合）；index 1
+   * 的 b 预填短路（cached）；index 2 正常执行。
+   */
+  function partialResumeProgress() {
+    return {
+      completed: 1,
+      itemOutputs: [{ content: 'B:i1' }] as Array<Record<string, unknown>>,
+      itemNodeOutputs: [
+        {},
+        { b: { content: 'B:i2-partial' } as Record<string, unknown> },
+      ] as Array<Record<string, Record<string, unknown>>>,
+    }
+  }
+
+  it('itemNodeOutputs 预填：断点项（i≥completed）的 body 节点零重跑，聚合完整', async () => {
+    const body = spyNode('bodyNode', (input) => ({ content: `B:${String(input).slice(0, 12)}` }))
+    const registry = new NodeRegistry()
+    registry.register(new IterationNode())
+    registry.register(body)
+
+    const executor = new DagExecutor(registry)
+    const result = await executor.execute(iterFlow(), 'seed', {
+      chatId: 'c1',
+      runId: 'r-i1',
+      state: {},
+      isLastNode: false,
+      resume: {
+        seedOutputs: {},
+        iterationProgress: { it: partialResumeProgress() },
+      },
+    })
+
+    expect(result.status).toBe('success')
+    // 前缀项（0）不进循环；断点项（1）body 预填短路；活项（2）执行一次
+    expect(body.calls).toHaveLength(1)
+    expect(body.calls[0]).toBe('i3') // 只有第 3 项真实执行
+    const itRun = result.executedNodes.find((n) => n.nodeId === 'it')
+    expect(itRun?.output.completedIterations).toBe(3)
+    const iterations = itRun?.output.iterations as Array<{ content: string }>
+    expect(iterations).toHaveLength(3)
+    // 聚合：前缀原值 + 断点项预填产出 + 活项真实产出
+    expect(iterations[0]?.content).toBe('B:i1')
+    expect(iterations[1]?.content).toBe('B:i2-partial')
+    expect(iterations[2]?.content).toBe('B:i3')
+  })
+
+  it('ordinal 分配（AD-R4）：断点项种子占位与活项执行号不撞；控制器恒 0', async () => {
+    const ends: IExecutedNode[] = []
+    const body = spyNode('bodyNode', (input) => ({ content: `B:${String(input).slice(0, 12)}` }))
+    const registry = new NodeRegistry()
+    registry.register(new IterationNode())
+    registry.register(body)
+
+    const executor = new DagExecutor(registry)
+    const result = await executor.execute(iterFlow(), 'seed', {
+      chatId: 'c1',
+      runId: 'r-i2',
+      state: {},
+      isLastNode: false,
+      onNodeEnd: (n) => ends.push(n),
+      resume: {
+        seedOutputs: {},
+        iterationProgress: { it: partialResumeProgress() },
+      },
+    })
+
+    expect(result.status).toBe('success')
+    // b 的事件：断点项（i=1）cached 占 ordinal 0，活项（i=2）占 1 —— 每
+    // (nodeId, ordinal) 一档，journal decision 键不撞
+    const bEnds = ends.filter((n) => n.nodeId === 'b').map((n) => n.ordinal).sort((x, y) => x - y)
+    expect(bEnds).toEqual([0, 1])
+    expect(ends.find((n) => n.nodeId === 'b' && n.status === 'cached')?.ordinal).toBe(0)
+    expect(ends.find((n) => n.nodeId === 'b' && n.status === 'success')?.ordinal).toBe(1)
+    // 根图控制器（非迭代 body）恒 0
+    expect(ends.find((n) => n.nodeId === 'it')?.ordinal).toBe(0)
+  })
+
+  it('无预填的连续迭代：body 第 n 次执行 = n（单层下恰等于项索引）', async () => {
+    const ends: IExecutedNode[] = []
+    const body = spyNode('bodyNode', (input) => ({ content: `B:${String(input).slice(0, 12)}` }))
+    const registry = new NodeRegistry()
+    registry.register(new IterationNode())
+    registry.register(body)
+
+    const executor = new DagExecutor(registry)
+    const result = await executor.execute(iterFlow(), 'seed', {
+      chatId: 'c1',
+      runId: 'r-i3',
+      state: {},
+      isLastNode: false,
+      onNodeEnd: (n) => ends.push(n),
+    })
+
+    expect(result.status).toBe('success')
+    const bOrdinals = ends
+      .filter((n) => n.nodeId === 'b')
+      .map((n) => n.ordinal)
+      .sort((x, y) => x - y)
+    expect(bOrdinals).toEqual([0, 1, 2])
+  })
+
+  it('普通节点 ordinal 恒 0（含失败重跑记录）', async () => {
+    const a = spyNode('nodeA')
+    const b = spyNode('nodeB')
+    const c = spyNode('nodeC')
+    const registry = new NodeRegistry()
+    registry.register(a)
+    registry.register(b)
+    registry.register(c)
+    const ends: IExecutedNode[] = []
+    const executor = new DagExecutor(registry)
+    await executor.execute(chainFlow(), 'go', {
+      chatId: 'c1',
+      runId: 'r-i4',
+      state: {},
+      isLastNode: false,
+      onNodeEnd: (n) => ends.push(n),
+    })
+    expect(ends.filter((n) => n.nodeId === 'a').every((n) => n.ordinal === 0)).toBe(true)
+  })
+})
+
+describe('resume：journal decision 写入接缝（§3.1(e)）', () => {
+  it('done/failed 终态各记一档，含 inputHash；非终态（挂起）不记', async () => {
+    const good = spyNode('nodeA')
+    const bad: INode = {
+      label: 'bad', name: 'badNode', version: 1, type: 'bad', category: 'Test', color: '#000', inputs: [],
+      async run(): Promise<INodeOutput> {
+        throw new Error('boom-journal')
+      },
+    }
+    const registry = new NodeRegistry()
+    registry.register(good)
+    registry.register(bad)
+    const flow: FlowData = {
+      nodes: [
+        { id: 'g', data: { name: 'nodeA' } },
+        { id: 'x', data: { name: 'badNode' } },
+      ],
+      edges: [],
+    }
+    const decisions: JournalDecision[] = []
+    const executor = new DagExecutor(registry)
+    const result = await executor.execute(flow, 'go', {
+      chatId: 'c1',
+      runId: 'r-j1',
+      state: {},
+      isLastNode: false,
+      journal: { recordDecision: (e) => decisions.push(e), lookup: async () => null },
+    })
+    expect(result.status).toBe('failed')
+    const doneRow = decisions.find((d) => d.nodeId === 'g')
+    expect(doneRow?.status).toBe('done')
+    expect(doneRow?.inputHash).toMatch(/^[0-9a-f]{40}$/)
+    expect(doneRow?.ordinal).toBe(0)
+    const failedRow = decisions.find((d) => d.nodeId === 'x')
+    expect(failedRow?.status).toBe('failed')
+    expect(decisions).toHaveLength(2)
+  })
+
+  it('computeInputHash 引擎口径可复算：同 flow 同输入两次跑同 hash（跨 run 可比）', async () => {
+    const a = spyNode('nodeA')
+    const registry = new NodeRegistry()
+    registry.register(a)
+    const flow: FlowData = {
+      nodes: [{ id: 'a', data: { name: 'nodeA', inputs: { note: '配置' } } }],
+      edges: [],
+    }
+    const r1 = await runWithJournal(registry, flow, 'run-1')
+    const r2 = await runWithJournal(registry, flow, 'run-2')
+    expect(r1[0]?.inputHash).toBe(r2[0]?.inputHash)
+
+    function runWithJournal(
+      reg: NodeRegistry,
+      f: FlowData,
+      runId: string,
+    ): Promise<JournalDecision[]> {
+      const out: JournalDecision[] = []
+      const executor = new DagExecutor(reg)
+      return executor
+        .execute(f, 'go', {
+          chatId: 'c1', runId, state: {}, isLastNode: false,
+          journal: { recordDecision: (e) => out.push(e), lookup: async () => null },
+        })
+        .then(() => out)
+    }
   })
 })
 

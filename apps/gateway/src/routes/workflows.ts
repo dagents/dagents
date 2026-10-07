@@ -557,7 +557,8 @@ workflowsRoutes.post('/:id/run', async (c) => {
 
     finishedAt = new Date()
     durationMs = Math.round(finishedAt.getTime() - startedAt.getTime())
-    runStatus = result.status === 'awaiting' ? 'awaiting_input' : toRunStatus(result.status)
+    runStatus =
+      result.status === 'awaiting' ? 'awaiting_input' : toRunStatus(result.status).status
     // 运行实时终端：settle 即上报终态帧（SSE 观看者收 runEnd 后关流）。
     live.finish(runStatus)
 
