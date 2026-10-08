@@ -10,8 +10,8 @@ All notable changes to Dagents are documented here. The format follows
 
 - **zcode-borrow：可恢复执行与权限闭环十项需求全量落地（2026-10-07/08，R1–R10，58 条 AC）** —
   需求定稿 `docs/zcode-borrow/requirements.md`（PRD v1.3），终验收结论 `docs/zcode-borrow/acceptance-report.md`
-  （五路验收末轮 36 项通过 / 1 项未通过 AC-R2-3——修复前置已随终门禁完成、端到端复验待重跑；终门禁
-  typecheck/lint/test 全绿）：
+  （五路验收末轮 36 项通过 / 1 项未通过 AC-R2-3——该条已于 2026-10-08 复验通过并固化为常驻测试
+  `warm-cache-lineage-tokens.test.ts`，十项全部通过；终门禁 typecheck/lint/test 全绿）：
   - **R1/R7 可恢复执行与统一回放**：新表 `run_node_journal` 为决策与事件流单一真相源
     （decision 按 `(run_id,node_id,ordinal)` 幂等 + input_hash；event `(run_id,seq)` 全序——结构帧
     write-through「先落库后发帧」、delta 帧 write-behind 微批，单 run 上限拒收留痕）；resume 种子
@@ -20,7 +20,9 @@ All notable changes to Dagents are documented here. The format follows
     journal 前缀回放（hello.replay 重建，回放 ⊇ 重启前已收结构帧前缀）。
   - **R2 暖缓存重跑**：run body `warmFromRunId` 沿谱系链 `(nodeId,inputHash)` 最近命中导入种子
     （改一个节点只烧下游）；cached span tokens 记前驱继承值 + node-spans 信封 `lineageTokens`，
-    结果面板「谱系继承 · 本次新增 · 合计」双口径；`usage_events` 只记真实调用零重复记账。
+    结果面板「谱系继承 · 本次新增 · 合计」双口径；`usage_events` 只记真实调用零重复记账；
+    端到端对账常驻测试 `gateway __tests__/warm-cache-lineage-tokens.test.ts`（2026-10-08 复验 AC-R2-3
+    固化——断言经 `@dagents/workflow` dist 引擎消费段，兼作 src↔dist 漂移门禁）。
   - **R3 结算状态机**：run 状态九态 + `stop_reason` 五值（user/interrupted/superseded/model/provider），
     cancelled→stopped 写新读旧双读兼容；failed/partial_success/budget_exceeded/stopped 全部保留可 resume；
     budget resume 双路径（携 `tokenBudget` 覆盖 / 缺省沿用前驱预算且从零起算 + 谱系黄警披露）；

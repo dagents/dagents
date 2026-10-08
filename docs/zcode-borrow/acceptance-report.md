@@ -19,12 +19,20 @@
 
 ## 一、结论
 
+> **复验补记（2026-10-08 晚，本报告定稿后）**：建议后续 #1 已执行——AC-R2-3 端到端复验**通过**，
+> 并固化为常驻 gateway 集成测试 `apps/gateway/src/__tests__/warm-cache-lineage-tokens.test.ts`
+> （真跑前驱 → 回填 tokens/usage_events → `warmFromRunId` 重跑：断言 R2.1 谱系书写、cached span
+> tokens 继承、journal `lineage.inheritedTokens`、`usage_events` 零重复记账、node-spans 信封
+> `lineageTokens` 口径一致；vitest 实跑 1 passed / 233ms）。该测试全链经 `@dagents/workflow`
+> **dist** 的引擎消费段，兼作 src↔dist 漂移门禁。据此 R2 由「有条件通过」升级为**整体通过**，
+> 十项全部通过；下方正文保持验收时点判定口径，不追改。
+
 - **十项需求全部实现落地，终门禁三绿**：`pnpm typecheck` / `pnpm lint` / `pnpm test` 退出码均 **0**（素材给定；批次记录见「门禁与复测记录」节）。
 - **五路验收末轮实判 37 条：36 项通过 + 1 项未通过**。另有 1 条**已计入** 36 中的 AC-R3-1 附分句级缺口注记——它不是第三个互斥分类，勿作三桶读：
   - 36 项通过 = 可恢复性 7 + 权限闭环 6 + 提交裁决 6 + 渐进产物 5 + 工程决策与试运行 12；
   - 1 项未通过 = **AC-R2-3**（验收时点 `packages/workflow/dist` 未重建，gateway 运行时缺 seedTokens 消费——时点性正确判定，详见 R2 节；修复前置已由终门禁完成，端到端复验未重跑，列遗留）；
   - AC-R3-1 附注（计入 36 内）= 其「预算重新起算」黄警分句无行为断言（AC 主体双路径行为已实证通过，五路明示「不再单独判 failed」）。
-- **十项归并：9 项整体通过（R1/R3/R4/R5/R6/R7/R8/R9/R10），R2 有条件通过**——条件 = AC-R2-3 端到端复验（修复源码链各环节单测齐全 + dist 已重建核验，唯缺「重建后」的全链路复跑；判词依据见 R2 节专段，不因 dist 已重建而追改验收时点判定）。
+- **十项归并（验收时点口径）：9 项整体通过（R1/R3/R4/R5/R6/R7/R8/R9/R10），R2 有条件通过**——条件 = AC-R2-3 端到端复验；**该条件已由页首复验补记达成：R2 升级为整体通过，十项全部通过**。（原判词：修复源码链各环节单测齐全 + dist 已重建核验，唯缺「重建后」的全链路复跑；见 R2 节专段，不追改验收时点判定。）
 - 计数口径说明：可恢复性方向的 `passed=7` 是**末轮复测**判定数——修复批次触碰 **8 条** AC（R1-6 / R2-2 / R2-3 / R3-1 / R3-4 / R7-1 / R7-3 / R8-2），判定 **7 过 1 未过**；该方向其余 21 条 AC（29 − 8）未在末轮重判，以前轮验收与仓内测试库存为据——即逐条表中**不带**【五路末轮】标记、标注「通过（单测）/（等价模型）/（实现面†）」的条目。其余四方向的 passed 数即其 AC 全数（6/6、6/6、5/5、12/12）。
 
 ---
@@ -44,13 +52,13 @@
 
 **遗留**：AC-R1-1 的真 e2e（实杀网关进程 + 断连重连）未跑；`26-run-recovery.spec.ts` 未新增（设计即裁给统一把关，本报告核验确认仓内不存在该文件）。
 
-### R2 修订重跑暖缓存 —— ⚠️ 有条件通过（条件：AC-R2-3 端到端复验）
+### R2 修订重跑暖缓存 —— ✅ 通过（AC-R2-3 经 2026-10-08 复验补记通过；下文保留验收时点判定）
 
 | AC | 结论 | 证据 |
 |---|---|---|
 | AC-R2-1 暖缓存命中/受影响子图保守 | 通过（单测；e2e 未跑） | 【批次】`warm-cache.test.ts` 6 例（全链命中 / 改第 3 节点 prompt→1-2 命中 3-4 全 miss 传递闭包专项 / 改输入全 miss / lookup 抛错 / 诚实 miss）；【五路】复测轮 6 例随返回形状改动适配后仍绿 |
 | AC-R2-2 cached 徽章 + 终端无假 CLI 行 | **通过【五路末轮】** | 【五路】`run-terminal.tsx` cached 段「⚡ 来自缓存」（`.rtl-cmd-cached`）+ `run-terminal-cached.test.tsx`；`SPAN_STATUS_MAP` cached→⚡ 徽章 |
-| AC-R2-3 token 对账（继承+新增双口径、零重复记账、口径一致） | **未通过（验收时点）——遗留复验** | 详见下方专段 |
+| AC-R2-3 token 对账（继承+新增双口径、零重复记账、口径一致） | **通过（复验补记 2026-10-08）**；验收时点原判「未通过」保留于专段 | 常驻测试 `__tests__/warm-cache-lineage-tokens.test.ts`（见专段复验补记） |
 | AC-R2-4 前驱被 retention 清理后诚实 miss | 通过（单测） | 【批次】`lineage.test.ts` 断链例（被清前驱不进候选）+ `warm-cache.test.ts` 诚实 miss 例 |
 | AC-R2-5 FlowRunsPanel 暖缓存 lineage chip | 通过（实现面†） | 【本报告】`apps/console/src/components/flow-runs-panel.tsx:223-228`（「暖缓存自：{id}」chip，源码核验）；【批次】`run-status.test.ts` STATUS_LABEL 单源 8 例（邻近词表单测，非该 chip 的组件测试） |
 
@@ -61,6 +69,7 @@
 - 修复源码链（五路核阅 + 本报告抽验）：`warm-cache.ts:99/116/146/155`（planWarmCacheSeeds 产 seedTokens）→ `workflows.ts:629`（resume 原样传入）→ `resume-execution.ts` / `execution-resume.ts`（resume/answer 两路透传）→ `executor.ts:670-687`（cached `nodeEnd.tokens = seedTokens` + `lineage.inheritedTokens`）→ `workflows.ts:1136-1142`（node-spans 信封 `lineageTokens` = 链上前驱 usage_events SUM）→ `run-tokens.ts`（`dualBasisTokens`）→ `canvas-results-panel.tsx:757-761`（「谱系继承 M · 本次新增 N · 合计 T」双口径行）。
 - 维持达成的子句【五路】：usage_events 零重复记账（暖缓存 run 计数 0 实证）、lineageTokens 端点（`recover-budget-resume.test.ts` 真库断言 warm=500 / 根=null）、run-tokens.test 绿、账单口径一致。
 - **遗留**：「dist 重建后」的端到端复验（前驱 journal tokens → `warmFromRunId` 重跑 → cached span 继承 + lineage）未重跑——验收轮的临时集成测试已删、无对应常驻测试；建议固化为常驻测试（见「建议后续」#1）。
+- **复验补记（2026-10-08）**：上述遗留已闭环——常驻测试 `apps/gateway/src/__tests__/warm-cache-lineage-tokens.test.ts` 真跑全链：directReply 微图前驱 run（引擎落真实 inputHash 决策）→ 回填 `payload.tokens`（total 500）与 `usage_events`（300+200）→ 同输入 `warmFromRunId` 重跑 → 断言谱系书写（`runs.resumed_from_run_id` 指向前驱）、cached span `tokens.total_tokens`=500（继承侧）、journal `lineage.inheritedFromRunId/inheritedTokens`、暖缓存 run `usage_events` 计账 0（零重复记账）、node-spans 信封 `lineageTokens`=500（与账单同源，口径一致）。vitest 实跑 1 passed / 233ms；断言路径经 `@dagents/workflow` dist 的引擎消费段——dist 陈旧时 cached span `tokens=null` 即红，兼作 src↔dist 漂移门禁（建议后续 #1 的防复发锚）。
 
 ### R3 结算状态机 cancel ≠ fail —— ✅ 通过
 
@@ -220,7 +229,7 @@ eb7c874 fix(zcode-borrow): 验收问题修复与复测      ← 26 文件 +1289/
 
 ## 五、建议后续
 
-1. **【首要】复验并固化 AC-R2-3**：dist 已重建，重跑一次端到端（前驱 run journal decision 带 payload.tokens → `warmFromRunId` 暖缓存重跑 → 断言新 run cached span tokens = 继承值、lineage.inheritedTokens、usage_events 零新增），并把该场景固化为**常驻** gateway 集成测试（gateway 测试库直连模式即可）。根因教训：workflow 包 vitest 跑 src、gateway 运行时吃 dist，src↔dist 漂移无门禁拦截——常驻集成测试是防复发的锚。
+1. **【已完成 2026-10-08】复验并固化 AC-R2-3**：已按本条执行——常驻测试 `warm-cache-lineage-tokens.test.ts` 落地并复验通过（详见 R2 节复验补记），兼作 src↔dist 漂移门禁。根因教训存档：workflow 包 vitest 跑 src、gateway 运行时吃 dist，src↔dist 漂移无门禁拦截——常驻集成测试是防复发的锚。
 2. **跑全量 e2e**：恢复验收轮禁令前的统一把关（含 RM-01 回归与五份新 spec）；评估是否补 `26-run-recovery.spec.ts`（kill 网关 + 暖缓存 5 节点链 + 迭代断点），或维持等价模型并在 workflow-engine.md 落档该口径。
 3. **补 AC-R3-1 黄警行为断言**：让 `recover-budget-resume.test.ts` 真执行（去 mock）或以 e2e 捕获「预算重新起算（谱系链累计已耗 X）」activity 帧。
 4. **OQ-4 终裁后翻 `DAGENTS_HTTP_DOMAIN_POLICY=enforce`**（独立 PR），flow_templates 扫描升级为 CI 阻断层。

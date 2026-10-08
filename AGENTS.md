@@ -92,7 +92,7 @@ console (Next) → gateway (Hono) → @dagents/workflow engine
 
 - **dev server 运行期间勿跑 `pnpm build` / `pnpm --filter @dagents/console build`**：生产构建会覆盖 `apps/console/.next`，导致 dev server 全站 500（`build-manifest.json` ENOENT）。误跑后用一键重启脚本恢复。全仓 `pnpm test` 已改 `dependsOn: ^build`（只建 workspace 包不建 console），无此风险。
 - **dev 环境勿在长任务运行时并发全仓 build/test**：gateway dev 的 `tsx watch` 监视 workspace 包 dist——turbo 重建 `packages/*/dist` 会触发 gateway 自动重启，**进行中的 run 连同 CLI 子进程被终止**（boot sweep 会把悬空 run 收敛为 failed）。生产部署无 tsx watch，不受影响。
-- **workspace 包 src↔dist 漂移无门禁拦截**：workflow 包 vitest 跑 `src/`，而 gateway dev 与其集成路径经 package.json exports 吃 `dist/`——改 `packages/*/src` 后未重建 dist 时，单测全绿但网关运行时是旧行为（zcode-borrow 验收 AC-R2-3 曾实弹暴露此坑：验收时点 dist 未重建，workflow 单测全绿而 gateway 运行时缺引擎新逻辑，验收如实判未过）。改 workspace 包源码后验证网关行为前先 `pnpm --filter <pkg> build`（dev 在跑时遵守上一条纪律）。
+- **workspace 包 src↔dist 漂移无门禁拦截**：workflow 包 vitest 跑 `src/`，而 gateway dev 与其集成路径经 package.json exports 吃 `dist/`——改 `packages/*/src` 后未重建 dist 时，单测全绿但网关运行时是旧行为（zcode-borrow 验收 AC-R2-3 曾实弹暴露此坑：验收时点 dist 未重建，workflow 单测全绿而 gateway 运行时缺引擎新逻辑，验收如实判未过）。改 workspace 包源码后验证网关行为前先 `pnpm --filter <pkg> build`（dev 在跑时遵守上一条纪律）。部分兜底：`gateway __tests__/warm-cache-lineage-tokens.test.ts` 断言经 dist 的引擎 seedTokens 消费段，dist 陈旧即红（引擎行为类漂移的门禁锚，2026-10-08）。
 - **remote 类型 Agent 需 Daemon 在线**：`auto` 路由已优先选择 CLI 类型 Agent；库里残留的 remote Agent 手动选中时会收到引导性报错，建议清理或为其启动 Daemon。
 - **适配器真机回归欠账**：claude 已真机 PASS（2026-09-17，`scripts/real-cli-smoke.sh`）；codex/qwen 等 15 个 docs-only 适配器待真机回归（nightly `real-cli.yml` 需带 CLI 的 self-hosted runner），分级见 `packages/agent-adapters/src/tiers.ts`。
 - **e2e 隔离栈换网关端口必须同步 `GATEWAY_URL`**：BFF 只认 `GATEWAY_URL`（默认 :8080），`E2E_GATEWAY_URL` 只影响 seed 直连——漏配则浏览器路径全 502（tests/e2e/README 配方已注明）。
