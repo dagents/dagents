@@ -175,6 +175,34 @@
   目标单测 + console 全套（42 文件 447 测）+ 孤儿 CSS 检查全绿。
 - `IStreamActivityKind` 若 R4/R10 同批加词，同一 PR 合并为宜（设计 §7-6）。
 
+### 测试补齐批（2026-10-08，cluster: 提交裁决）
+
+在集成收口（74758e6）之后的缺口上补 vitest——集成批已覆盖 console 白名单
+（run-terminal-format/run-trace-model 的 verdict describe）与 span-writer
+mock 层钉子，本批补三块：
+
+1. **引擎边角 4 例**（`platform-agent.node.test.ts`，现 15 测全绿）：对象
+   形态 outputSchema（画布 json 控件合法提交即对象）同样激活裁决循环；
+   非 JSON 纯文本 → adjudicate catch 分支合成 `$：期望 JSON 对象` issue
+   （got 前 80 字）；围栏 ```json 直收（extractJsonFromText 容忍在裁决
+   路径生效）；**resume 失守回落回放**（中间轮不回 sessionId → 后续轮
+   全量重放 + 会话重建留痕——lastSessionId 严格赋值语义的钉子，已做
+   mutation 验证：改回「仅有值时覆盖」恰好只红这一测）。
+2. **gateway 真库 1 例**（新 `span-writer-verdict-db.test.ts`，走
+   dagents_gw_test globalSetup）：verdict 活动经 span-writer 终态合并落
+   `run_node_spans.output` JSONB——events 全量 + activity 环（status 噪音
+   不进环）+ 产出 json 字段共存一行；fire-and-forget 写入链用 expect.poll
+   等终态。⚠️ 必须在 `apps/gateway` 目录内跑（根目录跑不加载 globalSetup，
+   assertTestDatabase 会如实拒绝——护栏已实测生效）。
+3. **run-live 透传 1 例**（`run-live.test.ts` 追加 describe，现 18 测全
+   绿）：activity kind:'verdict' 原样入缓冲/回放（宽松 string 契约 F9 的
+   「零变更」钉子；label/detail 保真 + at 打点同款）。
+   注：该文件存在**先于本批**的 prettier 偏差（288/302 行既有代码），本批
+   只追加不重排，未批量格式化。
+
+本批定向自证：workflow 2 文件 22 测 + gateway 4 文件 34 测 + console 2
+文件 45 测全绿；workflow 包 tsc 零错误；改动文件 eslint/prettier 干净。
+
 ---
 
 ## 渐进产物 · R6 全量交付（2026-10-08，cluster: 渐进产物）
@@ -929,3 +957,209 @@ vitest）；测试实弹逮出并修复两处源码缺陷。
 - console 新两件：10/10 绿；两包 tsc --noEmit 零错；新文件 eslint/
   prettier 干净。
 - e2e 26-canvas-trial-run.spec.ts 本批仍未跑（Playwright 栈归统一脚本）。
+
+---
+
+## 工程决策与试运行 · 测试补齐轮（2026-10-08，cluster: 工程决策开发）
+
+对照 design-sharp §6 测试计划逐条盘点现有库存（含集成批已补的
+trial-isolation / trial-mock-equivalence / trial-subflow-depth /
+run-notify-ws / console 两件），确认**唯一名义缺口** = §6.4 第 2 条的
+「listRunsHistory 过滤生效」读面半——本批补齐。
+
+### 本批落地
+
+- `apps/gateway/src/__tests__/trial-isolation.test.ts` 追加第二例
+  「listRunsHistory：缺省排除 trial 行；source=trial 正向；includeTrial
+  免滤；canvas/chat 行不误伤」——SQL 直插 canvas/chat/trial/legacy
+  （source IS NULL，迁移前旧行）四行，钉住三个过滤向 + NFR-1 混跑窗口
+  旧行不误伤 + RunHistoryRow.source 行形状。踩点：`runs.input` 非空
+  约束（种子行用 `'{}'::jsonb`）。
+
+### 已跑验证（本会话，定向）
+
+- gateway 五文件（trial-run / trial-isolation / trial-mock-equivalence /
+  trial-subflow-depth / run-notify-ws）：**32/32 绿**。
+- workflow 四文件（validate-topology / trial-subgraph /
+  executor-semantics / types）：**54/54 绿**。
+- console 两件（run-notify-claim / use-task-notification）：**14/14 绿**。
+- 合计 R9/R10 测试库存 11 文件 100 例全绿；扩展文件 prettier/eslint 干净。
+
+### 边界
+
+- e2e 26-canvas-trial-run.spec.ts 仍归统一脚本（Playwright 栈 + 测试库）。
+- §6.3「深度超深 → run 终态 partial_success」的字面引擎级直测未单独造
+  ——路由级 trial-subflow-depth 已实弹覆盖更真实路径（根图 completed、
+  被拒 span 'rejected' 并入同 runId，executeFlow 透传语义），不重复钉。
+
+---
+
+## 渐进产物 · 测试补齐批（2026-10-08，cluster: 渐进产物）
+
+对照 design-artifacts.md §⑥ 测试计划盘点存量（实现批 + 集成收口批已落
+contracts 12 / gateway 15 / console lib+组件 48 / e2e 4），本批补三块
+真实缺口，全部 vitest：
+
+### 本批新增（apps/gateway/src/__tests__/run-deliverables.test.ts，15→22 例）
+
+1. **journal 主路端到端**：journal-writer 已接线后，「journal 落地 → 读面
+   自动切主路」（§①-2 裁决）此前只有手插行模拟——本例真跑 directReply
+   run，轮询断言 `getRunDeliverables` 的 source 翻 'journal'、条目/label
+   （LEFT JOIN spans 借阅）/output 与 spans 投影一致。坑：轮询条件必须
+   「主路且目标条目在场」——首条 decision 落库即翻 source，末节点可能
+   仍在 writer 异步串行链上（只等 source 会抢跑，已实测踩中一次）。
+2. **词表边界**：spans CHECK 宽放（1720000106200）后的新词
+   stopped/rejected/paused/unknown 在 projectDeliverableRows 剔除
+   （AC-R6-2 stopped 分支读取侧：中断/拒绝不是产出态）；malformed
+   payload（status 缺席/非串）与畸形 lineage 剔除且不炸不造标注。
+3. **journal 权威判定边界**：kind='event' 行（R7 事件先行、decision 未落
+   的窗口）不触发主路、照走 spans 兜底；malformed decision = journal
+   权威空清单不回退造数；非 uuid runId 抛错（node-spans 端点据此 omit
+   deliverables 字段的契约前提——吞错返空会让聚合区永久静默）。
+
+### 实测
+
+- gateway：`apps/gateway` 下 `pnpm vitest run src/__tests__/run-deliverables.test.ts`
+  → **22/22 连续三轮绿**（真库 dagents_gw_test）；prettier/eslint 干净。
+- console 侧存量复核：`pnpm vitest run`（node-spans / run-terminal-format /
+  canvas-deliverables-card / run-terminal-anchor / i18n-keys）→ **48/48 绿**
+  （i18n 扫描随 R10 补词条已回绿）。
+- contracts 存量复核：`pnpm --filter @dagents/contracts test` → 20/20。
+- e2e 26-run-deliverables.spec.ts（4/4，实现批已实测）本批未重跑——本批
+  零产品代码改动（只加测试），归统一脚本把关。
+
+### 边界与说明
+
+- console 组件/透传/锚点测试由集成收口批落（canvas-deliverables-card
+  12 例 / run-terminal-anchor 2 例 / node-spans fetch 透传 5 例），本批
+  核实已覆盖后不重复造。
+- 引擎（packages/workflow）按设计 §③ 零改动，无 R6 引擎纯函数可测——
+  「纯函数优先」落在本方向的投影层（gateway projectDeliverableRows /
+  buildRunDeliverables + console groupDeliverables / sumTokensBadge /
+  buildDeliverablesTranscript），均已各自钉住。
+
+
+### 测试补齐批次（2026-10-08，cluster: 权限闭环）
+
+对照 design §6 测试计划盘点（含集成收口 74758e6 已铺的面）后补的生成器
+半边与清点仪器缺口，全部定向跑绿：
+
+- **本批新增**（`apps/gateway/src/__tests__/flow-generator.test.ts` 追加 4 用例）：
+  ① `buildWorkflowGeneratorPrompt` 的 R4 规则钉子（§3.4.1——http 节点
+  `data.inputs.allowedDomains` 与重定向同清单约束、customFunction
+  `data.inputs.allowedCommands` MUST + `$exec() is unavailable`）；②
+  `normalizeToCanonicalFlow` 权限声明保真钉子（§3.4.2「零改动实读核验」
+  此前无测试钉住——平铺与嵌套 `data.inputs` 两形态逐字透传，防未来
+  normalize 重写静默丢字段让生成产物声明蒸发）；③ 修复循环吃声明错误
+  （§3.4.4——首产物 `allowedDomains` 写成非数组 → repair 轮收到
+  `allowedDomains 声明非法` 错误 → 修正后 success 且 repairRounds=1，
+  「生成侧全量带声明由校验器强制」的端到端证明）。
+- **本批新增**（`apps/gateway/src/__tests__/scan-template-permissions.test.ts`）：
+  `scripts/scan-template-permissions.mjs` 冒烟（child_process 真跑，env 剥
+  POSTGRES_URL 保持无库依赖）——内置 10 模板零缺席 exit 0、零缺席时不
+  出报告行（缺席仅报告不阻断的文案契约反向钉）。
+- **既有面核对**（非本批产物，跑绿确认）：workflow 包 98 用例
+  （flow-permissions 语义阶梯/同源钉子/assertAllowedHttpDomain 判定表 +
+  http 守卫与同缝定序 + custom-function 节点层 + user-code-exec RPC +
+  validate-topology）、gateway 33+24+2 用例（controlled-exec 真进程 /
+  路由门 / 风险扫描 / 内置 gate / 生成器）、console 组件 8 用例
+  （run-permission-summary.test.tsx——集成收口已建，组件测试先例是
+  @testing-library/react 无 Provider 渲染）。
+- e2e `28-permission-guard.spec.ts`（3 用例）本批未改动未复跑（上一批
+  全绿，产品代码零变更——本批只加测试文件）。
+
+---
+
+## 可恢复性 · 测试补齐批次（2026-10-08，cluster: 可恢复性）
+
+对照 `docs/zcode-borrow/design-recover.md` §⑥ 测试计划的 vitest 面（本批
+与另一并行测试批次在同一工作区互补交付——见下「覆盖清点」）。
+
+### 本批新增（5 文件 22 例，全部实跑通过）
+
+1. `apps/gateway/src/__tests__/recover-seed.test.ts`（真库 dagents_gw_test，
+   §3.5(a)）：buildResumeSeed journal 化种子组装——journal 行（done/cached）
+   进 seedOutputs+seedHashes 且优先于 snapshot stale 输出、failed 行不进、
+   控制器排除；迭代 per-ordinal 行组装 itemNodeOutputs（AC-R1-2，游标
+   completed 仍取 checkpoint）；checkpoint 兜底（AC-R1-5：无 journal 行的
+   老 run 回落 snapshot、无 seedHashes/seedSource）；无 checkpoint → null。
+2. `apps/gateway/src/__tests__/recover-db-check.test.ts`（真库，AC-R3-3 迁移
+   半边）：information_schema 读 runs 两条 CHECK——status 九值/stop_reason
+   五值与 TS 词表逐字一致（cancelled 显式保留）；词表外值 INSERT/UPDATE
+   双路拒收（fail-closed 实证）；九值+五来源全部可写（写新读旧双跑）。
+3. `apps/gateway/src/__tests__/execution-live-replay.test.ts`（真库 + SSE
+   路由全链路，§3.4(c)/AC-R7-5 单测面）：live 条目 404 → journal 前缀重建
+   hello.replay——**乱序插入的行按 seq 纠正交付序**、payload at 原值不重打、
+   stopReason 透传、ended/finalStatus 由 runs 行判定；超
+   DAGENTS_JOURNAL_REPLAY_MAX 头部 truncated 标记（dropped 计数如实）；
+   有 runs 行但无 journal 行 → 仍 404（诚实阶梯终点）。
+4. `apps/gateway/src/__tests__/execution-message-ordinal.test.ts`（纯控制
+   通道，§3.6(e)/R8.5）：body ordinal 原样透传 sendToNode + 回执带 ordinal；
+   ambiguous → 409 + ordinals 清单（extra 顶层展开——lib/http.ts 信封形状；
+   清单载荷经 workflow-clients 部分 mock，真实 sink 表生命周期由
+   workflow-clients-recover.test.ts 覆盖）；负数/非整数 ordinal 归一为缺省。
+5. `apps/console/src/lib/run-status.test.ts`（纯逻辑，§4.1 词汇单点）：
+   TERMINAL_RUN_STATUSES 六终态双读（stopped+cancelled）+ 非终态/空值不
+   命中；STATUS_LABEL 九态全覆盖；stoppedStatusLabel 三态派生（已中断
+   （可恢复）/已中断/已停止）；STOP_REASON_LABEL 五值键集。
+
+### 覆盖清点（§⑥ 单测表逐行——并行批次已交付的不再重写）
+
+- 引擎纯函数（AC-R1-2/3/4 + cached 钩子 + journal 接缝 + ordinal 分配）：
+  `packages/workflow/src/__tests__/executor-resume.test.ts`（地基批次）+
+  `utils/input-hash.test.ts` ✓。
+- journal-writer 写侧（幂等 upsert/write-through/delta 微批/上限留痕/
+  lookup）：并行批次 `journal-writer.test.ts` ✓。
+- repo 读侧（findDecisions/最近优先/listEventFrames 截断/hasJournalRows）：
+  并行批次 `run-node-journal-repo.test.ts` ✓。
+- lineage（链序/断链/深度上限/谱系 token）：并行批次 `lineage.test.ts` ✓。
+- pin 禁降级 + 会话延续表取值单源 + collectRunSessions：并行批次
+  `workflow-clients-recover.test.ts` ✓（与 R5 的
+  `workflow-clients-resume.test.ts` 显式透传腿互补不重叠）。
+- rollupPrimaryModel（AC-R8-4 对账面）：并行批次补进 `usage-events.test.ts` ✓。
+- toRunStatus/classifyAbortReason/classifyFailureReason/deriveSessionId
+  （AC-R3-3 TS 半 + AC-R8-1）：本方向上批 `recover-status.test.ts` ✓（本批
+  的 db-check.test.ts 补齐「迁移半边」——类型+迁移双钉凑整）。
+- run-live seq 单调 + finish(stopReason) + 跨源一致（AC-R7-2/7-4）：上批
+  `run-live.test.ts` 追加 + `run-trace-model.test.ts` 追加 ✓。
+- boot sweep 三件（AC-R3-1）：地基批次 `boot-sweep.test.ts` ✓。
+- 暖缓存闭包（AC-R2-1 单测面）：上批 `warm-cache.test.ts` 6 例 ✓。
+- 通知抑制 superseded（AC-R3-6 最小实现）：并行批次
+  `apps/console/src/lib/__tests__/use-task-notification.test.tsx`（chat:done/
+  error 双路 + user 对照 + run-updated 路径）✓。
+- **e2e（§⑥ e2e 表）不在本批范围**：任务限定 vitest；RM 系 e2e（kill
+  gateway/暖缓存 5 节点链/迭代断点/并发插话 409）留给统一把关。
+
+### 定向自测（实跑命令与结果）
+
+- `cd apps/gateway && npx vitest run src/__tests__/{recover-seed,recover-db-check,
+  execution-live-replay,execution-message-ordinal}.test.ts` → 4 files / 14
+  tests passed；全量 `npx vitest run` → **70 files / 614 passed | 1 todo**。
+- `cd apps/console && npx vitest run src/lib/run-status.test.ts` → 8 passed；
+  全量 `npx vitest run` → **48 files / 504 passed | 5 skipped**。
+- `cd packages/workflow && npx vitest run` → **32 files / 378 passed**（上批
+  失败的 R4 custom-function 元数据测试已由其方向修复）。
+- `npx tsc --noEmit`：gateway / console 双绿。
+
+### 注意事项
+
+- recover-seed / recover-db-check / execution-live-replay 使用 d/e/f 段固定
+  UUID（afterAll 清理）；与并行测试批次的 b/c 段不冲突——全量套已验证无
+  相互干扰。
+- execution-live-replay 的 EventReader 是 run-live.test.ts 同语义最小实现
+  （SSE 块解析）——两处独立不抽公共（测试代码不进产品 import 图）。
+
+### 门禁第 1 轮失败修复（2026-10-08 集成批续）
+
+- 唯一 lint error：`execution-live.ts:104` `let attachment` 从未重新赋值
+  （R7 journal 回放段引入）→ `const`（prebuffer/push 机制下无需重绑）。
+  修复后全仓 `pnpm lint` 9/9 tasks successful（gateway/console 各 20 条
+  warning 为存量基线，0 errors 不挡门禁）；第 1 轮日志中 console:lint
+  的 ELIFECYCLE failed 是 turbo 对 gateway#lint 失败后的在途任务取消
+  语义，独立复跑 console `pnpm lint` exit 0 实证。
+- 遗留 warning 清单（不挡门禁，留后续清理批）：gateway
+  `workflows.ts:30-35` 的 computeTopoHash/getCheckpoint/
+  upsertCheckpoint/updateCheckpointStatus 四个 unused import 是
+  checkpoint 落库收敛到 repo 单源（resume-execution makeCheckpointHook）
+  后的残留；`resume-flow.test.ts` 7 条 unused 是该测试文件瘦身后的
+  骨架残留。均非本批引入。

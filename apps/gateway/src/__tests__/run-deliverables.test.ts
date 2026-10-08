@@ -581,3 +581,175 @@ describe('交付面接线（真实 HTTP 栈，directReply 流零外部依赖）'
     expect(sql.records[0]?.no_output).toBe(true)
   })
 })
+
+/* ── 测试补齐批次（2026-10-08）：主路切换端到端 + 词表边界 + 判定边界 ──
+ *
+ * 前两批（实现批 + 集成收口批）已覆盖 §⑥ 表格的主体；本批补三块真实
+ * 缺口：
+ *  1. journal-writer 已接线（workflows.ts 经 assembleWorkflowEngine 注入
+ *     ExecuteOptions.journal）——「journal 落地后读面自动切主路」（§①-2
+ *     裁决、dev-notes 的观测锚点）此前只以手插行模拟，这里钉真实链路：
+ *     真 run → writer 落 decision → getRunDeliverables source='journal'。
+ *  2. spans CHECK 宽放（1720000106200）后的新词 'stopped'（boot sweep 收敛
+ *     产物，AC-R6-2 stopped 分支读取侧）/ 'rejected'（R4/R9d 拒绝档）不是
+ *     产出态——词表过滤的双保险钉子。
+ *  3. journal 权威的判定边界：kind='event' 行（R7 事件先行落库、decision
+ *     未落的窗口）不触发主路；malformed decision（status 缺席）是 journal
+ *     权威空清单而非回退；非 uuid runId 抛错（node-spans 端点据此 omit
+ *     字段——诚实降级路径的行为前提）。
+ */
+
+describe('projectDeliverableRows · 词表边界（spans CHECK 宽放后）', () => {
+  it('stopped/rejected/paused/unknown span 不入清单（产出≠中断/拒绝/未知）', () => {
+    const items = projectDeliverableRows([
+      { node_id: 'swept', ordinal: 0, status: 'stopped', output: { text: 'boot sweep 收敛行' } },
+      { node_id: 'refused', ordinal: 0, status: 'rejected', output: { text: '白名单拒绝行' } },
+      { node_id: 'legacy', ordinal: 0, status: 'paused', output: { text: '取消残留行' } },
+      { node_id: 'mystery', ordinal: 0, status: 'unknown', output: {} },
+      { node_id: 'done', ordinal: 0, status: 'done', output: { text: '真产出' } },
+    ])
+    expect(items.map((i) => i.nodeId)).toEqual(['done'])
+  })
+
+  it('malformed payload（status 缺席 / 非字符串）的 decision 行剔除', () => {
+    const items = projectDeliverableRows([
+      { node_id: 'nosta', ordinal: 0, payload: { output: { text: '无状态' } } },
+      { node_id: 'badsta', ordinal: 0, payload: { status: 42 } },
+      { node_id: 'good', ordinal: 0, payload: { status: 'done', output: { text: 'ok' } } },
+    ])
+    expect(items.map((i) => i.nodeId)).toEqual(['good'])
+  })
+
+  it('lineage 畸形（非对象 / inheritedFromRunId 非串）不炸、不造继承标注', () => {
+    const items = projectDeliverableRows([
+      { node_id: 'l1', ordinal: 0, payload: { status: 'cached', lineage: 'weird' } },
+      {
+        node_id: 'l2',
+        ordinal: 0,
+        payload: { status: 'cached', lineage: { inheritedFromRunId: 7 } },
+      },
+    ])
+    expect(items).toHaveLength(2)
+    expect(items.every((i) => i.inheritedFromRunId === null)).toBe(true)
+  })
+})
+
+describe('getRunDeliverables · 判定边界（真库 dagents_gw_test）', () => {
+  it('kind=event 行不触发 journal 权威（R7 事件先行、decision 未落 → 回退 spans）', async () => {
+    const { flowId, runId } = await mkRunFixture({ name: 'r6-event-only-journal' })
+    // event 行：seq 属 per-run 全序（uq (run_id, seq)），payload = 帧原样
+    await runQuery(
+      `INSERT INTO run_node_journal (run_id, flow_id, node_id, ordinal, kind, seq, event_type, payload)
+       VALUES ($1::uuid, $2, '__run__', 0, 'event', 1, 'runEnd', '{"type":"runEnd"}'::jsonb)`,
+      [runId, flowId],
+    )
+    await insertSpan({
+      runId,
+      flowId,
+      nodeId: 'doneNode',
+      status: 'done',
+      output: { text: '兜底产物' },
+    })
+
+    const { items, source } = await getRunDeliverables(runId)
+    expect(source).toBe('spans')
+    expect(items.map((i) => i.nodeId)).toEqual(['doneNode'])
+  })
+
+  it('malformed decision（status 缺席）= journal 权威空清单，不回退 spans 造数', async () => {
+    const { flowId, runId } = await mkRunFixture({ name: 'r6-malformed-decision' })
+    await insertDecision({
+      runId,
+      flowId,
+      nodeId: 'broken',
+      ordinal: 0,
+      seq: 0,
+      payload: { output: {} },
+    })
+    await insertSpan({
+      runId,
+      flowId,
+      nodeId: 'spanDone',
+      status: 'done',
+      output: { text: '不应出现' },
+    })
+
+    const { items, source } = await getRunDeliverables(runId)
+    expect(source).toBe('journal')
+    expect(items).toEqual([])
+  })
+
+  it('非 uuid runId 抛错（node-spans 端点据此 omit deliverables 字段的契约前提）', async () => {
+    await expect(getRunDeliverables('not-a-uuid')).rejects.toThrow()
+  })
+})
+
+describe('journal 主路端到端（journal-writer 已接线的真实链路）', () => {
+  it('真实 directReply run → writer 落 decision → 读面自动切 journal 主路', async () => {
+    const createRes = await app.request('/api/v1/workflows', {
+      method: 'POST',
+      headers: { 'content-type': 'application/json' },
+      body: JSON.stringify({
+        name: 'r6-journal-e2e',
+        flowData: {
+          nodes: [
+            {
+              id: 's1',
+              type: 'customNode',
+              position: { x: 0, y: 0 },
+              data: { name: 'startAgentflow' },
+            },
+            {
+              id: 'd1',
+              type: 'customNode',
+              position: { x: 300, y: 0 },
+              data: { name: 'directReplyAgentflow', label: '直答乙', text: 'R6-JOURNAL-E2E' },
+            },
+          ],
+          edges: [{ id: 'e1', source: 's1', target: 'd1' }],
+        },
+      }),
+    })
+    const flowId = ((await createRes.json()) as { data: { flow: { id: string } } }).data.flow.id
+    createdFlowIds.push(flowId)
+    const runId = crypto.randomUUID()
+    createdRunIds.push(runId)
+
+    const runRes = await app.request(`/api/v1/workflows/${flowId}/run`, {
+      method: 'POST',
+      headers: { 'content-type': 'application/json', 'x-run-id': runId },
+      body: JSON.stringify({ input: 'go' }),
+    })
+    expect(runRes.status).toBe(200)
+
+    // journal-writer 的 decision 落库走异步串行链（journal.close() fire-
+    // and-forget）——轮询直到**主路命中且 d1 条目在场**（首条 decision 落库
+    // 即翻主路，d1 可能仍在链上；只等 source 会抢跑）。「journal 落地后
+    // 自动切主路」的观测锚点（dev-notes：{source="spans"} 计数应趋零）。
+    await expect
+      .poll(
+        async () => {
+          const r = await getRunDeliverables(runId)
+          return r.source === 'journal' && r.items.some((i) => i.nodeId === 'd1')
+        },
+        { timeout: 10_000, interval: 150 },
+      )
+      .toBe(true)
+    const { items, source } = await getRunDeliverables(runId)
+    expect(source).toBe('journal')
+    expect(items.map((i) => i.nodeId)).toContain('d1')
+    // label 借阅观测投影（journal 无 label 列，LEFT JOIN spans）
+    expect(items.find((i) => i.nodeId === 'd1')?.nodeLabel).toBe('直答乙')
+    // 主路条目与 spans 投影的 output 一致（同一事实两路呈现）
+    expect(items.find((i) => i.nodeId === 'd1')?.output).toMatchObject({
+      content: 'R6-JOURNAL-E2E',
+    })
+
+    // 端点信封同 runId 也来自主路（条目存在即可——source 是 repo 内部口径）
+    const spansRes = await app.request(`/api/v1/workflows/runs/${runId}/node-spans`)
+    const spansBody = (await spansRes.json()) as {
+      data?: { deliverables?: Array<{ nodeId: string }> }
+    }
+    expect((spansBody.data?.deliverables ?? []).map((d) => d.nodeId)).toContain('d1')
+  })
+})

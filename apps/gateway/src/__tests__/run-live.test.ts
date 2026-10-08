@@ -336,6 +336,47 @@ describe('GET /api/v1/workflows/runs/:runId/live（路由全链路）', () => {
   })
 })
 
+// ── R5 三值裁决（design-verdict §3.1.1/F9）：verdict 活动帧透传 ──
+// RunLiveDelta.activity.kind 是宽松 string（contracts run-live.ts「structural
+// twin」纪律）：引擎 IStreamActivityKind 加 'verdict' 词时，契约/注册表侧
+// 零改动即透传——本测试钉这个「零变更」承诺（帧形状、label/detail 保真、
+// at 打点均与既有活动同款）。
+describe('run-live verdict 帧透传（R5 三值裁决）', () => {
+  it('activity kind:"verdict" 原样入缓冲与回放（不降级、不丢 detail、带 at）', () => {
+    const tap = forRunLive(RUN, FLOW)
+    tap.nodeStart({ nodeId: 'n1', nodeName: '裁决节点' })
+    tap.delta(
+      { nodeId: 'n1', nodeName: '裁决节点' },
+      {
+        type: 'activity',
+        kind: 'verdict',
+        label: '第 2 轮 · 违规修复回喂（会话重建·对话回放）',
+        detail: '- $.decision：期望 ["accept","reject"]，实际 "maybe"',
+      },
+    )
+    tap.delta(
+      { nodeId: 'n1', nodeName: '裁决节点' },
+      { type: 'activity', kind: 'verdict', label: '第 2 轮裁决：accept（合规收下）' },
+    )
+
+    const att = attachRunLive(RUN, () => {})
+    expect(att).not.toBeNull()
+    const deltas = att!.hello.replay.filter((f) => f.type === 'delta') as Array<{
+      delta: { type: string; kind?: string; label?: string; detail?: string }
+      at?: string
+    }>
+    expect(deltas).toHaveLength(2)
+    // kind 原样透传（宽松 string 契约——不是 log 降级，也不是白名单过滤）
+    expect(deltas.map((d) => d.delta.kind)).toEqual(['verdict', 'verdict'])
+    // 保真契约：label/detail 全文（采集层不截断，策展归展示层）
+    expect(deltas[0]!.delta.label).toBe('第 2 轮 · 违规修复回喂（会话重建·对话回放）')
+    expect(deltas[0]!.delta.detail).toContain('$.decision')
+    expect(deltas[1]!.delta.detail).toBeUndefined()
+    // 服务端 at 时间戳同款打点（轨迹时间线投影依赖）
+    expect(deltas[0]!.at).toMatch(/^\d{4}-\d{2}-\d{2}T/)
+  })
+})
+
 // ── R7 seq 取号 + R3 stopReason（design-recover §3.3(e)/§3.4(a)）──
 describe('run-live seq 单调 + finish(stopReason)', () => {
   it('emit 单点分配 per-run 单调 seq（帧序无空洞；truncated 不打）', async () => {

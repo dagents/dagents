@@ -16,6 +16,7 @@ import { describe, it, expect, beforeAll, afterAll } from 'vitest'
 import { randomUUID } from 'node:crypto'
 import { AppDataSource, runQuery } from '@dagents/db'
 import { app } from '../app.js'
+import { listRunsHistory } from '../repositories/runs.repo.js'
 
 const PG_URL =
   process.env.POSTGRES_URL ?? 'postgresql://dagents:dagents_dev@localhost:15432/dagents'
@@ -123,4 +124,54 @@ describe('试运行写入口径（R10 路由级 DB 隔离）', () => {
       expect(usageRows.n).toBe(0)
     },
   )
+
+  // ── 读面：listRunsHistory 过滤生效（design-sharp §6.4 第 2 条的读面半，
+  // 2026-10-08 测试补齐轮）——SQL 直插三行（canvas/chat/trial）钉住三个向：
+  // 缺省滤 trial、?source=trial 正向、includeTrial 免滤、正式行不误伤。
+  it('listRunsHistory：缺省排除 trial 行；source=trial 正向；includeTrial 免滤；canvas/chat 行不误伤', async () => {
+    const flowId = flowIds[0]!
+    const ids = {
+      canvas: randomUUID(),
+      chat: randomUUID(),
+      trial: randomUUID(),
+      legacy: randomUUID(), // source IS NULL（迁移前旧行——混跑窗口）
+    }
+    const seed = async (runId: string, source: string | null, chatId: string | null) => {
+      await runQuery(
+        `INSERT INTO runs (id, identifier, pipeline_id, status, input, output, started_at, finished_at, duration_ms, cost, chat_id, source)
+         VALUES ($1::uuid, $2, $3::uuid, 'completed', '{}'::jsonb, NULL, NOW(), NOW(), 10, 0, $4::uuid, $5)`,
+        [runId, runId, flowId, chatId, source],
+      )
+      runIds.push(runId)
+    }
+    await seed(ids.canvas, 'canvas', null)
+    await seed(ids.chat, 'chat', randomUUID())
+    await seed(ids.trial, 'trial', null)
+    await seed(ids.legacy, null, null)
+
+    // 缺省：正式历史零 trial 混入（AC-R10-3 第一隔离面的读面表达）
+    const byDefault = await listRunsHistory({ flowId, limit: 50 })
+    const defaultIds = byDefault.map((r) => r.id)
+    expect(defaultIds).not.toContain(ids.trial)
+    expect(defaultIds).toContain(ids.canvas)
+    expect(defaultIds).toContain(ids.chat)
+    // source IS NULL 的迁移前旧行 = 正式行，不受过滤误伤（NFR-1 混跑窗口）
+    expect(defaultIds).toContain(ids.legacy)
+
+    // 正向：?source=trial 只见试运行行（走 idx_runs_source_trial 部分索引）
+    const trialOnly = await listRunsHistory({ flowId, source: 'trial', limit: 50 })
+    const trialIds = trialOnly.map((r) => r.id)
+    expect(trialIds).toContain(ids.trial)
+    expect(trialIds).not.toContain(ids.canvas)
+    expect(trialIds).not.toContain(ids.chat)
+
+    // 免滤：includeTrial（管理/调试视图）全量可见
+    const all = await listRunsHistory({ flowId, includeTrial: true, limit: 50 })
+    const allIds = all.map((r) => r.id)
+    for (const id of Object.values(ids)) expect(allIds).toContain(id)
+
+    // 行形状：source 列随行返回（RunHistoryRow.source，runs.ts COALESCE 的数据源）
+    expect(byDefault.find((r) => r.id === ids.canvas)?.source).toBe('canvas')
+    expect(trialOnly.find((r) => r.id === ids.trial)?.source).toBe('trial')
+  })
 })

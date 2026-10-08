@@ -101,7 +101,7 @@ runLiveRoutes.get('/runs/:runId/live', async (c) => {
   // 建流后按序补投 —— 不丢帧。
   const prebuffer: RunLiveFrame[] = []
   let push: (frame: RunLiveFrame) => void = (f) => prebuffer.push(f)
-  let attachment: RunLiveAttachment | null = attachRunLive(runId, (f) => push(f))
+  const attachment: RunLiveAttachment | null = attachRunLive(runId, (f) => push(f))
   // ── journal 回放（R7 §3.4(c)）：live 条目 404 → journal event 行重建
   // hello.replay，SSE 一次性交付后关流；journal 也无行才是真 404。 ──
   let journalHello: RunLiveHello | null = null

@@ -339,4 +339,86 @@ describe('PlatformAgentNode — 三值裁决（R5）', () => {
       node.run(verdictNodeData({ outputSchema: '{not-json' }), '裁决输入', ctx),
     ).rejects.toThrow(/不是合法 JSON/)
   })
+
+  /* ── 测试补齐批（2026-10-08）：裁决判据与能力披露协议的边角 ── */
+
+  it('对象形态 outputSchema（非字符串）同样生效——与 LLM 节点双形态收法一致', async () => {
+    // 画布 json 控件合法时提交的是解析后的对象（form-engine JsonWidget
+    // commit 语义），节点侧必须原样收——不能只认字符串形态。
+    const { ctx, calls, deltas } = makeVerdictHarness({
+      responses: [{ text: BAD_JSON }, { text: GOOD_JSON }],
+    })
+    const node = new PlatformAgentNode()
+    const out = await node.run(
+      verdictNodeData({
+        outputSchema: JSON.parse(VERDICT_SCHEMA) as Record<string, unknown>,
+      }),
+      '裁决输入',
+      ctx,
+    )
+    // 对象形态下裁决循环照常激活：违规回喂 + 第 2 轮收下
+    expect(calls).toHaveLength(2)
+    expect(deltas.some((d) => d.type === 'activity' && d.label.includes('violations'))).toBe(true)
+    expect(out.output.json).toEqual({ decision: 'accept', reason: 'looks good' })
+  })
+
+  it('非 JSON 纯文本 → violations（path $ / 期望 JSON 对象 / got 前 80 字摘要）→ 修复', async () => {
+    const { ctx, calls } = makeVerdictHarness({
+      responses: [{ text: '这不是 JSON，只是一段自然语言的托辞。' }, { text: GOOD_JSON }],
+    })
+    const node = new PlatformAgentNode()
+    const out = await node.run(verdictNodeData(), '裁决输入', ctx)
+    expect(calls).toHaveLength(2)
+    const feed = calls[1]!.messages[calls[1]!.messages.length - 1]!
+    // adjudicate 的 catch 分支：JSON 解析失败合成 $ 级 issue，三元组齐全
+    expect(feed.content).toContain('$：期望 JSON 对象')
+    expect(feed.content).toContain('这不是 JSON，只是一段自然语言的托辞。')
+    expect(out.output.json).toEqual({ decision: 'accept', reason: 'looks good' })
+  })
+
+  it('围栏 JSON 直收：```json 围栏包裹的合规产出 accept（extractJsonFromText 容忍）', async () => {
+    // Agent CLI 常以 Markdown 围栏交付——裁决判据用的是 LLM 节点同款
+    // extractJsonFromText，围栏不能误判 violations。
+    const { ctx, calls } = makeVerdictHarness({
+      responses: [{ text: '```json\n{"decision":"accept","reason":"fenced"}\n```' }],
+    })
+    const node = new PlatformAgentNode()
+    const out = await node.run(verdictNodeData(), '裁决输入', ctx)
+    expect(calls).toHaveLength(1)
+    expect(out.output.json).toEqual({ decision: 'accept', reason: 'fenced' })
+  })
+
+  it('resume 失守回落回放：中间轮不再回 sessionId → 后续轮全量重放 + 会话重建留痕', async () => {
+    // 能力披露协议的诚实边界：lastSessionId 每轮被 chat 返回覆盖（缺席即
+    // 清空）——若实现只在有值时覆盖，第 3 轮会拿陈旧 s1 继续 resume，
+    // 增量消息丢失全部上下文。本测试钉住回落语义。
+    const { ctx, calls, deltas } = makeVerdictHarness({
+      responses: [
+        { text: BAD_JSON, sessionId: 's1' },
+        { text: BAD_JSON }, // resume 轮不回 sessionId：能力失守
+        { text: GOOD_JSON },
+      ],
+    })
+    const node = new PlatformAgentNode()
+    const out = await node.run(verdictNodeData(), '裁决输入', ctx)
+    expect(calls).toHaveLength(3)
+    // 第 2 轮：resume 档（s1 透传 + 只发增量）
+    expect(calls[1]!.resumeSessionId).toBe('s1')
+    expect(calls[1]!.messages).toHaveLength(1)
+    // 第 3 轮：回落回放档——无 resumeSessionId、全量 messages（schema 契约
+    // system 头仍在，回放真相源完整）
+    expect(calls[2]!.resumeSessionId).toBeUndefined()
+    expect(
+      calls[2]!.messages.some((m) => m.role === 'system' && m.content.includes('JSON Schema')),
+    ).toBe(true)
+    expect(calls[2]!.messages.length).toBeGreaterThan(3)
+    // 回放档发「会话重建」活动行（第 3 轮 NUDGE 追问的回喂活动）；第 2 轮
+    // 修复回喂的活动仍是 resume 档（同会话 --resume）
+    const feedActs = deltas.filter(
+      (d) => d.type === 'activity' && (d.label.includes('回喂') || d.label.includes('追问')),
+    ) as Array<{ label: string }>
+    expect(feedActs.some((a) => a.label.includes('同会话 --resume'))).toBe(true)
+    expect(feedActs.some((a) => a.label.includes('会话重建'))).toBe(true)
+    expect(out.output.json).toEqual({ decision: 'accept', reason: 'looks good' })
+  })
 })
