@@ -109,6 +109,15 @@ export class Run {
   stopReason!: RunStopReason | null
 
   /**
+   * 触发来源标记（R10 试运行隔离，迁移 1720000106000）：
+   * `canvas|chat|trial|resume|answer`——读面按 `source IS DISTINCT FROM
+   * 'trial'` 过滤试运行行（FlowRunsPanel 历史/用量账单零混入）；存量行已
+   * 一次性回填（chat_id 派生），NULL 仅存在于混跑窗口（读面 COALESCE 兜底）。
+   */
+  @Column({ name: 'source', type: 'text', nullable: true })
+  source!: string | null
+
+  /**
    * persona 创建期冻结快照（R8/AD-R6，迁移 1720000111000）：
    * `{ [agentId]: { instructions, model, kind, skills } }`——resume 跨进程
    * 注入闭包 fetcher 的持久载体；可选同批承载会话映射

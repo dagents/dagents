@@ -112,7 +112,7 @@ describe('DagExecutor 脆弱语义（迭代）', () => {
     registry.register(new IterationNode())
   })
 
-  it('超过 100 项显式报错，不再静默截断（数据丢失伪装成成功的终结）', async () => {
+  it('超过 100 项显式报错，不再静默截断（数据丢失伪装成成功的终结）；2026-10-07 R9 9d 起为节点拒绝档——run 终态 partial_success 不整体翻红、控制器 span 落 rejected', async () => {
     registry.register(makeEchoNode('bodyNode', 'BODY'))
     const items = JSON.stringify(Array.from({ length: 101 }, (_, i) => `item-${i}`))
     const flow: FlowData = {
@@ -128,9 +128,15 @@ describe('DagExecutor 脆弱语义（迭代）', () => {
     const result = await executor.execute(flow, 'seed', {
       chatId: 'c1', runId: 'r1', state: {}, isLastNode: false,
     })
-    expect(result.status).toBe('failed')
-    expect(result.error).toContain('101')
-    expect(result.error).toContain('100')
+    // 声明型超限 = 节点拒绝（design-sharp §2.4）：不再整 run 翻红，走
+    // partial_success（isolateFailure 管道），错误事实仍在 span 上。
+    expect(result.status).toBe('partial_success')
+    const itSpan = result.executedNodes.find((n) => n.nodeId === 'it')
+    expect(itSpan).toBeDefined()
+    expect(itSpan!.status).toBe('rejected')
+    expect(itSpan!.error).toContain('101')
+    expect(itSpan!.error).toContain('100')
+    expect(itSpan!.error).toContain('节点被拒绝')
     // 一项都不跑（拒绝执行而非跑一半）
     expect(result.executedNodes.some((n) => n.nodeId === 'body')).toBe(false)
   })
@@ -359,5 +365,90 @@ describe('DagExecutor 脆弱语义（isLastNode 与节点重试）', () => {
     })
     expect(result.status).toBe('failed')
     expect(result.error).toBe('boom')
+  })
+})
+
+describe('DagExecutor 上限失败语义两档（R9 9d，design-sharp §2.4）', () => {
+  it('声明 retries=2 且耗尽 → NodeRejectedError 档：run 终态 partial_success、span rejected、错误首词「节点被拒绝：」', async () => {
+    let attempts = 0
+    const alwaysFail: INode = {
+      label: 'alwaysFail',
+      name: 'alwaysFailNode',
+      version: 1,
+      type: 'Test',
+      category: 'Test',
+      color: '#000',
+      inputs: [],
+      async run(): Promise<INodeOutput> {
+        attempts += 1
+        throw new Error('boom')
+      },
+    }
+    const registry = new NodeRegistry()
+    registry.register(alwaysFail)
+    const flow: FlowData = {
+      nodes: [{ id: 'f', data: { name: 'alwaysFailNode', retries: 2 } }],
+      edges: [],
+    }
+    const executor = new DagExecutor(registry)
+    const result = await executor.execute(flow, 'seed', {
+      chatId: 'c1', runId: 'r1', state: {}, isLastNode: false,
+    })
+    expect(attempts).toBe(3) // 1 次原始 + 2 次重试
+    // 声明型预算耗尽 = 节点拒绝档：不整 run 翻红（AC-R9-4 后半）
+    expect(result.status).toBe('partial_success')
+    const span = result.executedNodes.find((n) => n.nodeId === 'f')
+    expect(span?.status).toBe('rejected')
+    expect(span?.error).toContain('节点被拒绝')
+    expect(span?.error).toContain('boom')
+  })
+
+  it('缺省 retries=0 失败仍 run failed 红态（未购买自愈预算 = 执行失败，RM-01 语义钉子）', async () => {
+    const registry = new NodeRegistry()
+    registry.register(makeFailNode('plainFail', 'boom'))
+    const flow: FlowData = { nodes: [{ id: 'f', data: { name: 'plainFail' } }], edges: [] }
+    const executor = new DagExecutor(registry)
+    const result = await executor.execute(flow, 'seed', {
+      chatId: 'c1', runId: 'r1', state: {}, isLastNode: false,
+    })
+    expect(result.status).toBe('failed')
+    const span = result.executedNodes.find((n) => n.nodeId === 'f')
+    expect(span?.status).toBe('failed')
+  })
+})
+
+describe('http 节点试运行跳过（R10，design-sharp §3.4-③）', () => {
+  it('trialMode.http=skip：静态校验后短路，输出带试运行标注、零 fetch', async () => {
+    const { HttpNode } = await import('../nodes/http/http.node.js')
+    const node = new HttpNode()
+    const output = await node.run(
+      {
+        id: 'h',
+        name: 'httpAgentflow',
+        inputs: { method: 'GET', url: 'https://api.github.com/repos/dagents' },
+      },
+      undefined,
+      { trialMode: { http: 'skip' } } as unknown as IExecutionContext,
+    )
+    const out = output.output as { content: string; trialSkipped: boolean }
+    expect(out.trialSkipped).toBe(true)
+    expect(out.content).toContain('[试运行]')
+    expect(out.content).toContain('api.github.com')
+  })
+
+  it('trialMode skip 不吞静态校验错误：非法协议 URL 照常抛（试运行是验证场）', async () => {
+    const { HttpNode } = await import('../nodes/http/http.node.js')
+    const node = new HttpNode()
+    await expect(
+      node.run(
+        {
+          id: 'h',
+          name: 'httpAgentflow',
+          inputs: { method: 'GET', url: 'ftp://example.com/x' },
+        },
+        undefined,
+        { trialMode: { http: 'skip' } } as unknown as IExecutionContext,
+      ),
+    ).rejects.toThrow(/http\(s\)/)
   })
 })

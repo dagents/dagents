@@ -25,6 +25,7 @@ function span(p: Partial<RunNodeSpan> & { nodeId: string }): RunNodeSpan {
     nodeId: p.nodeId,
     nodeLabel: p.nodeLabel ?? null,
     nodeType: p.nodeType ?? 'llmAgentflow',
+    ordinal: p.ordinal ?? 0,
     status: p.status ?? 'done',
     error: p.error ?? null,
     startedAt: p.startedAt ?? null,
@@ -349,5 +350,45 @@ describe('直播与回放一致性（同一执行两路数据源）', () => {
     })
     expect(fromLive.records.map((r) => r.kind)).toEqual(fromSpans.records.map((r) => r.kind))
     expect(fromLive.records.map((r) => r.atMs)).toEqual(fromSpans.records.map((r) => r.atMs))
+  })
+})
+
+// ── 跨源一致性（AC-R7-4，design-recover §⑥：帧流 vs journal 行 → 同一模型）──
+// journal 的 event 行 payload = RunLiveFrame 原样（含 at/seq 原值，不重打）；
+// 回放 = 行按 seq 排序后重放进同一 builder。本测试锚定「payload 序列化往返
+// + 按 seq 排序（模拟 ORDER BY seq 的乱序输入）」后双 builder 产出逐字节一致。
+describe('跨源一致（R7：帧流 vs journal 回放，AC-R7-4）', () => {
+  const mkFrames = (): RunLiveFrame[] => [
+    { type: 'nodeStart', nodeId: 'n1', nodeName: 'LLM 1', nodeType: 'llmAgentflow', at: '2026-10-01T10:00:00.000Z', seq: 1, ordinal: 0 },
+    { type: 'delta', nodeId: 'n1', nodeName: 'LLM 1', at: '2026-10-01T10:00:01.000Z', seq: 2, delta: { type: 'text', text: '部分' } },
+    { type: 'nodeEnd', nodeId: 'n1', nodeName: 'LLM 1', at: '2026-10-01T10:00:02.000Z', seq: 3, status: 'done', durationMs: 2000, ordinal: 0 },
+    { type: 'nodeStart', nodeId: 'n2', nodeName: 'LLM 2', nodeType: 'llmAgentflow', at: '2026-10-01T10:00:02.500Z', seq: 4, ordinal: 0 },
+    { type: 'nodeEnd', nodeId: 'n2', nodeName: 'LLM 2', at: '2026-10-01T10:00:03.000Z', seq: 5, status: 'cached', durationMs: 0, ordinal: 0 },
+    { type: 'runEnd', at: '2026-10-01T10:00:03.500Z', seq: 6, status: 'completed' },
+  ]
+
+  it('journal payload 往返 + 按 seq 排序 → 与直播产出逐字节一致', () => {
+    const frames = mkFrames()
+    // 直播路：按发射序 push。
+    const liveBuilder = createLiveTraceBuilder()
+    for (const f of frames) liveBuilder.push(f)
+    // journal 路：payload JSON 往返（DB jsonb 存取等价）+ 乱序输入按 seq 排序
+    //（回放端 ORDER BY seq 的客户端侧模拟）后 push。
+    const journalBuilder = createLiveTraceBuilder()
+    const roundTripped = frames
+      .map((f) => JSON.parse(JSON.stringify(f)) as RunLiveFrame)
+      .reverse()
+      .sort((a, b) => ((a as { seq?: number }).seq ?? 0) - ((b as { seq?: number }).seq ?? 0))
+    for (const f of roundTripped) journalBuilder.push(f)
+    expect(JSON.stringify(journalBuilder.model())).toBe(JSON.stringify(liveBuilder.model()))
+  })
+
+  it('cached 终态透传（R2 §4.2）：nodeEnd(cached) → lane.status=cached 零时长段', () => {
+    const builder = createLiveTraceBuilder()
+    for (const f of mkFrames()) builder.push(f)
+    const model = builder.model()
+    const lane = model.nodes.find((n) => n.nodeId === 'n2')
+    expect(lane?.status).toBe('cached')
+    expect(lane?.durationMs).toBe(0)
   })
 })

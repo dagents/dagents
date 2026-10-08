@@ -93,6 +93,7 @@ const TRACE_LINE_KINDS: readonly string[] = [
   'log',
   'error',
   'user_input',
+  'verdict',
 ]
 
 /** span.output.events → 台账记录（宽容解析；旧形状无 at → atMs=null）。 */
@@ -196,7 +197,9 @@ export function buildTraceFromSpans(spans: RunNodeSpan[]): RunTraceModel {
         },
       })
     }
-    if (status === 'done' || status === 'failed' || status === 'completed') {
+    // cached（2026-10-07 R2，§4.2）：种子命中跳过——零时长段如实进台账
+    //（startedAt===endedAt，duration 投影零宽段 + cached 标注）。
+    if (status === 'done' || status === 'failed' || status === 'completed' || status === 'cached') {
       const error = sp.error ?? null
       pending.push({
         atMs: endMs,

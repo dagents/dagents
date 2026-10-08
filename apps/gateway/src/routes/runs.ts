@@ -54,6 +54,10 @@ runsRoutes.get('/', async (c) => {
   const limit = Number.isFinite(limitRaw) ? Math.min(Math.max(1, Math.floor(limitRaw)), 200) : 50
   const status = c.req.query('status')
   const flowId = c.req.query('flowId')
+  // 2026-10-07 R10：来源过滤——`?source=trial` 正向查试运行历史（走部分
+  // 索引）；缺省排除试运行行（design-sharp §1.1 读面口径，FlowRunsPanel
+  // 拉本端点零改动即隔离，AC-R10-3 第一隔离面）。
+  const sourceRaw = c.req.query('source')
 
   try {
     const records: RunHistoryRow[] = await listRunsHistory({
@@ -63,6 +67,10 @@ runsRoutes.get('/', async (c) => {
           : undefined,
       flowId: flowId && UUID_RE.test(flowId) ? flowId : undefined,
       limit,
+      source:
+        sourceRaw && ['canvas', 'chat', 'trial', 'resume', 'answer'].includes(sourceRaw)
+          ? sourceRaw
+          : undefined,
     })
 
     return ok(
@@ -72,7 +80,9 @@ runsRoutes.get('/', async (c) => {
         flowId: r.flow_id,
         flowName: r.flow_name,
         status: r.status,
-        source: r.chat_id ? 'chat' : 'canvas',
+        // 2026-10-07 R10：source 列成为真相源，chat_id 派生退位为混跑窗口
+        // 兜底（迁移 1720000106000 已一次性回填存量行）。
+        source: r.source ?? (r.chat_id ? 'chat' : 'canvas'),
         startedAt: r.started_at,
         finishedAt: r.finished_at,
         durationMs: r.duration_ms,

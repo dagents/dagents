@@ -67,6 +67,8 @@
 /* PX-CV02：亮色下 8px 绿点对白底 ≈2.9:1，用加深绿（暗色回退令牌原值） */
 .dot-done, .dot-completed { background: var(--canvas-ok-badge, var(--success)); }
 .dot-failed { background: var(--danger); }
+/* 2026-10-07 工程决策 9d：声明型超限拒绝（可重试黄警档，design-sharp §2.4-6）。 */
+.dot-rejected { background: var(--warn); }
 .dot-unknown { background: var(--meta); }
 .canvas-result-label { font-weight: 500; color: var(--fg); font-family: var(--font-mono); }
 .canvas-result-meta {
@@ -94,6 +96,7 @@
   background: color-mix(in srgb, var(--accent) 4%, var(--bg));
 }
 .canvas-result-row.status-failed { border-left: 2px solid var(--danger-text); }
+.canvas-result-row.status-rejected { border-left: 2px solid var(--warn); }
 /* 正文区一点点呼吸（2026-09-22 用户裁决）：全平铺后贴边过紧 —— 水平
  * 8px 与摘要行缩进对齐，底部 4px 收尾；不回框、不回底色。 */
 .canvas-result-body { padding: 0 8px 4px; }
@@ -367,4 +370,121 @@
  * 甘特 + 台账 + Inspector；轨迹 tab 激活时面板放宽到 760px（仍守 94vw）。 */
 .canvas-results-panel.wide {
   width: min(760px, 94vw);
+}
+
+/* ── 产出清单聚合区（R6 渐进产物，2026-10-07）──
+ * 摘要视图顶部的可折叠聚合卡：跨节点「产出清单」（先看全部产物，再逐
+ * 节点细读）。行 = 节点名 + 单行预览 + 归属/继承 chip + tokens 徽章 +
+ * 终端锚点入口；迭代体同 nodeId 多 ordinal 聚合一行、展开逐项。 */
+.canvas-deliverables-card {
+  margin: 0 8px 6px;
+  border: 1px solid var(--line);
+  border-radius: var(--radius-md);
+  background: var(--panel-bg, var(--bg, transparent));
+}
+.canvas-deliverables-card > summary {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  padding: 6px 10px;
+  cursor: pointer;
+  list-style: none;
+  user-select: none;
+}
+.canvas-deliverables-card > summary::-webkit-details-marker { display: none; }
+.canvas-delv-title { font-size: var(--text-sm); font-weight: 600; flex: none; }
+.canvas-delv-count { font-size: 11px; color: var(--muted, inherit); flex: none; }
+.canvas-delv-actions { margin-left: auto; display: flex; align-items: center; gap: 4px; flex: none; }
+.canvas-delv-btn {
+  font-size: 11px;
+  padding: 1px 8px;
+  border: 1px solid var(--line);
+  border-radius: var(--radius-sm, 6px);
+  background: transparent;
+  color: inherit;
+  cursor: pointer;
+}
+.canvas-delv-btn:hover:not(:disabled) { border-color: var(--accent, currentColor); }
+.canvas-delv-btn:disabled { opacity: 0.45; cursor: default; }
+.canvas-delv-copied { font-size: 11px; color: var(--ok, green); }
+.canvas-delv-rows { padding: 0 10px 8px; display: flex; flex-direction: column; gap: 2px; }
+.canvas-delv-row > summary {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  padding: 3px 4px;
+  cursor: pointer;
+  list-style: none;
+  border-radius: var(--radius-sm, 6px);
+}
+.canvas-delv-row > summary::-webkit-details-marker { display: none; }
+.canvas-delv-row > summary:hover { background: var(--hover, rgba(127, 127, 127, 0.08)); }
+.canvas-delv-name {
+  font-size: var(--text-sm);
+  flex: none;
+  max-width: 40%;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+.canvas-delv-items-n { font-size: 11px; color: var(--muted, inherit); flex: none; }
+.canvas-delv-preview {
+  flex: 1;
+  min-width: 0;
+  font-size: 11px;
+  color: var(--muted, inherit);
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+.canvas-delv-chip,
+.canvas-delv-chip-subflow {
+  flex: none;
+  font-size: 10px;
+  line-height: 1;
+  padding: 2px 6px;
+  border-radius: 999px;
+  border: 1px solid var(--line);
+  color: var(--muted, inherit);
+  white-space: nowrap;
+}
+.canvas-delv-chip-subflow { border-style: dashed; }
+.canvas-delv-tokens { flex: none; font-size: 11px; color: var(--muted, inherit); }
+.canvas-delv-term-btn {
+  flex: none;
+  font-size: 11px;
+  padding: 0 6px;
+  border: none;
+  border-radius: var(--radius-sm, 6px);
+  background: transparent;
+  color: var(--accent, inherit);
+  cursor: pointer;
+}
+.canvas-delv-term-btn:hover { text-decoration: underline; }
+.canvas-delv-items { padding: 0 4px 4px 18px; display: flex; flex-direction: column; gap: 2px; }
+.canvas-delv-item { display: flex; align-items: baseline; gap: 6px; min-width: 0; }
+.canvas-delv-ordinal { flex: none; font-size: 10px; color: var(--muted, inherit); }
+.canvas-delv-item-text {
+  flex: 1;
+  min-width: 0;
+  font-size: 11px;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+  cursor: zoom-in;
+}
+.canvas-delv-pending { margin-top: 4px; padding-top: 4px; border-top: 1px dashed var(--line); }
+.canvas-delv-pending-row { display: flex; align-items: center; gap: 6px; padding: 1px 4px; }
+.canvas-delv-pending-tag { font-size: 10px; color: var(--muted, inherit); }
+.canvas-delv-pending-tag.running { color: var(--accent, inherit); }
+
+/* ── R2 暖缓存（2026-10-07，design-recover §4.2）——cached 独立徽章色（黄系，
+   ≠ done 绿）：种子命中跳过执行的节点行；「暖缓存重跑」主按钮强调色。 ── */
+.canvas-result-dot.dot-cached {
+  background: #facc15;
+  box-shadow: 0 0 0 3px rgba(250, 204, 21, 0.18);
+}
+.canvas-results-rerun.canvas-results-warm {
+  border-color: rgba(250, 204, 21, 0.55);
+  color: #a16207;
 }

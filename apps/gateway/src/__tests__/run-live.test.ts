@@ -335,3 +335,60 @@ describe('GET /api/v1/workflows/runs/:runId/live（路由全链路）', () => {
     expect(await reader.streamEnded()).toBe(true)
   })
 })
+
+// ── R7 seq 取号 + R3 stopReason（design-recover §3.3(e)/§3.4(a)）──
+describe('run-live seq 单调 + finish(stopReason)', () => {
+  it('emit 单点分配 per-run 单调 seq（帧序无空洞；truncated 不打）', async () => {
+    resetRunLiveForTest()
+    const tap = forRunLive('run-seq-1', 'flow-1')
+    const seen: number[] = []
+    const attachment = attachRunLive('run-seq-1', (f) => {
+      if (f.type !== 'truncated') seen.push((f as { seq?: number }).seq ?? -1)
+    })
+    expect(attachment).not.toBeNull()
+    attachment!.unsubscribe()
+    // 重订阅收 replay（先退订避免双计）
+    const replay = attachRunLive('run-seq-1', () => {})
+    for (const seq of replay!.hello.replay
+      .filter((f) => f.type !== 'truncated')
+      .map((f) => (f as { seq?: number }).seq ?? -1)) {
+      expect(seq).toBeGreaterThan(0)
+    }
+    tap.nodeStart({ nodeId: 'n1', nodeName: 'N1' })
+    tap.delta({ nodeId: 'n1', nodeName: 'N1' }, { type: 'text', text: 'hi' })
+    tap.nodeEnd({
+      nodeId: 'n1',
+      nodeName: 'N1',
+      startedAt: new Date().toISOString(),
+      endedAt: new Date().toISOString(),
+      status: 'success',
+      input: {},
+      output: {},
+      tokens: null,
+      ordinal: 0,
+    })
+    tap.finish('completed')
+    // 订阅帧按到达序收集 seq（attach 的 replay 已含此前帧——重取一次快照）
+    const final = attachRunLive('run-seq-1', () => {})!
+    const seqs = final.hello.replay
+      .filter((f) => f.type !== 'truncated')
+      .map((f) => (f as { seq?: number }).seq ?? -1)
+    expect(seqs).toEqual(seqs.slice().sort((a, b) => a - b))
+    expect(new Set(seqs).size).toBe(seqs.length) // 无重复
+    expect(seqs[0]).toBe(1)
+    void seen
+  })
+
+  it('finish(status, stopReason) → runEnd 帧携带 stopReason（R3.5）', async () => {
+    resetRunLiveForTest()
+    const tap = forRunLive('run-seq-2', 'flow-1')
+    tap.finish('stopped', 'superseded')
+    const final = attachRunLive('run-seq-2', () => {})!
+    const runEnd = final.hello.replay.find((f) => f.type === 'runEnd') as {
+      status: string
+      stopReason?: string
+    }
+    expect(runEnd.status).toBe('stopped')
+    expect(runEnd.stopReason).toBe('superseded')
+  })
+})

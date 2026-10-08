@@ -1,0 +1,91 @@
+/* 运行前权限确认区（R4，2026-10-07）——随 run-permission-summary.tsx 就近
+ * 加载（孤儿 CSS 护卫：console 的 css 必须被 tsx 显式 import 才生效）。 */
+
+.run-perm-summary {
+  margin-top: 10px;
+  padding: 10px 12px;
+  border: 1px solid var(--border-soft, var(--border));
+  border-radius: var(--radius-sm);
+  background: var(--surface);
+  font-size: var(--text-2xs);
+  color: var(--muted);
+}
+.run-perm-summary-title {
+  font-size: var(--text-xs);
+  font-weight: 600;
+  color: var(--fg);
+  margin-bottom: 6px;
+}
+.run-perm-summary-list {
+  list-style: none;
+  margin: 0;
+  padding: 0;
+  display: flex;
+  flex-direction: column;
+  gap: 4px;
+}
+.run-perm-row {
+  display: flex;
+  align-items: baseline;
+  gap: 8px;
+  flex-wrap: wrap;
+}
+.run-perm-node {
+  color: var(--fg);
+  font-weight: 500;
+  white-space: nowrap;
+}
+.run-perm-node::after {
+  content: '·';
+  margin-left: 8px;
+  color: var(--meta);
+}
+.run-perm-scope {
+  display: inline-flex;
+  align-items: center;
+  gap: 4px;
+  flex-wrap: wrap;
+}
+.run-perm-chip {
+  font-family: var(--font-mono);
+  font-size: var(--text-2xs);
+  padding: 1px 6px;
+  border-radius: var(--radius-xs);
+  border: 1px solid var(--border-soft);
+  background: var(--bg);
+  color: var(--fg);
+}
+.run-perm-note {
+  color: var(--meta);
+}
+.run-perm-warn-inline {
+  color: var(--warn-text);
+  font-weight: 500;
+}
+.run-perm-hint {
+  margin-top: 6px;
+  color: var(--meta);
+}
+.run-perm-warn {
+  margin-top: 8px;
+  padding: 6px 8px;
+  border-radius: var(--radius-xs);
+  border: 1px solid color-mix(in srgb, var(--warn) 33%, transparent);
+  background: var(--warn-soft);
+  color: var(--warn-text);
+}
+.run-perm-warn-nodes {
+  color: var(--meta);
+}
+.run-perm-invalid {
+  list-style: none;
+  margin: 8px 0 0;
+  padding: 6px 8px;
+  border-radius: var(--radius-xs);
+  border: 1px solid color-mix(in srgb, var(--danger) 33%, transparent);
+  background: var(--danger-soft);
+  color: var(--danger-text);
+  display: flex;
+  flex-direction: column;
+  gap: 2px;
+}

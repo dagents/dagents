@@ -86,7 +86,7 @@ export type Chatflow = z.infer<typeof chatflowSchema>
 // ─── Console domain types ───────────────────────────────────────────────────
 
 /** Node-card status the design colors (design/js/flows-data.js STATUS set). */
-export type NodeRunStatus = 'running' | 'done' | 'failed' | 'queued' | 'idle' | 'paused'
+export type NodeRunStatus = 'running' | 'done' | 'failed' | 'queued' | 'idle' | 'paused' | 'cached'
 
 /** 节点/run 状态中文词条（t() 的 key，en 词典翻译）—— flows-view 与
  *  flow-dag 共用的单一来源，此前两处各抄一份。 */
@@ -97,6 +97,8 @@ export const NODE_STATUS_CN: Record<NodeRunStatus, string> = {
   queued: '排队',
   paused: '人工暂停',
   idle: '未触发',
+  // 2026-10-07 R2（design-recover §4.2）：暖缓存/种子命中——独立徽章态。
+  cached: '来自缓存',
 }
 
 /** Chinese label for a node-span status (the M6.4 domain adds `unknown`). */

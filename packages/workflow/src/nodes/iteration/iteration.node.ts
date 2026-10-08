@@ -1,4 +1,5 @@
 import type { INode, INodeData, INodeOutput, IExecutionContext } from '../../types/index.js'
+import { NodeRejectedError } from '../../engine/errors.js'
 
 /**
  * Iteration node — parse an array input for the executor to iterate over.
@@ -70,12 +71,14 @@ export class IterationNode implements INode {
       throw new Error('Invalid input array')
     }
 
-    // 超上限在这里抛（而非 executor 截断）：节点自身 failed → span 带
+    // 超上限在这里抛（而非 executor 截断）：节点自身终态 → span 带
     // 错误信息 → runs 失败摘要可见；静默跑前 100 项是数据丢失伪装成
     // 成功（2026-09-17 评审修订，executor 侧另有同值防御）。
+    // 2026-10-07 R9 9d：升为 NodeRejectedError（声明型超限 = 节点拒绝档，
+    // 文案不变）——run 终态 partial_success、span 状态 'rejected'。
     if (iterationInputArray.length > IterationNode.MAX_ITEMS) {
-      throw new Error(
-        `Iteration 节点的列表有 ${iterationInputArray.length} 项，超过上限 ` +
+      throw new NodeRejectedError(
+        `节点被拒绝：Iteration 节点的列表有 ${iterationInputArray.length} 项，超过上限 ` +
           `${IterationNode.MAX_ITEMS}（拒绝静默截断 —— 请在上游缩小列表或分批运行）`,
       )
     }

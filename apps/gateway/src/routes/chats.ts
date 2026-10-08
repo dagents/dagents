@@ -9,7 +9,11 @@ import { enqueueTask, getTask, getTaskEvents } from './dispatch/service.js'
 import { executionRegistry, type ExecutionHandle } from '../execution-registry.js'
 import { persistCancelled } from './internal-runs-helpers.js'
 import { sendToRunNode } from './workflow-clients.js'
-import { assembleWorkflowEngine, toRunStatus } from './workflow-engine-service.js'
+import {
+  assembleWorkflowEngine,
+  toRunStatus,
+  classifyAbortReason,
+} from './workflow-engine-service.js'
 import { createChatHumanInputResolver, resolvePendingHumanInput } from './human-input.js'
 import { answerAwaitingRunForChat } from './resume-execution.js'
 import type { RunLiveTap } from '../run-live-registry.js'
@@ -670,7 +674,8 @@ chatRoutes.get('/:id/stream', async (c) => {
     startedAt: Date.now(),
     abort: (reason?: string) => abort.abort(new Error(reason ?? 'cancelled by caller')),
     // 运行中插话（2026-09-08 可操作终端）：chat 触发的工作流运行与画布直跑同权
-    sendToNode: (nodeId: string, text: string) => sendToRunNode(runId, nodeId, text),
+    sendToNode: (nodeId: string, text: string, ordinal?: number) =>
+      sendToRunNode(runId, nodeId, text, ordinal),
     done,
   }
   executionRegistry.register(handle)
@@ -688,6 +693,9 @@ chatRoutes.get('/:id/stream', async (c) => {
   ;(async () => {
     let finalText = ''
     let cancelled = false
+    // R3：取消的中止来源（user/superseded）——finally 的 persistCancelled
+    // 广播用（chat:cancelled 帧带 stopReason，客户端过滤 superseded 通知）。
+    let cancelledStopReason: string | undefined
     // run-live 收口句柄提到 try 外：外层 catch（装配/执行异常路径）也要关流，
     // 否则画布旁观者靠 2 分钟 idle 兜底才发现结束（架构审计 G5）。
     let live: RunLiveTap | undefined
@@ -735,7 +743,7 @@ chatRoutes.get('/:id/stream', async (c) => {
       finalText = extractReplyText(result.finalOutput)
       if (result.status === 'cancelled') {
         cancelled = true
-        finalRunStatus = 'cancelled'
+        finalRunStatus = 'stopped'
         streamer.streamErrorEvent(id, 'Execution cancelled by user')
       } else if (result.status === 'budget_exceeded') {
         finalRunStatus = 'failed'
@@ -748,10 +756,16 @@ chatRoutes.get('/:id/stream', async (c) => {
       }
       // runs 行：chat 触发的工作流运行也进 flow 运行历史，且画布旁观
       // （canvas?run=）依赖它判断终态。best-effort —— 失败不影响流。
+      // 2026-10-07 R3（§3.3）：cancelled→stopped 写新 + stop_reason 归属
+      // （superseded = chat 域 latest-wins，classifyAbortReason 单源判定）。
       try {
-        const runStatus = toRunStatus(result.status).status
-        // 运行实时终端：chat 流式运行 settle 上报终态（画布旁观者关流）。
-        live.finish(runStatus)
+        const { status: runStatus, stopReason } = toRunStatus(result.status, {
+          superseded: classifyAbortReason(abort.signal) === 'superseded',
+        })
+        cancelledStopReason = stopReason
+        // 运行实时终端：chat 流式运行 settle 上报终态（画布旁观者关流）；
+        // runEnd 帧带 stopReason（客户端过滤 superseded 通知，R3.5）。
+        live.finish(runStatus, stopReason)
         await upsertChatWorkflowRunRow({
           runId,
           flowId: chat.flow_id!,
@@ -762,6 +776,7 @@ chatRoutes.get('/:id/stream', async (c) => {
           startedAtIso: new Date(handle.startedAt).toISOString(),
           durationMs: Math.max(0, Date.now() - handle.startedAt),
           directoryId: chat.directory_id ?? null,
+          stopReason: stopReason ?? null,
         })
       } catch (err) {
         log.warn('chat stream runs row persist failed', { id, runId, error: String(err) })
@@ -775,7 +790,12 @@ chatRoutes.get('/:id/stream', async (c) => {
       // included) instead of the normal assistant-reply persistence.
       if (cancelled) {
         try {
-          await persistCancelled({ chatId: id, runId, reason: 'user cancelled' })
+          await persistCancelled({
+            chatId: id,
+            runId,
+            reason: 'user cancelled',
+            ...(cancelledStopReason ? { stopReason: cancelledStopReason } : {}),
+          })
         } catch (err) {
           log.warn('persistCancelled failed on stream cancel', { id, runId, error: String(err) })
         }

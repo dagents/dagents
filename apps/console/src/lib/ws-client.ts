@@ -147,6 +147,10 @@ function openSocket(url: string): void {
     for (const chatId of chatSubscriptionCounts.keys()) {
       sendControlFrame({ type: 'subscribe', chatId })
     }
+    // R9b：run 维度同款 re-arm（run-updated 帧订阅集）。
+    for (const runId of runSubscriptionCounts.keys()) {
+      sendControlFrame({ type: 'subscribe', runId })
+    }
   }
   ws.onclose = () => {
     connected = false
@@ -167,7 +171,11 @@ function openSocket(url: string): void {
 /** Send a control frame (subscribe/unsubscribe) to the server. No-ops when
  *  the socket isn't OPEN; `ensureSocket` + onopen re-arm handles re-subscribe
  *  on reconnect, so a drop here is recoverable. */
-function sendControlFrame(msg: { type: 'subscribe' | 'unsubscribe'; chatId: string }): void {
+function sendControlFrame(
+  msg:
+    | { type: 'subscribe' | 'unsubscribe'; chatId: string }
+    | { type: 'subscribe' | 'unsubscribe'; runId: string },
+): void {
   if (socket == null) return
   if (socket.readyState !== WebSocket.OPEN) return
   try {
@@ -208,6 +216,34 @@ export function unsubscribeChat(chatId: string): void {
     sendControlFrame({ type: 'unsubscribe', chatId })
   } else {
     chatSubscriptionCounts.set(chatId, count - 1)
+  }
+}
+
+// --- run subscription registry（R9b，对称 chat 维度） ----------------------
+
+const runSubscriptionCounts = new Map<string, number>()
+
+/** Subscribe to run-updated frames for `runId`（R9b run 完成通知）。
+ *  Idempotent + refcounted — 与 subscribeChat 同模式（复制其 refcount 语义，
+ *  design-sharp §2.2 console 侧第 1 条）。 */
+export function subscribeRun(runId: string): void {
+  const count = runSubscriptionCounts.get(runId) ?? 0
+  if (count === 0) {
+    runSubscriptionCounts.set(runId, 1)
+    sendControlFrame({ type: 'subscribe', runId })
+  } else {
+    runSubscriptionCounts.set(runId, count + 1)
+  }
+}
+
+/** Unsubscribe from run-updated frames for `runId`（refcount 收口）。 */
+export function unsubscribeRun(runId: string): void {
+  const count = runSubscriptionCounts.get(runId) ?? 0
+  if (count <= 1) {
+    runSubscriptionCounts.delete(runId)
+    sendControlFrame({ type: 'unsubscribe', runId })
+  } else {
+    runSubscriptionCounts.set(runId, count - 1)
   }
 }
 

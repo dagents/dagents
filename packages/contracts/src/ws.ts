@@ -13,6 +13,9 @@
  * agent-detail listener is forward-compat code that never fires against
  * today's gateway; the view relies on its REST polling fallback until a
  * producer lands. Do not treat these variants as a working feature.
+ * （2026-10-07 更新：`run-updated` 已由 R9b 激活——gateway `lib/run-notify.ts`
+ * 在画布直跑/resume 路径终态收口发射，ws-hub 扩 runId 订阅维度；`agent-updated`
+ * 仍是 reserved shape。）
  *
  * This lives in `@dagents/contracts` (zero-dependency, built first) so the browser
  * client (`apps/console/src/lib/ws-client.ts`) and any future server-side
@@ -46,7 +49,23 @@ export type AgentLifecycleStatus = 'running' | 'queued' | 'idle' | 'failed' | 'p
  *  clients must ignore unknown `type`s (forward-compat). */
 export type ConsoleWsFrame =
   | { type: 'agent-updated'; agentId: string; availability: AgentPresence; status: AgentLifecycleStatus }
-  | { type: 'run-updated'; runId: string; status: string }
+  /**
+   * Run lifecycle delta（2026-10-07 R9b 激活，design-sharp §2.2）：producer =
+   * gateway `lib/run-notify.ts` 单点（进程内 Set 幂等 claim，superseded 抑制）。
+   * `status` 进终态词表（completed/failed/partial_success/budget_exceeded/
+   * stopped/awaiting_input…）即「run 完成」信号；`awaiting_input` 不算完成、
+   * 不触发通知。`flowId` 供 console 路由跳转；`stopReason` 与 R3 runEnd 帧
+   * 同词表（user/interrupted/superseded/model/provider），客户端据此过滤
+   * superseded 等不该产生用户可见通知的终态——R3 落库路径未合入前本方向
+   * 保证不发射 undefined 以外的值。
+   */
+  | {
+      type: 'run-updated'
+      runId: string
+      flowId?: string
+      status: string
+      stopReason?: string
+    }
   | ChatWsFrame
 
 /** Chat realtime frame variants. Emitted by the gateway's InlineAgentExecutor
@@ -61,7 +80,10 @@ export type ChatWsFrame =
   | { type: 'chat:message'; chatId: string; runId?: string; role: 'assistant'; content: string; streaming: true }
   | { type: 'chat:done'; chatId: string; runId?: string; role: 'assistant'; content: string; streaming: false; status?: string; usage?: TokenUsage; durationMs?: number; cost?: number }
   | { type: 'chat:error'; chatId: string; runId?: string; role: 'assistant'; content: string; streaming: false; error?: string }
-  | { type: 'chat:cancelled'; chatId: string; runId?: string; role: 'assistant'; content: string; streaming: false; reason?: string }
+  /** stopReason（2026-10-07 R3.5 最小实现，design-recover §3.3(e)）：中止来源
+   *  （user/superseded，gateway classifyAbortReason 判定）——客户端据此过滤
+   *  superseded 等不该产生用户可见通知的取消终态。 */
+  | { type: 'chat:cancelled'; chatId: string; runId?: string; role: 'assistant'; content: string; streaming: false; reason?: string; stopReason?: string }
 
 /** Type guard: any chat:* frame. Useful for filters that want to demux chat
  * traffic from agent-updated / run-updated frames. */

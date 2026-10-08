@@ -250,6 +250,11 @@
   color: var(--info);
 }
 
+.fc-node-badge.badge-cached {
+  background: rgba(250, 204, 21, 0.16);
+  color: #a16207;
+  border-color: rgba(250, 204, 21, 0.4);
+}
 .fc-node-badge.badge-done {
   background: var(--success-soft);
   color: var(--success-text);
@@ -284,6 +289,9 @@
   border-color: var(--danger-text);
 }
 
+.fc-node.run-cached {
+  border-color: rgba(250, 204, 21, 0.55);
+}
 .fc-node.run-done {
   border-color: color-mix(in oklab, var(--success) 45%, var(--border));
 }

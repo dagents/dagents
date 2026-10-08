@@ -19,12 +19,15 @@ import { useCallback, useEffect, useMemo, useRef, useState } from 'react'
 import { HumanInputAnswerFields } from '@/components/human-input-answer-fields'
 import { extractHumanInputPrompts, buildHumanInputsState } from '@/lib/flow-human-inputs'
 import type { FlowData } from '@dagents/workflow'
-import { validateFlowTopology } from '@dagents/workflow'
+import { validateFlowTopology, extractFlowPermissions } from '@dagents/workflow'
+import { RunPermissionSummary } from '@/components/canvas/run-permission-summary'
 import { useToast } from '@/components/toast'
 import { useI18n, readLocalePreference } from '@/i18n'
 import { Icon } from '@/components/icon'
 import { pickDirectory, createDirectory } from '@/lib/directories'
 import { fetchRunNodeSpans, type RunNodeSpan } from '@/lib/node-spans'
+import { isTerminalRunStatus, stoppedStatusLabel } from '@/lib/run-status'
+import type { DeliverableItem } from '@dagents/contracts'
 import { usePolling } from '@/lib/use-polling'
 import {
   SaveFlowTemplateDialog,
@@ -40,6 +43,10 @@ import {
 } from '@/components/flow-canvas'
 import { type TerminalSendResult } from '@/components/run-terminal'
 import { CanvasResultsPanel, type CanvasRunState } from '@/components/canvas/canvas-results-panel'
+import { TrialRunPanel } from '@/components/canvas/trial-run-panel'
+import { useTrialRun } from '@/lib/use-trial-run'
+import { useWsRun } from '@/lib/use-ws-run'
+import { useTaskNotification } from '@/lib/use-task-notification'
 import { useRunLive } from '@/lib/use-run-live'
 // .kbd（统一 kbd 键帽，shortcuts.css 单一定义、GL03/GL06 全站共用）
 import '@/styles/shortcuts.css'
@@ -93,7 +100,11 @@ function formatTopologyIssues(
   return issues.length > limit ? `${shown} …${t('等 {n} 条', { n: issues.length })}` : shown
 }
 
-/** gateway run_node_spans.status → 画布运行态徽章。 */
+/** gateway run_node_spans.status → 画布运行态徽章。
+ *  rejected（2026-10-07 工程决策 9d）映射 waiting（黄系非红——「可重试」
+ *  视觉）。cached/stopped（2026-10-07 R2/R3，design-recover §4.2）是独立
+ *  徽章态：cached = ⚡（暖缓存/种子命中，≠done）；stopped = boot sweep
+ *  对悬空 running span 的收敛（中性灰点）。 */
 const SPAN_STATUS_MAP: Record<string, NodeRunStatus> = {
   running: 'running',
   completed: 'done',
@@ -101,6 +112,9 @@ const SPAN_STATUS_MAP: Record<string, NodeRunStatus> = {
   failed: 'failed',
   error: 'failed',
   paused: 'waiting',
+  rejected: 'waiting',
+  cached: 'cached',
+  stopped: 'waiting',
 }
 
 export function CanvasKitPage({
@@ -124,9 +138,19 @@ export function CanvasKitPage({
   // 每个节点的 status 实时刷到节点徽章（running = 旋转，done = 绿勾，
   // failed = 红叉 + 错误提示）。
   const [runState, setRunState] = useState<CanvasRunState>('idle')
-  // 断点续跑（2026-09-18）：失败终态拉 checkpoint 判 resumable；awaiting 挂起载荷
-  const [resumeInfo, setResumeInfo] = useState<{ runId: string; completedCount: number } | null>(
+  // 断点续跑（2026-09-18）：失败终态拉 checkpoint 判 resumable；awaiting 挂起载荷。
+  // ref 镜像（R3）：watchTick 的 stopped(interrupted) 分支要在 checkpoint 刷新
+  // 的 then 里同步读「是否有恢复入口」（state 闭包会过期）。
+  const resumeInfoRef = useRef<{ runId: string; completedCount: number } | null>(null)
+  const [resumeInfo, setResumeInfoState] = useState<{ runId: string; completedCount: number } | null>(
     null,
+  )
+  const setResumeInfo = useCallback(
+    (v: { runId: string; completedCount: number } | null): void => {
+      resumeInfoRef.current = v
+      setResumeInfoState(v)
+    },
+    [],
   )
   const [awaitingInfo, setAwaitingInfo] = useState<{
     nodeId: string
@@ -143,6 +167,30 @@ export function CanvasKitPage({
   // 渲染（可用性阶梯见 use-run-live.ts）。应答/续跑回到 running 时重连，
   // hello.replay 带上挂起前的全部帧（runEnd 成为阶段边界）。
   const runLive = useRunLive(runState === 'running' ? (watch?.runId ?? null) : null)
+  // ── 试运行（R10，design-sharp §4）：入口按钮打开配置面板；启动后接管
+  // 既有 watchLoop/结果面板三视图（零新执行编排）。标记条数据源 =
+  // node-spans 响应的 runSource（fetchSpans 内置位）。
+  const [trialActive, setTrialActive] = useState(false)
+  // run 完成通知（R9b 最小阶段）：旁观中的 run 订阅 run-updated 帧——
+  // 终态触发桌面/声音/toast（superseded 过滤 + 跨标签页 claim 在
+  // notifyOnRunUpdated 内部）。chatId=null 时 chat 域通知链惰性（不影响）。
+  const { notifyOnRunUpdated } = useTaskNotification({ chatId: null, chatTitle: null })
+  useWsRun(runState === 'running' ? (watch?.runId ?? null) : null, notifyOnRunUpdated)
+  const trial = useTrialRun({
+    flowId,
+    getFlowData: () => editorRef.current?.getDocument() ?? null,
+    onStarted: (runId) => {
+      manualWatchRef.current = true
+      setActiveRunId(runId)
+      setWatch({ runId, startedAt: Date.now() })
+      setRunState('running')
+      setRunSummary(null)
+      setResultsOpen(true)
+      setDeliverables(null)
+      setTrialActive(true)
+      editorRef.current?.clearRunState()
+    },
+  })
   // 画布直跑接管轮询时，旁观模式（?run=）的自有循环退位 —— 与旧
   // watchLoop 开场 clearInterval 的接管语义等价。
   const manualWatchRef = useRef(false)
@@ -178,6 +226,14 @@ export function CanvasKitPage({
 
   // HumanInput 预供答案（2026-09-18）：画布自有 flow 文档，直接提取待答清单
   const humanSpecs = useMemo(() => extractHumanInputPrompts(initialFlow), [initialFlow])
+  // 运行前权限确认（R4，2026-10-07）：与执行层同一投影函数
+  // （extractFlowPermissions 单源——UI 说的和守卫放的是同一集合）。面板打开
+  // 瞬间读画布当前文档（keyed runPanelOpen）；运行执行的是已保存文档，
+  // 未保存改动按 HumanInput 预答同款取舍——所见即当前编辑态。
+  const permissionProjection = useMemo(
+    () => (runPanelOpen ? extractFlowPermissions(editorRef.current?.getDocument()) : null),
+    [runPanelOpen],
+  )
   const [humanAnswers, setHumanAnswers] = useState<Record<string, string>>({})
   const persistRunInput = useCallback(
     (input: string): void => {
@@ -204,6 +260,10 @@ export function CanvasKitPage({
   // 「在项目目录打开终端」在非本会话发起的 run 上也能锚定目录。
   const [spectatedRunDirId, setSpectatedRunDirId] = useState<string | null>(null)
   const [latestSpans, setLatestSpans] = useState<RunNodeSpan[]>([])
+  // 产出清单（R6 渐进产物，2026-10-07）：node-spans 信封里的服务端投影
+  //（journal 主路 + 继承标注）——null = 字段缺席（旧网关/读失败），聚合区
+  // 整体不渲染；与 spans 同节拍随 fetchSpans 更新。
+  const [deliverables, setDeliverables] = useState<DeliverableItem[] | null>(null)
   /* 结果面板展示态（视图切换 localStorage 记忆 / 行内 ioOpen / 手动折叠
    * 记忆 / 滚动跟随 / 挂起应答输入态）已内聚 CanvasResultsPanel
    * （2026-09-22 解耦）—— 新一轮 run 的折叠记忆清空由组件内
@@ -311,6 +371,19 @@ export function CanvasKitPage({
     [initialFlow],
   )
 
+  /** 全图节点清单（R6 渐进产物）：聚合区「未完成节点显式标注（≠失败）」的
+   *  数据源 —— label 取 data.label ?? id，与 gateway nodeLabelById 同语义
+   *  （workflow-engine-service.ts，span 元数据单源口径）。 */
+  const flowNodes = useMemo(
+    () =>
+      initialFlow.nodes.map((n) => ({
+        id: String(n.id),
+        label: (n.data as { label?: string } | undefined)?.label ?? String(n.id),
+      })),
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+    [initialFlow],
+  )
+
   const applySpans = useCallback((spans: ReadonlyArray<RunNodeSpan>): void => {
     const nodeStates: Record<string, { status: NodeRunStatus; error?: string }> = {}
     for (const s of spans) {
@@ -324,11 +397,22 @@ export function CanvasKitPage({
    *  span 概况 —— 旁观模式的启发式收尾需要区分「执行中」和「查不到」；
    *  spans 一并返回（失败即时检测要基于**本轮刚 fetch 到的新数据**判定，
    *  不回头读 state）。 */
+  // run 级中止来源（R3，§3.5(c)）：stopped 终态的「已中断（可恢复）」vs
+  // 「已停止」判定数据面（node-spans 响应透出）。
+  const [runStopReason, setRunStopReason] = useState<string | null>(null)
+
+  // 暖缓存重跑模式（2026-10-07 R2，design-recover §4.2）：终态「重跑」分叉
+  // ——「暖缓存重跑（默认）」带 warmFromRunId=当前 run（沿谱系链 (nodeId,
+  // inputHash) 种子匹配，未受影响子图零调用命中）；「全新重跑」不传（零缓存
+  // 零谱系）。null = 普通 ▶运行（不携带）。handleRun 提交后即清。
+  const [warmFromRunId, setWarmFromRunId] = useState<string | null>(null)
+
   const fetchSpans = useCallback(
     async (
       runId: string,
     ): Promise<{
       runStatus: string | null
+      runStopReason: string | null
       hasRunning: boolean
       hasSpans: boolean
       spans: RunNodeSpan[]
@@ -336,14 +420,21 @@ export function CanvasKitPage({
       const r = await fetchRunNodeSpans(runId)
       // !ok（含 404 = 尚未落库）→ 下轮再试；轮询失败静默，最终状态以
       // run POST 的返回为准
-      if (!r.ok) return { runStatus: null, hasRunning: false, hasSpans: false, spans: [] }
+      if (!r.ok) {
+        return { runStatus: null, runStopReason: null, hasRunning: false, hasSpans: false, spans: [] }
+      }
       applySpans(r.spans)
       setLatestSpans(r.spans)
+      setDeliverables(r.deliverables)
       setRunError(r.runError ?? null)
       if (r.inputSupported != null) setInputSupported(r.inputSupported)
       if (r.runDirectoryId != null) setSpectatedRunDirId(r.runDirectoryId)
+      // R10 试运行标记条数据源（design-sharp §4.4）：runSource='trial' 常驻。
+      setTrialActive(r.runSource === 'trial')
+      setRunStopReason(r.runStopReason ?? null)
       return {
         runStatus: r.runStatus,
+        runStopReason: r.runStopReason ?? null,
         hasRunning: r.spans.some((sp) => (sp.status ?? '') === 'running'),
         hasSpans: r.spans.length > 0,
         spans: r.spans,
@@ -352,21 +443,72 @@ export function CanvasKitPage({
     [applySpans],
   )
 
+  /** 终态收敛（旁观/启发式收尾共用）。2026-10-07 R3（design-recover §4.1
+   *  第 3 点，AC-R3-7）：cancelled 不再折进 failed 红态；stopped 中性态、
+   *  partial_success/budget_exceeded 各自如实标签（债务清除）。 */
   const summarizeWatch = useCallback(
     (status: string | null): void => {
       if (status === 'completed') {
         setRunState('done')
         setRunSummary(t('运行完成'))
       } else if (status === 'cancelled') {
-        setRunState('failed')
+        setRunState('stopped')
         setRunSummary(t('已取消'))
+      } else if (status === 'stopped') {
+        setRunState('stopped')
+        setRunSummary(t(stoppedStatusLabel(runStopReason, false)))
+      } else if (status === 'partial_success') {
+        setRunState('done')
+        setRunSummary(t('部分成功'))
+      } else if (status === 'budget_exceeded') {
+        setRunState('failed')
+        setRunSummary(t('预算停机'))
       } else {
         setRunState('failed')
         setRunSummary(t('运行失败'))
       }
     },
-    [t],
+    [t, runStopReason],
   )
+
+  /** 断点续跑状态刷新（2026-09-18）：failed→resumable 入口判定；
+   *  awaiting→挂起载荷（prompt/options）。失败终态或 awaiting 时调用。 */
+  const refreshCheckpointState = useCallback(async (runId: string): Promise<void> => {
+    try {
+      const res = await fetch(`/api/workflows/runs/${encodeURIComponent(runId)}/checkpoint`)
+      const json = (await res.json()) as {
+        success?: boolean
+        data?: {
+          status?: string
+          completedNodeCount?: number
+          awaiting?: {
+            nodeId: string
+            prompt: string
+            inputType: string
+            options?: unknown[]
+          } | null
+        }
+      }
+      if (!json.success || !json.data) return
+      if (json.data.status === 'resumable') {
+        setResumeInfo({ runId, completedCount: json.data.completedNodeCount ?? 0 })
+      } else if (json.data.status === 'awaiting_input' && json.data.awaiting) {
+        setAwaitingInfo({
+          nodeId: json.data.awaiting.nodeId,
+          prompt: json.data.awaiting.prompt,
+          inputType: json.data.awaiting.inputType,
+          options: (json.data.awaiting.options ?? []).filter(
+            (o): o is string => typeof o === 'string',
+          ),
+        })
+      } else {
+        setResumeInfo(null)
+        setAwaitingInfo(null)
+      }
+    } catch {
+      // checkpoint 不可达不影响主流程
+    }
+  }, [setResumeInfo])
 
   /** 统一的运行旁观循环（usePolling 驱动：700ms + 可见性暂停）：轮询
    *  spans/runStatus 直到终态；任一 span 失败立即置失败（不等 POST/runs
@@ -376,7 +518,7 @@ export function CanvasKitPage({
    *  state）。返回 false 即停（usePolling 终态即停）。 */
   const watchTick = useCallback(async (): Promise<boolean> => {
     if (!watch) return false
-    const { runStatus, spans } = await fetchSpans(watch.runId)
+    const { runStatus, runStopReason: stopReason, spans } = await fetchSpans(watch.runId)
     // 持久挂起（P2）：非终态 —— 面板亮出应答入口，继续轮询等续跑。
     // 必须返回 true：usePolling 只认 restartKey（runId），而应答是同
     // runId 原地续跑，若在此停轮，应答后的完成态永远无人捕获（2026-09-18）。
@@ -385,7 +527,11 @@ export function CanvasKitPage({
       void refreshCheckpointState(watch.runId)
       return true
     }
-    if (runStatus === 'completed' || runStatus === 'failed' || runStatus === 'cancelled') {
+    // 终态判定（2026-10-07 R3 §4.1 第 2 点）：词表全集单源（run-status.ts，
+    // 双读 stopped+cancelled）+ stopped 分支——interrupted 拉 checkpoint 判
+    // 「已中断（可恢复）」（有 resumable 亮「从此处继续」，AC-R1-6）；
+    // user → 「已停止」中性态（非失败红）。
+    if (isTerminalRunStatus(runStatus)) {
       await fetchSpans(watch.runId) // 收尾定格：终态徽章齐全
       const duration = ((Date.now() - watch.startedAt) / 1000).toFixed(1)
       if (runStatus === 'completed') {
@@ -393,8 +539,27 @@ export function CanvasKitPage({
         setRunSummary(t('运行完成 · {n}s', { n: duration }))
         toast.show(t('运行完成 · {n}s', { n: duration }), 'success', 4000)
       } else if (runStatus === 'cancelled') {
-        setRunState('failed')
+        setRunState('stopped')
         setRunSummary(t('已取消 · {n}s', { n: duration }))
+      } else if (runStatus === 'stopped') {
+        setRunState('stopped')
+        if (stopReason === 'interrupted') {
+          // 中断：checkpoint 存在且 resumable → 恢复入口（refreshCheckpointState
+          // 置 resumeInfo）；无 checkpoint 只显示「已中断」不渲染入口（AC-R1-6）。
+          void refreshCheckpointState(watch.runId).then(() => {
+            setRunSummary(
+              t(resumeInfoRef.current ? '已中断（可恢复）' : '已中断') + ` · ${duration}s`,
+            )
+          })
+          return false
+        }
+        setRunSummary(t('已停止 · {n}s', { n: duration }))
+      } else if (runStatus === 'partial_success') {
+        setRunState('done')
+        setRunSummary(t('部分成功 · {n}s', { n: duration }))
+      } else if (runStatus === 'budget_exceeded') {
+        setRunState('failed')
+        setRunSummary(t('预算停机 · {n}s', { n: duration }))
       } else {
         setRunState('failed')
         setRunSummary(t('运行失败 · {n}s', { n: duration }))
@@ -420,7 +585,7 @@ export function CanvasKitPage({
       return false
     }
     return true
-  }, [watch, fetchSpans, toast, t])
+  }, [watch, fetchSpans, toast, t, refreshCheckpointState])
   // watch 置位即轮询（restartKey=runId：连跑第二次也立即重入）
   usePolling(watch ? watchTick : null, {
     intervalMs: 700,
@@ -436,6 +601,7 @@ export function CanvasKitPage({
       setRunPanelOpen(false)
       setResultsOpen(true)
       setLatestSpans([])
+      setDeliverables(null)
       setRunError(null)
       editorRef.current?.clearRunState()
       setRunState('running')
@@ -451,6 +617,10 @@ export function CanvasKitPage({
         //（resumeRunId/skipCount 提前捕获：submit 闭包里 TS 无法维持别名收窄）
         const resumeRunId = resumeInfo?.runId ?? ''
         const resumeSkipCount = resumeInfo?.completedCount ?? 0
+        // 暖缓存目标（R2 §3.7(a)）：openRunPanel 时捕获——提交 body 带
+        // warmFromRunId，gateway 沿谱系链种子匹配（全新重跑 = null 不带）。
+        const warmFrom = warmFromRunId
+        setWarmFromRunId(null)
         const submit = (asResume: boolean): Promise<Response> =>
           fetch(
             asResume
@@ -467,6 +637,7 @@ export function CanvasKitPage({
                 ...(runDirectoryId ? { directoryId: runDirectoryId } : {}),
                 // HumanInput 预供答案（2026-09-18）：与列表运行面板同契约
                 ...(humanInputs ? { humanInputs } : {}),
+                ...(warmFrom ? { warmFromRunId: warmFrom } : {}),
               }),
             },
           )
@@ -515,7 +686,7 @@ export function CanvasKitPage({
         toast.error(t('启动失败：{reason}', { reason: reason.slice(0, 120) }), 8000)
       }
     },
-    [runState, flowId, toast, t, runDirectoryId, persistRunInput, resumeInfo],
+    [runState, flowId, toast, t, runDirectoryId, persistRunInput, resumeInfo, warmFromRunId, setResumeInfo],
   )
 
   /** 运行中插话（2026-09-08 可操作终端）：POST message 路由，同步回执
@@ -524,11 +695,20 @@ export function CanvasKitPage({
   const sendMessage = useCallback(
     async (nodeId: string, text: string): Promise<TerminalSendResult> => {
       if (!activeRunId) return 'not_running'
+      // 插话寻址（R8.5，§3.6(e)）：stdin 行多实例目标 `nodeId#ordinal` →
+      // body 带 ordinal（缺省 = 唯一实例直达；多实例无 ordinal 服务端 409）。
+      const ordinalMatch = /^(.*)#(\d+)$/.exec(nodeId)
+      const effectiveNodeId = ordinalMatch ? ordinalMatch[1]! : nodeId
+      const ordinal = ordinalMatch ? Number(ordinalMatch[2]) : undefined
       try {
         const res = await fetch(`/api/workflows/runs/${encodeURIComponent(activeRunId)}/message`, {
           method: 'POST',
           headers: { 'content-type': 'application/json' },
-          body: JSON.stringify({ nodeId, text }),
+          body: JSON.stringify({
+            nodeId: effectiveNodeId,
+            text,
+            ...(ordinal != null ? { ordinal } : {}),
+          }),
         })
         const json = (await res.json().catch(() => null)) as {
           success?: boolean
@@ -549,63 +729,33 @@ export function CanvasKitPage({
     [activeRunId],
   )
 
-  /** 断点续跑状态刷新（2026-09-18）：failed→resumable 入口判定；
-   *  awaiting→挂起载荷（prompt/options）。失败终态或 awaiting 时调用。 */
-  const refreshCheckpointState = useCallback(async (runId: string): Promise<void> => {
-    try {
-      const res = await fetch(`/api/workflows/runs/${encodeURIComponent(runId)}/checkpoint`)
-      const json = (await res.json()) as {
-        success?: boolean
-        data?: {
-          status?: string
-          completedNodeCount?: number
-          awaiting?: {
-            nodeId: string
-            prompt: string
-            inputType: string
-            options?: unknown[]
-          } | null
-        }
-      }
-      if (!json.success || !json.data) return
-      if (json.data.status === 'resumable') {
-        setResumeInfo({ runId, completedCount: json.data.completedNodeCount ?? 0 })
-      } else if (json.data.status === 'awaiting_input' && json.data.awaiting) {
-        setAwaitingInfo({
-          nodeId: json.data.awaiting.nodeId,
-          prompt: json.data.awaiting.prompt,
-          inputType: json.data.awaiting.inputType,
-          options: (json.data.awaiting.options ?? []).filter(
-            (o): o is string => typeof o === 'string',
-          ),
-        })
-      } else {
-        setResumeInfo(null)
-        setAwaitingInfo(null)
-      }
-    } catch {
-      // checkpoint 不可达不影响主流程
-    }
-  }, [])
 
-  /** 失败终态 → 拉一次 checkpoint（resumable 才亮「从此处继续」）。 */
+  /** 失败/stopped 终态 → 拉一次 checkpoint（resumable 才亮「从此处继续」）。
+   *  2026-10-07 R3/AC-R1-6：入口条件从 failed 扩到 stopped——stopped
+   *  (interrupted) 有 checkpoint resumable → 「已中断（可恢复）」+ 入口；
+   *  无 checkpoint（chat 路径）→ 只显示「已中断」，resumeInfo 恒 null
+   *  不渲染入口（refreshCheckpointState 404 分支保持 null）。 */
   useEffect(() => {
-    if (runState === 'failed' && activeRunId) void refreshCheckpointState(activeRunId)
+    if ((runState === 'failed' || runState === 'stopped') && activeRunId) {
+      void refreshCheckpointState(activeRunId)
+    }
     if (runState !== 'awaiting') setAwaitingInfo(null)
-    if (runState !== 'failed') setResumeInfo(null)
-  }, [runState, activeRunId, refreshCheckpointState])
+    if (runState !== 'failed' && runState !== 'stopped') setResumeInfo(null)
+  }, [runState, activeRunId, refreshCheckpointState, setResumeInfo])
 
   /** 打开运行输入面板的唯一入口（2026-09-22）：同时收起运行结果面板 ——
    *  两个弹窗共用同一锚点（absolute right:0），同时打开会完全叠住；
-   *  「重跑/续跑/▶运行/立即运行」都走这里，互斥收敛为一点。 */
-  const openRunPanel = useCallback((): void => {
+   *  「重跑/续跑/▶运行/立即运行」都走这里，互斥收敛为一点。
+   *  warmFrom（R2）：非空 = 本次提交是暖缓存重跑（body 带 warmFromRunId）。 */
+  const openRunPanel = useCallback((warmFrom?: string | null): void => {
+    setWarmFromRunId(warmFrom ?? null)
     setRunPanelOpen(true)
     setResultsOpen(false)
   }, [])
 
   /** 从此处继续（§6.6）：走 resume 端点 —— 新 runId，种子跳过已完成节点。 */
   const handleResume = useCallback((): void => {
-    if (!resumeInfo || runState === 'running') return
+    if (!resumeInfo || runState === 'running' || runState === 'awaiting') return
     openRunPanel()
   }, [resumeInfo, runState, openRunPanel])
 
@@ -662,12 +812,6 @@ export function CanvasKitPage({
     [activeRunId, toast, t],
   )
 
-  /** stdin 行结束态的「重跑」入口（就近原则）：打开运行输入面板 ——
-   *  输入已在面板初始化时从记忆预填（persistRunInput），⬆ 语义。 */
-  const handleRerun = useCallback((): void => {
-    openRunPanel()
-  }, [openRunPanel])
-
   // ── 旁观模式（canvas?run=<runId>）：自动轮询并点亮节点/连线 ──
   // 典型来源：chat @flow / 运行对话框触发的运行（「画布旁观」链接）。
   // 2026-09-20 收敛到 usePolling（消除最后一只手写轮询循环，2026-09-17
@@ -684,6 +828,7 @@ export function CanvasKitPage({
     // 旁观即看流：结果面板默认打开 —— 否则徽章在亮、面板却关着，
     // 流式 live tail 默认不可见（2026-08-30 修复）。
     setResultsOpen(true)
+    setDeliverables(null)
     editorRef.current?.clearRunState()
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [watchRunId])
@@ -699,7 +844,10 @@ export function CanvasKitPage({
       void refreshCheckpointState(watchRunId)
       return true
     }
-    if (runStatus === 'completed' || runStatus === 'failed' || runStatus === 'cancelled') {
+    // 终态判定（2026-10-07 R3 §4.1）：词表全集（双读 stopped+cancelled）；
+    // stopped(interrupted) 的恢复入口判定走 summarizeWatch + checkpoint 刷新。
+    if (isTerminalRunStatus(runStatus)) {
+      if (runStatus === 'stopped') void refreshCheckpointState(watchRunId)
       summarizeWatch(runStatus)
       return false
     }
@@ -749,23 +897,53 @@ export function CanvasKitPage({
     const topology = validateFlowTopology(flowData)
     // 保存成功后才提示 —— PUT 失败时说「已保存」会误导。
     // 全干净不提示：保存按钮已有「已保存 ✓」状态反馈，不重复。
+    // 2026-10-07 R9c 诊断分级（design-sharp §2.3 消费方）：repairable 档
+    //（可修复，如 platformAgent 缺 agentId / 模板占位符未知名）与 error
+    // 档分开呈现——error 走「无法运行」红话术（现状）；repairable 单独
+    // 「不吓人」提示（带修复指引），节点走黄警标记（waiting 态 + repair
+    // 悬停文案），保存不阻断（现状原则，零逻辑改动）。
     const notifyTopologyAfterSave = () => {
-      if (!topology.ok) {
+      const fatal = topology.errors.filter((e) => (e.severity ?? 'error') === 'error')
+      const repairable = topology.errors.filter((e) => e.severity === 'repairable')
+      if (fatal.length > 0) {
         toast.error(
-          `${t('已保存，但该流程当前无法运行')}：${formatTopologyIssues(topology.errors, 3, t)}`,
+          `${t('已保存，但该流程当前无法运行')}：${formatTopologyIssues(fatal, 3, t)}`,
           8000,
         )
-        // 问题节点画布高亮（2026-10-04）：校验器错误带 node/edge 定位——
+        // 问题节点画布高亮（2026-10-04）：校验错误带 node/edge 定位——
         // 复用运行态 failed 样式（红边 + 悬停错误文案），「保存时看见」
         // 从 toast 文本升级为画布上的具名定位。下次运行会覆盖这些标记。
         const problemNodes: Record<string, { status: 'failed'; error?: string }> = {}
-        for (const err of topology.errors) {
+        for (const err of fatal) {
           if (err.node) problemNodes[err.node] = { status: 'failed', error: err.message }
         }
         if (Object.keys(problemNodes).length > 0) {
           editorRef.current?.applyRunStates(problemNodes)
         }
-      } else if (topology.warnings.length > 0) {
+      } else if (repairable.length > 0) {
+        // repairable-only：不吓人话术 + 修复指引（AC-R9-4：保存不阻断）
+        toast.warning(
+          `${t('已保存，有 {n} 处可修复', { n: repairable.length })}：${repairable
+            .slice(0, 2)
+            .map((e) => t('可修复：{repair}', { repair: e.repair ?? e.message }))
+            .join('；')}${repairable.length > 2 ? ` …${t('等 {n} 条', { n: repairable.length })}` : ''}`,
+          8000,
+        )
+      }
+      // repairable 节点黄警标记（与 error 红标并存的混合场景：waiting 态，
+      // 悬停显示修复指引——「该跑失败」与「改一下就能跑」视觉可区分）。
+      if (repairable.length > 0) {
+        const repairNodes: Record<string, { status: 'waiting'; error?: string }> = {}
+        for (const e of repairable) {
+          if (e.node && !fatal.some((f) => f.node === e.node)) {
+            repairNodes[e.node] = { status: 'waiting', error: e.repair ?? e.message }
+          }
+        }
+        if (Object.keys(repairNodes).length > 0) {
+          editorRef.current?.applyRunStates(repairNodes)
+        }
+      }
+      if (topology.ok && topology.warnings.length > 0 && repairable.length === 0) {
         toast.warning(
           `${t('已保存，流程有可疑之处')}：${formatTopologyIssues(topology.warnings, 2, t)}`,
           6000,
@@ -867,7 +1045,9 @@ export function CanvasKitPage({
               ? t('▶ 再次运行')
               : runState === 'failed'
                 ? t('▶ 重试运行')
-                : t('▶ 运行')
+                : runState === 'stopped'
+                  ? t('▶ 重新运行')
+                  : t('▶ 运行')
       return (
         <div className="canvas-header">
           <span className="canvas-header-title" title={flowName}>
@@ -922,6 +1102,17 @@ export function CanvasKitPage({
               title={t('编辑流程上下文（运行时注入 LLM / Agent 节点）')}
             >
               {t('上下文')}
+            </button>
+            <button
+              className="canvas-save-tpl-btn"
+              onClick={() => {
+                if (runPanelOpen) setRunPanelOpen(false)
+                trial.openPanel(editorRef.current?.getSelectedNodeId() ?? null)
+              }}
+              disabled={runState === 'running' || runState === 'awaiting'}
+              title={t('用 mock 执行通道试运行（不烧真实调用、不写正式历史）——选中节点即单点试跑')}
+            >
+              ⚡ {trial.selectedNodeId ? t('试运行此节点') : t('试运行')}
             </button>
             <button
               className="canvas-run-btn"
@@ -1005,6 +1196,9 @@ export function CanvasKitPage({
                   />
                 </div>
               ) : null}
+              {/* R4 权限确认区：闭合命令集/域名集的知情面（只读，无新增
+                  交互负担——裁决权在执行层）。无权限面时组件自渲染 null。 */}
+              {permissionProjection ? <RunPermissionSummary projection={permissionProjection} /> : null}
               <textarea
                 className="canvas-run-input"
                 rows={4}
@@ -1110,6 +1304,32 @@ export function CanvasKitPage({
             onSaved={() => setContextMd((v) => v)}
           />
 
+          {/* 试运行配置面板（R10）：mock 规则 / 种子 / http 口径 / 预供答案；
+              启动后关闭并接管既有 watch（use-trial-run onStarted）。 */}
+          {trial.panelOpen ? (
+            <TrialRunPanel
+              flowName={flowName}
+              selectedNodeId={trial.selectedNodeId}
+              externalUpstreams={trial.externalUpstreams}
+              seedDefaults={trial.seedLookup.defaults}
+              seedLoading={trial.seedLookup.loading}
+              starting={trial.starting}
+              startError={trial.startError}
+              rejectError={trial.rejectError}
+              startedRunId={trial.startedRunId}
+              onStart={(input) => void trial.start(input)}
+              onClose={trial.closePanel}
+            />
+          ) : null}
+
+          {/* 试运行标记条（R10 AC-R10-3 隔离的诚实可见面）：runSource='trial'
+              常驻提示——提醒当前进度/结果不进正式历史与账单。 */}
+          {trialActive ? (
+            <div className="canvas-trial-banner" role="status">
+              ⚡ {t('试运行进行中 / 已收尾——本次运行不写入正式历史与用量账单')}
+            </div>
+          ) : null}
+
           {/* 运行结果面板：独立组件（2026-09-22 解耦）—— 展示态内聚，
               执行编排经 props 回调；样式自带 canvas-results.css。
               挂载条件含 runError / 断点续跑 / 挂起应答：零 span 且无 runError
@@ -1126,13 +1346,18 @@ export function CanvasKitPage({
               runError={runError}
               totalNodes={initialFlow.nodes.length}
               topoOrder={topoOrder}
+              flowNodes={flowNodes}
+              runId={activeRunId}
+              deliverables={deliverables}
               runLive={runLive}
               inputSupported={inputSupported}
               terminalDirId={runDirectoryId || spectatedRunDirId || null}
               resumeInfo={resumeInfo}
               awaitingInfo={awaitingInfo}
               onClose={() => setResultsOpen(false)}
-              onRerun={handleRerun}
+              // 重跑分叉（R2 §4.2）：warm = 暖缓存（当前 run 为前驱）；
+              // fresh = 全新（零缓存零谱系）。
+              onRerun={(mode) => openRunPanel(mode === 'warm' ? activeRunId : null)}
               onResume={handleResume}
               onCancel={cancelRun}
               onSend={sendMessage}
@@ -1149,6 +1374,8 @@ export function CanvasKitPage({
       runState,
       runSummary,
       handleRun,
+      trial,
+      trialActive,
       t,
       runPanelOpen,
       openRunPanel,
@@ -1159,7 +1386,6 @@ export function CanvasKitPage({
       saveTplOpen,
       versionsOpen,
       contextOpen,
-      handleRerun,
       handleResume,
       cancelRun,
       submitAnswer,
@@ -1170,6 +1396,9 @@ export function CanvasKitPage({
       firstRunBar,
       templateParamNames,
       topoOrder,
+      flowNodes,
+      deliverables,
+      activeRunId,
       initialFlow,
       runLive,
       inputSupported,

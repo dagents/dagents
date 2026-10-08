@@ -46,3 +46,26 @@ export class SeedHashMismatchError extends Error {
     this.gotHash = gotHash
   }
 }
+
+/**
+ * NodeRejectedError —— 声明型超限的节点拒绝信号（2026-10-07 R9 9d，
+ * design-sharp §2.4）。
+ *
+ * 语义 = **节点在开始实质执行前被声明/配置层拒绝**（迭代项超上限 / 子流程
+ * 嵌套超深 / 声明了 retries≥1 的重试耗尽）：该节点可调整后重试，不属于执行
+ * 崩溃。executor 的 runWaves catch 按错误类型分类（不读节点 isolateFailure
+ * 声明）：rejected 失败视为 isolated，并入既有失败分支隔离管道 → run 终态
+ * partial_success（不整体翻红），span 状态落 'rejected'（可重试黄警档）。
+ *
+ * 词汇一致性（AC-R9-5）：R4 白名单拒绝、R5 裁决失败落地时同抛本类型——
+ * 「节点拒绝」档的错误文案首词统一「节点被拒绝：」。
+ */
+export class NodeRejectedError extends Error {
+  /** 分类标记（instanceof 之外的结构信号——跨包边界的错误对象仍可判别）。 */
+  readonly nodeRejected = true
+
+  constructor(message: string, options?: { cause?: unknown }) {
+    super(message, options)
+    this.name = 'NodeRejectedError'
+  }
+}

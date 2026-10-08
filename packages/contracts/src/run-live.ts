@@ -79,8 +79,11 @@ export type RunLiveFrame =
       nodeId: string
       nodeName: string
       /** 'cached'（R2 暖缓存）：种子命中跳过执行的节点终态——与 done 视觉
-       *  区分在 console 侧，帧形状不变、枚举追加。 */
-      status: 'done' | 'failed' | 'cached'
+       *  区分在 console 侧，帧形状不变、枚举追加。
+       *  'rejected'（R9 9d 上限两档，design-sharp §2.4）：节点在开始实质执行
+       *  前被声明/配置层拒绝（迭代超限/子流程超深/声明 retries≥1 耗尽）——
+       *  可调整后重试，失败并入 isolateFailure 管道（run 终态 partial_success）。 */
+      status: 'done' | 'failed' | 'cached' | 'rejected'
       error?: string
       durationMs?: number
       ordinal?: number

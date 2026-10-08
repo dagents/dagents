@@ -1,5 +1,10 @@
 import type { INode, INodeData, INodeOutput, IExecutionContext } from '../../types/index.js'
 import { assertPublicHttpUrl } from './ssrf-guard.js'
+import {
+  parsePermissionValue,
+  assertAllowedHttpDomain,
+  PERMISSION_FIELDS,
+} from '../../utils/flow-permissions.js'
 
 /**
  * HTTP Request node — make an HTTP request and return the response.
@@ -52,6 +57,14 @@ export class HttpNode implements INode {
       ],
       default: 'none',
     },
+    {
+      label: '域名清单',
+      name: 'allowedDomains',
+      type: 'json' as const,
+      rows: 3,
+      description:
+        'JSON 字符串数组（如 ["api.github.com"]）——请求与重定向的每个目标域名必须在列；留空 = 未声明（过渡期放行，网关 enforce 后拒绝）',
+    },
   ]
 
   async run(
@@ -69,6 +82,20 @@ export class HttpNode implements INode {
 
     if (!url) throw new Error('HTTP Request requires a URL')
 
+    // 域名清单声明（R4）：executor 已把双形态 merge 进 nodeData.inputs，
+    // 这里直接读 merged 值——与 flow-permissions.readNodePermission 同一
+    // 阶梯（absent / declared / invalid）。
+    const domainPerm = parsePermissionValue(
+      nodeData.inputs?.[PERMISSION_FIELDS.domain],
+      PERMISSION_FIELDS.domain,
+    )
+    /** 域名守卫（协议 → SSRF → 域名，首跳与每跳重定向同款）。 */
+    const guardDomain = (target: URL): void =>
+      assertAllowedHttpDomain(target, domainPerm, `HTTP 节点 ${nodeData.id}`, {
+        onWarn: (message) =>
+          options.onNodeDelta?.({ type: 'activity', kind: 'log', label: message }),
+      })
+
     // SSRF 防线：只允许 http(s) 绝对 URL。fetch 原生拒绝 file: 等协议，
     // 但自定义 scheme + 重定向组合仍是逃逸面，这里显式白名单。
     let parsedUrl: URL
@@ -85,6 +112,10 @@ export class HttpNode implements INode {
     // 逃生门 DAGENTS_HTTP_ALLOW_PRIVATE=1，见 ssrf-guard.ts。
     assertPublicHttpUrl(parsedUrl)
 
+    // R4 域名守卫（协议 → SSRF → 域名 → fetch；declared-but-violated 是
+    // 静态配置错误，须在 fetch 前抛、零网络副作用）。
+    guardDomain(parsedUrl)
+
     // Parse headers
     let headers: Record<string, string> = {}
     if (typeof headersInput === 'string' && headersInput.trim() !== '') {
@@ -95,6 +126,26 @@ export class HttpNode implements INode {
       }
     } else if (headersInput && typeof headersInput === 'object' && !Array.isArray(headersInput)) {
       headers = headersInput as Record<string, string>
+    }
+
+    // 试运行跳过（R10，design-sharp §3.4-③）：定序 = 协议白名单 → SSRF →
+    // R4 域名守卫 → **本分支** → fetch——skip 路径同样先过全部静态校验再
+    // 短路：试运行是验证场，declared-but-violated 的静态配置错误（URL 协议
+    // 非法/私网目标/域名未声明/headers 非法 JSON）必须在试运行中原样暴露
+    // （守卫在 fetch 前抛、零网络副作用），skip 只对通过静态校验的请求生效；
+    // 被守卫拒绝的错误照常走节点失败呈现，不被 skip 吞掉。
+    if (options.trialMode?.http === 'skip') {
+      const output = {
+        content: `[试运行] 未执行真实请求（url=${parsedUrl.toString()}）——勾选「真实发送请求」后重试`,
+        trialSkipped: true,
+      }
+      return {
+        id: nodeData.id,
+        name: this.name,
+        input: { method, url },
+        output,
+        state: options.state,
+      }
     }
 
     // Build fetch options. 画布没有暴露 bodyType 输入 —— body 非空且
@@ -135,6 +186,8 @@ export class HttpNode implements INode {
         throw new Error(`HTTP Request redirect only allows http(s), got: ${nextUrl.protocol}`)
       }
       assertPublicHttpUrl(nextUrl)
+      // R4：重定向逐跳复检同清单（302 公网跳「已声明域名的兄弟站」也被拒）
+      guardDomain(nextUrl)
       if (response.status === 303 && method !== 'GET' && method !== 'HEAD') {
         fetchOpts.method = 'GET'
         delete fetchOpts.body

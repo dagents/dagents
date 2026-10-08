@@ -40,8 +40,12 @@ export type NodeSpanStatus =
   // 2026-10-07 可恢复性地基（CHECK 放宽迁移 1720000106200 三方共同前置）：
   // 'cached' = 种子命中跳过执行的节点终态（R2 暖缓存 / resume 已完成节点）；
   // 'stopped' = boot sweep 对悬空 running span 的收敛（gateway 重启中断）。
+  // 'rejected'（工程决策 9d，design-sharp §2.4）= 声明型超限拒绝（迭代项
+  // 上限/子流程深度/retries≥1 耗尽）——可重试的节点级黄警，run 走
+  // partial_success 不整体翻红；词表已由 1720000106200 一次放宽承载。
   | 'cached'
   | 'stopped'
+  | 'rejected'
 
 @Entity({ name: 'run_node_spans' })
 @Index('idx_run_node_spans_run', ['runId'])

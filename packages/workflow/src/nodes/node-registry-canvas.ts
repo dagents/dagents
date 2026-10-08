@@ -106,6 +106,15 @@ export const CANVAS_NODES: CanvasNodeMeta[] = [
         default: 10,
       },
       {
+        label: 'Output Schema (JSON)',
+        name: 'outputSchema',
+        type: 'json',
+        rows: 6,
+        default: '',
+        description:
+          '可选 JSON Schema：要求 Agent 最终交付符合该结构的 JSON。三值裁决——合规收下（输出带 json 字段）/ 违规回喂修复 / 未交付追问；预算 3 次交互内仍不合规则节点诚实失败',
+      },
+      {
         label: '失败隔离',
         name: 'isolateFailure',
         type: 'boolean',
@@ -125,6 +134,7 @@ export const CANVAS_NODES: CanvasNodeMeta[] = [
       agentId: '',
       systemPrompt: '',
       maxIterations: 10,
+      outputSchema: '',
       isolateFailure: false,
       finalOutput: false,
     },
@@ -257,6 +267,14 @@ export const CANVAS_NODES: CanvasNodeMeta[] = [
         rows: 4,
         acceptVariable: true,
       },
+      {
+        label: '域名清单',
+        name: 'allowedDomains',
+        type: 'json',
+        rows: 3,
+        description:
+          'JSON 字符串数组（如 ["api.github.com"]）——请求与重定向的每个目标域名必须在列；留空 = 未声明（过渡期放行，网关 enforce 后拒绝）',
+      },
     ],
     outputs: [
       { name: 'data', label: 'Data' },
@@ -267,6 +285,7 @@ export const CANVAS_NODES: CanvasNodeMeta[] = [
       url: '',
       headers: {},
       body: {},
+      allowedDomains: '',
     },
   },
   {
@@ -453,11 +472,20 @@ export const CANVAS_NODES: CanvasNodeMeta[] = [
         type: 'json',
         rows: 4,
       },
+      {
+        label: '命令白名单',
+        name: 'allowedCommands',
+        type: 'json',
+        rows: 3,
+        description:
+          'JSON 字符串数组（如 ["git","rg"]）——声明后代码内可用 $exec(cmd, args) 执行白名单命令；留空 = $exec 不可用',
+      },
     ],
     outputs: [{ name: 'result', label: 'Result' }],
     defaultData: {
       code: '',
       parameters: {},
+      allowedCommands: '',
     },
   },
 ]

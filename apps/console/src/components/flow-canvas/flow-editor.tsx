@@ -56,6 +56,12 @@ export interface FlowEditorHandle {
   /** 注入节点运行态；边状态（完成段/活动段）由 FlowEditor 按自有连线派生。 */
   applyRunStates(nodeStates: Record<string, { status: NodeRunStatus; error?: string }>): void
   clearRunState(): void
+  /**
+   * 当前单选节点 id（R10 试运行 P0，design-sharp §4.1）：null = 无选中 →
+   * 「试运行」= 全图；有选中 →「试运行此节点」（scope.nodeIds=[id]）。
+   * P1 多选另加多值出口。
+   */
+  getSelectedNodeId(): string | null
 }
 
 export interface HeaderSlotProps {
@@ -377,9 +383,10 @@ const FlowEditorInner = forwardRef<FlowEditorHandle, FlowEditorProps>(function F
       fitView: () => fitView({ padding: 0.2, duration: 200 }),
       applyRunStates: (next: RunState['nodeStates']) => setNodeRunStates(next),
       clearRunState: () => setNodeRunStates({}),
+      getSelectedNodeId: () => selectedId,
       // nodes/edges 在 handle 闭包里必须是最新值 —— useImperativeHandle 依赖数组见下
     }),
-    [nodes, edges, dirty, fitView],
+    [nodes, edges, dirty, fitView, selectedId],
   )
 
   const onMoveEnd = useCallback(

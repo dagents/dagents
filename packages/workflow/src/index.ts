@@ -25,6 +25,8 @@ export type {
   IChatStreamChunk,
   IStreamDelta,
   IStreamActivityKind,
+  ControlledExecRequest,
+  ControlledExecResult,
 } from './types/execution.js'
 export type { IServerSideEventStreamer, StreamEvent } from './types/stream.js'
 export type { CanvasNodeMeta } from './nodes/node-registry-canvas.js'
@@ -47,7 +49,26 @@ export type {
   JournalDecision,
   JournalFacade,
 } from './engine/executor.js'
-export { HumanInputPendingError, SeedHashMismatchError } from './engine/errors.js'
+export {
+  HumanInputPendingError,
+  SeedHashMismatchError,
+  NodeRejectedError,
+} from './engine/errors.js'
+// 2026-10-07 R2 暖缓存预演单源（design-recover §3.7(b)3）：gateway 的
+// buildWarmCacheSeed 沿谱系链逐节点解析 resolved 输入——活动边判定/多入边
+// 合并/配置归一/模板预演必须与引擎 runWaves 真实调度完全同源，口径漂移即
+// inputHash 漂移（误杀/漏杀种子）。
+export {
+  shouldExecuteEdge,
+  mergeInputs,
+  mergedNodeInputs,
+  previewResolved,
+} from './engine/executor.js'
+export {
+  buildTrialSubgraph,
+  buildTrialSeedRuntime,
+  TRIAL_VIRTUAL_START_ID,
+} from './utils/trial-subgraph.js'
 export { SseStreamer } from './engine/sse-streamer.js'
 
 // Utils (Task 3+ — uncomment when modules landed)
@@ -59,6 +80,32 @@ export { parseFlowData, flowDataSchema } from './utils/flow-data.js'
 export { findAgentReferences } from './utils/agent-refs.js'
 export { validateFlowTopology, resolveNodeType } from './utils/validate-topology.js'
 export type { TopologyError, TopologyWarning, TopologyResult } from './utils/validate-topology.js'
+// R4 声明式权限闭环（2026-10-07）：读/验/判/投影唯一实现——引擎守卫 /
+// console 确认面 / gateway preflight 全部 import 此处（AC-R4-4 同源常量）
+export {
+  readNodePermission,
+  parsePermissionValue,
+  isValidDomainEntry,
+  isValidCommandEntry,
+  isDomainAllowed,
+  httpDomainPolicy,
+  assertAllowedHttpDomain,
+  extractFlowPermissions,
+  validatePermissionDeclarations,
+  PERMISSION_FIELDS,
+  MAX_DOMAINS_PER_NODE,
+  MAX_COMMANDS_PER_NODE,
+  MAX_DOMAIN_ENTRY_LEN,
+  MAX_COMMAND_ENTRY_LEN,
+} from './utils/flow-permissions.js'
+export type {
+  NodePermissionState,
+  PermissionField,
+  HttpDomainPolicy,
+  FlowPermissionProjection,
+  FlowCommandNodeSummary,
+  FlowDomainNodeSummary,
+} from './utils/flow-permissions.js'
 export { applyAutoLayout, DEFAULT_AUTO_LAYOUT_STEPS } from './utils/auto-layout.js'
 export type { AutoLayoutSteps } from './utils/auto-layout.js'
 export {

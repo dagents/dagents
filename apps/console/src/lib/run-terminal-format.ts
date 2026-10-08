@@ -15,10 +15,11 @@
  */
 
 import type { RunNodeSpan } from '@/lib/node-spans'
-import type { RunLiveFrame } from '@dagents/contracts'
+import { extractDeliverableText, type DeliverableItem, type RunLiveFrame } from '@dagents/contracts'
 
 /** 终端行类型 —— 与引擎 IStreamActivityKind 对齐。`user_input`（2026-09-08
- *  可操作终端）是插话回写行：label = 消息全文。 */
+ *  可操作终端）是插话回写行：label = 消息全文。`verdict`（2026-10-07 R5
+ *  三值裁决）是节点层合成的审计行：第 N 轮裁决 / 回喂内容 / 会话延续方式。 */
 export type TerminalLineKind =
   | 'thinking'
   | 'tool'
@@ -27,6 +28,7 @@ export type TerminalLineKind =
   | 'log'
   | 'error'
   | 'user_input'
+  | 'verdict'
 
 /** 终端里的一行过程事件。 */
 export interface TerminalLine {
@@ -36,11 +38,14 @@ export interface TerminalLine {
   at?: string
 }
 
-/** 终端里的一个节点段（section）。 */
+/** 终端里的一个节点段（section）。`ordinal`（2026-10-07 R8 §4.2）：
+ *  per-node 实例序号——stdin 活跃节点行显示 `nodeId[ordinal]` 区分并发
+ *  迭代的同节点多会话；非迭代恒 0。 */
 export interface TerminalSection {
   id: string
   title: string
   status: string
+  ordinal?: number
   durationMs?: number | null
   tokensBadge: string | null
   nodeType?: string | null
@@ -67,6 +72,7 @@ const LINE_KINDS: readonly TerminalLineKind[] = [
   'log',
   'error',
   'user_input',
+  'verdict',
 ]
 
 /** 宽容解析 output.events / output.activity —— 形状不符返回空数组。
@@ -99,28 +105,16 @@ function spanLines(payload: RunNodeSpan['output']): {
   return { lines, source: lines.length > 0 ? kindOfSource : 'none' }
 }
 
-/** 正文提取：text/content 直出；DirectReply 的字符串化 JSON 二次解包。 */
-export function extractOutputText(payload: RunNodeSpan['output']): string | null {
-  if (payload == null) return null
-  if (typeof payload === 'string') return payload || null
-  const obj = payload as Record<string, unknown>
-  let textField =
-    typeof obj.text === 'string' && obj.text
-      ? obj.text
-      : typeof obj.content === 'string' && obj.content
-        ? obj.content
-        : null
-  if (textField && textField.trimStart().startsWith('{')) {
-    try {
-      const inner = JSON.parse(textField) as Record<string, unknown>
-      if (typeof inner.text === 'string' && inner.text) textField = inner.text
-      else if (typeof inner.content === 'string' && inner.content) textField = inner.content
-    } catch {
-      /* 保持原样 */
-    }
-  }
-  return textField || null
-}
+/**
+ * 正文提取：text/content 直出；DirectReply 的字符串化 JSON 二次解包。
+ *
+ * R6 渐进产物（2026-10-07）单源上移：实现原样搬到 @dagents/contracts 的
+ * `extractDeliverableText`（gateway 投影端与 console 消费端共用的物理
+ * 载体，R6 需求 4「同一提取单源」），这里 re-export 旧名——既有 import
+ * 面（canvas-results-panel 的 spanToDisplay、本文件 spanToTerminalSection）
+ * 零改动，语义逐字不变（搬家回归钉子在两侧单测）。
+ */
+export const extractOutputText = extractDeliverableText
 
 /** tokens 载荷 → 紧凑徽章（↑输入 ↓输出），无用量返回 null。 */
 export function formatTokensBadge(tokens: unknown): string | null {
@@ -192,6 +186,8 @@ export function spanToTerminalSection(sp: RunNodeSpan): TerminalSection {
     id: sp.nodeId || '?',
     title: sp.nodeLabel || sp.nodeId || '?',
     status: sp.status ?? '',
+    // R8：spans 路的实例序号（node-spans 端点透出；旧网关 0）。
+    ordinal: sp.ordinal ?? 0,
     durationMs: sp.durationMs ?? null,
     tokensBadge: formatTokensBadge(sp.tokens),
     nodeType: sp.nodeType ?? null,
@@ -226,6 +222,44 @@ export function sectionTranscript(s: TerminalSection): string {
   if (s.error) parts.push(`✗ ${s.error}`)
   if (s.output) parts.push(s.output)
   return parts.join('\n')
+}
+
+/**
+ * 产出清单 → markdown 实录（R6 渐进产物聚合区的复制/下载载荷）。
+ *
+ * 模式仿 sectionTranscript：节点名标题 + 提取正文（extractDeliverableText
+ * 同一单源）/JSON 兜底 + tokens 徽章行；继承标注（cached 行）与子流程归属
+ * 以引用行呈现。迭代体同一 nodeId 多 ordinal 聚合为一个小节、逐项编号
+ * （与聚合区行内「第 k/n 项」同粒度——机器面条目 = 实例键，人行 = 节点）。
+ */
+export function buildDeliverablesTranscript(deliverables: DeliverableItem[]): string {
+  const byNode = new Map<string, DeliverableItem[]>()
+  for (const item of deliverables) {
+    const list = byNode.get(item.nodeId)
+    if (list) list.push(item)
+    else byNode.set(item.nodeId, [item])
+  }
+  const sections: string[] = []
+  for (const [nodeId, items] of byNode) {
+    const name = items[0]?.nodeLabel || nodeId
+    const head = items.length > 1 ? `## ${name}（${nodeId} · ${items.length} 项）` : `## ${name}（${nodeId}）`
+    const lines: string[] = [head]
+    const inherited = items.find((i) => i.inheritedFromRunId)?.inheritedFromRunId
+    if (inherited) {
+      lines.push(`> 继承自前次运行 ${inherited.slice(0, 8)}`)
+    }
+    const subflow = items.find((i) => i.subflowName)?.subflowName
+    if (subflow) lines.push(`> 子流程：${subflow}`)
+    items.forEach((item, idx) => {
+      if (items.length > 1) lines.push(`### 第 ${idx + 1}/${items.length} 项`)
+      const text = extractDeliverableText(item.output)
+      lines.push(text ?? (item.output != null ? JSON.stringify(item.output, null, 1) : '（无产出）'))
+      const badge = formatTokensBadge(item.tokens)
+      if (badge) lines.push(`_${badge}_`)
+    })
+    sections.push(lines.join('\n'))
+  }
+  return sections.join('\n\n')
 }
 
 /* ── 运行实时终端（live attach，2026-09）：帧 → 段的增量构建器 ──
@@ -288,6 +322,8 @@ export function createLiveSectionBuilder(): LiveSectionBuilder {
       if (frame.type === 'nodeStart') {
         const s = sectionOf(frame.nodeId, frame.nodeName, frame.nodeType)
         s.status = 'running'
+        // R8：帧携带的实例序号（地基起 nodeStart 透传 ordinal）。
+        if (frame.ordinal != null) s.ordinal = frame.ordinal
         return
       }
       if (frame.type === 'nodeEnd') {

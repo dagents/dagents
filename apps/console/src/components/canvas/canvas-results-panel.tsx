@@ -21,7 +21,13 @@ import { Icon, type IconName } from '@/components/icon'
 import { detectRefusal } from '@/lib/refusal-detect'
 import type { RunNodeSpan } from '@/lib/node-spans'
 import { RunTerminal, type TerminalSendResult } from '@/components/run-terminal'
-import { spanToTerminalSection, extractOutputText, type TerminalSection } from '@/lib/run-terminal-format'
+import {
+  spanToTerminalSection,
+  extractOutputText,
+  buildDeliverablesTranscript,
+  type TerminalSection,
+} from '@/lib/run-terminal-format'
+import type { DeliverableItem } from '@dagents/contracts'
 import { buildTraceFromSpans, type RunTraceModel } from '@/lib/run-trace-model'
 import { CanvasTraceView } from '@/components/canvas/canvas-trace-view'
 import type { RunLiveMode } from '@/lib/use-run-live'
@@ -30,8 +36,11 @@ import { ResultViewer } from '@/components/result-viewer'
 import { useI18n } from '@/i18n'
 import './canvas-results.css'
 
-/** 页面 runState 的共享联合（页面 useState 与本组件 props 同一形状）。 */
-export type CanvasRunState = 'idle' | 'running' | 'done' | 'failed' | 'awaiting'
+/** 页面 runState 的共享联合（页面 useState 与本组件 props 同一形状）。
+ *  `stopped`（2026-10-07 R3/R1，design-recover §4.1）：中止终态——中性色
+ *  （非失败红）；interrupted + resumable 由页面派生 resumeInfo 亮「从此处
+ *  继续」，user → 「已停止」（AC-R1-6/AC-R3-4）。 */
+export type CanvasRunState = 'idle' | 'running' | 'done' | 'failed' | 'awaiting' | 'stopped'
 /** 断点续跑入口判定（failed + resumable 才亮「从此处继续」）。 */
 export interface CanvasResumeInfo {
   runId: string
@@ -56,6 +65,16 @@ export interface CanvasResultsPanelProps {
   totalNodes: number
   /** 拓扑序（initialFlow 节点顺序）—— 行序与终端分段排序用。 */
   topoOrder: Map<string, number>
+  /** 全图节点清单（R6 渐进产物）：聚合区「未完成节点显式标注」的数据源
+   *  （label 与 gateway nodeLabelById 同语义：data.label ?? id）。 */
+  flowNodes: Array<{ id: string; label: string }>
+  /** 当前 run id（R6 下载文件名用；旁观/无 run 为 null）。 */
+  runId: string | null
+  /** 产出清单（R6 渐进产物，2026-10-07）：node-spans 信封的服务端投影
+   *  （journal 主路 + 继承标注）。null = 字段缺席（旧网关 / 投影读失败）
+   *  → 聚合区整体不渲染（诚实降级）；[] = 新网关零产出。聚合区只吃服务端
+   *  投影，不做客户端兜底 —— 继承语义只在服务端有（决策 F）。 */
+  deliverables: DeliverableItem[] | null
   /** live 直播帧流（useRunLive）；回退 node-spans 快照渲染。 */
   runLive: { mode: RunLiveMode; sections: TerminalSection[]; trace: RunTraceModel | null }
   /** 运行中插话能力位（node-spans inputSupported）。 */
@@ -65,8 +84,11 @@ export interface CanvasResultsPanelProps {
   resumeInfo: CanvasResumeInfo | null
   awaitingInfo: CanvasAwaitingInfo | null
   onClose(): void
-  /** 打开运行输入面板（⬆ 预填语义由页面持有）。 */
-  onRerun(): void
+  /** 打开运行输入面板（⬆ 预填语义由页面持有）。mode（2026-10-07 R2，
+   *  design-recover §4.2 重跑分叉）：'warm' = 暖缓存重跑（默认——body 带
+   *  warmFromRunId=当前 run，沿谱系链种子匹配）；'fresh' = 全新重跑
+   *  （零缓存零谱系）。 */
+  onRerun(mode: 'warm' | 'fresh'): void
   onResume(): void
   onCancel(): void | Promise<void>
   onSend(nodeId: string, text: string): Promise<TerminalSendResult>
@@ -82,9 +104,27 @@ function formatSpanPayload(payload: Record<string, unknown> | string | null | un
 }
 
 /** 活动流条目类型 —— 与引擎 IStreamActivityKind 对齐（2026-09-06 保真扩展
- *  后新增 tool_result/status/log/error；status/log 不进 activity 环，容错仍认）。 */
-type ActivityKind = 'thinking' | 'tool' | 'tool_result' | 'status' | 'log' | 'error' | 'user_input'
-const ACTIVITY_KINDS: readonly ActivityKind[] = ['thinking', 'tool', 'tool_result', 'status', 'log', 'error', 'user_input']
+ *  后新增 tool_result/status/log/error；status/log 不进 activity 环，容错仍认；
+ *  verdict = R5 三值裁决审计行，2026-10-07）。 */
+type ActivityKind =
+  | 'thinking'
+  | 'tool'
+  | 'tool_result'
+  | 'status'
+  | 'log'
+  | 'error'
+  | 'user_input'
+  | 'verdict'
+const ACTIVITY_KINDS: readonly ActivityKind[] = [
+  'thinking',
+  'tool',
+  'tool_result',
+  'status',
+  'log',
+  'error',
+  'user_input',
+  'verdict',
+]
 
 /** 节点产出的展示形态：LLM/reply 的 text/content 直出为正文，
  *  其余保持 JSON —— 用户要看的是模型说了什么，不是 JSON 壳。 */
@@ -157,7 +197,9 @@ function activityIcon(kind: ActivityKind): IconName {
           ? 'brain'
           : kind === 'user_input'
             ? 'user'
-            : 'point'
+            : kind === 'verdict'
+              ? 'check'
+              : 'point'
 }
 
 /** 活动流条目 → 单行文本：tool 行拼参数摘要（旧形状 label 已含参数则原样）。 */
@@ -178,8 +220,8 @@ function tokensBadge(tokens: unknown): string | null {
 }
 
 /** 实时已耗时（走查优化点 1/2 的载体）：自带秒级心跳的叶子组件。
- *  计时状态局部于本组件 —— 心跳放页面级会把整棵画布树拖进每秒重渲
- *  （架构自审 2026-09-20，随本组件一并迁出页面）。 */
+ * 计时状态局部于本组件 —— 心跳放页面级会把整棵画布树拖进每秒重渲
+ * （架构自审 2026-09-20，随本组件一并迁出页面）。 */
 function LiveElapsed({
   startedAt,
   className,
@@ -204,12 +246,260 @@ function LiveElapsed({
   )
 }
 
+/* ── 产出清单聚合区（R6 渐进产物，2026-10-07，design-artifacts.md §④）──
+ *
+ * 摘要视图顶部的可折叠聚合卡（非第四 tab——三视图框架已稳定，聚合区是
+ * 「先看全部产物，再逐节点细读」的阅读序前置）。渐进语义：running/
+ * awaiting 态即渲染（随 spans 轮询增量刷新，props 由页面同节拍供给）；
+ * 终态定格（watchTick 收尾再 fetchSpans 一次已保证数据齐全）。
+ * 行结构：拓扑序（服务端按实例键序返回，本侧重排——拓扑知识天然在画布
+ * 侧）；迭代体同 nodeId 多 ordinal 聚合一行、行内列各项；提取预览与单节
+ * 点行同一单源（extractOutputText → @dagents/contracts）。 */
+
+/** 机器面条目（实例键）→ 人行粒度（节点）的聚合形态。 */
+interface DeliverableGroup {
+  nodeId: string
+  label: string
+  items: DeliverableItem[]
+}
+
+/** 按节点聚合 + 拓扑序重排（继承行与真实执行行同规则参与排序——种子
+ *  节点排在其拓扑位，阅读序与图结构一致）。 */
+function groupDeliverables(
+  deliverables: DeliverableItem[],
+  topoOrder: Map<string, number>,
+): DeliverableGroup[] {
+  const byNode = new Map<string, DeliverableItem[]>()
+  for (const item of deliverables) {
+    const list = byNode.get(item.nodeId)
+    if (list) list.push(item)
+    else byNode.set(item.nodeId, [item])
+  }
+  return [...byNode.entries()]
+    .map(([nodeId, items]) => ({
+      nodeId,
+      label: items.find((i) => i.nodeLabel)?.nodeLabel || nodeId,
+      items: [...items].sort((a, b) => a.ordinal - b.ordinal),
+    }))
+    .sort(
+      (a, b) => (topoOrder.get(a.nodeId) ?? 1e9) - (topoOrder.get(b.nodeId) ?? 1e9),
+    )
+}
+
+/** 组内 tokens 求和 → 单一徽章（多 ordinal 项的用量合并呈现）。 */
+function sumTokensBadge(items: DeliverableItem[]): string | null {
+  let seen = false
+  let inputTokens = 0
+  let outputTokens = 0
+  for (const it of items) {
+    const u = it.tokens as { inputTokens?: unknown; outputTokens?: unknown } | null
+    if (!u || typeof u !== 'object') continue
+    if (typeof u.inputTokens === 'number') {
+      inputTokens += u.inputTokens
+      seen = true
+    }
+    if (typeof u.outputTokens === 'number') {
+      outputTokens += u.outputTokens
+      seen = true
+    }
+  }
+  return seen ? tokensBadge({ inputTokens, outputTokens }) : null
+}
+
+function DeliverablesCard({
+  runId,
+  deliverables,
+  flowNodes,
+  spans,
+  topoOrder,
+  runState,
+  awaitingInfo,
+  onJumpToTerminal,
+}: {
+  runId: string | null
+  deliverables: DeliverableItem[]
+  flowNodes: Array<{ id: string; label: string }>
+  spans: RunNodeSpan[]
+  topoOrder: Map<string, number>
+  runState: CanvasRunState
+  awaitingInfo: CanvasAwaitingInfo | null
+  onJumpToTerminal: (nodeId: string) => void
+}): React.ReactElement | null {
+  const { t } = useI18n()
+  const [copied, setCopied] = useState(false)
+  const groups = groupDeliverables(deliverables, topoOrder)
+  const deliveredNodeIds = new Set(deliverables.map((d) => d.nodeId))
+  const spanStatusOf = (nodeId: string): string | null =>
+    spans.find((sp) => sp.nodeId === nodeId)?.status ?? null
+  // 未完成标注（≠失败）：失败节点不进「未执行」灰行——它执行过了，失败态
+  // 由下方逐节点行呈现；这里只标真正没跑 / 在跑 / 挂起等待的节点。
+  const pending = flowNodes.filter(
+    (n) => !deliveredNodeIds.has(n.id) && spanStatusOf(n.id) !== 'failed',
+  )
+  if (deliverables.length === 0 && pending.length === 0) return null
+
+  const copyAll = async (): Promise<void> => {
+    try {
+      await navigator.clipboard.writeText(buildDeliverablesTranscript(deliverables))
+      setCopied(true)
+      window.setTimeout(() => setCopied(false), 2000)
+    } catch {
+      /* 剪贴板不可用（非安全上下文等）—— 静默，下载入口仍在 */
+    }
+  }
+  const download = (): void => {
+    const blob = new Blob([buildDeliverablesTranscript(deliverables)], {
+      type: 'text/markdown',
+    })
+    const url = URL.createObjectURL(blob)
+    const a = document.createElement('a')
+    a.href = url
+    a.download = `deliverables-${(runId ?? 'run').slice(0, 8)}.md`
+    a.click()
+    URL.revokeObjectURL(url)
+  }
+
+  return (
+    <details className='canvas-deliverables-card' open>
+      <summary>
+        <span className='canvas-delv-title'>{t('产出清单')}</span>
+        {deliverables.length > 0 ? (
+          <span className='canvas-delv-count tnum'>
+            {t('共 {n} 项产出', { n: deliverables.length })}
+          </span>
+        ) : null}
+        <span className='canvas-delv-actions'>
+          {copied ? <span className='canvas-delv-copied'>✓ {t('已复制')}</span> : null}
+          <button
+            type='button'
+            className='canvas-delv-btn'
+            onClick={() => void copyAll()}
+            disabled={deliverables.length === 0}
+          >
+            {t('复制产出清单')}
+          </button>
+          <button
+            type='button'
+            className='canvas-delv-btn'
+            onClick={download}
+            disabled={deliverables.length === 0}
+          >
+            {t('下载产出')}
+          </button>
+        </span>
+      </summary>
+      <div className='canvas-delv-rows'>
+        {groups.map((g) => {
+          const badge = sumTokensBadge(g.items)
+          const inherited = g.items.find((i) => i.inheritedFromRunId)?.inheritedFromRunId
+          const subflow = g.items.find((i) => i.subflowName)?.subflowName
+          const firstPreview = (() => {
+            for (const item of g.items) {
+              const text = extractOutputText(item.output)
+              if (text) return oneLine(text, 90)
+            }
+            return null
+          })()
+          return (
+            <details className='canvas-delv-row' key={g.nodeId}>
+              <summary>
+                <span className='canvas-delv-name' title={g.nodeId}>
+                  {g.label}
+                </span>
+                {g.items.length > 1 ? (
+                  <span className='canvas-delv-items-n tnum'>
+                    {t('{n} 项', { n: g.items.length })}
+                  </span>
+                ) : firstPreview ? (
+                  <span className='canvas-delv-preview' title={firstPreview}>
+                    {firstPreview}
+                  </span>
+                ) : null}
+                {inherited ? (
+                  <span className='canvas-delv-chip' title={inherited}>
+                    {t('继承自前次运行')} {inherited.slice(0, 8)}
+                  </span>
+                ) : null}
+                {subflow ? (
+                  <span className='canvas-delv-chip canvas-delv-chip-subflow'>
+                    {t('子流程')} · {subflow}
+                  </span>
+                ) : null}
+                {badge ? (
+                  <span className='canvas-delv-tokens' title={t('token 用量（输入/输出）')}>
+                    {badge}
+                  </span>
+                ) : null}
+                <button
+                  type='button'
+                  className='canvas-delv-term-btn'
+                  onClick={(e) => {
+                    e.stopPropagation()
+                    onJumpToTerminal(g.nodeId)
+                  }}
+                  title={t('在终端视图中查看该节点的完整过程')}
+                >
+                  {t('终端')}
+                </button>
+              </summary>
+              <div className='canvas-delv-items'>
+                {g.items.map((item, idx) => {
+                  const text = extractOutputText(item.output)
+                  const full = text ?? (item.output != null ? JSON.stringify(item.output, null, 2) : '')
+                  return (
+                    <div className='canvas-delv-item' key={`${item.nodeId}#${item.ordinal}`}>
+                      {g.items.length > 1 ? (
+                        <span className='canvas-delv-ordinal tnum'>
+                          {t('第 {k}/{n} 项', { k: idx + 1, n: g.items.length })}
+                        </span>
+                      ) : null}
+                      <ResultViewer title={`${g.label} · ${t('产出')}`} text={full} mono={text == null}>
+                        <span className='canvas-delv-item-text'>
+                          {text ? oneLine(text, 160) : full ? oneLine(full, 160) : t('（无产出）')}
+                        </span>
+                      </ResultViewer>
+                    </div>
+                  )
+                })}
+              </div>
+            </details>
+          )
+        })}
+        {pending.length > 0 ? (
+          <div className='canvas-delv-pending'>
+            {pending.map((n) => {
+              const st = spanStatusOf(n.id)
+              const tag =
+                runState === 'awaiting' && awaitingInfo?.nodeId === n.id
+                  ? t('等待输入')
+                  : st === 'running'
+                    ? t('执行中')
+                    : t('未执行')
+              return (
+                <div className='canvas-delv-pending-row' key={n.id}>
+                  <span className='canvas-delv-name'>{n.label}</span>
+                  <span className={`canvas-delv-pending-tag${st === 'running' ? ' running' : ''}`}>
+                    {tag}
+                  </span>
+                </div>
+              )
+            })}
+          </div>
+        ) : null}
+      </div>
+    </details>
+  )
+}
+
 export function CanvasResultsPanel({
   runState,
   spans,
   runError,
   totalNodes,
   topoOrder,
+  flowNodes,
+  runId,
+  deliverables,
   runLive,
   inputSupported,
   terminalDirId,
@@ -266,6 +556,22 @@ export function CanvasResultsPanel({
       window.localStorage.setItem('dagents.canvas.resultView', v)
     } catch { /* 无 localStorage 则仅内存切换 */ }
   }, [])
+  /** 聚合区行内「终端」入口（AC-R6-5）：切终端视图 + 下一帧滚到目标段
+   *  （run-terminal SectionView 根元素的 data-terminal-section={nodeId} 锚点；
+   *  双 rAF 等 React 提交 + 浏览器布局后滚动；段缺失时仅完成视图切换）。 */
+  const panelRootRef = useRef<HTMLDivElement | null>(null)
+  const jumpToTerminalSection = useCallback(
+    (nodeId: string): void => {
+      switchResultView('terminal')
+      requestAnimationFrame(() => {
+        requestAnimationFrame(() => {
+          const sel = `[data-terminal-section="${typeof CSS !== 'undefined' && CSS.escape ? CSS.escape(nodeId) : nodeId}"]`
+          panelRootRef.current?.querySelector(sel)?.scrollIntoView({ block: 'start' })
+        })
+      })
+    },
+    [switchResultView],
+  )
   // 挂起应答输入态（awaiting bar 受控）：提交回执 true 才清空
   const [answerText, setAnswerText] = useState('')
   const [answerBusy, setAnswerBusy] = useState(false)
@@ -283,6 +589,7 @@ export function CanvasResultsPanel({
   const latestSpans = spans
   return (
     <div
+      ref={panelRootRef}
       className={`canvas-results-panel${resultView === 'trace' ? ' wide' : ''}`}
       role='region'
       aria-label={t('运行结果')}
@@ -341,9 +648,10 @@ export function CanvasResultsPanel({
               {t('停止')}
             </button>
           ) : null}
-          {/* 断点续跑（2026-09-18 §6.6）：失败 + checkpoint resumable →
-              从此处继续（提交走 resume 端点，种子跳过已完成节点）。 */}
-          {runState === 'failed' && resumeInfo ? (
+          {/* 断点续跑（2026-09-18 §6.6；R3 扩 stopped）：失败/中止 +
+              checkpoint resumable → 从此处继续（提交走 resume 端点，种子
+              跳过已完成节点；stopped(interrupted) 的恢复入口，AC-R1-6）。 */}
+          {(runState === 'failed' || runState === 'stopped') && resumeInfo ? (
             <button
               type='button'
               className='canvas-results-rerun canvas-results-resume'
@@ -353,17 +661,28 @@ export function CanvasResultsPanel({
               {t('从此处继续')}（{t('跳过 {n} 个节点', { n: String(resumeInfo.completedCount) })}）
             </button>
           ) : null}
-          {/* 终态「重跑」直达（2026-09-18 PM）：失败现场就近挽回 ——
-              与终端 stdin 行同款 onRerun（打开输入面板，⬆ 预填）。 */}
-          {runState === 'failed' || runState === 'done' || runState === 'idle' ? (
-            <button
-              type='button'
-              className='canvas-results-rerun'
-              onClick={onRerun}
-              title={t('用相同输入重跑（可修改后提交）')}
-            >
-              {t('重跑')}
-            </button>
+          {/* 终态「重跑」分叉（2026-10-07 R2，design-recover §4.2）：默认
+              「暖缓存重跑」——修了某个节点后未受影响的前缀子图零调用命中
+              （⚡ cached 徽章）；「全新重跑」零缓存全量执行。 */}
+          {runState === 'failed' || runState === 'done' || runState === 'stopped' || runState === 'idle' ? (
+            <>
+              <button
+                type='button'
+                className='canvas-results-rerun canvas-results-warm'
+                onClick={() => onRerun('warm')}
+                title={t('复用谱系链上未受影响节点的产出（⚡ 命中零调用），只重跑改过的部分')}
+              >
+                ⚡ {t('暖缓存重跑')}
+              </button>
+              <button
+                type='button'
+                className='canvas-results-rerun'
+                onClick={() => onRerun('fresh')}
+                title={t('用相同输入重跑（可修改后提交）')}
+              >
+                {t('全新重跑')}
+              </button>
+            </>
           ) : null}
           {/* 双锚点 P1（2026-09-19）：失败 + 目录锚 → 深链终端排查；
               本会话发起用输入面板目录，旁观 run 用 node-spans 回传锚；
@@ -535,13 +854,30 @@ export function CanvasResultsPanel({
                     (topoOrder.get(a.nodeId) ?? 1e9) - (topoOrder.get(b.nodeId) ?? 1e9),
                 )
                 .map(spanToTerminalSection)
+          // stdin 行活跃节点（R8.5，§4.2）：同节点多并发实例（并发 iteration）
+          // 显示 `nodeId[ordinal]` 区分——多实例时 id 编码 `nodeId#ordinal`
+          // （插话寻址后缀，页面 sendMessage 解析）、label 带 [ordinal]；
+          // 单实例（ordinal 0/缺席）保持裸 nodeId。
           const activeNodes = liveActive
             ? runLive.sections
                 .filter((s) => s.status === 'running')
-                .map((s) => ({ id: s.id, label: s.title || s.id }))
+                .map((s) => ({
+                  id: s.ordinal != null && s.ordinal > 0 ? `${s.id}#${s.ordinal}` : s.id,
+                  label:
+                    s.ordinal != null && s.ordinal > 0
+                      ? `${s.title || s.id}[${s.ordinal}]`
+                      : s.title || s.id,
+                }))
             : latestSpans
                 .filter((sp) => sp.status === 'running')
-                .map((sp) => ({ id: sp.nodeId, label: sp.nodeLabel || sp.nodeId || '?' }))
+                .map((sp) => ({
+                  id:
+                    sp.ordinal != null && sp.ordinal > 0 ? `${sp.nodeId}#${sp.ordinal}` : sp.nodeId,
+                  label:
+                    sp.ordinal != null && sp.ordinal > 0
+                      ? `${sp.nodeLabel || sp.nodeId}[${sp.ordinal}]`
+                      : sp.nodeLabel || sp.nodeId || '?',
+                }))
           return (
             <RunTerminal
               sections={sections}
@@ -549,11 +885,28 @@ export function CanvasResultsPanel({
               inputSupported={inputSupported}
               activeNodes={activeNodes}
               onSend={onSend}
-              onRerun={onRerun}
+              // stdin 行「重跑」（2026-10-07 R2）：默认暖缓存（§4.2 终端行
+              // 同款——打开输入面板，提交按 warmFromRunId 谱系匹配）。
+              onRerun={() => onRerun('warm')}
             />
           )
         })()
       ) : (
+      <>
+      {/* 产出清单聚合区（R6 渐进产物）：摘要视图顶部、逐节点行之前——
+          「先看全部产物，再逐节点细读」。null（旧网关/读失败）整体不渲染。 */}
+      {deliverables != null ? (
+        <DeliverablesCard
+          runId={runId}
+          deliverables={deliverables}
+          flowNodes={flowNodes}
+          spans={spans}
+          topoOrder={topoOrder}
+          runState={runState}
+          awaitingInfo={awaitingInfo}
+          onJumpToTerminal={jumpToTerminalSection}
+        />
+      ) : null}
       <div className='canvas-results-list' ref={resultsListRef}>
         {/* FR-15（PRD 决议 D9）：行序按流程拓扑（initialFlow 节点
             顺序），不再按 span 返回序（完成时间倒序会把 start 排最后，
@@ -570,7 +923,10 @@ export function CanvasResultsPanel({
               let st = sp.status ?? ''
               // 诚实标注：done 但内容是权限拒绝 → 黄警（同聊天执行卡）
               if (st === 'done' && detectRefusal(displayForWarn?.text)) st = 'warn'
-              const terminal = st === 'done' || st === 'completed' || st === 'failed' || st === 'warn'
+              // 2026-10-07 工程决策 9d：声明型超限拒绝（迭代超限/子流程超深/
+              // retries≥1 耗尽）——终态黄警档（可重试），run 走 partial_success。
+              const terminal =
+                st === 'done' || st === 'completed' || st === 'failed' || st === 'warn' || st === 'rejected'
               // 运行中：已完成/已有增量产出的节点自动展开（用户手动收起的除外）；失败必展开
               const autoOpen =
                 runState === 'running' &&
@@ -582,7 +938,7 @@ export function CanvasResultsPanel({
                 <details
                   key={id}
                   className={`canvas-result-row status-${st}`}
-                  open={st === 'failed' || st === 'warn' || autoOpen || undefined}
+                  open={st === 'failed' || st === 'warn' || st === 'rejected' || st === 'cached' || autoOpen || undefined}
                   onToggle={(e) => {
                     // 手动收起 → 记住，不再自动展开
                     if (!(e.target as HTMLDetailsElement).open) manualCollapseRef.current.add(id)
@@ -594,6 +950,8 @@ export function CanvasResultsPanel({
                     {/* 失败原因优先占摘要列（2026-09-22 密度重构）：错因
                         首行进折叠行，不必展开就能扫「哪里错、为什么错」。 */}
                     {st === 'failed' && sp.error ? (
+                      <span className='canvas-result-err-inline' title={sp.error}>{oneLine(sp.error, 96)}</span>
+                    ) : st === 'rejected' && sp.error ? (
                       <span className='canvas-result-err-inline' title={sp.error}>{oneLine(sp.error, 96)}</span>
                     ) : display && display.preview && st !== 'running' ? (
                       <span className='canvas-result-preview' title={display.preview}>{display.preview}</span>
@@ -609,11 +967,17 @@ export function CanvasResultsPanel({
                     <span className='canvas-result-meta'>
                       {st === 'warn' ? (
                         <>⚠ {t('疑似权限受限')}{sp.durationMs != null ? ` · ${(sp.durationMs / 1000).toFixed(1)}s` : ''}</>
+                      ) : st === 'rejected' ? (
+                        <>⏸ {t('已拒绝（可重试）')}{sp.durationMs != null ? ` · ${(sp.durationMs / 1000).toFixed(1)}s` : ''}</>
                       ) : st === 'running' ? (
                         // 实时已耗时（优化点 2）：LiveElapsed 自带秒级心跳，逐秒跳动
                         <>{t('运行中')} · <LiveElapsed startedAt={sp.startedAt} /></>
                       ) : st === 'failed' ? (
                         <>{t('失败')}{sp.durationMs != null ? ` · ${(sp.durationMs / 1000).toFixed(1)}s` : ''}</>
+                      ) : st === 'cached' ? (
+                        // R2（§4.2）：暖缓存/种子命中——独立徽章标注（AC-R2-2）。
+                        // 继承前驱短码的数据链（journal lineage → spans）随集成期补。
+                        <>⚡ {t('来自缓存')}</>
                       ) : st === 'done' || st === 'completed' ? (
                         // done 去冗词（优化点 9）：状态由点色表达，meta 只留时长
                         sp.durationMs != null ? `${(sp.durationMs / 1000).toFixed(1)}s` : t('完成')
@@ -719,6 +1083,7 @@ export function CanvasResultsPanel({
         })()
         }
       </div>
+      </>
       )}
     </div>
   )

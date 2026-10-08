@@ -61,6 +61,8 @@ interface ClientConn {
   ws: WebSocket
   /** 该 socket 订阅的 chatId 集合。空集合 = 不收任何 chat 事件。 */
   subscribedChats: Set<string>
+  /** 订阅的 runId 集合（2026-10-07 R9b）：run-updated 帧的定向广播维度。 */
+  subscribedRuns: Set<string>
 }
 
 class WsHub {
@@ -114,16 +116,20 @@ class WsHub {
 
     this.wss.on('connection', (ws, req) => {
       const url = new URL(req.url ?? '/', `http://${req.headers.host ?? 'localhost'}`)
-      // 初始订阅：从 ?chat=id1&id2 query 解析（支持多个）
+      // 初始订阅：从 ?chat=id1&id2 query 解析（支持多个）；?run=<id> 同款
+      // （R9b run-updated 帧的订阅维度——画布旁观/执行卡按 runId 订阅）。
       const initialChats = url.searchParams.getAll('chat')
+      const initialRuns = url.searchParams.getAll('run')
       const conn: ClientConn = {
         ws,
         subscribedChats: new Set(initialChats),
+        subscribedRuns: new Set(initialRuns),
       }
       this.clients.add(conn)
       log.info('ws client connected', {
         count: this.clients.size,
         initialChats: initialChats.length,
+        initialRuns: initialRuns.length,
       })
 
       ws.on('message', (raw) => {
@@ -140,6 +146,13 @@ class WsHub {
           } else if (msg.type === 'unsubscribe' && typeof msg.chatId === 'string') {
             conn.subscribedChats.delete(msg.chatId)
             log.info('ws unsubscribe', { chatId: msg.chatId })
+          } else if (msg.type === 'subscribe' && typeof msg.runId === 'string') {
+            // R9b：run 维度订阅（对称 chat 维度）
+            conn.subscribedRuns.add(msg.runId)
+            log.info('ws subscribe run', { runId: msg.runId, totalClients: this.clients.size })
+          } else if (msg.type === 'unsubscribe' && typeof msg.runId === 'string') {
+            conn.subscribedRuns.delete(msg.runId)
+            log.info('ws unsubscribe run', { runId: msg.runId })
           }
         } catch {
           // 忽略非 JSON 或格式错误的消息
@@ -180,6 +193,32 @@ class WsHub {
       } catch (err) {
         log.warn('ws send failed', { error: String(err) })
       }
+    }
+  }
+
+  /** 广播 run 生命周期帧给所有订阅了该 runId 的客户端（R9b，对称
+   *  broadcastChat）。发射单点在 lib/run-notify.ts（幂等 claim + superseded
+   *  抑制），本方法只负责定向投递。 */
+  broadcastRun(runId: string, frame: { type: 'run-updated'; runId: string; status: string; flowId?: string; stopReason?: string }): void {
+    const payload = JSON.stringify(frame)
+    let delivered = 0
+    for (const conn of this.clients) {
+      if (conn.subscribedRuns.has(runId) && conn.ws.readyState === WebSocket.OPEN) {
+        try {
+          conn.ws.send(payload)
+          delivered += 1
+        } catch (err) {
+          log.warn('ws run send failed', { error: String(err) })
+        }
+      }
+    }
+    if (delivered === 0) {
+      // 无订阅者是常态（旁观页已关/直接轮询端）——debug 级留痕，不告警。
+      log.info('broadcastRun: no subscribed client', {
+        runId,
+        status: frame.status,
+        totalClients: this.clients.size,
+      })
     }
   }
 

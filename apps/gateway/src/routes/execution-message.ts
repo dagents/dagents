@@ -15,6 +15,7 @@
 import { Hono, type Context } from 'hono'
 import type { ContentfulStatusCode } from 'hono/utils/http-status'
 import { executionRegistry } from '../execution-registry.js'
+import { sendToRunNodeAmbiguous } from './workflow-clients.js'
 import { ok, fail } from '../lib/http.js'
 
 
@@ -29,9 +30,17 @@ runMessageRoutes.post('/runs/:runId/message', async (c) => {
   const body = (await c.req.json().catch(() => null)) as {
     nodeId?: unknown
     text?: unknown
+    /** 插话寻址的实例序号（R8.5，design-recover §3.6(e)）：并发 iteration 的
+     *  同节点多会话并存时必填；缺省 = 唯一活跃实例直达，多实例 → 409 +
+     *  活跃实例清单（客户端列供选择）。 */
+    ordinal?: unknown
   } | null
   const nodeId = typeof body?.nodeId === 'string' ? body.nodeId.trim() : ''
   const text = typeof body?.text === 'string' ? body.text : ''
+  const ordinal =
+    typeof body?.ordinal === 'number' && Number.isFinite(body.ordinal) && body.ordinal >= 0
+      ? Math.trunc(body.ordinal)
+      : undefined
 
   if (!runId || !nodeId) {
     return fail(c, 400, 'runId and nodeId are required', { runId, nodeId })
@@ -51,6 +60,16 @@ runMessageRoutes.post('/runs/:runId/message', async (c) => {
     // 有活执行但该执行种类没有插话通道（inline chat 的 chat-agent 等）
     return ok(c, { runId, nodeId, status: 'unsupported' as const })
   }
-  const status = handle.sendToNode(nodeId, text)
-  return ok(c, { runId, nodeId, status })
+  const status = handle.sendToNode(nodeId, text, ordinal)
+  // 多实例歧义（R8.5 定稿）：缺省寻址撞上并发迭代的多活会话——409 +
+  // 活跃 ordinal 清单，客户端列供选择后带 ordinal 重试。
+  if (status === 'ambiguous') {
+    const amb = sendToRunNodeAmbiguous(runId, nodeId)
+    return fail(c, 409, 'multiple live instances of this node — retry with an ordinal', {
+      runId,
+      nodeId,
+      ordinals: amb?.ordinals ?? [],
+    })
+  }
+  return ok(c, { runId, nodeId, status, ...(ordinal != null ? { ordinal } : {}) })
 })

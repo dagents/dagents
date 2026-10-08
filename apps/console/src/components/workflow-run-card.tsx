@@ -21,6 +21,7 @@ import { SPAN_STATUS_CN } from '@/lib/flows'
 import { formatDuration } from '@/lib/format'
 import { fetchRunNodeSpans, type RunNodeSpan } from '@/lib/node-spans'
 import { extractOutputText } from '@/lib/run-terminal-format'
+import { isTerminalRunStatus } from '@/lib/run-status'
 import '@/styles/workflow-run-card.css'
 
 export interface WorkflowRunCardProps {
@@ -76,15 +77,18 @@ export function WorkflowRunCard({ runId, flowName, flowId, live = false, onTermi
 
   useEffect(() => {
     // TODO(轮询收敛,2026-09-17): 本轮未迁移 —— 可换 @/lib/use-polling 单点实现（fetcher 返回是否继续 + restartKey）。
+    // 2026-10-07 R3.6（design-recover §4.1）：终态清单扩为词表全集（run-status.ts
+    // 单源，双读 stopped+cancelled）——顺带修轮询泄漏：此前三词清单下
+    // partial_success/budget_exceeded 终态永不 clearInterval（AC-R3-4）。
     let cancelled = false
     terminalFiredRef.current = false
     void fetchOnce().then((status) => {
       if (cancelled) return
-      if (live && status !== 'completed' && status !== 'failed' && status !== 'cancelled') {
+      if (live && !isTerminalRunStatus(status)) {
         pollRef.current = window.setInterval(async () => {
           const st = await fetchOnce()
           if (cancelled) return
-          if (st === 'completed' || st === 'failed' || st === 'cancelled') {
+          if (isTerminalRunStatus(st)) {
             window.clearInterval(pollRef.current)
             if (!terminalFiredRef.current) {
               terminalFiredRef.current = true

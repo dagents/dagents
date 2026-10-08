@@ -207,6 +207,12 @@
 }
 .rtl-userline .rtl-glyph { color: var(--accent); font-weight: 600; }
 
+/* 裁决行（2026-10-07 R5 三值裁决）：status 行形态 + 可区分色（success 系，
+ * 与段头 dot-done 同一语义色）——「第 N 轮裁决 / 回喂 / 会话延续方式」与
+ * 普通 status/log 行（--meta 暗色）在回放里一眼分流；detail 折叠展开全文。 */
+.rtl-verdline summary { color: var(--success-text); }
+.rtl-verdline .rtl-glyph { color: var(--success-text); flex-shrink: 0; }
+
 /* ── stdin 行（2026-09-08 可操作终端）：终端底部钉住的输入行 ──
  * 真终端惯例：`❯` 提示符、mono、常驻。三态：live（可输入）/
  * disabled（不可插话，给原因）/ done（运行结束 → 重跑入口）。 */

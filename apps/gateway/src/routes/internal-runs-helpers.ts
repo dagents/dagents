@@ -145,6 +145,10 @@ export async function persistComplete(params: CompleteParams): Promise<string> {
  * `chat:cancelled` WS broadcast (execution-cancellation spec D6) so the
  * console can seal the streaming bubble. Distinct from `persistComplete` —
  * cancelled is not failed, and the client renders it differently.
+ *
+ * stopReason（2026-10-07 R3.5 最小实现，design-recover §3.3(e)）：中止来源
+ * （user/superseded，classifyAbortReason 判定）随 chat:cancelled 帧透出——
+ * 客户端据此过滤 superseded 等不该产生用户可见通知的终态。
  */
 export async function persistCancelled(params: {
   chatId: string
@@ -152,6 +156,7 @@ export async function persistCancelled(params: {
   output?: string
   durationMs?: number
   reason?: string
+  stopReason?: string
 }): Promise<string> {
   const messageId = randomUUID()
   const content = params.output?.trim() || '（已取消）'
@@ -161,6 +166,7 @@ export async function persistCancelled(params: {
   }
   if (params.reason) metadata.reason = params.reason
   if (params.durationMs != null) metadata.durationMs = params.durationMs
+  if (params.stopReason) metadata.stopReason = params.stopReason
 
   await runQuery(
     `INSERT INTO chat_messages (id, chat_id, role, content, run_id, metadata, created_at)
@@ -179,6 +185,7 @@ export async function persistCancelled(params: {
     content,
     streaming: false,
     reason: params.reason,
+    ...(params.stopReason ? { stopReason: params.stopReason } : {}),
   })
 
   log.info('persistCancelled ok', { runId: params.runId, chatId: params.chatId, messageId })

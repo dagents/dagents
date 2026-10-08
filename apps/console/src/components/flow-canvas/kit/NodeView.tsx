@@ -42,6 +42,8 @@ export const FlowNodeView = memo(function FlowNodeView({ id, data, selected }: N
             {run.status === 'done' && '✓'}
             {run.status === 'failed' && '✕'}
             {run.status === 'waiting' && '…'}
+            {/* R2（design-recover §4.2）：暖缓存/种子命中——⚡ 独立徽章。 */}
+            {run.status === 'cached' && '⚡'}
           </span>
         )}
       </div>

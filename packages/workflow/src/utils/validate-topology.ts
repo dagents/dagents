@@ -15,6 +15,8 @@
 import { flowDataSchema } from './flow-data.js'
 import { allNodes } from '../nodes/index.js'
 import type { FlowData, FlowNode } from '../types/flow.js'
+// R4 权限声明规则（与 flow-permissions 互为循环引用，函数级调用安全）
+import { validatePermissionDeclarations } from './flow-permissions.js'
 
 export interface TopologyError {
   /** Offending node id, when the error is node-scoped. */
@@ -22,6 +24,14 @@ export interface TopologyError {
   /** Offending edge id, when the error is edge-scoped. */
   edge?: string
   message: string
+  /**
+   * 诊断分级（2026-10-07 R9c，design-sharp §2.3）：缺省 = 'error'（不可执行，
+   * 存量消费方零破坏）；'repairable' = 可修复——运行必失败但可按 `repair`
+   * 指引修复，**不改变 ok 判定**（不阻断保存）。
+   */
+  severity?: 'error' | 'repairable'
+  /** 修复指引一句话（severity='repairable' 时必带）。 */
+  repair?: string
 }
 
 export interface TopologyWarning {
@@ -30,16 +40,34 @@ export interface TopologyWarning {
   message: string
 }
 
+/**
+ * 校验结果。`ok` 只回答「有没有 error 档诊断」（可执行判决）；repairable
+ * 诊断不改变 ok 性——这是「不阻断保存」的类型层表达：
+ *  - ok:false 时 `errors` 可含 severity 混合（repairable 与 error 同数组
+ *    全量返回，绝不互斥遮蔽，AC-R9-4 前半）；
+ *  - ok:true 时 `errors` 只含 repairable 条目（可能为空数组）。
+ */
 export type TopologyResult =
-  | { ok: true; data: FlowData; warnings: TopologyWarning[] }
+  | { ok: true; data: FlowData; warnings: TopologyWarning[]; errors: TopologyError[] }
   | { ok: false; errors: TopologyError[]; warnings: TopologyWarning[] }
 
 /**
  * Node type names the executor can dispatch to. Derived from the same list
  * the gateway assembles its NodeRegistry from, so registering a new node type
  * makes it valid here automatically — no parallel whitelist to keep in sync.
+ *
+ * 惰性求值（2026-10-07 环修复）：R4 的 flow-permissions 与本模块互相引用，
+ * 而 nodes/index → http.node → flow-permissions → 本模块 → nodes/index 的
+ * 三方环会让本模块顶层求值时 allNodes 尚未初始化（executor.test 实弹）。
+ * 首次调用时求值 + 缓存，语义与单源不变。
  */
-const KNOWN_NODE_TYPES = new Set(allNodes().map((node) => node.name))
+let knownNodeTypesCache: Set<string> | null = null
+function knownNodeTypes(): Set<string> {
+  if (knownNodeTypesCache === null) {
+    knownNodeTypesCache = new Set(allNodes().map((node) => node.name))
+  }
+  return knownNodeTypesCache
+}
 
 const START_TYPE = 'startAgentflow'
 const PLATFORM_AGENT_TYPE = 'platformAgentAgentflow'
@@ -196,7 +224,7 @@ export function validateFlowTopology(data: unknown): TopologyResult {
         node: node.id,
         message: `node "${node.id}" has no type (expected a registry name in data.name or type)`,
       })
-    } else if (!KNOWN_NODE_TYPES.has(type)) {
+    } else if (!knownNodeTypes().has(type)) {
       errors.push({ node: node.id, message: `unknown node type "${type}"` })
     }
   }
@@ -233,19 +261,49 @@ export function validateFlowTopology(data: unknown): TopologyResult {
     }
   }
 
-  // A Platform Agent node without an agentId throws at run time; it stays a
-  // warning (not an error) so an in-progress draft still validates for its
-  // other structure.
+  // A Platform Agent node without an agentId throws at run time — it is a
+  // *repairable* diagnostic (2026-10-07 R9c 从 warning 升档)：运行必失败但可
+  // 一键修复（Inspector 选 Agent），warning（可疑）低估「必失败」、error
+  // （不可执行）又会阻断草稿保存——repairable 正好。
   for (const node of flow.nodes) {
     if (resolveNodeType(node) !== PLATFORM_AGENT_TYPE) continue
     const agentId = resolveAgentId(node)
     if (typeof agentId !== 'string' || agentId.trim().length === 0) {
-      warnings.push({
+      errors.push({
         node: node.id,
         message: `platform agent node "${node.id}" has no agentId — it will fail when executed`,
+        severity: 'repairable',
+        repair: '在右侧 Inspector 为该节点选择一个 Agent',
       })
     }
   }
+
+  // 模板占位符引用未知名（2026-10-07 R9c 新规则，repairable）：扫描全部节点
+  // 的字符串字段中 {{…}} 引用，引用根（剥 `{{id.field}}` 的 id 段与 $ 前缀）
+  // ∉ {节点 id 集} ∪ KNOWN_TEMPLATE_ROOTS → 可修复提示（拼写错误或上游缺
+  // 节点）。已知误报面（诚实标注）：正文字面量 {{…}} 会误报——与引擎运行时
+  // 同款启发式（llm.node.ts 只计数不判失败），静态同样只报 repairable 不报
+  // error；R10 试运行的 unresolvedPlaceholders 是同一口径的动态实证层。
+  for (const node of flow.nodes) {
+    const unknown = collectUnknownTemplateRoots(node, nodeIds)
+    if (unknown.size > 0) {
+      errors.push({
+        node: node.id,
+        message:
+          `node "${node.id}" references unknown template variable(s): ` +
+          `${[...unknown].join(', ')} — they will stay as literal {{…}} text at run time`,
+        severity: 'repairable',
+        repair: `变量 ${[...unknown].join('、')} 不指向任何节点——检查拼写或补上游节点`,
+      })
+    }
+  }
+
+  // 权限声明规则（R4，2026-10-07）：http/customFunction 节点的
+  // allowedDomains/allowedCommands 形状/条目非法 → error（非法声明不可
+  // 执行，非 warning）。缺席/合法声明都通过——缺席策略由运行期网关
+  // 策略（DAGENTS_HTTP_DOMAIN_POLICY）裁决，校验器不越权。单源实现在
+  // flow-permissions.ts（readNodePermission 的语义阶梯）。
+  errors.push(...validatePermissionDeclarations(flow))
 
   // Cycle check — the engine is a DAG executor (Kahn's topological sort in
   // DagExecutor.execute): a single back-edge (e.g. a condition node looping
@@ -265,6 +323,57 @@ export function validateFlowTopology(data: unknown): TopologyResult {
     })
   }
 
-  if (errors.length > 0) return { ok: false, errors, warnings }
-  return { ok: true, data: flow, warnings }
+  // ok 判决只看 error 档（R9c）：repairable 单独存在时 ok:true 且随行携带
+  // （保存不阻断）；error 档存在时 ok:false，errors 全量返回（混合不被遮蔽）。
+  if (errors.some((e) => (e.severity ?? 'error') === 'error')) {
+    return { ok: false, errors, warnings }
+  }
+  return { ok: true, data: flow, warnings, errors }
+}
+
+/**
+ * 模板变量静态扫描的引擎已知根键（非节点 id 的合法 {{…}} 引用）——与
+ * variables.ts 的运行时注册面同源：start（$start 别名 + Start 输出注册键）、
+ * flow（$flow.chatId/sessionId、flow.state.* 展开到平铺 state）、迭代元数据
+ * 四键、humanInputs（seedRuntime 预供答案）。
+ */
+const KNOWN_TEMPLATE_ROOTS = new Set([
+  'start',
+  'flow',
+  'iterationItem',
+  'iterationIndex',
+  'iterationCount',
+  'iteration',
+  'humanInputs',
+])
+
+/**
+ * 收集一个节点的字符串字段里引用了未知根的 {{…}} 变量名（去重）。
+ * 深走 node.data（平铺 + 嵌套 inputs 一并覆盖——两形态的字段都可能带
+ * acceptVariable）；`{{$start.input}}` 的 $ 前缀剥除后按同表判定。
+ */
+function collectUnknownTemplateRoots(node: FlowNode, nodeIds: Set<string>): Set<string> {
+  const unknown = new Set<string>()
+  const visit = (value: unknown): void => {
+    if (typeof value === 'string') {
+      for (const mt of value.matchAll(/\{\{([^}]+)\}\}/g)) {
+        const path = mt[1].trim()
+        if (path.length === 0) continue
+        const root = (path.startsWith('$') ? path.slice(1) : path).split('.')[0]
+        if (root.length === 0) continue
+        if (nodeIds.has(root) || KNOWN_TEMPLATE_ROOTS.has(root)) continue
+        unknown.add(root)
+      }
+      return
+    }
+    if (Array.isArray(value)) {
+      for (const item of value) visit(item)
+      return
+    }
+    if (value && typeof value === 'object') {
+      for (const item of Object.values(value)) visit(item)
+    }
+  }
+  visit(node.data)
+  return unknown
 }

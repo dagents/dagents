@@ -40,6 +40,7 @@ describe('validateFlowTopology', () => {
         ],
       },
       warnings: [],
+      errors: [],
     })
   })
 
@@ -248,6 +249,7 @@ describe('validateFlowTopology', () => {
       ok: true,
       data: { nodes: [genNode('only', 'startAgentflow')], edges: [] },
       warnings: [],
+      errors: [],
     })
 
     const result = validateFlowTopology({
@@ -262,7 +264,7 @@ describe('validateFlowTopology', () => {
     }
   })
 
-  it('warns when a platform agent node lacks agentId (flat or nested)', () => {
+  it('platformAgent 缺 agentId（平铺/嵌套/空白）= repairable 档：进 errors 但 ok 不变（2026-10-07 R9c 升档）', () => {
     const missing = validateFlowTopology({
       nodes: [
         genNode('start', 'startAgentflow'),
@@ -270,25 +272,89 @@ describe('validateFlowTopology', () => {
       ],
       edges: [{ source: 'start', target: 'pa' }],
     })
+    // repairable 不改变 ok 性（不阻断保存，AC-R9-4）
     expect(missing.ok).toBe(true)
     if (missing.ok) {
-      expect(missing.warnings[0]?.node).toBe('pa')
-      expect(missing.warnings[0]?.message).toMatch(/agentId/)
+      expect(missing.errors).toHaveLength(1)
+      expect(missing.errors[0]?.node).toBe('pa')
+      expect(missing.errors[0]?.severity).toBe('repairable')
+      expect(missing.errors[0]?.repair).toContain('Inspector')
+      expect(missing.warnings).toEqual([])
     }
 
     const blank = validateFlowTopology({
-      nodes: [canvasNode('start', 'startAgentflow'), canvasNode('pa', 'platformAgentAgentflow', { agentId: '  ' })],
+      nodes: [
+        canvasNode('start', 'startAgentflow'),
+        canvasNode('pa', 'platformAgentAgentflow', { agentId: '  ' }),
+      ],
       edges: [{ source: 'start', target: 'pa' }],
     })
     expect(blank.ok).toBe(true)
-    if (blank.ok) expect(blank.warnings[0]?.node).toBe('pa')
+    if (blank.ok) expect(blank.errors[0]?.node).toBe('pa')
 
     const nested = validateFlowTopology({
-      nodes: [canvasNode('start', 'startAgentflow'), canvasNode('pa', 'platformAgentAgentflow', { inputs: { agentId: '' } })],
+      nodes: [
+        canvasNode('start', 'startAgentflow'),
+        canvasNode('pa', 'platformAgentAgentflow', { inputs: { agentId: '' } }),
+      ],
       edges: [{ source: 'start', target: 'pa' }],
     })
     expect(nested.ok).toBe(true)
-    if (nested.ok) expect(nested.warnings[0]?.node).toBe('pa')
+    if (nested.ok) expect(nested.errors[0]?.node).toBe('pa')
+  })
+
+  it('repairable 与 error 同数组全量返回、互不遮蔽（AC-R9-4 前半）', () => {
+    // 同一 flow：成环（error）+ platformAgent 缺 agentId（repairable）
+    const result = validateFlowTopology({
+      nodes: [
+        genNode('start', 'startAgentflow'),
+        genNode('pa', 'platformAgentAgentflow'),
+        genNode('a', 'llmAgentflow'),
+        genNode('b', 'llmAgentflow'),
+      ],
+      edges: [
+        { source: 'start', target: 'pa' },
+        { source: 'a', target: 'b' },
+        { source: 'b', target: 'a' },
+      ],
+    })
+    expect(result.ok).toBe(false)
+    if (!result.ok) {
+      const cycleErr = result.errors.find((e) => /cycle/.test(e.message))
+      const repairable = result.errors.find((e) => e.severity === 'repairable')
+      expect(cycleErr).toBeDefined()
+      expect(cycleErr?.severity ?? 'error').toBe('error')
+      expect(repairable?.node).toBe('pa')
+      expect(repairable?.repair).toBeTruthy()
+    }
+  })
+
+  it('模板占位符引用未知名 → repairable 带定位与指引；已知根键零误报', () => {
+    const result = validateFlowTopology({
+      nodes: [
+        genNode('start', 'startAgentflow'),
+        genNode('up', 'llmAgentflow', { prompt: 'upstream' }),
+        genNode('llm', 'llmAgentflow', {
+          prompt:
+            '上游说：{{up.content}}；别名：{{$start.input}}；迭代：{{iterationItem}}；流程：{{$flow.chatId}}；预供：{{humanInputs.x}}；未知：{{ghostRef.field}}',
+        }),
+      ],
+      edges: [
+        { source: 'start', target: 'up' },
+        { source: 'up', target: 'llm' },
+      ],
+    })
+    expect(result.ok).toBe(true)
+    if (result.ok) {
+      const ph = result.errors.find((e) => /unknown template variable/.test(e.message))
+      expect(ph).toBeDefined()
+      expect(ph?.node).toBe('llm')
+      expect(ph?.severity).toBe('repairable')
+      expect(ph?.message).toContain('ghostRef')
+      // 已知根键（up/别名/迭代/flow/humanInputs）不进未知列表
+      expect(ph?.message).not.toContain('iterationItem')
+      expect(ph?.message).not.toContain('humanInputs')
+    }
   })
 
   it('does not warn when agentId is set (flat or nested)', () => {
@@ -323,5 +389,74 @@ describe('validateFlowTopology', () => {
       expect(result.errors[0]?.node).toBe('n1')
       expect(result.errors[0]?.message).toMatch(/invalid flow data/)
     }
+  })
+
+  // ── R4 权限声明规则（2026-10-07，AC-R4-3）─────────────────────────────
+  // 非法声明 = error（不可执行，与环检测同体验：错误带 node 定位 → 画布标红）；
+  // 缺席/合法声明不产生任何诊断（缺席策略由运行期网关策略裁决）。
+
+  it('域名格式错 / 白名单非数组 → errors 带 node 定位', () => {
+    const result = validateFlowTopology({
+      nodes: [
+        canvasNode('start', 'startAgentflow'),
+        canvasNode('h1', 'httpAgentflow', { inputs: { allowedDomains: ['api.test:8080'] } }),
+        canvasNode('c1', 'customFunctionAgentflow', { inputs: { allowedCommands: 'oops' } }),
+      ],
+      edges: [
+        { source: 'start', target: 'h1' },
+        { source: 'h1', target: 'c1' },
+      ],
+    })
+    expect(result.ok).toBe(false)
+    if (!result.ok) {
+      const permErrors = result.errors.filter((e) => e.message.includes('allowed'))
+      expect(permErrors).toHaveLength(2)
+      expect(permErrors[0]?.node).toBe('h1')
+      expect(permErrors[0]?.message).toMatch(/allowedDomains 声明非法/)
+      expect(permErrors[1]?.node).toBe('c1')
+      expect(permErrors[1]?.message).toMatch(/allowedCommands 声明非法/)
+    }
+  })
+
+  it('条目超限 / 条目非法形状 → errors（fail-closed 拒千条目清单）', () => {
+    const tooMany = Array.from({ length: 33 }, (_, i) => `d${i}.test`)
+    const result = validateFlowTopology({
+      nodes: [
+        canvasNode('start', 'startAgentflow'),
+        canvasNode('h1', 'httpAgentflow', { allowedDomains: tooMany }),
+        canvasNode('c1', 'customFunctionAgentflow', { allowedCommands: ['ok', 42] }),
+      ],
+      edges: [],
+    })
+    expect(result.ok).toBe(false)
+    if (!result.ok) {
+      expect(result.errors.some((e) => e.node === 'h1' && /超过上限 32/.test(e.message))).toBe(true)
+      expect(result.errors.some((e) => e.node === 'c1' && /条目应为字符串/.test(e.message))).toBe(
+        true,
+      )
+    }
+  })
+
+  it('合法声明与缺席 → 零额外诊断（warnings 全量收集原则不破坏）', () => {
+    const result = validateFlowTopology({
+      nodes: [
+        genNode('start', 'startAgentflow', { variables: {} }),
+        genNode('h1', 'httpAgentflow', { url: 'https://api.test', allowedDomains: ['api.test'] }),
+        genNode('h2', 'httpAgentflow', { url: 'https://plain.test' }), // 缺席：warn 期放行
+        genNode('c1', 'customFunctionAgentflow', {
+          functionCode: 'return 1',
+          allowedCommands: ['git'],
+        }),
+        genNode('c2', 'customFunctionAgentflow', { functionCode: 'return 2' }), // 缺席：通道不存在
+      ],
+      edges: [
+        { source: 'start', target: 'h1' },
+        { source: 'h1', target: 'h2' },
+        { source: 'h2', target: 'c1' },
+        { source: 'c1', target: 'c2' },
+      ],
+    })
+    expect(result.ok).toBe(true)
+    if (result.ok) expect(result.warnings).toEqual([])
   })
 })

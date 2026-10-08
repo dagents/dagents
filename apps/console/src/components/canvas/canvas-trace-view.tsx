@@ -49,7 +49,7 @@ import {
 } from '@/lib/run-trace-model'
 import './canvas-trace.css'
 
-export type TraceRunState = 'idle' | 'running' | 'done' | 'failed' | 'awaiting'
+export type TraceRunState = 'idle' | 'running' | 'done' | 'failed' | 'awaiting' | 'stopped'
 
 export interface CanvasTraceViewProps {
   runState: TraceRunState
@@ -95,6 +95,8 @@ function statusClass(status: string): string {
   if (status === 'done' || status === 'completed') return 'ok'
   if (status === 'failed') return 'err'
   if (status === 'running') return 'run'
+  // R2（§4.2）：cached 泳道段——黄系（零时长段 + ⚡ 标注）。
+  if (status === 'cached') return 'warn'
   if (status === 'paused' || status === 'awaiting_input') return 'warn'
   return 'neutral'
 }
@@ -346,9 +348,11 @@ export function CanvasTraceView({ runState, model, spans }: CanvasTraceViewProps
         ? t('失败')
         : s === 'running'
           ? t('运行中')
-          : s === 'paused' || s === 'awaiting_input'
-            ? t('待输入')
-            : s
+          : s === 'cached'
+            ? t('来自缓存')
+            : s === 'paused' || s === 'awaiting_input'
+              ? t('待输入')
+              : s
 
   const kindLabel = (k: TraceRecordKind): string =>
     k === 'thinking'

@@ -8,7 +8,7 @@ import type {
   ITokenUsage,
 } from '../types/execution.js'
 import { NodeRegistry } from './node-registry.js'
-import { HumanInputPendingError, SeedHashMismatchError } from './errors.js'
+import { HumanInputPendingError, SeedHashMismatchError, NodeRejectedError } from './errors.js'
 import { RuntimeState } from './runtime.js'
 import { runUserCode } from '../nodes/custom-function/user-code-exec.js'
 import { computeInputHash } from '../utils/input-hash.js'
@@ -50,6 +50,8 @@ export interface ExecuteOptions {
   historyRetriever?: IExecutionContext['historyRetriever']
   /** 子流程执行器（2026-10-04）— ExecuteFlow 节点用（宿主注入，引擎 DB-free）。 */
   flowExecutor?: IExecutionContext['flowExecutor']
+  /** 受控命令执行（R4，2026-10-07）— customFunction $exec 通道（宿主注入）。 */
+  execRunner?: IExecutionContext['execRunner']
   /** flow 级上下文（P2a，2026-10-04）— 宿主预算预裁后的 context_md。 */
   flowContext?: string
   /**
@@ -90,6 +92,11 @@ export interface ExecuteOptions {
    * MAX_LOOP/迭代上限兜底烧钱。
    */
   tokenBudget?: number
+  /**
+   * 试运行模式（R10，2026-10-07，design-sharp §3.4）：透传到每个节点的
+   * IExecutionContext.trialMode——http 节点据此 skip/real。缺省 = 正式执行。
+   */
+  trialMode?: { http: 'skip' | 'real' }
 }
 
 /** Node type names whose iteration body the executor repeats. */
@@ -483,7 +490,14 @@ export class DagExecutor {
       // 诚实报「宿主未装配」，测试逮出过一次。
       historyRetriever: opts.historyRetriever,
       flowExecutor: opts.flowExecutor,
+      // R4 受控命令通道（2026-10-07）：漏传会让 customFunction 的 $exec 诚实
+      // 报「宿主未提供受控执行通道」——与 historyRetriever/flowExecutor 同款
+      // 接缝清单（design-permission §2.2）。
+      execRunner: opts.execRunner,
       flowContext: opts.flowContext,
+      // R10 试运行模式透传（design-sharp §3.4-②）：http 节点的 skip/real 短路
+      // 依据；缺省 undefined = 正式执行（行为逐字不变）。
+      trialMode: opts.trialMode,
     }
   }
 
@@ -534,7 +548,22 @@ export class DagExecutor {
       try {
         return await nodeInstance.run(nodeData, nodeInput, runCtx)
       } catch (err) {
-        if (attempt >= retries || ctx.opts.signal?.aborted) throw err
+        if (ctx.opts.signal?.aborted) throw err
+        if (attempt >= retries) {
+          // 声明型预算耗尽归「节点拒绝」档（R9 9d，design-sharp §2.4）：
+          // **仅在声明了 retries ≥ 1 且耗尽时**包装为 NodeRejectedError
+          // （cause 挂原始错误）——run 走 partial_success 不整体翻红；
+          // retries=0（缺省）保持原错误直抛 = run failed 红态语义原样保留
+          // （未购买自愈预算的失败仍是执行失败；RM-01 e2e「失败→resume
+          // 零重跑」场景不受波及）。取消信号优先直抛（取消 ≠ 拒绝档）。
+          if (retries >= 1 && err instanceof Error && !(err instanceof NodeRejectedError)) {
+            throw new NodeRejectedError(
+              `节点被拒绝：重试 ${retries} 次后仍失败（${err.message}）`,
+              { cause: err },
+            )
+          }
+          throw err
+        }
         attempt += 1
         await new Promise((r) => setTimeout(r, RETRY_BACKOFF_BASE_MS * attempt))
       }
@@ -721,6 +750,12 @@ export class DagExecutor {
               tokens: output.usage ?? null,
               cost: null,
               ordinal,
+              // resolved model（2026-10-07 R8 §3.6(c)）：节点输出携带
+              // （llm/platform-agent 透传；无模型语义的节点缺席）。
+              ...(output.output?.resolvedModel != null &&
+              typeof output.output.resolvedModel === 'string'
+                ? { resolvedModel: output.output.resolvedModel }
+                : {}),
             }
             executedNodes.push(executed)
             opts.onNodeEnd?.(executed)
@@ -734,6 +769,12 @@ export class DagExecutor {
               input: this.toRecord(nodeInput),
               output: output.output,
               tokens: output.usage ?? null,
+              // resolved model（R8 §3.6(c)）：journal decision 载荷——
+              // runs.models 聚合 / 暖缓存对账的可查面（AC-R8-4）。
+              ...(output.output?.resolvedModel != null &&
+              typeof output.output.resolvedModel === 'string'
+                ? { resolvedModel: output.output.resolvedModel }
+                : {}),
             })
             runtime.merge(output.state)
             // Expose the node's output to template variables under its
@@ -768,6 +809,12 @@ export class DagExecutor {
               } satisfies WaveOutcome
             }
             const message = err instanceof Error ? err.message : String(err)
+            // 节点拒绝分类（R9 9d，design-sharp §2.4）：声明型超限
+            // （NodeRejectedError）→ isolated 恒真（**不读节点
+            // isolateFailure 声明、由错误类型决定**），span 状态落
+            // 'rejected'（可重试黄警档）——后续既有管道把它并入
+            // ctx.isolatedFailures → run 终态 partial_success，不整体翻红。
+            const rejected = err instanceof NodeRejectedError
             // 被看门狗清理/取消的 CLI 调用把已产生的 usage 附着在错误
             // 对象上（见 gateway createCliLlmClient）—— 失败节点的 span
             // 也能如实记录烧掉的 tokens，而不是恒 0。
@@ -777,7 +824,7 @@ export class DagExecutor {
               nodeName: flowNode.data.name as string,
               startedAt,
               endedAt: new Date().toISOString(),
-              status: 'failed',
+              status: rejected ? 'rejected' : 'failed',
               input: this.toRecord(nodeInput),
               output: {},
               tokens: errUsage ?? null,
@@ -787,7 +834,8 @@ export class DagExecutor {
             executedNodes.push(executed)
             opts.onNodeEnd?.(executed)
             // 失败也是终态：decision 记档（resume 种子过滤 status IN done/cached，
-            // failed 行不进种子，但「试过且失败」的事实入档）。
+            // failed 行不进种子，但「试过且失败」的事实入档；rejected 同记
+            // failed——拒绝对 resume 语义同样是终态失败）。
             opts.journal?.recordDecision({
               nodeId,
               ordinal,
@@ -798,8 +846,9 @@ export class DagExecutor {
             })
             // 失败分支隔离（2026-10-04）：节点声明 isolateFailure 时，失败
             // 只塌缩本分支（无产出 → 下游自然剪枝），不中断整个 run。
-            const isolated = mergedNodeFlag(flowNode, 'isolateFailure') === true
-            return { kind: 'failed', nodeId, error: message, isolated }
+            // rejected 失败视同 isolated（由错误类型决定，不读声明）。
+            const isolated = rejected || mergedNodeFlag(flowNode, 'isolateFailure') === true
+            return { kind: 'failed', nodeId, error: message, isolated, rejected }
           }
         }),
       )
@@ -863,6 +912,12 @@ export class DagExecutor {
         const iterationResult = await this.runIterationBody(ctx, flowNode, plan, outputs)
         if (iterationResult.error) {
           for (const bodyId of plan.body) processed.add(bodyId)
+          // 拒绝档（R9 9d）：兜底路径的迭代超限同样不翻红——控制器计入
+          // isolatedFailures（partial_success），错误消息透传给 runError。
+          if (iterationResult.rejected) {
+            ctx.isolatedFailures.push(o.nodeId)
+            continue
+          }
           return { processed, error: iterationResult.error }
         }
         for (const bodyId of plan.body) {
@@ -935,17 +990,19 @@ export class DagExecutor {
     controller: FlowNode,
     plan: IterationPlan,
     globalOutputs: Map<string, Record<string, unknown>>,
-  ): Promise<{ output: Record<string, unknown>; error?: string }> {
+  ): Promise<{ output: Record<string, unknown>; error?: string; rejected?: boolean }> {
     const { runtime, topoIndex } = ctx
     const controllerOutput = globalOutputs.get(controller.id) ?? {}
-    // 纵深防御：IterationNode.run 已在节点侧对超上限抛错（span 可见），
-    // 这里兜住绕过节点校验直接进入 body 计划的路径 —— 同值同语义。
+    // 纵深防御：IterationNode.run 已在节点侧对超上限抛 NodeRejectedError
+    // （span 带 'rejected' 终态，R9 9d），这里兜住绕过节点校验直接进入
+    // body 计划的路径 —— 同值同语义（rejected = 节点拒绝档，run 不翻红）。
     const MAX_ITERATION_ITEMS = 100
     if (plan.items.length > MAX_ITERATION_ITEMS) {
       return {
         output: {},
+        rejected: true,
         error:
-          `Iteration 节点「${controller.data?.name ?? controller.id}」的列表有 ` +
+          `节点被拒绝：Iteration 节点「${controller.data?.name ?? controller.id}」的列表有 ` +
           `${plan.items.length} 项，超过上限 ${MAX_ITERATION_ITEMS}（拒绝静默截断，` +
           `请在上游缩小列表或分批运行）`,
       }
@@ -1289,53 +1346,10 @@ export class DagExecutor {
     nodeOutput: Record<string, unknown>,
     sourceNode?: FlowNode,
   ): boolean {
-    const handle = edge.sourceHandle
-    if (!handle) {
-      return true
-    }
-
-    if (handle === 'true') {
-      const matched = nodeOutput.matched
-      const result = nodeOutput.result
-      return matched === 'true' || matched === true || result === 'true' || result === true
-    }
-
-    if (handle === 'false') {
-      const matched = nodeOutput.matched
-      const result = nodeOutput.result
-      return matched === 'false' || matched === false || result === 'false' || result === false
-    }
-
-    const selected = nodeOutput.selected
-    const result = nodeOutput.result
-    if (selected !== undefined || result !== undefined) {
-      return selected === handle || result === handle
-    }
-
-    const matched = nodeOutput.matched
-    if (matched !== undefined) {
-      // Condition 源节点：把画布数字/Else 锚点映射回 true/false 分支。
-      const matchedTrue = matched === 'true' || matched === true
-      if (/^else$/i.test(handle)) return !matchedTrue
-      const anchorMatch = sourceNode
-        ? /^-output-(\d+)$/.exec(handle.replace(sourceNode.id, ''))
-        : null
-      if (anchorMatch) {
-        const index = Number(anchorMatch[1])
-        const flat = sourceNode?.data as Record<string, unknown> | undefined
-        const nested = flat?.inputs as Record<string, unknown> | undefined
-        const conditions = (nested?.conditions ?? flat?.conditions) as unknown[] | undefined
-        // 读不到 conditions 时无法判定「最后一个是 Else」—— 按条件锚点
-        // 处理（显式分支，不再走 NaN 比较的隐式结果）。
-        const conditionCount = Array.isArray(conditions) ? conditions.length : null
-        const isElseAnchor = conditionCount !== null && index >= conditionCount
-        return isElseAnchor ? !matchedTrue : matchedTrue
-      }
-      // 未知 handle 但输出声明了 matched —— 默认走 true 分支语义。
-      return matchedTrue
-    }
-
-    return true
+    // 委托模块级单源实现（2026-10-07 R2 暖缓存提取，design-recover §3.7(b)3）：
+    // gateway 的 buildWarmCacheSeed 需要与引擎完全同源的活动边判定/输入合并
+    // ——口径漂移即 inputHash 漂移（误杀/漏杀种子），单点抽取。
+    return shouldExecuteEdge(edge, nodeOutput, sourceNode)
   }
 
   /**
@@ -1355,35 +1369,8 @@ export class DagExecutor {
     activeEdges: FlowEdge[],
     nodeOutputs: Map<string, Record<string, unknown>>,
   ): unknown {
-    if (activeEdges.length === 0) {
-      return undefined
-    }
-
-    if (activeEdges.length === 1) {
-      const output = nodeOutputs.get(activeEdges[0].source) ?? {}
-      const content = output.content
-      return typeof content === 'string' ? content : output
-    }
-
-    const merged: Record<string, unknown> = {}
-    const contents: string[] = []
-    const inputs: Array<Record<string, unknown>> = []
-
-    for (const edge of activeEdges) {
-      const output = nodeOutputs.get(edge.source) ?? {}
-      inputs.push(output)
-      Object.assign(merged, output)
-      if (typeof output.content === 'string') {
-        contents.push(output.content)
-      }
-    }
-
-    if (contents.length > 0) {
-      merged.content = capJoinedContent(contents)
-    }
-    merged.inputs = inputs
-
-    return merged
+    // 委托模块级单源实现（同 shouldExecuteEdge 的提取理由）。
+    return mergeInputs(activeEdges, nodeOutputs)
   }
 
   /**
@@ -1546,6 +1533,8 @@ interface FailedOutcome {
   error: string
   /** 失败分支隔离（2026-10-04）：节点声明 isolateFailure 时为 true。 */
   isolated?: boolean
+  /** 节点拒绝（R9 9d）：声明型超限（NodeRejectedError）——恒伴随 isolated。 */
+  rejected?: boolean
 }
 
 /**
@@ -1563,8 +1552,11 @@ function mergedNodeFlag(flowNode: FlowNode, key: string): unknown {
  * 节点 mergedInputs（平铺 `data.<field>` 打底、嵌套 `data.inputs.<field>`
  * 覆盖）——runNode 的节点数据归一化与 hash 预演（nodeInputHash）共用同源，
  * 口径漂移即 hash 漂移，单点抽取。
+ *
+ * 2026-10-07 R2 暖缓存（design-recover §3.7(b)3）：导出给 gateway 的
+ * buildWarmCacheSeed——预演与真实执行的配置归一必须是同一个函数。
  */
-function mergedNodeInputs(flowNode: FlowNode): Record<string, unknown> {
+export function mergedNodeInputs(flowNode: FlowNode): Record<string, unknown> {
   const flat = (flowNode.data ?? {}) as Record<string, unknown>
   const nested = flat.inputs
   if (nested && typeof nested === 'object' && !Array.isArray(nested)) {
@@ -1577,8 +1569,10 @@ function mergedNodeInputs(flowNode: FlowNode): Record<string, unknown> {
  * resolveVariables 预演（AD-R3）：深拷贝后对字符串逐个解析——**只用于 hash，
  * 不改变传给节点的输入**。未引用变量保持字面量（与节点侧解析行为一致，
  * 同一函数保证预演与真实解析的口径是同一个）。
+ *
+ * 2026-10-07 R2：导出理由同 mergedNodeInputs（暖缓存预演同源）。
  */
-function previewResolved(value: unknown, state: Record<string, unknown>): unknown {
+export function previewResolved(value: unknown, state: Record<string, unknown>): unknown {
   if (typeof value === 'string') return resolveVariables(value, state)
   if (Array.isArray(value)) return value.map((item) => previewResolved(item, state))
   if (value !== null && typeof value === 'object') {
@@ -1590,6 +1584,103 @@ function previewResolved(value: unknown, state: Record<string, unknown>): unknow
     return out
   }
   return value
+}
+
+// ── 暖缓存预演单源（2026-10-07 R2，design-recover §3.7(b)3）──
+// 从 class private 提取的模块级实现：活动边判定与多入边合并的真实执行语义。
+// gateway 的 buildWarmCacheSeed 沿谱系链预演「命中节点用旧输出、miss 节点
+// 无输出」的一致世界线时，必须与引擎 runWaves 的实际调度完全同源——
+// 判定漂移即 inputHash 漂移（误杀/漏杀种子，比浪费更严重）。
+
+/** 活动边判定（单源；语义见 DagExecutor.shouldExecuteEdge 的 jsdoc）。 */
+export function shouldExecuteEdge(
+  edge: FlowEdge,
+  nodeOutput: Record<string, unknown>,
+  sourceNode?: FlowNode,
+): boolean {
+  const handle = edge.sourceHandle
+  if (!handle) {
+    return true
+  }
+
+  if (handle === 'true') {
+    const matched = nodeOutput.matched
+    const result = nodeOutput.result
+    return matched === 'true' || matched === true || result === 'true' || result === true
+  }
+
+  if (handle === 'false') {
+    const matched = nodeOutput.matched
+    const result = nodeOutput.result
+    return matched === 'false' || matched === false || result === 'false' || result === false
+  }
+
+  const selected = nodeOutput.selected
+  const result = nodeOutput.result
+  if (selected !== undefined || result !== undefined) {
+    return selected === handle || result === handle
+  }
+
+  const matched = nodeOutput.matched
+  if (matched !== undefined) {
+    // Condition 源节点：把画布数字/Else 锚点映射回 true/false 分支。
+    const matchedTrue = matched === 'true' || matched === true
+    if (/^else$/i.test(handle)) return !matchedTrue
+    const anchorMatch = sourceNode
+      ? /^-output-(\d+)$/.exec(handle.replace(sourceNode.id, ''))
+      : null
+    if (anchorMatch) {
+      const index = Number(anchorMatch[1])
+      const flat = sourceNode?.data as Record<string, unknown> | undefined
+      const nested = flat?.inputs as Record<string, unknown> | undefined
+      const conditions = (nested?.conditions ?? flat?.conditions) as unknown[] | undefined
+      // 读不到 conditions 时无法判定「最后一个是 Else」—— 按条件锚点
+      // 处理（显式分支，不再走 NaN 比较的隐式结果）。
+      const conditionCount = Array.isArray(conditions) ? conditions.length : null
+      const isElseAnchor = conditionCount !== null && index >= conditionCount
+      return isElseAnchor ? !matchedTrue : matchedTrue
+    }
+    // 未知 handle 但输出声明了 matched —— 默认走 true 分支语义。
+    return matchedTrue
+  }
+
+  return true
+}
+
+/** 多入边合并（单源；语义见 DagExecutor.mergeInputs 的 jsdoc）。 */
+export function mergeInputs(
+  activeEdges: FlowEdge[],
+  nodeOutputs: Map<string, Record<string, unknown>>,
+): unknown {
+  if (activeEdges.length === 0) {
+    return undefined
+  }
+
+  if (activeEdges.length === 1) {
+    const output = nodeOutputs.get(activeEdges[0].source) ?? {}
+    const content = output.content
+    return typeof content === 'string' ? content : output
+  }
+
+  const merged: Record<string, unknown> = {}
+  const contents: string[] = []
+  const inputs: Array<Record<string, unknown>> = []
+
+  for (const edge of activeEdges) {
+    const output = nodeOutputs.get(edge.source) ?? {}
+    inputs.push(output)
+    Object.assign(merged, output)
+    if (typeof output.content === 'string') {
+      contents.push(output.content)
+    }
+  }
+
+  if (contents.length > 0) {
+    merged.content = capJoinedContent(contents)
+  }
+  merged.inputs = inputs
+
+  return merged
 }
 
 /** AD-R3 口径的节点输入指纹：nodeType + 配置预演 + 引擎输入原样（单源）。 */

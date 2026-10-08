@@ -5,7 +5,9 @@ import {
   formatTokensBadge,
   sectionTranscript,
   spanToTerminalSection,
+  buildDeliverablesTranscript,
 } from './run-terminal-format'
+import { extractDeliverableText, type DeliverableItem } from '@dagents/contracts'
 
 /** 消费方契约：原始行先过边界归一（nodeId/node_id 双写在那一层处理），
  *  派生层只吃规范 RunNodeSpan —— 测试同管线组合。 */
@@ -170,5 +172,97 @@ describe('sectionTranscript（复制实录）', () => {
     expect(text).toContain('🔧 Bash')
     expect(text).toContain('{"command":"ls"}')
     expect(text).toContain('最终正文')
+  })
+})
+
+/* ── R6 渐进产物（2026-10-07）：聚合区 transcript + 同一提取单源钉子 ── */
+
+describe('AC-R6-4：聚合区与单节点行同一提取单源', () => {
+  it('extractOutputText 就是 contracts 的 extractDeliverableText（同一函数对象）', () => {
+    // 物理单源：run-terminal-format 只 re-export（实现上移 contracts），
+    // 不存在第二套提取实现。
+    expect(extractOutputText).toBe(extractDeliverableText)
+  })
+
+  it('同一 span 载荷语料：聚合路径与终端段路径提取的正文逐字一致', () => {
+    const corpus: unknown[] = [
+      { text: '正文甲' },
+      { content: '正文乙' },
+      { text: '{"text":"DirectReply 内层"}' },
+      { text: '{"content":"内层 content"}' },
+      { foo: 'bar' },
+      'plain string',
+      null,
+    ]
+    for (const payload of corpus) {
+      // 单节点行路径：spanToDisplay 的正文 = extractOutputText(payload)
+      //（canvas-results-panel.tsx spanToDisplay）；终端段同源
+      const viaSection = spanToTerminalSection(
+        row({ nodeId: 'n1', nodeLabel: '节点一', output: payload as never }),
+      ).output
+      const viaAggregate = extractDeliverableText(payload as never) ?? ''
+      expect(viaSection).toBe(viaAggregate)
+    }
+  })
+})
+
+describe('buildDeliverablesTranscript（聚合区复制/下载载荷，R6）', () => {
+  const base: DeliverableItem = {
+    nodeId: 'a',
+    nodeLabel: '翻译',
+    nodeType: 'llmAgentflow',
+    ordinal: 0,
+    status: 'done',
+    tokens: { inputTokens: 12, outputTokens: 34 },
+    output: { text: '翻译产物全文' },
+    inheritedFromRunId: null,
+    subflowName: null,
+  }
+
+  it('节点名标题 + 提取正文 + tokens 徽章', () => {
+    const md = buildDeliverablesTranscript([base])
+    expect(md).toContain('## 翻译（a）')
+    expect(md).toContain('翻译产物全文')
+    expect(md).toContain('↑12 ↓34')
+  })
+
+  it('无正文时 JSON 兜底；无产出有占位', () => {
+    const json: DeliverableItem = { ...base, output: { foo: 1 } }
+    const none: DeliverableItem = { ...base, output: null }
+    const md = buildDeliverablesTranscript([json, none])
+    expect(md).toContain('"foo": 1')
+    expect(md).toContain('（无产出）')
+  })
+
+  it('迭代多 ordinal：聚合一个小节、逐项「第 k/n」编号', () => {
+    const items: DeliverableItem[] = [0, 1].map((i) => ({
+      ...base,
+      ordinal: i,
+      output: { text: `第${i}项产物` },
+    }))
+    const md = buildDeliverablesTranscript(items)
+    expect(md).toContain('## 翻译（a · 2 项）')
+    expect(md).toContain('### 第 1/2 项')
+    expect(md).toContain('### 第 2/2 项')
+    expect(md).toContain('第0项产物')
+    expect(md).toContain('第1项产物')
+  })
+
+  it('继承标注与子流程归属以引用行呈现', () => {
+    const item: DeliverableItem = {
+      ...base,
+      status: 'cached',
+      inheritedFromRunId: 'abcdef12-3456-4789-abcd-ef0123456789',
+      subflowName: '子流程甲',
+    }
+    const md = buildDeliverablesTranscript([item])
+    expect(md).toContain('> 继承自前次运行 abcdef12')
+    expect(md).toContain('> 子流程：子流程甲')
+  })
+
+  it('label 缺席时退 nodeId；空清单得空串', () => {
+    const anon: DeliverableItem = { ...base, nodeLabel: null }
+    expect(buildDeliverablesTranscript([anon])).toContain('## a（a）')
+    expect(buildDeliverablesTranscript([])).toBe('')
   })
 })

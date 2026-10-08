@@ -42,10 +42,12 @@ export interface IncrementalSpanWriter {
  * 引擎节点终态 → span 终态（2026-10-07 可恢复性地基，随 cached 写方改齐）：
  * cached（种子命中跳过）是独立 span 终态（DB CHECK 词表由 1720000106200
  * 放宽）——只改状态映射，不动 upsert 键（design-recover §⑦ 共享表约束）。
+ * rejected（工程决策 9d，design-sharp §2.4）= 声明型超限拒绝的可重试黄警档。
  */
 function spanEndStatus(engineStatus: string): NodeSpanStatus {
   if (engineStatus === 'failed') return 'failed'
   if (engineStatus === 'cached') return 'cached'
+  if (engineStatus === 'rejected') return 'rejected'
   return 'done'
 }
 

@@ -30,6 +30,9 @@ import {
   validateFlowTopology,
   isPrivateHttpHost,
   applyAutoLayout,
+  readNodePermission,
+  isDomainAllowed,
+  PERMISSION_FIELDS,
   type FlowData,
   type TopologyError,
   type TopologyWarning,
@@ -108,6 +111,8 @@ Rules:
 - The engine executes flows as a DAG: edges must NEVER point back to an earlier node (no cycles — a condition node looping to an earlier step makes the flow unrunnable). "Repeat until X": use an iterationAgentflow node with data.inputs.items = a JSON array of rounds (e.g. "[1,2,3]", loop body = the repeated steps downstream) and optionally data.inputs.whileCondition = a JS expression over $input (e.g. "$input.approved === true") to stop remaining rounds early, or state the repetition in that step's systemPrompt and let the agent iterate internally until done
 - iterationAgentflow also accepts data.inputs.concurrency (integer 1-8, default 1) to run items in parallel
 - For structured output from an LLM node, set data.inputs.outputSchema to a JSON Schema object — the node then returns a parsed object available to downstream templates as {{<node_id>.json}}
+- For httpAgentflow nodes, set data.inputs.allowedDomains to the exact hostnames the flow may call (requests and redirects are rejected on any other host), e.g. ["api.github.com"]
+- customFunctionAgentflow nodes that need shell commands MUST set data.inputs.allowedCommands (bare command names, e.g. ["git","rg"]); $exec() is unavailable without it
 - To run another flow as a subflow step, use an executeFlowAgentflow node with data.inputs.targetFlowId (only when the user explicitly references another existing flow)
 - Optional node-level flags: data.inputs.isolateFailure = true lets this node fail without failing the whole run (its branch is pruned, run ends as partial_success); data.inputs.finalOutput = true makes this node's output the run's final output
 - Position nodes in a left-to-right layout with ~250px spacing (positions are placeholders — the platform re-lays out nodes deterministically from the graph topology; array order breaks ties)
@@ -596,9 +601,44 @@ export function scanGeneratedFlowRisks(flow: FlowData): TopologyWarning[] {
           message: `节点「${node.id}」的 functionCode 超过 16KB —— 异常庞大，建议人工复核`,
         })
       }
+      // R4（2026-10-07）：代码文本出现 $exec 而未声明 allowedCommands →
+      // warning（生成物带指引；运行时 $exec 是 undefined，调用即结构化错误）
+      const commandPerm = readNodePermission(node, PERMISSION_FIELDS.command)
+      const usesExec = typeof code === 'string' && code.includes('$exec')
+      if (usesExec && commandPerm.kind === 'absent') {
+        warnings.push({
+          message: `节点「${node.id}」的代码使用了 $exec 但未声明 allowedCommands —— 运行时 $exec 不可用（调用即失败）；需执行命令请在节点配置声明命令白名单，如 ["git","rg"]`,
+        })
+      }
     }
     if (name === 'httpAgentflow') {
+      // R4（2026-10-07）：域名清单风险扫描——① 未声明 → 过渡期提示；
+      // ② 已声明且 url 静态可解析 → 逐条比对 hostname ∈ 清单（不一致 =
+      // 运行时必拒的提前可见）；模板变量 URL 跳过静态判定（`{{…}}` 能被
+      // URL 构造器吃成字面 hostname，须显式排除），诚实留给运行时守卫。
+      const domainPerm = readNodePermission(node, PERMISSION_FIELDS.domain)
       const url = flat?.url
+      if (domainPerm.kind === 'absent') {
+        warnings.push({
+          message: `节点「${node.id}」未声明 allowedDomains —— 过渡期放行，网关 enforce 后将拒绝；请声明域名清单，如 ["api.github.com"]`,
+        })
+      } else if (
+        domainPerm.kind === 'declared' &&
+        typeof url === 'string' &&
+        url.length > 0 &&
+        !/\{\{[^}]+\}\}/.test(url)
+      ) {
+        try {
+          const parsed = new URL(url)
+          if (!isDomainAllowed(parsed.hostname, domainPerm.values)) {
+            warnings.push({
+              message: `节点「${node.id}」的 URL 域名 ${parsed.hostname} 不在 allowedDomains 清单内 —— 运行时将被域名守卫拒绝，请把清单与 URL 对齐`,
+            })
+          }
+        } catch {
+          // URL 非法形态：现有 URL 解析 warning 兜底，不重复报
+        }
+      }
       if (typeof url === 'string' && url.length > 0) {
         try {
           const parsed = new URL(url)

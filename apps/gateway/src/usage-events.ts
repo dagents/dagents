@@ -161,6 +161,27 @@ export function aggregateExecutedNodesUsage(
   return { usage, cost: priced ? cost : null, priced }
 }
 
+/**
+ * rollup 主模型（R8 §3.6(c)，AC-R8-4）：用量最大节点的 resolvedModel——
+ * usage_events.model 的填充值（workflow 路径此前恒空）。无 resolvedModel
+ * 的 run 返回 null（未起 LLM / 旧引擎节点未透传）。
+ */
+export function rollupPrimaryModel(
+  nodes: ReadonlyArray<{ resolvedModel?: string; tokens?: Record<string, unknown> | null }>,
+): string | null {
+  let best: { model: string; tokens: number } | null = null
+  for (const n of nodes) {
+    if (!n.resolvedModel) continue
+    const t = n.tokens
+    const spent =
+      t && typeof t === 'object'
+        ? tok(t, ['inputTokens', 'prompt_tokens']) + tok(t, ['outputTokens', 'completion_tokens'])
+        : 0
+    if (!best || spent > best.tokens) best = { model: n.resolvedModel, tokens: spent }
+  }
+  return best?.model ?? null
+}
+
 /** Rollup of a dispatch task's per-model usage (`Record<model, TokenUsage>`). */
 export interface DispatchUsageRollup {
   usage: FlatUsage

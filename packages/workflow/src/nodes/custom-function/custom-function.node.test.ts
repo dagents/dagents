@@ -41,11 +41,23 @@ describe('CustomFunctionNode', () => {
 
   it('$inputText prefers content over text and JSON-stringifies shapeless objects', async () => {
     const node = new CustomFunctionNode()
-    const a = await node.run(makeNodeData('return { t: $inputText }', { text: 'T', content: 'C' }), '', makeContext())
+    const a = await node.run(
+      makeNodeData('return { t: $inputText }', { text: 'T', content: 'C' }),
+      '',
+      makeContext(),
+    )
     expect(a.output.t).toBe('C')
-    const b = await node.run(makeNodeData('return { t: $inputText }', { matched: 'true' }), '', makeContext())
+    const b = await node.run(
+      makeNodeData('return { t: $inputText }', { matched: 'true' }),
+      '',
+      makeContext(),
+    )
     expect(b.output.t).toBe('{"matched":"true"}')
-    const c = await node.run(makeNodeData('return { t: $inputText }', '裸字符串'), '', makeContext())
+    const c = await node.run(
+      makeNodeData('return { t: $inputText }', '裸字符串'),
+      '',
+      makeContext(),
+    )
     expect(c.output.t).toBe('裸字符串')
   })
 
@@ -74,6 +86,11 @@ describe('CustomFunctionNode', () => {
     const node = new CustomFunctionNode()
     expect(node.name).toBe('customFunctionAgentflow')
     expect(node.type).toBe('CustomFunction')
-    expect(node.inputs).toHaveLength(2)
+    // 3 = functionCode / functionInput / allowedCommands（R4 命令白名单输入）
+    expect(node.inputs.map((i) => i.name)).toEqual([
+      'functionCode',
+      'functionInput',
+      'allowedCommands',
+    ])
   })
 })

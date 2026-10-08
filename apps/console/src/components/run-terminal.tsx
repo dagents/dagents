@@ -218,6 +218,8 @@ export function lineIcon(kind: TerminalLine['kind']): IconName {
       return 'cornerDownRight'
     case 'error':
       return 'alertTriangle'
+    case 'verdict':
+      return 'check'
     default:
       return 'point'
   }
@@ -290,6 +292,19 @@ function LineView({ line }: { line: TerminalLine }): React.ReactElement | null {
           <span className='rtl-label'>{line.label}</span>
         </div>
       )
+    case 'verdict':
+      // 裁决行（2026-10-07 R5 三值裁决）：status 行形态 + 可区分色——
+      // 「第 N 轮裁决 / 回喂了什么 / 会话延续方式」在终端回放一眼可辨；
+      // detail（违规明细全文 / 回喂消息）折叠一层展开。
+      return (
+        <details className='rtl-line rtl-verdline'>
+          <summary>
+            <span className='rtl-glyph'><Icon name='check' className='ic-12' /></span>
+            <span className='rtl-label'>{oneLine(line.label, 120)}</span>
+          </summary>
+          {line.detail ? <pre className='rtl-detail'>{line.detail}</pre> : null}
+        </details>
+      )
     default:
       return (
         <div className='rtl-line rtl-dim'>
@@ -300,12 +315,15 @@ function LineView({ line }: { line: TerminalLine }): React.ReactElement | null {
   }
 }
 
-/** 一个节点段：段头 + `$` 提示行 + 事件行 + 成品正文。 */
+/** 一个节点段：段头 + `$` 提示行 + 事件行 + 成品正文。
+ *  `data-terminal-section={nodeId}`（R6 渐进产物）：聚合区「终端」入口的
+ *  跳转锚点——section id = nodeId（spanToTerminalSection / live builder 同
+ *  键），纯属性零行为变化，chat 面（assistant-content 共用本组件）无感。 */
 function SectionView({ section }: { section: TerminalSection }): React.ReactElement {
   const { t } = useI18n()
   const running = section.status === 'running'
   return (
-    <div className='rtl-section'>
+    <div className='rtl-section' data-terminal-section={section.id}>
       <SectionHeader section={section} />
       <div className='rtl-cmd'>{section.command}</div>
       {section.lines.map((line, i) => (
