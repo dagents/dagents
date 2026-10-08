@@ -175,6 +175,7 @@ runResumeRoutes.post('/runs/:runId/resume', async (c) => {
             ...(seed.iterationProgress ? { iterationProgress: seed.iterationProgress } : {}),
             ...(seed.seedHashes ? { seedHashes: seed.seedHashes } : {}),
             ...(seed.seedSource ? { seedSource: seed.seedSource } : {}),
+            ...(seed.seedTokens ? { seedTokens: seed.seedTokens } : {}),
           }
         : undefined,
       checkpointRunId: originalRunId,
@@ -262,6 +263,7 @@ runResumeRoutes.post('/runs/:runId/answer', async (c) => {
         ...(seed.iterationProgress ? { iterationProgress: seed.iterationProgress } : {}),
         ...(seed.seedHashes ? { seedHashes: seed.seedHashes } : {}),
         ...(seed.seedSource ? { seedSource: seed.seedSource } : {}),
+        ...(seed.seedTokens ? { seedTokens: seed.seedTokens } : {}),
       },
       checkpointRunId: runId,
       cwd,

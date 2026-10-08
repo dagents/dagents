@@ -1163,3 +1163,98 @@ contracts 12 / gateway 15 / console lib+组件 48 / e2e 4），本批补三块
   checkpoint 落库收敛到 repo 单源（resume-execution makeCheckpointHook）
   后的残留；`resume-flow.test.ts` 7 条 unused 是该测试文件瘦身后的
   骨架残留。均非本批引入。
+
+---
+
+## 可恢复性 · 验收未过项修复批次（2026-10-08，cluster: 可恢复性）
+
+对照验收清单逐条修复（代码 + 断言面），全部定向实跑通过。
+
+### 修复内容
+
+1. **AC-R1-6 第三消费点（chat 执行卡「已中断」）**：workflow-run-card 头部
+   新增 run 级终态词 chip（`wf-run-state`，workflow-run-card.css 就近样式）——
+   stopped 按 stop_reason 细分（stoppedStatusLabel：interrupted→「已中断」/
+   user→「已停止」；chat 路径无 checkpoint 不假承诺恢复）；cancelled 双读；
+   partial_success/budget_exceeded 黄系；completed/failed 由既有绿/红样式
+   表达不叠冗词。runStopReason 经 node-spans 信封采集（fetchOnce）。
+2. **AC-R2-2 分句（终端无假 CLI 提示行）**：run-terminal.tsx SectionView 的
+   cached 段提示行改显「⚡ 来自缓存」（.rtl-cmd-cached 黄系）——不再渲染
+   `$ llm · model` 假提示行；真实执行段照常。
+3. **AC-R2-3 第一分句（双口径 token）——三段落地**：
+   - 引擎：ResumeOptions 增 `seedTokens`（前驱 decision 的 payload.tokens）；
+     cached 钩子 IExecutedNode.tokens 记继承值 + journal lineage 增
+     `inheritedTokens`（executor.ts，PRD R2.3 定稿）。
+   - gateway 组装：buildResumeSeed（decision 行 tokens→seedTokens）+
+     buildWarmCacheSeed（lookup 返回 tokens）+ execute/answer/resume 三路
+     透传；node-spans 端点对有谱系锚的 run 附带 `lineageTokens`（链上前驱
+     usage_events SUM——lineage.ts 复用；根运行 null）。
+   - console：结果面板新增「谱系继承 M · 本次新增 N · 合计 T」双口径行
+     （canvas-results-tokens-dual 样式 + i18n 词条）；新纯函数
+     lib/run-tokens.ts（splitTokensBySource 分桶——cached 继承/其余新增；
+     dualBasisTokens——继承 = 前驱累计 + 本 run cached 继承值）。
+     cached 行的 tokens 徽章自此显示继承值（tokensBadge 读 sp.tokens）。
+4. **AC-R3-1（budget resume 双路径断言）**：recover-budget-resume.test.ts
+   （真库 + startWorkflowExecution 部分 mock 捕获 req）——覆盖生效（body
+   5000）/缺省沿用（runs.input 3000）/老 run 无预算（undefined）/非法值 400
+   四态；同文件钉 node-spans 信封 lineageTokens（warm=500 / 根=null）。
+5. **AC-R3-4（定时器清除断言）**：workflow-run-card.test.tsx（fake timers +
+   fetchRunNodeSpans 模块 mock）——running 起轮询→partial_salary 终态→
+   clearInterval（推进 5s 零新增 fetch、onTerminal 恰一次）；词表全集六终态
+   逐一钉；顺带钉「已中断/已停止/已取消」渲染与 completed 不叠冗词。
+6. **AC-R7-1/3（kill 模型单测）**：journal-replay-superset.test.ts（真库 +
+   forRunLive×makeJournalWriter 真实组合）——「kill = 停止发射」模型下：
+   订阅者已收每帧 ⊆ journal 行集且按帧内 seq 对齐后 canonical（键排序）
+   逐字节相等（jsonb 物理键序重排是唯一差异源，canonical 消除）；无崩溃
+   流 74 帧全程（跨微批阈值）+ close → journal 行数 == 发射帧数（零丢失）。
+   结构帧接收序 ≠ seq 序（write-through 落库延迟 deliver）如实在断言口径
+   中体现。
+7. **AC-R8-2（persona 冻结行为断言）**：persona-freeze.test.ts（真库）——
+   snapshotFlowAgents 快照内容/空图 null/缺席行跳过；**行为主断言**：冻结
+   装配后改 agents 行 → frozen fetcher 仍回创建期快照，对照（实时 fetcher）
+   回新值（「对照 run 可见差异」的单测等价）；resume 跨进程注入同款。
+
+### 诚实边界（未在本批关闭的）
+
+- AC-R7-1/3 的**真 e2e**（kill gateway 进程 + 断连重连）仍以单测 kill 模型
+  等效覆盖——任务约束禁跑 e2e/禁启常驻服务，与验收报告同口径。
+- AC-R3-1 的 RM-01 e2e 回归与「谱系黄警」过程流断言未跑（黄警实现已在上
+  批审阅；预算三态取值链已钉）。
+- AC-R2-3 账单页（usage-summary）与面板的口径一致性维持既有实现（两侧同
+  只计 usage_events 真实调用——cached 不入账由引擎 executedNodes 语义保证）。
+
+### 定向自测（实跑命令与结果）
+
+- `cd apps/gateway && npx vitest run` → **73 files / 626 passed | 1 todo**（含
+  新增 recover-budget-resume 6 例、journal-replay-superset 2 例、
+  persona-freeze 4 例；warm-cache 6 例随返回形状改动适配后仍绿）。
+- `cd apps/console && npx vitest run` → **51 files / 515 passed | 5 skipped**
+  （新增 run-tokens 5 例、workflow-run-card.test 5 例、run-terminal-cached
+  1 例）；`node scripts/check-orphan-css.mjs` 49 css 全 import ✓。
+- `cd packages/workflow && npx vitest run` → **32 files / 380 passed**
+  （executor-resume 追加 cached 继承 token 2 例）。
+- `npx tsc --noEmit`：gateway / console / workflow 三包全绿。
+- 存量 lint warning 一条（run-terminal.tsx TerminalInputBar 的 onRerun 未用）
+  经 stash 对照确认为既有非本批引入。
+
+### 门禁复测第 1 轮失败修复（2026-10-08 集成批续二）
+
+复测两个失败点均为上轮验证后**新进场的并行改动**（共享工作区多方向在途：
+R2 暖缓存 seedTokens 继承通道 + R8 persona-freeze 测试），上轮修的
+execution-live prefer-const 未复发：
+
+1. `warm-cache.ts:195` TS2322：并行给引擎 `ResumeOptions` 加了
+   `seedTokens?: Record<string, ITokenUsage | null>`（executor.ts:147，
+   token 继承 PRD R2.3），gateway 侧 planWarmCacheSeeds 全程
+   `Record<string, unknown>` 喂不进去。修 = 类型流全链对齐
+   ITokenUsage（WarmCacheLookup 谓词签名 / planWarmCacheSeeds 返回 /
+   局部变量），jsonb 边界形状断言在 buildWarmCacheSeed 的 lookup
+   lambda（写方 recordDecision tokens 参数即 ITokenUsage 序列化——
+   journal-writer.ts:334 同款先例）。
+2. `persona-freeze.test.ts:129` no-unused-expressions：裸属性访问
+   `frozen.spanWriter`（防 unused 解构的引用保持）→ `void` 表达式语句。
+
+实测：gateway `npx tsc --noEmit` 0 错；`pnpm lint` 0 errors（20 条存量
+warning）；warm-cache + persona-freeze 两测试文件 10/10；门禁同尺度全仓
+`pnpm typecheck` 14/14、`pnpm lint` 9/9、`pnpm test` 14/14 tasks
+successful（dist 重建前核实 `runs_active 0`，gateway 重启后 /health ok）。

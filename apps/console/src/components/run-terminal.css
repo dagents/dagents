@@ -89,6 +89,9 @@
 
 /* `$` 提示行 */
 .rtl-cmd { color: var(--accent); margin-bottom: 2px; }
+/* cached 段提示行（AC-R2-2）：黄系（≠ $ 提示行的 accent 蓝）——「来自缓存」
+   不冒充执行。 */
+.rtl-cmd.rtl-cmd-cached { color: #a16207; }
 
 /* 事件行 */
 .rtl-line summary {

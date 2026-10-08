@@ -325,7 +325,14 @@ function SectionView({ section }: { section: TerminalSection }): React.ReactElem
   return (
     <div className='rtl-section' data-terminal-section={section.id}>
       <SectionHeader section={section} />
-      <div className='rtl-cmd'>{section.command}</div>
+      {/* cached 段（AC-R2-2，2026-10-08 修复）：种子命中跳过执行——没有
+          真实 CLI 进程，`$ llm · model` 是假提示行；改显「⚡ 来自缓存」
+          （继承语义，不冒充执行）。 */}
+      {section.status === 'cached' ? (
+        <div className='rtl-cmd rtl-cmd-cached'>⚡ {t('来自缓存')}</div>
+      ) : (
+        <div className='rtl-cmd'>{section.command}</div>
+      )}
       {section.lines.map((line, i) => (
         <LineView key={i} line={line} />
       ))}

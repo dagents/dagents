@@ -23,6 +23,7 @@ import {
   snapshotFlowAgents,
 } from './workflow-engine-service.js'
 import { buildWarmCacheSeed } from './warm-cache.js'
+import { runLineageChain, lineageTokensSpent } from '../lineage.js'
 import { collectRunSessions } from './workflow-clients.js'
 import {
   makePersistentHumanInputResolver,
@@ -1113,6 +1114,10 @@ workflowsRoutes.get('/runs/:runId/node-spans', async (c) => {
   // stop_reason（2026-10-07 R3，§3.5(c)）：console 判「已中断（可恢复）」vs
   // 「已停止」的中止来源（interrupted/user/superseded…）。
   let runStopReason: string | null = null
+  // 谱系继承累计 token（R2.3 双口径，2026-10-08 修复）：resume/暖缓存 run
+  // （有谱系锚）沿链 SUM 前驱 usage_events——结果面板「谱系继承 M · 本次
+  // 新增 N」的继承侧数据源；根运行为 null（无双口径）。
+  let lineageTokens: number | null = null
   try {
     rows = await getRunNodeSpans(runId)
   } catch (err) {
@@ -1130,6 +1135,11 @@ workflowsRoutes.get('/runs/:runId/node-spans', async (c) => {
     runDirectoryId = runRow?.directory_id ?? null
     runSource = runRow?.source ?? null
     runStopReason = runRow?.stop_reason ?? null
+    if (runRow?.resumed_from_run_id) {
+      const chain = await runLineageChain(runId).catch(() => [] as string[])
+      // 链自根向后代（自身在末位）——前驱 = 去掉末位自身。
+      lineageTokens = await lineageTokensSpent(chain.slice(0, -1)).catch(() => 0)
+    }
   } catch {
     // runs 查询失败不影响 spans 返回
   }
@@ -1202,6 +1212,7 @@ workflowsRoutes.get('/runs/:runId/node-spans', async (c) => {
     runDirectoryId,
     runSource,
     runStopReason,
+    lineageTokens,
     inputSupported,
     runError,
     spans,

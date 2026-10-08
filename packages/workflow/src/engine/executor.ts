@@ -137,6 +137,14 @@ export interface ResumeOptions {
   seedHashes?: Record<string, string>
   /** 种子来源标注（cached 钩子/journal lineage 载荷用）。 */
   seedSource?: { kind: 'resume' | 'warm-cache'; fromRunId: string }
+  /**
+   * 种子携带的前驱 token 用量（PRD R2.3 定稿，2026-10-08 修复）：journal
+   * decision 行的 payload.tokens——cached 节点的 span.tokens 记继承值（结果
+   * 面板徽章如实显示「这段产出烧了多少」）+ journal lineage 的
+   * inheritedTokens（双口径对账：谱系继承累计 + 本次新增）。仅 ordinal=0
+   * 根图种子（cached 钩子面）；引擎只消费不生产。
+   */
+  seedTokens?: Record<string, ITokenUsage | null>
 }
 
 /**
@@ -659,6 +667,10 @@ export class DagExecutor {
         const ordinal = takeOrdinal(ctx, id)
         const seedOutput = outputs.get(id) ?? {}
         const nowIso = new Date().toISOString()
+        // 继承 token（PRD R2.3，2026-10-08）：cached span.tokens 记前驱
+        // decision 的用量（种子组装时随 seedTokens 传入）——「这段产出烧了
+        // 多少」对账可见；缺省 null（老种子无数据）。
+        const seedTokens = ctx.opts.resume?.seedTokens?.[id] ?? null
         ctx.opts.onNodeEnd?.({
           nodeId: id,
           nodeName: (flowNode?.data.name as string) ?? id,
@@ -667,7 +679,7 @@ export class DagExecutor {
           status: 'cached',
           input: {},
           output: seedOutput,
-          tokens: null,
+          tokens: seedTokens,
           ordinal,
         })
         ctx.opts.journal?.recordDecision({
@@ -676,8 +688,16 @@ export class DagExecutor {
           status: 'cached',
           ...(seedHash ? { inputHash: seedHash } : {}),
           output: seedOutput,
+          tokens: seedTokens,
           ...(ctx.opts.resume?.seedSource
-            ? { lineage: { inheritedFromRunId: ctx.opts.resume.seedSource.fromRunId } }
+            ? {
+                lineage: {
+                  inheritedFromRunId: ctx.opts.resume.seedSource.fromRunId,
+                  ...(seedTokens?.total_tokens != null
+                    ? { inheritedTokens: seedTokens.total_tokens }
+                    : {}),
+                },
+              }
             : {}),
         })
         processed.add(id)

@@ -80,6 +80,8 @@ beforeAll(async () => {
     status: 'done',
     inputHash: 'hash-tail',
     output: { content: 'tail-out' },
+    // 前驱 token 用量（PRD R2.3）：cached span.tokens 记继承值的数据源。
+    tokens: { inputTokens: 120, outputTokens: 80, total_tokens: 200 },
   })
   await insertDecision(RUN_JOURNAL, 'body1', 0, {
     status: 'done',
@@ -134,6 +136,11 @@ describe('buildResumeSeed（R1 journal 化种子，§3.5(a)）', () => {
     expect(seed!.seedOutputs['stale']).toBeUndefined()
     // seedHashes 逐节点携带（引擎跳过前预演对账，AC-R1-3 数据面）
     expect(seed!.seedHashes).toMatchObject({ tail1: 'hash-tail', body1: 'hash-body-0' })
+    // seedTokens（PRD R2.3，2026-10-08 修复）：decision 行的 payload.tokens
+    // 随种子传引擎——cached nodeEnd.tokens 记继承值 + lineage.inheritedTokens。
+    expect(seed!.seedTokens).toMatchObject({
+      tail1: { total_tokens: 200 },
+    })
     // 控制器不种子化（迭代机制不被旁路）
     expect(seed!.seedOutputs['iter1']).toBeUndefined()
     // seedSource 标注（cached 钩子/journal lineage 载荷用）

@@ -424,4 +424,10 @@ export const flows: Record<string, string> = {
   '因 pin 拒绝降级': 'Fallback refused: model is pinned',
   '会话重建': 'Session rebuilt',
   '预算重新起算（谱系链累计已耗 {n} tokens）': 'Budget restarts from zero ({n} tokens already spent along the lineage)',
+  // token 双口径（R2.3，2026-10-08 修复）
+  '谱系继承': 'inherited',
+  '本次新增': 'new spend',
+  '合计': 'total',
+  '谱系继承 = 前驱 runs 的累计用量（含本 run 复用的缓存产出）；本次新增 = 真实执行节点（与账单口径一致）':
+    'Inherited = total usage of ancestor runs (incl. outputs reused from cache by this run); new spend = actually executed nodes (same basis as billing)',
 }

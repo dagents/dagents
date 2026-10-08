@@ -70,6 +70,10 @@ export interface NodeSpansEnvelope {
      *  行的 stop_reason（interrupted/user/superseded/model/provider）——画布
      *  判「已中断（可恢复）」vs「已停止」的数据面；null = 非中止终态/旧网关。 */
     runStopReason?: string | null
+    /** 谱系继承累计 token（R2.3 双口径）：resume/暖缓存 run 沿链前驱的
+     *  usage_events SUM——结果面板「谱系继承 M · 本次新增 N」的继承侧；
+     *  null = 根运行/旧网关（无双口径）。 */
+    lineageTokens?: number | null
     /** 产出清单投影（R6 渐进产物，2026-10-07）：gateway journal 主路 +
      *  spans 兜底的单点投影，与 spans 同信封同节拍。缺席 = 旧网关 / 投影
      *  读失败 —— 聚合区整体不渲染（诚实降级，同 inputSupported 容忍模式）。 */
@@ -141,6 +145,8 @@ export interface RunNodeSpansResult {
   runSource: string | null
   /** 中止来源（R3）：stopped/failed 行的 stop_reason；null = 无/旧网关。 */
   runStopReason: string | null
+  /** 谱系继承累计 token（R2.3）；null = 根运行/旧网关。 */
+  lineageTokens: number | null
   /** 产出清单（R6 渐进产物）：null = 字段缺席（旧网关 / 投影读失败）→
    *  聚合区整体不渲染；[] = 新网关但零产出（诚实空态）。 */
   deliverables: DeliverableItem[] | null
@@ -168,6 +174,7 @@ export async function fetchRunNodeSpans(runId: string): Promise<RunNodeSpansResu
         runDirectoryId: null,
         runSource: null,
         runStopReason: null,
+        lineageTokens: null,
         deliverables: null,
       }
     const json = (await res.json()) as NodeSpansEnvelope
@@ -182,6 +189,7 @@ export async function fetchRunNodeSpans(runId: string): Promise<RunNodeSpansResu
       runDirectoryId: json.data?.runDirectoryId ?? null,
       runSource: json.data?.runSource ?? null,
       runStopReason: json.data?.runStopReason ?? null,
+      lineageTokens: json.data?.lineageTokens ?? null,
       inputSupported: json.data?.inputSupported,
       deliverables: Array.isArray(json.data?.deliverables) ? json.data!.deliverables! : null,
     }
@@ -196,6 +204,7 @@ export async function fetchRunNodeSpans(runId: string): Promise<RunNodeSpansResu
       runDirectoryId: null,
       runSource: null,
       runStopReason: null,
+      lineageTokens: null,
       deliverables: null,
     }
   }

@@ -592,3 +592,121 @@ describe('resume：onCheckpoint 快照钩子', () => {
     expect(shots[shots.length - 1]?.failedAt).toMatchObject({ nodeId: 'x', error: 'boom-resume' })
   })
 })
+
+describe('resume：cached 继承 token（PRD R2.3，2026-10-08 修复）', () => {
+  it('seedTokens 携带前驱用量 → cached nodeEnd.tokens 记继承值 + lineage.inheritedTokens（AC-R2-3 引擎面）', async () => {
+    const a = spyNode('nodeA')
+    const b = spyNode('nodeB')
+    const registry = new NodeRegistry()
+    registry.register(a)
+    registry.register(b)
+    registry.register(spyNode('nodeC'))
+    const flow = chainFlow()
+
+    // 干净跑收集 hash（种子组装的标准路径）
+    const seeded = new Map<string, string>()
+    const journalCollect: JournalFacade = {
+      recordDecision: (e) => {
+        if (e.status === 'done' && e.inputHash) seeded.set(e.nodeId, e.inputHash)
+      },
+      lookup: async () => null,
+    }
+    await new DagExecutor(registry).execute(flow, 'go', {
+      chatId: 'c1',
+      runId: 'r-t1',
+      state: {},
+      isLastNode: false,
+      journal: journalCollect,
+    })
+
+    const cachedNodes: IExecutedNode[] = []
+    const decisions: JournalDecision[] = []
+    a.calls.splice(0) // 第一轮的执行记录清空——第二轮的跳过断言才干净
+    const executor = new DagExecutor(registry)
+    const result = await executor.execute(flow, 'go', {
+      chatId: 'c1',
+      runId: 'r-t2',
+      state: {},
+      isLastNode: false,
+      onNodeEnd: (n) => {
+        if (n.status === 'cached') cachedNodes.push(n)
+      },
+      journal: {
+        recordDecision: (e) => decisions.push(e),
+        lookup: async () => null,
+      },
+      resume: {
+        // 只种子 a（前驱），b/c 真实执行
+        seedOutputs: { a: { content: 'nodeA-out' } },
+        seedHashes: { a: seeded.get('a')! },
+        seedTokens: {
+          a: { prompt_tokens: 120, completion_tokens: 80, total_tokens: 200 },
+        },
+        seedSource: { kind: 'warm-cache', fromRunId: 'r-t1' },
+      },
+    })
+
+    expect(result.status).toBe('success')
+    expect(a.calls).toHaveLength(0) // 种子跳过
+    // cached nodeEnd 的 tokens = 继承值（span 记账面——双口径的继承侧）
+    expect(cachedNodes).toHaveLength(1)
+    expect(cachedNodes[0]!.nodeId).toBe('a')
+    expect(cachedNodes[0]!.tokens).toMatchObject({ total_tokens: 200 })
+    // journal cached decision：lineage 带 inheritedTokens（对账可查）
+    const cachedDecision = decisions.find((d) => d.status === 'cached')!
+    expect(cachedDecision.nodeId).toBe('a')
+    expect(cachedDecision.lineage).toMatchObject({
+      inheritedFromRunId: 'r-t1',
+      inheritedTokens: 200,
+    })
+    expect(cachedDecision.tokens).toMatchObject({ total_tokens: 200 })
+  })
+
+  it('无 seedTokens（老种子）→ cached tokens 恒 null、lineage 无 inheritedTokens（兼容面）', async () => {
+    const a = spyNode('nodeA')
+    const registry = new NodeRegistry()
+    registry.register(a)
+    registry.register(spyNode('nodeB'))
+    registry.register(spyNode('nodeC'))
+    const flow = chainFlow()
+
+    const seeded = new Map<string, string>()
+    await new DagExecutor(registry).execute(flow, 'go', {
+      chatId: 'c1',
+      runId: 'r-t3',
+      state: {},
+      isLastNode: false,
+      journal: {
+        recordDecision: (e) => {
+          if (e.status === 'done' && e.inputHash) seeded.set(e.nodeId, e.inputHash)
+        },
+        lookup: async () => null,
+      },
+    })
+
+    const cachedNodes: IExecutedNode[] = []
+    const decisions: JournalDecision[] = []
+    const result = await new DagExecutor(registry).execute(flow, 'go', {
+      chatId: 'c1',
+      runId: 'r-t4',
+      state: {},
+      isLastNode: false,
+      onNodeEnd: (n) => {
+        if (n.status === 'cached') cachedNodes.push(n)
+      },
+      journal: {
+        recordDecision: (e) => decisions.push(e),
+        lookup: async () => null,
+      },
+      resume: {
+        seedOutputs: { a: { content: 'nodeA-out' } },
+        seedHashes: { a: seeded.get('a')! },
+        // 无 seedTokens：老种子路径
+      },
+    })
+    expect(result.status).toBe('success')
+    expect(cachedNodes[0]!.tokens).toBeNull()
+    const cachedDecision = decisions.find((d) => d.status === 'cached')!
+    expect(cachedDecision.lineage).toBeUndefined()
+  })
+})

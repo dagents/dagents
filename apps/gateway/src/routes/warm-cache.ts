@@ -30,6 +30,7 @@ import {
   type FlowEdge,
   type FlowNode,
   type ResumeOptions,
+  type ITokenUsage,
   computeInputHash,
   mergeInputs,
   shouldExecuteEdge,
@@ -71,11 +72,15 @@ function topoSort(nodes: FlowNode[], edges: FlowEdge[]): FlowNode[] | null {
   return order.length === nodes.length ? order : null
 }
 
-/** 链上候选查询谓词（注入：repo 读侧单点；纯函数内核不碰 DB）。 */
+/** 链上候选查询谓词（注入：repo 读侧单点；纯函数内核不碰 DB）。
+ *  tokens = 前驱 decision 的 token 用量（PRD R2.3：cached span 记继承值）。
+ *  类型与引擎 ResumeOptions.seedTokens 同口径（Record<string, ITokenUsage
+ *  | null>）——jsonb 边界的形状断言由调用方（buildWarmCacheSeed 的
+ *  lookup lambda）承担，与 journal-writer.ts:334 同款先例。 */
 export type WarmCacheLookup = (
   nodeId: string,
   inputHash: string,
-) => Promise<{ output?: Record<string, unknown> } | null>
+) => Promise<{ output?: Record<string, unknown>; tokens?: ITokenUsage | null } | null>
 
 /**
  * 暖缓存匹配的纯函数内核：给定 flow + 链上候选查询谓词 + 本次 run 输入，
@@ -88,10 +93,14 @@ export async function planWarmCacheSeeds(input: {
   startInput: unknown
   chatId: string
   lookup: WarmCacheLookup
-}): Promise<Record<string, Record<string, unknown>>> {
+}): Promise<{
+  seedOutputs: Record<string, Record<string, unknown>>
+  /** 命中节点的前驱 token 用量（R2.3 继承侧）。 */
+  seedTokens: Record<string, ITokenUsage | null>
+}> {
   const { flowData, startInput, chatId, lookup } = input
   const order = topoSort(flowData.nodes, flowData.edges)
-  if (!order) return {}
+  if (!order) return { seedOutputs: {}, seedTokens: {} }
   const nodeById = new Map(order.map((n) => [n.id, n]))
   const incoming = new Map<string, FlowEdge[]>()
   for (const e of flowData.edges) {
@@ -104,6 +113,7 @@ export async function planWarmCacheSeeds(input: {
     flow: { chatId, sessionId: undefined },
   }
   const seedOutputs: Record<string, Record<string, unknown>> = {}
+  const seedTokens: Record<string, ITokenUsage | null> = {}
 
   for (const node of order) {
     const edges = (incoming.get(node.id) ?? []).filter((e) => e.source !== node.id)
@@ -133,6 +143,7 @@ export async function planWarmCacheSeeds(input: {
     if (!hit?.output) continue
 
     seedOutputs[node.id] = hit.output
+    if (hit.tokens != null) seedTokens[node.id] = hit.tokens
     assumedOutputs.set(node.id, hit.output)
     // 引擎 runtime merge 语义（executor 的输出展平 + $start 别名）。
     const nodeOut = hit.output
@@ -141,7 +152,7 @@ export async function planWarmCacheSeeds(input: {
       assumedState.start = { ...nodeOut, output: nodeOut }
     }
   }
-  return seedOutputs
+  return { seedOutputs, seedTokens }
 }
 
 /**
@@ -160,15 +171,24 @@ export async function buildWarmCacheSeed(input: {
   // 前驱在前。候选 = 链上全部 run（本次新 run 还没有行，不在链上）。
   const candidates = [...chain].reverse()
 
-  const seedOutputs = await planWarmCacheSeeds({
+  const planned = await planWarmCacheSeeds({
     flowData: input.flowData,
     startInput: input.startInput,
     chatId: input.chatId,
     lookup: (nodeId, inputHash) =>
-      findLatestDecisionByNodeAndHash(candidates, nodeId, inputHash).then(
-        (row) => (row ? { output: row.payload.output } : null),
+      findLatestDecisionByNodeAndHash(candidates, nodeId, inputHash).then((row) =>
+        row
+          ? {
+              output: row.payload.output,
+              // jsonb 边界形状断言：写方（journal-writer recordDecision 的
+              // tokens 参数）即 ITokenUsage 序列化产物——与 journal-writer.ts
+              // 读侧同款先例。
+              tokens: (row.payload.tokens as ITokenUsage | undefined) ?? undefined,
+            }
+          : null,
       ),
   })
+  const { seedOutputs, seedTokens } = planned
 
   if (Object.keys(seedOutputs).length === 0) {
     log.info('warm cache miss on entire lineage — full re-run', {
@@ -186,5 +206,7 @@ export async function buildWarmCacheSeed(input: {
     seedOutputs,
     // 暖缓存不做严格校验：hash 已在匹配时用过（§3.7(b)4——seedHashes 空）。
     seedSource: { kind: 'warm-cache', fromRunId: input.warmFromRunId },
+    // 继承 token（PRD R2.3）：cached span.tokens 记前驱用量。
+    ...(Object.keys(seedTokens).length > 0 ? { seedTokens } : {}),
   }
 }

@@ -34,6 +34,7 @@ import type { RunLiveMode } from '@/lib/use-run-live'
 import { terminalHrefForDir } from '@/lib/terminal-links'
 import { ResultViewer } from '@/components/result-viewer'
 import { useI18n } from '@/i18n'
+import { dualBasisTokens } from '@/lib/run-tokens'
 import './canvas-results.css'
 
 /** 页面 runState 的共享联合（页面 useState 与本组件 props 同一形状）。
@@ -83,6 +84,8 @@ export interface CanvasResultsPanelProps {
   terminalDirId: string | null
   resumeInfo: CanvasResumeInfo | null
   awaitingInfo: CanvasAwaitingInfo | null
+  /** 谱系继承累计 token（R2.3 双口径）：null = 根运行（不渲染双口径行）。 */
+  lineageTokens?: number | null
   onClose(): void
   /** 打开运行输入面板（⬆ 预填语义由页面持有）。mode（2026-10-07 R2，
    *  design-recover §4.2 重跑分叉）：'warm' = 暖缓存重跑（默认——body 带
@@ -507,6 +510,7 @@ export function CanvasResultsPanel({
   terminalDirId,
   resumeInfo,
   awaitingInfo,
+  lineageTokens = null,
   onClose,
   onRerun,
   onResume,
@@ -750,6 +754,30 @@ export function CanvasResultsPanel({
           <span className='canvas-results-run-error-text'>{runError}</span>
         </div>
       ) : null}
+      {/* token 双口径（R2.3，2026-10-08 修复）：resume/暖缓存 run 显示
+          「谱系继承 M · 本次新增 N · 合计 T」——继承 = 链上前驱 usage_events
+          累计 + 本 run cached span 继承值；新增 = 真实执行（= 账单口径）。 */}
+      {(() => {
+        const dual = dualBasisTokens(latestSpans, lineageTokens)
+        if (!dual || (dual.inherited === 0 && dual.fresh === 0)) return null
+        const fmt = (n: number): string =>
+          n >= 1000 ? `${(n / 1000).toFixed(1)}k` : String(n)
+        return (
+          <div className='canvas-results-tokens-dual' title={t('谱系继承 = 前驱 runs 的累计用量（含本 run 复用的缓存产出）；本次新增 = 真实执行节点（与账单口径一致）')}>
+            <span className='dual-inherited' title={t('谱系继承')}>
+              ⇠ {t('谱系继承')} {fmt(dual.inherited)}
+            </span>
+            <span className='dual-sep'>·</span>
+            <span className='dual-fresh' title={t('本次新增')}>
+              ⇢ {t('本次新增')} {fmt(dual.fresh)}
+            </span>
+            <span className='dual-sep'>·</span>
+            <span className='dual-total tnum' title={t('合计')}>
+              {t('合计')} {fmt(dual.total)}
+            </span>
+          </div>
+        )
+      })()}
       {runState === 'running' || runState === 'awaiting' ? (
         /* 状态行结构化（2026-09-19 走查优化点 1-3）：长句改为指标行
            「运行中 · n/m · 失败 k · ⏱ 12.4s」+ 迷你进度条 —— 总耗时

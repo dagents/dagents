@@ -208,6 +208,9 @@ export interface RunExecutionInput {
     seedHashes?: Record<string, string>
     /** 暖缓存标注（cached span/journal lineage 载荷，§3.7）。 */
     seedSource?: { kind: 'resume' | 'warm-cache'; fromRunId: string }
+    /** 前驱 token 用量（PRD R2.3，2026-10-08）：cached span.tokens 记继承值
+     *  + journal lineage inheritedTokens——decision 行的 payload.tokens。 */
+    seedTokens?: Record<string, unknown>
   }
   /** checkpoint 行归属（resume 期间=原 run id；首跑=runId 自身）。 */
   checkpointRunId: string
@@ -415,6 +418,14 @@ function startWorkflowExecutionInner(req: RunExecutionInput): RunExecutionHandle
                     : {}),
                   ...(req.resume.seedHashes ? { seedHashes: req.resume.seedHashes } : {}),
                   ...(req.resume.seedSource ? { seedSource: req.resume.seedSource } : {}),
+                  ...(req.resume.seedTokens
+                    ? {
+                        seedTokens: req.resume.seedTokens as Record<
+                          string,
+                          import('@dagents/workflow').ITokenUsage | null
+                        >,
+                      }
+                    : {}),
                 },
               }
             : {}),
@@ -512,6 +523,8 @@ export async function buildResumeSeed(
   seedHashes?: Record<string, string>
   /** 种子来源标注（cached 钩子/journal lineage 载荷）。 */
   seedSource?: { kind: 'resume' | 'warm-cache'; fromRunId: string }
+  /** 前驱 token 用量（PRD R2.3）：journal decision 的 payload.tokens。 */
+  seedTokens?: Record<string, unknown>
 } | null> {
   const ckpt = await getCheckpoint(checkpointRunId)
   if (!ckpt) return null
@@ -547,6 +560,9 @@ export async function buildResumeSeed(
     () => [],
   )
   const seedHashes: Record<string, string> = {}
+  // 前驱 token 用量（PRD R2.3）：随种子传给引擎——cached span.tokens 记
+  // 继承值 + journal lineage inheritedTokens（双口径对账的继承侧）。
+  const seedTokens: Record<string, unknown> = {}
   let iterationProgress: Record<string, IterationProgress> | undefined = snap.iterationProgress
   if (decisions.length > 0) {
     const itemNodeOutputs: Array<Record<string, Record<string, unknown>>> = []
@@ -557,6 +573,7 @@ export async function buildResumeSeed(
       if (d.ordinal === 0) {
         seedOutputs[d.nodeId] = out
         if (d.payload.inputHash) seedHashes[d.nodeId] = d.payload.inputHash
+        if (d.payload.tokens != null) seedTokens[d.nodeId] = d.payload.tokens
       } else {
         // 迭代 body 的第 ordinal 项输出：`[i][nodeId] = output`——引擎串行
         // 路径据此为第 i 项预填克隆（preseeded 短路，地基 §3.1(c)3）。
@@ -583,6 +600,7 @@ export async function buildResumeSeed(
       ...(iterationProgress ? { iterationProgress } : {}),
       ...(Object.keys(seedHashes).length > 0 ? { seedHashes } : {}),
       seedSource: { kind: 'resume' as const, fromRunId: checkpointRunId },
+      ...(Object.keys(seedTokens).length > 0 ? { seedTokens } : {}),
     }
   }
   // checkpoint snapshot 兜底（无 journal 行的老 run）。
@@ -661,6 +679,7 @@ export async function answerAwaitingRunForChat(
         ...(seed.iterationProgress ? { iterationProgress: seed.iterationProgress } : {}),
         ...(seed.seedHashes ? { seedHashes: seed.seedHashes } : {}),
         ...(seed.seedSource ? { seedSource: seed.seedSource } : {}),
+        ...(seed.seedTokens ? { seedTokens: seed.seedTokens } : {}),
       },
       checkpointRunId: runId,
       cwd,

@@ -96,6 +96,9 @@ export async function getRunStatusAndDuration(
       directory_id: string | null
       source: string | null
       stop_reason: string | null
+      /** 谱系锚（R2.3 双口径）：非空 = resume/暖缓存 run——node-spans 端点
+       *  据此计算谱系继承累计 token（前驱 usage_events SUM）。 */
+      resumed_from_run_id: string | null
     }
   | null
 > {
@@ -105,8 +108,10 @@ export async function getRunStatusAndDuration(
     directory_id: string | null
     source: string | null
     stop_reason: string | null
+    resumed_from_run_id: string | null
   }>(
-    `SELECT status, duration_ms, directory_id, source, stop_reason FROM runs WHERE id = $1`,
+    `SELECT status, duration_ms, directory_id, source, stop_reason, resumed_from_run_id
+       FROM runs WHERE id = $1`,
     [runId],
   )
   return records[0] ?? null

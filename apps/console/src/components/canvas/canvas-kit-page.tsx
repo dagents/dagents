@@ -400,6 +400,9 @@ export function CanvasKitPage({
   // run 级中止来源（R3，§3.5(c)）：stopped 终态的「已中断（可恢复）」vs
   // 「已停止」判定数据面（node-spans 响应透出）。
   const [runStopReason, setRunStopReason] = useState<string | null>(null)
+  // 谱系继承累计 token（R2.3 双口径）：结果面板「谱系继承 · 本次新增」的
+  // 继承侧（null = 根运行，面板不渲染双口径行）。
+  const [lineageTokens, setLineageTokens] = useState<number | null>(null)
 
   // 暖缓存重跑模式（2026-10-07 R2，design-recover §4.2）：终态「重跑」分叉
   // ——「暖缓存重跑（默认）」带 warmFromRunId=当前 run（沿谱系链 (nodeId,
@@ -421,7 +424,13 @@ export function CanvasKitPage({
       // !ok（含 404 = 尚未落库）→ 下轮再试；轮询失败静默，最终状态以
       // run POST 的返回为准
       if (!r.ok) {
-        return { runStatus: null, runStopReason: null, hasRunning: false, hasSpans: false, spans: [] }
+        return {
+          runStatus: null,
+          runStopReason: null,
+          hasRunning: false,
+          hasSpans: false,
+          spans: [],
+        }
       }
       applySpans(r.spans)
       setLatestSpans(r.spans)
@@ -432,6 +441,7 @@ export function CanvasKitPage({
       // R10 试运行标记条数据源（design-sharp §4.4）：runSource='trial' 常驻。
       setTrialActive(r.runSource === 'trial')
       setRunStopReason(r.runStopReason ?? null)
+      setLineageTokens(r.lineageTokens ?? null)
       return {
         runStatus: r.runStatus,
         runStopReason: r.runStopReason ?? null,
@@ -1354,6 +1364,7 @@ export function CanvasKitPage({
               terminalDirId={runDirectoryId || spectatedRunDirId || null}
               resumeInfo={resumeInfo}
               awaitingInfo={awaitingInfo}
+              lineageTokens={lineageTokens}
               onClose={() => setResultsOpen(false)}
               // 重跑分叉（R2 §4.2）：warm = 暖缓存（当前 run 为前驱）；
               // fresh = 全新（零缓存零谱系）。

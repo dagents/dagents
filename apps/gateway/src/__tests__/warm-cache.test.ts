@@ -55,7 +55,7 @@ describe('planWarmCacheSeeds（R2 暖缓存匹配内核）', () => {
   it('全链命中：前驱 hash 全一致 → 全部节点种子命中（未改任何东西）', async () => {
     const flow = linearFlow()
     const world = await hashesOfWorld(flow)
-    const seeds = await planWarmCacheSeeds({
+    const { seedOutputs: seeds } = await planWarmCacheSeeds({
       flowData: flow,
       startInput: 'hello',
       chatId: 'chat-1',
@@ -75,7 +75,7 @@ describe('planWarmCacheSeeds（R2 暖缓存匹配内核）', () => {
       data: { inputs: { systemPrompt: string } }
     }
     n3.data.inputs.systemPrompt = 'prompt-n3-CHANGED'
-    const seeds = await planWarmCacheSeeds({
+    const { seedOutputs: seeds } = await planWarmCacheSeeds({
       flowData: modified,
       startInput: 'hello',
       chatId: 'chat-1',
@@ -89,7 +89,7 @@ describe('planWarmCacheSeeds（R2 暖缓存匹配内核）', () => {
   it('改运行输入 → 全链 miss（nodeInput 进 hash，AC-R3 口径）', async () => {
     const flow = linearFlow()
     const world = await hashesOfWorld(flow)
-    const seeds = await planWarmCacheSeeds({
+    const { seedOutputs: seeds } = await planWarmCacheSeeds({
       flowData: flow,
       startInput: 'DIFFERENT-INPUT',
       chatId: 'chat-1',
@@ -104,7 +104,7 @@ describe('planWarmCacheSeeds（R2 暖缓存匹配内核）', () => {
     const flow = linearFlow()
     const world = await hashesOfWorld(flow)
     let callCount = 0
-    const seeds = await planWarmCacheSeeds({
+    const { seedOutputs } = await planWarmCacheSeeds({
       flowData: flow,
       startInput: 'hello',
       chatId: 'chat-1',
@@ -118,11 +118,11 @@ describe('planWarmCacheSeeds（R2 暖缓存匹配内核）', () => {
       },
     })
     expect(callCount).toBe(5)
-    expect(seeds['n2']).toEqual({ content: 'old-n2' })
+    expect(seedOutputs['n2']).toEqual({ content: 'old-n2' })
   })
 
   it('诚实 miss（R2.6）：候选全查不到 → 零种子不报错', async () => {
-    const seeds = await planWarmCacheSeeds({
+    const { seedOutputs: seeds } = await planWarmCacheSeeds({
       flowData: linearFlow(),
       startInput: 'hello',
       chatId: 'chat-1',
@@ -132,7 +132,7 @@ describe('planWarmCacheSeeds（R2 暖缓存匹配内核）', () => {
   })
 
   it('lookup 抛错不炸（catch → 当 miss 处理）', async () => {
-    const seeds = await planWarmCacheSeeds({
+    const { seedOutputs: seeds } = await planWarmCacheSeeds({
       flowData: linearFlow(),
       startInput: 'hello',
       chatId: 'chat-1',

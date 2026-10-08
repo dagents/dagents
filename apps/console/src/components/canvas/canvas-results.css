@@ -488,3 +488,27 @@
   border-color: rgba(250, 204, 21, 0.55);
   color: #a16207;
 }
+
+/* ── token 双口径（R2.3，2026-10-08 修复）：谱系继承（灰）· 本次新增（蓝）
+   · 合计——cached span 的继承值（seedTokens）也计入继承侧。 ── */
+.canvas-results-tokens-dual {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  padding: 4px 12px;
+  font-size: var(--text-xs, 11px);
+  color: var(--meta, #6b6b70);
+  border-bottom: 1px solid var(--border, #ececf0);
+}
+.canvas-results-tokens-dual .dual-inherited {
+  color: #a16207;
+  white-space: nowrap;
+}
+.canvas-results-tokens-dual .dual-fresh {
+  color: var(--accent, #2563eb);
+  white-space: nowrap;
+}
+.canvas-results-tokens-dual .dual-total {
+  font-weight: 600;
+  white-space: nowrap;
+}
