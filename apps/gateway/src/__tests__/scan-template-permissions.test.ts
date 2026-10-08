@@ -3,8 +3,9 @@
  * 测试补齐）：钉「脚本本身可用 + 内置模板零缺席 → exit 0」。
  *
  * env 剥离 POSTGRES_URL（flow_templates 表扫描按脚本语义跳过——本测不依赖
- * 任何库，只验内置 JSON 扫描路径与退出码契约：缺席仅报告不阻断，exit 1
- * 仅当扫描本身失败）。
+ * 任何库，只验内置 JSON 扫描路径与退出码契约。2026-10-08 OQ-4 终裁升级：
+ * 内置模板缺席/非法 = CI 阻断 exit 1；flow_templates 用户数据侧维持报告
+ * 不阻断；exit 1 另当扫描本身失败）。
  */
 
 import { describe, it, expect } from 'vitest'
@@ -41,12 +42,15 @@ describe('scripts/scan-template-permissions.mjs（R4 清点仪器）', () => {
     expect(stdout).toContain('零缺席')
   })
 
-  it('缺席仅报告不阻断：报告文案与节点定位存在（契约钉子——供未来模板缺席时人工核对）', async () => {
+  it('零缺席报告文案契约（2026-10-08 OQ-4 终裁后：内置缺席已是 CI 阻断层，本例钉干净态输出）', async () => {
     // 现状零缺席（builtin-templates.test.ts 的 gate 断言同款口径）；此处钉
-    // 「有缺席时输出 ⚠ 报告行」的文案契约——用伪造 BUILTIN_DIR 不可行（路径
-    // 硬编码仓库根），改钉「零缺席时不出 ⚠ 行」的反向契约 + 报告段落存在。
+    // 「零缺席时不出 ✗/⚠ 行」的反向契约 + 报告段落存在。内置侧有缺席时脚本
+    // exit 1 + `✗` 行（CI 阻断）；flow_templates（用户数据）侧维持 ⚠ 报告
+    // 不阻断——伪造 BUILTIN_DIR 不可行（路径硬编码仓库根），阻断侧行为由
+    // ci.yml `Template permission scan` 步的退出码承担。
     const { stdout } = await runScript()
+    expect(stdout).not.toContain('✗')
     expect(stdout).not.toContain('⚠')
-    expect(stdout).toContain('零缺席：全部内置/库内模板的权限声明干净')
+    expect(stdout).toContain('内置模板：零缺席/零非法（CI 阻断层通过）')
   })
 })

@@ -137,7 +137,14 @@ export const iterationNode = (id: string, data: { items: unknown[] }) =>
 
 export const httpNode = (
   id: string,
-  data: { url: string; method?: string; headers?: Record<string, string> | string; body?: string },
+  data: {
+    url: string
+    method?: string
+    headers?: Record<string, string> | string
+    body?: string
+    /** R4 域名声明（OQ-4 终裁后默认 enforce——未声明的 http flow 拒跑） */
+    allowedDomains?: string[]
+  },
 ) => node(id, NODE.http, data as Record<string, unknown>)
 
 // ── 组合子 ───────────────────────────────────────────────────────────────

@@ -178,14 +178,16 @@ export function isDomainAllowed(hostname: string, values: string[]): boolean {
 export type HttpDomainPolicy = 'warn' | 'enforce' | 'off'
 
 /**
- * http 域名策略（过渡期开关，OQ-4 终裁后翻转默认值）：现读
- * `DAGENTS_HTTP_DOMAIN_POLICY`，默认 `'warn'`（v1 过渡期）。未知值回落
- * 默认 warn（env 是运维旋钮非攻击面；先例 ssrf-guard 的 privateHttpAllowed
- * 同为现读 env）。
+ * http 域名策略开关：现读 `DAGENTS_HTTP_DOMAIN_POLICY`，**默认 `'enforce'`**
+ * （2026-10-08 OQ-4 终裁，版本线裁决：enforce 随 R4 批次同版发布——模板中心
+ * 与生成器产物已全量带声明、错误信息自带补声明指引；存量用户流程的迁移
+ * 逃生门 = 显式设 `'warn'`（缺席放行 + 黄警留痕）或 `'off'`）。未知值回落
+ * 默认 enforce（env 是运维旋钮非攻击面，回落取更严一侧；先例 ssrf-guard
+ * 的 privateHttpAllowed 同为现读 env）。
  */
 export function httpDomainPolicy(): HttpDomainPolicy {
   const raw = process.env.DAGENTS_HTTP_DOMAIN_POLICY
-  return raw === 'enforce' || raw === 'off' ? raw : 'warn'
+  return raw === 'warn' || raw === 'off' ? raw : 'enforce'
 }
 
 // ─── http 节点运行时守卫（判定表见设计 §2.3）──────────────────────────
@@ -227,7 +229,7 @@ export function assertAllowedHttpDomain(
       `节点被拒绝：${what}：未声明 allowedDomains（网关已启用 enforce 策略）——在节点配置中声明域名清单，格式 ["api.github.com"]`,
     )
   }
-  opts.onWarn?.(`域名清单未声明（过渡期放行）: ${url.hostname.toLowerCase()}`)
+  opts.onWarn?.(`域名清单未声明（warn 策略放行——enforce 默认下会拒跑，建议补声明）: ${url.hostname.toLowerCase()}`)
 }
 
 // ─── 全图投影（确认面 / gateway preflight / 审计共用）─────────────────

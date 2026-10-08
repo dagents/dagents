@@ -29,7 +29,7 @@ describe('runUserCode（worker 隔离执行）', () => {
   it('死循环超时强杀 —— 只死节点不死进程（默认超时可注入覆盖）', async () => {
     await expect(
       runUserCode('while (true) {}', undefined, '', {}, { timeoutMs: 150 }),
-    ).rejects.toThrow(/timed out after 150ms/)
+    ).rejects.toThrow(/timed out after \d+ms/)
   })
 
   it('危险全局被遮蔽：require/process/globalThis 直接访问即抛', async () => {
@@ -201,7 +201,50 @@ describe('runUserCode（worker 隔离执行）', () => {
     ])
   })
 
-  it('worker 超时 → 在途 exec 被 abort（execRunner 收到 signal abort）', async () => {
+  it('在途 exec 不烧 worker 预算：deadline 随 exec 抬升，exec 回执照常回流（2026-10-08 #6c 裁决）', async () => {
+    // worker 初始预算 300ms < exec 实际耗时 500ms——旧固定 timer 会先杀
+    // worker；deadline 模型下在途 exec 把墙钟抬到「exec 超时 + 余量」。
+    const execRunner = () =>
+      new Promise<{ code: number; stdout: string; stderr: string; truncated: boolean }>(
+        (resolve) => {
+          setTimeout(() => resolve({ code: 0, stdout: 'slow-but-fine', stderr: '', truncated: false }), 500)
+        },
+      )
+    const out = await runUserCode(
+      'return (async () => { const r = await $exec("slow-cmd", []); return r.stdout })()',
+      undefined,
+      '',
+      {},
+      {
+        timeoutMs: 300,
+        allowedCommands: ['slow-cmd'],
+        execRunner: execRunner as never,
+      },
+    )
+    expect(out).toBe('slow-but-fine')
+  })
+
+  it('exec 回执后死循环 → 剩余预算照样杀（deadline 抬升单调有界，不豁免计算）', async () => {
+    // exec 显式 100ms 超时 → deadline 抬到 ~2.1s（exec 100ms + 余量 2s）；
+    // 回执后的死循环在抬升后的 deadline 被杀——抬升有界（≤ 单次 exec 上
+    // 限 60s + 余量），不是永久豁免。
+    const execRunner = async () => ({ code: 0, stdout: '', stderr: '', truncated: false })
+    await expect(
+      runUserCode(
+        'return (async () => { await $exec("fast-cmd", [], { timeoutMs: 100 }); while (true) {} })()',
+        undefined,
+        '',
+        {},
+        {
+          timeoutMs: 300,
+          allowedCommands: ['fast-cmd'],
+          execRunner: execRunner as never,
+        },
+      ),
+    ).rejects.toThrow(/timed out after \d+ms/)
+  })
+
+  it('宿主 abort（AbortSignal）→ 在途 exec 被 abort（execRunner 收到 signal abort，级联不回退）', async () => {
     let aborted = false
     const execRunner = (req: { signal?: AbortSignal }) =>
       new Promise((_resolve, reject) => {
@@ -210,6 +253,8 @@ describe('runUserCode（worker 隔离执行）', () => {
           reject(new Error('exec cancelled'))
         })
       })
+    const ac = new AbortController()
+    setTimeout(() => ac.abort(new Error('host cancelled')), 150)
     await expect(
       runUserCode(
         'return $exec("sleep-less", []).then(() => 1)',
@@ -217,12 +262,13 @@ describe('runUserCode（worker 隔离执行）', () => {
         '',
         {},
         {
-          timeoutMs: 300,
+          timeoutMs: 30_000,
           allowedCommands: ['sleep-less'],
           execRunner: execRunner as never,
+          signal: ac.signal,
         },
       ),
-    ).rejects.toThrow(/timed out after 300ms/)
+    ).rejects.toThrow(/cancelled/)
     expect(aborted).toBe(true)
   })
 })

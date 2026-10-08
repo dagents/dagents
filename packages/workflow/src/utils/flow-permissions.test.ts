@@ -193,17 +193,17 @@ describe('isDomainAllowed', () => {
 })
 
 describe('httpDomainPolicy', () => {
-  it("默认 'warn'；合法值透传；未知值回落 warn", () => {
+  it("默认 'enforce'（2026-10-08 OQ-4 终裁）；warn/off 透传；未知值回落 enforce", () => {
     const prev = process.env.DAGENTS_HTTP_DOMAIN_POLICY
     try {
       delete process.env.DAGENTS_HTTP_DOMAIN_POLICY
-      expect(httpDomainPolicy()).toBe('warn')
-      process.env.DAGENTS_HTTP_DOMAIN_POLICY = 'enforce'
       expect(httpDomainPolicy()).toBe('enforce')
+      process.env.DAGENTS_HTTP_DOMAIN_POLICY = 'warn'
+      expect(httpDomainPolicy()).toBe('warn')
       process.env.DAGENTS_HTTP_DOMAIN_POLICY = 'off'
       expect(httpDomainPolicy()).toBe('off')
       process.env.DAGENTS_HTTP_DOMAIN_POLICY = 'typo-value'
-      expect(httpDomainPolicy()).toBe('warn')
+      expect(httpDomainPolicy()).toBe('enforce')
     } finally {
       if (prev === undefined) delete process.env.DAGENTS_HTTP_DOMAIN_POLICY
       else process.env.DAGENTS_HTTP_DOMAIN_POLICY = prev
@@ -391,15 +391,15 @@ describe('assertAllowedHttpDomain 守卫判定表（design §2.3 直测）', () 
     }
   })
 
-  it('absent × warn → 放行且 onWarn 留痕（NFR-6 不静默）', () => {
-    withPolicy(undefined, () => {
+  it('absent × warn（显式逃生门）→ 放行且 onWarn 留痕（NFR-6 不静默；OQ-4 终裁后默认已是 enforce）', () => {
+    withPolicy('warn', () => {
       const warns: string[] = []
       expect(() =>
         assertAllowedHttpDomain(url('https://plain.test/x'), ABSENT, 'HTTP 节点 h', {
           onWarn: (m) => warns.push(m),
         }),
       ).not.toThrow()
-      expect(warns).toEqual(['域名清单未声明（过渡期放行）: plain.test'])
+      expect(warns).toEqual(['域名清单未声明（warn 策略放行——enforce 默认下会拒跑，建议补声明）: plain.test'])
     })
   })
 

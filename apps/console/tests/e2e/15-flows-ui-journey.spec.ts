@@ -89,9 +89,11 @@ test.describe('浏览器 UI 旅程（Tier C：UI）', () => {
 
     // 画布旁观（2026-08-30：详情页退役，?run= 直达是 run 的唯一回看形态）
     await page.goto(`/workflows/${flowId}/canvas?run=${runId}`)
-    // 画布外壳 + 结果面板自动打开（旁观即看流）
+    // 画布外壳 + 结果面板自动打开（旁观即看流）。'llm1' 定位到结果列表行
+    // 标签（.canvas-result-label）——R6 渐进产物聚合区（.canvas-delv-name）
+    // 也会显示同名节点，getByText 会撞 strict mode。
     await expect(page.locator('.canvas-results-panel')).toBeVisible({ timeout: 15_000 })
-    await expect(page.locator('.canvas-results-panel').getByText('llm1')).toBeVisible()
+    await expect(page.locator('.canvas-results-panel .canvas-result-label', { hasText: 'llm1' })).toBeVisible()
 
     // 边必须真实可绘制（2026-09-06 回归钉）：per-edge svg 曾因绝对定位
     // shrink-to-fit 塌缩为 0 宽 —— DOM 里边全在、屏幕上一条线都没有。

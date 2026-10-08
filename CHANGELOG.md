@@ -8,6 +8,23 @@ All notable changes to Dagents are documented here. The format follows
 
 ### Added
 
+- **zcode-borrow 验收遗留项清偿（2026-10-08，验收报告「建议后续」#2–#6）** —
+  - AC-R2-3 端到端复验通过并固化为常驻测试 `gateway __tests__/warm-cache-lineage-tokens.test.ts`
+    （断言经 `@dagents/workflow` dist 引擎消费段，兼作 src↔dist 漂移门禁）——R2 升级整体通过，十项全过。
+  - AC-R3-1 黄警行为断言：`__tests__/recover-budget-warning.test.ts` 去 mock 真执行，journal event 帧
+    逐字钉「预算重新起算（谱系链累计已耗 N tokens）——本次续跑预算 X」。
+  - OQ-4 终裁（版本线）：`DAGENTS_HTTP_DOMAIN_POLICY` **默认 warn → enforce**（warn/off 显式逃生门，
+    未知值回落更严一侧）；内置模板扫描升级 CI 阻断层（`scan-template-permissions.mjs` 内置缺席即
+    exit 1 + ci.yml `Template permission scan` 步；flow_templates 用户数据仍报告不阻断）。
+  - `$exec` 超时交互裁决落地：CustomFunction worker 墙钟改 deadline 模型——在途受控 exec 把 deadline
+    单调抬升「exec 超时 + 2s 余量」（等待宿主不烧计算预算、有界、宿主 abort 级联不变）。
+  - 全量 e2e 三跑收口（隔离栈 fresh `dagents_e2e`）：首轮暴露本机 e2e 库 schema 陈旧（缺 14 轮迁移
+    成片 502——环境性；「先迁移再起网关」配方补进 tests/e2e/README.md）；二轮 225/231，6 例失败全数
+    修复（WF-04/ED-07/AC-R10-5 补 allowedDomains 声明、ED-03 对齐 R9d 节点拒绝档 partial_success、
+    UI-02/OT-02a 定位器随 R6/R2 UI 演进消歧）；三轮全量全绿。
+  - 工程清理：console `NodeRunStatus` 同名双轨收敛（lib/flows.ts 更名 `NodeCardStatus`）；gateway 存量
+    lint warning 清零；「kill 网关」真 e2e 裁决维持等价模型并落档 `docs/workflow-engine.md`（锚点清单 +
+    自托管 runner 升级路径）；真机冒烟复跑 claude PASS / codex 环境性 FAIL（403 region，如实不虚标）。
 - **zcode-borrow：可恢复执行与权限闭环十项需求全量落地（2026-10-07/08，R1–R10，58 条 AC）** —
   需求定稿 `docs/zcode-borrow/requirements.md`（PRD v1.3），终验收结论 `docs/zcode-borrow/acceptance-report.md`
   （五路验收末轮 36 项通过 / 1 项未通过 AC-R2-3——该条已于 2026-10-08 复验通过并固化为常驻测试

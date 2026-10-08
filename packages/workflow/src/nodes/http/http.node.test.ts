@@ -257,9 +257,9 @@ describe('HttpNode', () => {
     }
   })
 
-  it('warn（默认）+ 缺席 → 放行且 onNodeDelta 收到留痕活动行', async () => {
+  it('warn（显式，OQ-4 终裁后测试环境钉 warn）+ 缺席 → 放行且 onNodeDelta 收到留痕活动行', async () => {
     const prev = process.env.DAGENTS_HTTP_DOMAIN_POLICY
-    delete process.env.DAGENTS_HTTP_DOMAIN_POLICY
+    process.env.DAGENTS_HTTP_DOMAIN_POLICY = 'warn'
     try {
       const fakeResponse = {
         ok: true,
@@ -276,7 +276,11 @@ describe('HttpNode', () => {
       expect(result.output).toEqual({ ok: 1 })
       expect(fetch).toHaveBeenCalled()
       expect(deltas).toEqual([
-        { type: 'activity', kind: 'log', label: '域名清单未声明（过渡期放行）: api.example.com' },
+        {
+          type: 'activity',
+          kind: 'log',
+          label: '域名清单未声明（warn 策略放行——enforce 默认下会拒跑，建议补声明）: api.example.com',
+        },
       ])
     } finally {
       if (prev !== undefined) process.env.DAGENTS_HTTP_DOMAIN_POLICY = prev

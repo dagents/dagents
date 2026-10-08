@@ -102,7 +102,7 @@ console (Next) → gateway (Hono) → @dagents/workflow engine
 
 - 环境变量：`.env`（模板见 `.env.example`）；基础设施模板 `infra/.env.example`
 - 稳定性相关（2026-10-04 专项，全部有默认值零配置可跑）：并发/资源闸 `DAGENTS_MAX_CONCURRENT_RUNS`(8) / `DAGENTS_MAX_CLI_PROCESSES`(16)；LLM 韧性 `LLM_HTTP_RETRY_ATTEMPTS`(3) / `LLM_HTTP_BREAKER_THRESHOLD`(3) / `LLM_HTTP_BREAKER_COOLDOWN_MS`(60000)；启动与 DB `DB_INIT_RETRY_MS`(60000) / `DB_POOL_MAX`(10) / `DB_POOL_IDLE_MS`(30000) / `DB_POOL_CONNECT_TIMEOUT_MS`(5000)。端点：`/livez`（进程活）/ `/health`（DB 可用）/ `/metrics`（Prometheus 文本，公开免鉴权）
-- 权限闭环相关（2026-10-07，R4）：`DAGENTS_HTTP_DOMAIN_POLICY`(warn｜enforce｜off，默认 warn 过渡期——enforce 后未声明 allowedDomains 的 http flow 拒跑) / `DAGENTS_CUSTOM_EXEC_TIMEOUT_MS`(15000，上限 60000；$exec 单次受控执行超时)
+- 权限闭环相关（2026-10-07 R4；2026-10-08 OQ-4 终裁默认翻 enforce）：`DAGENTS_HTTP_DOMAIN_POLICY`(warn｜enforce｜off，**默认 enforce**——未声明 allowedDomains 的 http flow 拒跑，错误带补声明指引；存量迁移逃生门 = 显式设 warn（放行+黄警留痕）或 off；内置模板零缺席由 CI `scripts/scan-template-permissions.mjs` 阻断层把守) / `DAGENTS_CUSTOM_EXEC_TIMEOUT_MS`(15000，上限 60000；$exec 单次受控执行超时)
 - 可恢复执行相关（2026-10-08，zcode-borrow）：`DAGENTS_JOURNAL_MAX_ROWS_PER_RUN`(100000，单 run journal 行保护上限——超限 delta 帧拒收 + journal_overflow 留痕行) / `DAGENTS_JOURNAL_REPLAY_MAX`(20000，live 断流 journal 回放的头部上限，超出截断标记)
 - 上下文管理相关（2026-10-04）：`DAGENTS_LLM_NODE_CONTEXT_CAP`(131072 字符) / `DAGENTS_FLOW_CONTEXT_CAP`(8192) / `DAGENTS_PERSONA_CONTEXT_CAP`(32000) / `DAGENTS_CHAT_SUMMARY`(1=开) / `DAGENTS_CHAT_SUMMARY_TRIGGER`(40) / `DAGENTS_CHAT_SUMMARY_KEEP_RECENT`(20) / `DAGENTS_CHAT_SUMMARY_MAX_CHARS`(4000) / `DAGENTS_MERGE_CONTENT_CAP`(65536)
 - 技能库 / 人格库根：`~/.agents/`（`skills/`、`agent-library/`，可用 `DAGENTS_SKILL_DIRS` / `DAGENTS_AGENT_LIBRARY_DIRS` 覆盖）

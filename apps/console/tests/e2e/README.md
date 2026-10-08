@@ -79,7 +79,19 @@ prompt / 工具是否回灌 / 循环了几轮」的协作证据），不再依�
 `docs/e2e-test-plan.md` §4.4 的专用库 `dagents_e2e` 已建好（本机 :15432）。
 完全隔离需要 gateway 也指向它（seed.ts 只控制测试进程的直连读写）：
 
+> ⚠️ **先迁移再起网关（2026-10-08 实弹教训）**：dev gateway 启动**不会**自动
+> 迁移目标库（迁移是 `pnpm --filter @dagents/db migration:run` 的显式步骤，
+> CI e2e.yml 每次直建 fresh 库故无此问题）。本地 `dagents_e2e` 若是旧快照，
+> 起网关后一切 runs 查询 502/`column ... does not exist`——工作流执行类
+> spec 成片挂。跑前先对目标库执行迁移；要彻底干净可整库重建：
+
 ```bash
+# 0.（建议每次全量前）迁移/重建专用库：
+docker exec dagents-postgres-1 psql -U dagents -d postgres \
+  -c "DROP DATABASE IF EXISTS dagents_e2e" -c "CREATE DATABASE dagents_e2e OWNER dagents"
+POSTGRES_URL=postgresql://dagents:dagents_dev@localhost:15432/dagents_e2e \
+  pnpm --filter @dagents/db migration:run
+
 # 1. gateway 指向专用库重启（GATEWAY_PORT 可换端口并行跑）。
 #    DAGENTS_HTTP_ALLOW_PRIVATE=1：HTTP 节点用例指向 Mock :4010，SSRF 守卫
 #    的官方逃生门（CI e2e.yml 同款；守卫语义由 workflow 包单测钉住）。

@@ -7,10 +7,13 @@
  *   2. flow_templates 表（用户/团队保存的模板，需 POSTGRES_URL 指向目标库；
  *      未配置或库不可达时该部分跳过并标注，不算扫描失败）。
  *
- * 退出码语义（AC-R4-6 口径「扫描断言零缺席」的运维面）：
- *   - 0 = 扫描完成（**缺席仅报告不阻断 CI**——存量模板按 OQ-4 过渡期处理，
- *     自动改写用户数据是臆测语义，补声明留给模板作者/实例化后的画布）；
- *   - 1 = 扫描本身失败（JSON 解析错误 / 内置目录不可读）。
+ * 退出码语义（2026-10-08 OQ-4 终裁后升级为 CI 阻断层——验收遗留 #4）：
+ *   - 0 = 扫描完成且**内置模板零缺席/零非法**（内置 JSON 归仓库管，随
+ *     DAGENTS_HTTP_DOMAIN_POLICY=enforce 默认生效，缺席即 CI fail）；
+ *     flow_templates 表（用户数据）的缺席仅报告不阻断——自动改写用户数据
+ *     是臆测语义，补声明留给模板作者/实例化后的画布；
+ *   - 1 = 内置模板存在缺席/非法声明，或扫描本身失败（JSON 解析错误 /
+ *     内置目录不可读）。
  *
  * 判定规则与 @dagents/workflow utils/flow-permissions.ts 同源语义
  * （此处为脚本内镜像实现，避免 node 裸跑 TS 包）：
@@ -69,7 +72,7 @@ function scanFlow(source, label, flowData) {
       const state = permState(readField(node, 'allowedDomains'))
       if (state.kind === 'absent') {
         problems.push(
-          `${label} · 节点 ${node.id}：http 节点未声明 allowedDomains（过渡期放行，enforce 后拒绝）`,
+          `${label} · 节点 ${node.id}：http 节点未声明 allowedDomains（enforce 策略下拒跑——补域名清单声明）`,
         )
       } else if (state.kind === 'invalid') {
         problems.push(
@@ -96,7 +99,8 @@ function scanFlow(source, label, flowData) {
 // ── 1. 内置 JSON 模板 ────────────────────────────────────────────────────
 
 let failed = false
-const allProblems = []
+const builtinProblems = []
+const dbProblems = []
 
 try {
   const files = readdirSync(BUILTIN_DIR).filter((f) => f.endsWith('.json'))
@@ -111,7 +115,7 @@ try {
       continue
     }
     const flowData = parsed?.flowData ?? parsed
-    allProblems.push(...scanFlow('builtin', `builtin/${file.replace(/\.json$/, '')}`, flowData))
+    builtinProblems.push(...scanFlow('builtin', `builtin/${file.replace(/\.json$/, '')}`, flowData))
   }
   console.log(`内置模板：扫描 ${files.length} 个文件`)
 } catch (err) {
@@ -143,7 +147,7 @@ if (!pgUrl) {
           continue
         }
       }
-      allProblems.push(...scanFlow('flow_templates', `模板「${row.name}」(${row.id})`, flowData))
+      dbProblems.push(...scanFlow('flow_templates', `模板「${row.name}」(${row.id})`, flowData))
     }
     console.log(`flow_templates 表：扫描 ${rows.length} 行`)
     await client.end()
@@ -155,11 +159,19 @@ if (!pgUrl) {
 
 // ── 报告 ────────────────────────────────────────────────────────────────
 
-if (allProblems.length > 0) {
-  console.log(`\n缺席/非法声明 ${allProblems.length} 处（报告不阻断，见 OQ-4 过渡期口径）：`)
-  for (const p of allProblems) console.log(`  ⚠ ${p}`)
+// 内置模板 = 仓库资产：缺席/非法即 CI 阻断（OQ-4 终裁，enforce 已默认生效）
+if (builtinProblems.length > 0) {
+  console.error(`\n✗ 内置模板缺席/非法声明 ${builtinProblems.length} 处（CI 阻断——内置模板必须全量声明）：`)
+  for (const p of builtinProblems) console.error(`  ✗ ${p}`)
+  failed = true
 } else {
-  console.log('\n零缺席：全部内置/库内模板的权限声明干净')
+  console.log('内置模板：零缺席/零非法（CI 阻断层通过）')
+}
+
+// flow_templates 表 = 用户数据：报告不阻断（补声明留给模板作者/画布）
+if (dbProblems.length > 0) {
+  console.log(`\nflow_templates 缺席/非法声明 ${dbProblems.length} 处（用户数据，报告不阻断）：`)
+  for (const p of dbProblems) console.log(`  ⚠ ${p}`)
 }
 
 process.exit(failed ? 1 : 0)

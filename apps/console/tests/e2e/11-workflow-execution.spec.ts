@@ -214,9 +214,16 @@ test.describe('工作流执行契约（Tier A：WF / OB）', () => {
 
   test('WF-04: HTTP 节点 —— 指向 mock echo 端点 + 非 http(s) URL 报错', async ({ request }) => {
     // 正向：GET mock 健康端点，JSON 响应被直接 parse 成输出对象
+    // （allowedDomains 声明——OQ-4 终裁后 enforce 默认，未声明 400 拒跑）
     const okFlowId = await seedFlow(ctx, request, {
       name: 'e2e-wf04-ok',
-      flowData: linearFlow([httpNode('http1', { url: `${MOCK_LLM_URL}/__control/health`, method: 'GET' })]),
+      flowData: linearFlow([
+        httpNode('http1', {
+          url: `${MOCK_LLM_URL}/__control/health`,
+          method: 'GET',
+          allowedDomains: ['127.0.0.1'],
+        }),
+      ]),
     })
     const okRun = await request.post(`/api/workflows/${okFlowId}/run`, { data: { input: 'wf04' } })
     ctx.runIds.push(okRun.headers()['x-run-id'] as string)
@@ -224,10 +231,14 @@ test.describe('工作流执行契约（Tier A：WF / OB）', () => {
     const okBody = await okRun.json()
     expect(okBody.data?.output?.ok).toBe(true)
 
-    // 负向：scheme 白名单拒绝非 http(s)
+    // 负向：scheme 白名单拒绝非 http(s)。声明 allowedDomains 让 run 过
+    // enforce preflight（400 是未声明的专用档，PG-01 领地）——协议守卫在
+    // 引擎执行时抛（URL 解析后、域名守卫前），节点失败 → 同步 500。
     const badFlowId = await seedFlow(ctx, request, {
       name: 'e2e-wf04-bad',
-      flowData: linearFlow([httpNode('http1', { url: 'ftp://example.com/nope' })]),
+      flowData: linearFlow([
+        httpNode('http1', { url: 'ftp://example.com/nope', allowedDomains: ['example.com'] }),
+      ]),
     })
     const badRun = await request.post(`/api/workflows/${badFlowId}/run`, { data: { input: 'wf04' } })
     ctx.runIds.push(badRun.headers()['x-run-id'] as string)

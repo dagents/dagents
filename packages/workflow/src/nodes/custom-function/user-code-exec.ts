@@ -119,6 +119,13 @@ const DEFAULT_TIMEOUT_MS = Number(process.env.CUSTOM_FN_TIMEOUT_MS ?? 5_000)
 /** 单次受控执行超时上限（与 gateway controlled-exec.ts 的硬顶一致）。 */
 const MAX_EXEC_TIMEOUT_MS = 60_000
 
+/**
+ * 在途 exec 给 worker deadline 的余量（ms）：宿主 spawn 回执迟到一点也不
+ * 吃掉 exec 自己的预算（2026-10-08 验收遗留 #6c 裁决：等待宿主的时间不烧
+ * worker 预算——deadline 随在途 exec 单调抬升）。
+ */
+const EXEC_DEADLINE_MARGIN_MS = 2_000
+
 /** worker RPC 消息（父侧 → worker 的 exec 回执）。 */
 interface WorkerExecResultMessage {
   __execResult: { id: number; ok: boolean; result?: unknown; error?: string }
@@ -166,6 +173,13 @@ export function runUserCode(
     }
 
     let settled = false
+    // worker 墙钟 = deadline 模型（2026-10-08 验收遗留 #6c 裁决落地）：
+    // 初始预算 `timeoutMs` 只管用户自己的计算；等待宿主受控 exec 的时间
+    // 不烧预算——在途 exec 把 deadline 单调抬到至少「exec 超时 + 余量」。
+    // 纯计算节点（无 $exec）行为不变；0 = 不限。
+    const startedAt = Date.now()
+    let deadlineAt = timeoutMs > 0 ? startedAt + timeoutMs : Number.POSITIVE_INFINITY
+    let timer: NodeJS.Timeout | undefined
     const settle = (fn: () => void): void => {
       if (settled) return
       settled = true
@@ -175,21 +189,25 @@ export function runUserCode(
       void worker.terminate().catch(() => {})
       fn()
     }
-    const timer =
-      timeoutMs > 0
-        ? setTimeout(() => {
-            settle(() =>
-              reject(
-                new Error(`custom function timed out after ${timeoutMs}ms（死循环或过重计算）`),
-              ),
-            )
-          }, timeoutMs)
-        : undefined
+    const armTimer = (): void => {
+      clearTimeout(timer)
+      if (deadlineAt === Number.POSITIVE_INFINITY) return
+      timer = setTimeout(() => {
+        settle(() =>
+          reject(
+            new Error(
+              `custom function timed out after ${Date.now() - startedAt}ms（死循环或过重计算）`,
+            ),
+          ),
+        )
+      }, Math.max(0, deadlineAt - Date.now()))
+      timer?.unref?.()
+    }
+    if (timeoutMs > 0) armTimer()
     const onAbort = (): void => {
       settle(() => reject(new Error('custom function cancelled')))
     }
     opts.signal?.addEventListener('abort', onAbort, { once: true })
-    timer?.unref?.()
 
     const postToWorker = (m: unknown): void => {
       if (settled) return // worker 已 terminate，迟到回执丢弃
@@ -245,6 +263,10 @@ export function runUserCode(
         Math.max(1, Math.trunc(req.timeoutMs ?? 15_000)),
         MAX_EXEC_TIMEOUT_MS,
       )
+      // 在途 exec 续命：deadline 至少盖住本 exec 超时 + 余量（单调抬升不
+      // 回收——exec 回执后函数若死循环，剩余预算照样杀）。
+      deadlineAt = Math.max(deadlineAt, Date.now() + timeout + EXEC_DEADLINE_MARGIN_MS)
+      armTimer()
       opts
         .execRunner({
           command: req.cmd,

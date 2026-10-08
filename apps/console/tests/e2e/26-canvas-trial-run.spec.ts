@@ -157,7 +157,10 @@ test.describe('画布试运行（R10）', () => {
       flowData: flow(
         [
           startNode('start'),
-          httpNode('http', { url: 'https://example.com/definitely-not-called' }),
+          // allowedDomains 声明（enforce 默认）：试运行 skip 分支定序在全部
+          // 静态守卫之后——域名未声明会在试运行中原样暴露为节点拒绝（R10
+          // 设计定序，http.node.ts），良性跳过只对通过静态校验的请求生效
+          httpNode('http', { url: 'https://example.com/definitely-not-called', allowedDomains: ['example.com'] }),
           llmNode('llm', { prompt: '总结 {{http.content}}' }),
         ],
         [edge('start', 'http'), edge('http', 'llm')],

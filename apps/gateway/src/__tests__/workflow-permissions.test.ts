@@ -219,9 +219,9 @@ describe('workflow 路由权限门（R4）', () => {
     }
   })
 
-  it('运行门：warn（默认）+ 未声明 → 放行且 undeclared 指标递增', async () => {
+  it('运行门：warn（显式逃生门）+ 未声明 → 放行且 undeclared 指标递增（OQ-4 终裁后默认已是 enforce）', async () => {
     const prev = process.env.DAGENTS_HTTP_DOMAIN_POLICY
-    delete process.env.DAGENTS_HTTP_DOMAIN_POLICY
+    process.env.DAGENTS_HTTP_DOMAIN_POLICY = 'warn'
     try {
       const before = renderMetrics()
       const id = await seedFlow(

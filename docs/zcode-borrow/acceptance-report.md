@@ -214,12 +214,12 @@ eb7c874 fix(zcode-borrow): 验收问题修复与复测      ← 26 文件 +1289/
 
 ## 四、notCovered（未覆盖面，如实列明）
 
-1. **e2e 全程未跑（验收轮禁令）**：`apps/console/tests/e2e/` 整套未在验收轮执行——含 24-run-resume（RM-01 回归钉子）、25-agent-verdict、26-canvas-trial-run、26-run-deliverables、28-permission-guard。各 e2e 标注 AC 的验收结论均以单测 / gateway 测试库直连集成 / kill 等价模型为证据形态（五路证据逐条注明）。注：实现与集成批曾实跑部分 spec 全绿（dev-notes 记录：25 2/2、26-trial 3/3、26-deliverables 4/4、28 3/3、24 3/3），验收轮未重跑；`26-run-recovery.spec.ts`（kill 网关/暖缓存链）从未新增（设计裁给统一把关）。
+1. **e2e 全程未跑（验收轮禁令）→【已于 2026-10-08 复验补记闭环】**：`apps/console/tests/e2e/` 整套未在验收轮执行——含 24-run-resume（RM-01 回归钉子）、25-agent-verdict、26-canvas-trial-run、26-run-deliverables、28-permission-guard。各 e2e 标注 AC 的验收结论均以单测 / gateway 测试库直连集成 / kill 等价模型为证据形态（五路证据逐条注明）。注：实现与集成批曾实跑部分 spec 全绿（dev-notes 记录：25 2/2、26-trial 3/3、26-deliverables 4/4、28 3/3、24 3/3），验收轮未重跑；`26-run-recovery.spec.ts`（kill 网关/暖缓存链）从未新增（设计裁给统一把关）。**复验补记（建议后续 #2 执行结果）**：全量 e2e 已在隔离栈三跑收口——首轮暴露本机 `dagents_e2e` schema 陈旧（环境性），二轮 225/231 → 6 例修复（详见建议后续 #2 条目），**第三轮全量全绿**；「kill 网关」级真 e2e 维持等价模型不立项 v1（落档 workflow-engine.md），浏览器断连重连面仍是唯一残余未覆盖点。
 2. **桌面打包未覆盖**：`apps/desktop` 不在 zcode-borrow 十项范围内，本轮零验证（Electron 编排/打包/端口让位等维持既有状态）。
 3. **真机 CLI 未回归**：除 claude 外（AC-R5-2 真机两轮 `--resume` 会话守恒 PASS，claude CLI 2.1.211），codex/qwen 等 15 个 docs-only 适配器的真机回归欠账维持（AGENTS.md 已知问题；nightly `real-cli.yml` 需带 CLI 的 self-hosted runner）。
 4. 其他如实列明（不属于 ask 指定三项，一并披露）：
-   - AC-R2-3 端到端复验未重跑（见 R2 专段）；
-   - AC-R3-1 黄警帧发射无行为断言（见 R3 遗留）；
+   - ~~AC-R2-3 端到端复验未重跑~~（**已闭环 2026-10-08**：常驻测试 `warm-cache-lineage-tokens.test.ts` 复验通过，见 R2 专段）；
+   - ~~AC-R3-1 黄警帧发射无行为断言~~（**已闭环 2026-10-08**：`recover-budget-warning.test.ts` 真执行钉住，见建议后续 #3）；
    - AC-R10-2 无常驻测试（临时集成测试实证后删除）；
    - /metrics 运行态读数未断言（R5/R10 以单测与 spawn 计数等价核验）；
    - R2-5 / R8-6 等 UI 面以实现 + 邻近单测为据，无浏览器级验证；
@@ -230,11 +230,11 @@ eb7c874 fix(zcode-borrow): 验收问题修复与复测      ← 26 文件 +1289/
 ## 五、建议后续
 
 1. **【已完成 2026-10-08】复验并固化 AC-R2-3**：已按本条执行——常驻测试 `warm-cache-lineage-tokens.test.ts` 落地并复验通过（详见 R2 节复验补记），兼作 src↔dist 漂移门禁。根因教训存档：workflow 包 vitest 跑 src、gateway 运行时吃 dist，src↔dist 漂移无门禁拦截——常驻集成测试是防复发的锚。
-2. **跑全量 e2e**：恢复验收轮禁令前的统一把关（含 RM-01 回归与五份新 spec）；评估是否补 `26-run-recovery.spec.ts`（kill 网关 + 暖缓存 5 节点链 + 迭代断点），或维持等价模型并在 workflow-engine.md 落档该口径。
-3. **补 AC-R3-1 黄警行为断言**：让 `recover-budget-resume.test.ts` 真执行（去 mock）或以 e2e 捕获「预算重新起算（谱系链累计已耗 X）」activity 帧。
-4. **OQ-4 终裁后翻 `DAGENTS_HTTP_DOMAIN_POLICY=enforce`**（独立 PR），flow_templates 扫描升级为 CI 阻断层。
-5. **真机 CLI 回归**：自托管 runner 落地 nightly `real-cli.yml`，清 15 适配器欠账（claude --resume 会话延续真机面已随本轮 PASS）。
-6. 小项清理（dev-notes 遗留）：console `NodeRunStatus` 同名双轨收敛、gateway 存量 unused import lint warning、`$exec` 长命令与 worker 超时的交互（`CUSTOM_FN_TIMEOUT_MS` 级联 abort）设计期裁决。
+2. **【已完成 2026-10-08】跑全量 e2e**：隔离栈（fresh `dagents_e2e` + 专用网关 :8081 + Mock :4010 + console :3100）全量三跑——第一轮暴露本机 e2e 库 schema 陈旧（缺 14 轮迁移，runs 查询成片 502——**环境性非代码回归**；根治 = 整库重建 + 迁移，配方已补进 `tests/e2e/README.md`「先迁移再起网关」警告）；第二轮 225/231，6 例失败全数定性修复：WF-04/ED-07/AC-R10-5 补 `allowedDomains` 声明（enforce 默认下 spec 需声明才测得到目标语义；试运行 skip 分支定序在静态守卫后，域名未声明原样暴露是 R10 设计）、ED-03 对齐 R9d 节点拒绝档（iteration 超限 → span rejected + partial_success，弃旧 500 断言）、UI-02 定位器消歧（R6 聚合区新增同名标签）、OT-02a 点名「全新重跑」（R2 后重跑入口为两枚）；修复后五文件定向 34/34 绿，**第三轮全量全绿**。26-run-recovery（kill 网关真 e2e）裁决：**维持等价模型不立项 v1**，锚点清单与自托管 runner 升级路径落档 `docs/workflow-engine.md` 现状与限制。
+3. **【已完成 2026-10-08】补 AC-R3-1 黄警行为断言**：新增 `__tests__/recover-budget-warning.test.ts`（去 mock 真执行：budget_exceeded + resumable checkpoint + 谱系账面 500 → 真实 `POST /runs/:id/resume` → directReply 真跑收敛 completed → journal event 帧 label 逐字断言「预算重新起算（谱系链累计已耗 500 tokens）——本次续跑预算 3000」；1 passed / 386ms）。
+4. **【已完成 2026-10-08】OQ-4 终裁并落地**：版本线裁决——`DAGENTS_HTTP_DOMAIN_POLICY` 默认翻 `enforce`（未知值回落更严一侧；warn/off 显式逃生门，warn 放行文案与指标留痕保留）；内置模板扫描升级 **CI 阻断层**（`scan-template-permissions.mjs` 内置缺席/非法即 exit 1，ci.yml 新增 `Template permission scan` 步；flow_templates 用户数据仍报告不阻断）；文档四件同步（requirements OQ-4 终裁注记 / AGENTS.md / workflow-engine.md / CHANGELOG）。
+5. **【部分完成 2026-10-08】真机 CLI 回归**：nightly `real-cli.yml` 已随批落地（self-hosted `real-cli` 标签 runner，缺 CLI 诚实 SKIP）；本机复跑冒烟——**claude PASS**（re-confirm，tiers 已 verified 一致）、**codex FAIL 属环境性**（登录 token 刷新 403 region not supported + workspace routing 超时——账号/地区限制非适配器缺陷，tiers 维持待回归不虚标）；其余适配器清欠仍需带有效登录的自托管 runner。
+6. **【已完成 2026-10-08】小项清理**：console `NodeRunStatus` 同名双轨收敛（lib/flows.ts 更名 `NodeCardStatus`，kit 的 `NodeRunStatus` 为唯一持有者，语义零变化）；gateway 存量 lint warning 清零（workflows.ts 四个 unused import + resume-flow.test.ts 骨架残留瘦身）；`$exec` 超时交互设计期裁决落地——worker 墙钟改 **deadline 模型**：初始预算只管用户计算，在途受控 exec 把 deadline 单调抬到「exec 超时 + 2s 余量」（等待宿主不烧计算预算；有界 ≤60s+余量；宿主 abort 级联不变），`user-code-exec.test.ts` 三例钉住，口径落 workflow-engine.md。
 
 ---
 
