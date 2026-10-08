@@ -8,6 +8,7 @@ vi.mock('@dagents/db', () => ({
 
 // Import AFTER the mock is registered.
 import {
+  rollupPrimaryModel,
   recordUsageEvent,
   hasTokens,
   aggregateExecutedNodesUsage,
@@ -152,5 +153,54 @@ describe('aggregateModelUsage (dispatch rollup)', () => {
       inputTokens: 0,
       outputTokens: 0,
     })
+  })
+})
+
+// ── R8 rollup 主模型（design-recover §3.6(c)，AC-R8-4 / AC-R2-3 对账面）──
+describe('rollupPrimaryModel (workflow run 主模型)', () => {
+  it('取用量最大节点的 resolvedModel——usage_events.model 的填充值', () => {
+    const model = rollupPrimaryModel([
+      { resolvedModel: 'cli:claude', tokens: { inputTokens: 10, outputTokens: 5 } },
+      { resolvedModel: 'gpt-x', tokens: { inputTokens: 100, outputTokens: 50 } },
+      { resolvedModel: 'gpt-y', tokens: { prompt_tokens: 1, completion_tokens: 1 } },
+    ])
+    expect(model).toBe('gpt-x')
+  })
+
+  it('双 token 命名都认（contracts inputTokens / OpenAI prompt_tokens）', () => {
+    const model = rollupPrimaryModel([
+      { resolvedModel: 'a', tokens: { prompt_tokens: 90, completion_tokens: 10 } },
+      { resolvedModel: 'b', tokens: { inputTokens: 5, outputTokens: 5 } },
+    ])
+    expect(model).toBe('a')
+  })
+
+  it('无 tokens 的节点不参与主模型判定（resolvedModel 在但零用量 → 退给有量者）', () => {
+    const model = rollupPrimaryModel([
+      { resolvedModel: 'zero-usage-model', tokens: null },
+      { resolvedModel: 'tiny', tokens: { inputTokens: 1, outputTokens: 0 } },
+    ])
+    expect(model).toBe('tiny')
+  })
+
+  it('全部无 resolvedModel（旧引擎节点/纯本地节点）→ null（诚实缺席）', () => {
+    expect(rollupPrimaryModel([{ tokens: { inputTokens: 5 } }, { tokens: null }])).toBeNull()
+    expect(rollupPrimaryModel([])).toBeNull()
+  })
+
+  it('AC-R2-3 零重复记账的引擎前提：cached 种子不在 executedNodes——rollup 输入天然只含真实执行', () => {
+    // cached 节点由引擎种子跳过机制排除在 executedNodes 之外（executor 的
+    // push 只在真实执行发生）——这里钉「传入侧只剩真实节点时聚合正确」：
+    // 种子继承 tokens 若误进列表会造成双计（PRD R2 风险条款）。
+    const executedOnly = [
+      { resolvedModel: 'gpt-x', tokens: { inputTokens: 30, outputTokens: 20 } },
+    ]
+    const withLeakedSeed = [
+      ...executedOnly,
+      { resolvedModel: 'gpt-x', tokens: { inputTokens: 30, outputTokens: 20 } },
+    ]
+    expect(rollupPrimaryModel(executedOnly)).toBe(rollupPrimaryModel(withLeakedSeed))
+    // 主模型虽同，聚合层（aggregateExecutedNodesUsage）会双计——防回归的
+    // 判定锚在引擎侧（executor-resume：cached 节点不进 executedNodes）。
   })
 })

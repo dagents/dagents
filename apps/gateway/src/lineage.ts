@@ -23,7 +23,6 @@ export async function runLineageChain(runId: string): Promise<string[]> {
   while (current && chain.length < LINEAGE_MAX_DEPTH) {
     if (seen.has(current)) break // 环护栏（纵深防御）
     seen.add(current)
-    chain.push(current)
     const query = runQuery<{ resumed_from_run_id: string | null }>(
       `SELECT resumed_from_run_id FROM runs WHERE id = $1::uuid`,
       [current],
@@ -32,8 +31,12 @@ export async function runLineageChain(runId: string): Promise<string[]> {
       await query.catch(() => ({ records: [] as Array<{ resumed_from_run_id: string | null }> }))
     ).records
     const row = records[0]
-    // 行不存在（retention 清掉）或谱系为 null（根运行）→ 断链，停在当前。
-    current = row?.resumed_from_run_id ?? null
+    // 断链语义（R2.6 诚实 miss）：行不存在（retention 清掉 / 从未有）=
+    // 该 run 不进候选——链停在最后一个**真实存在**的 run；行存在但谱系为
+    // null（根运行）同样终止。空链 = 整链 miss（调用方按零候选全量重跑）。
+    if (!row) break
+    chain.push(current)
+    current = row.resumed_from_run_id ?? null
   }
   // 自根向后代：查询是从 runId 向根溯源的，反转即根在前。
   chain.reverse()

@@ -221,6 +221,11 @@ export function assembleWorkflowEngine(
       subflowDepth: depth + 1,
       ancestorFlowIds: ancestors,
       flowContextMd: opts.flowContextMd,
+      // R10 试运行隔离（2026-10-08 测试补齐轮实弹修复）：llmClientOverride
+      // 必须随递归装配透传——否则含 executeFlow 的试运行子引擎会回落
+      // createDefaultLlmClient 打真 provider/CLI（AC-R10-1「真 provider 调用
+      // 数 0」对子流程同样成立）。
+      ...(opts.llmClientOverride ? { llmClientOverride: opts.llmClientOverride } : {}),
     })
     const result = await sub.executor.execute(flowData, input, {
       ...sub.baseOptions,
@@ -231,6 +236,9 @@ export function assembleWorkflowEngine(
       signal: execOpts.signal,
     })
     sub.live.finish(toRunStatus(result.status).status)
+    // 子引擎 journal 收口（同根路径 runAndPersist 的 journal.close() 语义：
+    // flush delta 微批；fire-and-forget 不阻塞 settle）。
+    sub.journal.close()
     return { output: result.finalOutput ?? {}, status: result.status }
   }
 

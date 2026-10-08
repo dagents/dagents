@@ -253,3 +253,72 @@ describe('span-writer user_input 快节拍（2026-09-08 可操作终端）', () 
     expect(output?.['text']).toBe('完成')
   })
 })
+
+describe('span-writer verdict 活动（2026-10-08 R5 三值裁决）', () => {
+  beforeEach(() => {
+    vi.clearAllMocks()
+    mockRunQuery.mockResolvedValue({ records: [], affected: 1 })
+    vi.useFakeTimers()
+    // 与文件级 triggerEventsFlush 辅助同一时间基（2026-09-06）——它按
+    // 「基准 + ms」推进，换日期基准会让时钟倒退、节流门控永不放行。
+    vi.setSystemTime(new Date('2026-09-06T10:00:00Z'))
+  })
+  afterEach(() => {
+    vi.useRealTimers()
+  })
+
+  it('verdict 活动进 events 全量日志，且进 activity 环（非 status/log 噪音）', () => {
+    const w = makeWriter()
+    w.onNodeStart(node)
+    w.onNodeDelta(node, {
+      type: 'activity',
+      kind: 'verdict',
+      label: '第 1 轮裁决：violations（2 项违规）',
+      detail: '- $.decision：期望 ["ship","hold"]，实际 "maybe"',
+    })
+    w.onNodeDelta(node, {
+      type: 'activity',
+      kind: 'verdict',
+      label: '第 2 轮 · 违规修复回喂（会话重建·对话回放）',
+      detail: '你上一条输出不符合节点 outputSchema…',
+    })
+    w.onNodeDelta(node, { type: 'activity', kind: 'status', label: 'noise' })
+    triggerEventsFlush(w, 5500)
+
+    const payload = deltaPayloads().at(-1)!
+    const events = payload.events as Array<{ kind: string; label: string; detail?: string }>
+    // 全量保真：两轮裁决 + 回喂内容逐条落 events（AC-R5 轮次可观测的数据源）
+    expect(events.map((e) => e.kind)).toEqual(['verdict', 'verdict', 'status'])
+    expect(events[0]!.detail).toContain('$.decision')
+    expect(events[1]!.label).toContain('会话重建')
+    // 策展环：verdict 不是 status/log 噪音 → 摘要面板可见裁决轮次
+    const activity = payload.activity as Array<{ kind: string; label: string }>
+    expect(activity.map((a) => a.kind)).toEqual(['verdict', 'verdict'])
+  })
+
+  it('onNodeEnd 终态合并保留 verdict 轮次（回放审计：第 N 轮裁决留痕）', async () => {
+    const w = makeWriter()
+    w.onNodeStart(node)
+    w.onNodeDelta(node, {
+      type: 'activity',
+      kind: 'verdict',
+      label: '第 2 轮裁决：accept（合规收下）',
+    })
+    w.onNodeEnd({
+      nodeId: 'n1',
+      nodeName: '规划',
+      startedAt: '2026-10-08T10:00:00Z',
+      endedAt: '2026-10-08T10:00:02Z',
+      status: 'success',
+      input: {},
+      output: { text: '{"decision":"ship"}', json: { decision: 'ship' } },
+      ordinal: 0,
+    } satisfies IExecutedNode)
+    await flushWrites()
+
+    const out = finalOutput()!
+    expect(out.json).toEqual({ decision: 'ship' })
+    const events = out.events as Array<{ kind: string; label: string }>
+    expect(events.some((e) => e.kind === 'verdict' && e.label.includes('accept'))).toBe(true)
+  })
+})

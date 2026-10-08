@@ -89,8 +89,13 @@ export async function findLatestDecisionByNodeAndHash(
   opts: { recentFirst?: boolean } = {},
 ): Promise<(JournalDecisionRow & { inputHash: string }) | null> {
   if (runIds.length === 0) return null
-  // ordinal 化参数占位：$1 = nodeId，$2 = inputHash，$3.. = runIds
-  const idPlaceholders = runIds.map((_, i) => `$${i + 3}::uuid`).join(', ')
+  // 「链上最近」= candidates 序（PRD R2.1）：array_position($3) 把调用方的
+  // 优先级序传进 ORDER BY（数组占位符一次传整表，避免逐 id 拼占位符）；
+  // recentFirst=false 显式反转为链上最远（seq 序，调试用）。
+  const orderBy =
+    opts.recentFirst === false
+      ? 'seq ASC'
+      : 'array_position($3::uuid[], run_id) ASC'
   const { records } = await runQuery<{
     run_id: string
     node_id: string
@@ -105,10 +110,10 @@ export async function findLatestDecisionByNodeAndHash(
         AND ordinal = 0
         AND payload->>'status' IN ('done', 'cached')
         AND payload->>'inputHash' = $2
-        AND run_id IN (${idPlaceholders})
-      ORDER BY ${opts.recentFirst === false ? 'seq ASC' : 'CASE run_id ' + runIds.map((id, i) => `WHEN $${i + 3}::uuid THEN ${i}`).join(' ') + ' ELSE ${runIds.length} END ASC'}
+        AND run_id = ANY($3::uuid[])
+      ORDER BY ${orderBy}
       LIMIT 1`,
-    [nodeId, inputHash, ...runIds],
+    [nodeId, inputHash, runIds],
   )
   const r = records[0]
   if (!r) return null

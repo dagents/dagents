@@ -112,16 +112,25 @@ export function makeJournalWriter(opts: {
     let i = 1
     for (const row of rowsToInsert) {
       placeholders.push(
-        `($${i++}::uuid, $${i++}::text, $${i++}, $${i++}, $${i++}, $${i++}, $${i++}::jsonb)`,
+        `($${i++}::uuid, $${i++}::text, $${i++}, $${i++}, $${i++}, $${i++}, $${i++}, $${i++}::jsonb)`,
       )
-      values.push(runId, flowId, row.nodeId, row.ordinal, row.kind, row.seq, JSON.stringify(row.payload))
+      values.push(
+        runId,
+        flowId,
+        row.nodeId,
+        row.ordinal,
+        row.kind,
+        row.seq,
+        row.eventType,
+        JSON.stringify(row.payload),
+      )
     }
     try {
       // 不带 ON CONFLICT：撞 (run_id, seq) 唯一索引就抛错——显式报错留痕
       //（AD-R5：单写者模型下该索引只是抢号保险丝，静默 DO NOTHING 会让
       // 乱序/双写者不可见）。
       await runQuery(
-        `INSERT INTO run_node_journal (run_id, flow_id, node_id, ordinal, kind, seq, payload)
+        `INSERT INTO run_node_journal (run_id, flow_id, node_id, ordinal, kind, seq, event_type, payload)
          VALUES ${placeholders.join(', ')}`,
         values,
       )

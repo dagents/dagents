@@ -257,15 +257,15 @@ function LiveElapsed({
  * 点行同一单源（extractOutputText → @dagents/contracts）。 */
 
 /** 机器面条目（实例键）→ 人行粒度（节点）的聚合形态。 */
-interface DeliverableGroup {
+export interface DeliverableGroup {
   nodeId: string
   label: string
   items: DeliverableItem[]
 }
 
 /** 按节点聚合 + 拓扑序重排（继承行与真实执行行同规则参与排序——种子
- *  节点排在其拓扑位，阅读序与图结构一致）。 */
-function groupDeliverables(
+ *  节点排在其拓扑位，阅读序与图结构一致）。导出供组件测试直测纯逻辑。 */
+export function groupDeliverables(
   deliverables: DeliverableItem[],
   topoOrder: Map<string, number>,
 ): DeliverableGroup[] {
@@ -286,8 +286,9 @@ function groupDeliverables(
     )
 }
 
-/** 组内 tokens 求和 → 单一徽章（多 ordinal 项的用量合并呈现）。 */
-function sumTokensBadge(items: DeliverableItem[]): string | null {
+/** 组内 tokens 求和 → 单一徽章（多 ordinal 项的用量合并呈现）。导出供
+ *  组件测试直测纯逻辑。 */
+export function sumTokensBadge(items: DeliverableItem[]): string | null {
   let seen = false
   let inputTokens = 0
   let outputTokens = 0
@@ -306,7 +307,8 @@ function sumTokensBadge(items: DeliverableItem[]): string | null {
   return seen ? tokensBadge({ inputTokens, outputTokens }) : null
 }
 
-function DeliverablesCard({
+/** 导出供组件测试直渲染（生产消费方仍是 CanvasResultsPanel 内部装配）。 */
+export function DeliverablesCard({
   runId,
   deliverables,
   flowNodes,

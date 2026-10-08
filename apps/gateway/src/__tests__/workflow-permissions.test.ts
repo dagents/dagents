@@ -292,4 +292,20 @@ describe('workflow 路由权限门（R4）', () => {
     )
     expect(records).toHaveLength(1)
   })
+
+  it('GET /metrics 路由文本含两个 R4 指标（含 HELP 头——未触发也注册）', async () => {
+    // §6.2-⑥ 的字面口径：路由层而非 renderMetrics() 单测——钉「指标真的
+    // 挂到了对外暴露面」。declareCounter 在 metrics.ts 模块作用域注册，
+    // app import 链即声明（未触发时 renderMetric 也输出 HELP/TYPE 头）。
+    const res = await app.request('/metrics')
+    expect(res.status).toBe(200)
+    const text = await res.text()
+    // HELP 头在零触发时也输出（renderMetric 对已注册 counter 恒写头）——
+    // 钉的是「指标挂到了对外暴露面」；值行只有触发后出现，本文件的前序
+    // warn 用例已在同进程 inc 过 undeclared 计数，顺带断言其值行存在。
+    expect(text).toContain('# HELP dagents_custom_exec_total')
+    expect(text).toContain('# TYPE dagents_custom_exec_total counter')
+    expect(text).toContain('# HELP dagents_permission_undeclared_http_runs_total')
+    expect(text).toMatch(/dagents_permission_undeclared_http_runs_total [1-9]/)
+  })
 })

@@ -1,4 +1,4 @@
-import { describe, it, expect } from 'vitest'
+import { describe, it, expect, vi } from 'vitest'
 import { CustomFunctionNode } from './custom-function.node.js'
 import type { INodeData, IExecutionContext } from '../../types/index.js'
 
@@ -80,6 +80,94 @@ describe('CustomFunctionNode', () => {
     const result = await node.run(makeNodeData(code), '', makeContext())
     // No return → result is undefined, wrapped as { value: undefined }
     expect(result.output).toEqual({ value: undefined })
+  })
+
+  // ── R4 受控命令通道 · 节点层（2026-10-08 测试补齐，AC-R4-2 节点面）─────
+  // worker RPC 与白名单裁决的底层行为在 user-code-exec.test.ts；这里钉
+  // 节点层的四件事：$exec 缺席翻译、invalid 全拒、活动行、未列命令。
+
+  it('无 allowedCommands 调 $exec → TypeError 翻译成结构化指引（带节点 id 与「命令白名单」指引）', async () => {
+    const node = new CustomFunctionNode()
+    await expect(
+      node.run(makeNodeData('return $exec("git", []).then(() => 1)'), '', makeContext()),
+    ).rejects.toThrow(
+      /customFunction 节点 n1：\$exec 不可用——本节点未声明 allowedCommands；在节点配置「命令白名单」声明后方可调用命令/,
+    )
+  })
+
+  it('invalid allowedCommands → 节点 fail-closed 全拒（合法代码也不跑）', async () => {
+    const node = new CustomFunctionNode()
+    await expect(
+      node.run(
+        {
+          id: 'n1',
+          name: 'customFunctionAgentflow',
+          inputs: { functionCode: 'return 1', allowedCommands: 'oops' },
+        },
+        '',
+        makeContext(),
+      ),
+    ).rejects.toThrow(
+      /allowedCommands 声明非法（应为字符串数组.*）——修复格式；修复前 \$exec 全部被拒/s,
+    )
+  })
+
+  it('declared + execRunner 注入 → 结果回流且 onNodeDelta 收到 tool/tool_result 两行活动', async () => {
+    const deltas: Array<{ type: string; kind: string; label: string }> = []
+    const ctx = makeContext()
+    ctx.onNodeDelta = (chunk) =>
+      deltas.push({
+        type: chunk.type,
+        kind: (chunk as { kind: string }).kind,
+        label: (chunk as { label: string }).label,
+      })
+    ctx.execRunner = async (req) => {
+      // 二次复核面：节点把声明白名单原样带给宿主（纵深防御契约）
+      expect(req.allowedCommands).toEqual(['git'])
+      return { code: 0, stdout: 'M file.ts', stderr: '', truncated: false }
+    }
+    const node = new CustomFunctionNode()
+    const result = await node.run(
+      {
+        id: 'n1',
+        name: 'customFunctionAgentflow',
+        inputs: {
+          functionCode:
+            'return $exec("git", ["status"]).then((r) => ({ code: r.code, out: r.stdout }))',
+          allowedCommands: ['git'],
+        },
+      },
+      '',
+      ctx,
+    )
+    expect(result.output).toEqual({ code: 0, out: 'M file.ts' })
+    expect(deltas).toEqual([
+      { type: 'activity', kind: 'tool', label: 'git' },
+      { type: 'activity', kind: 'tool_result', label: 'git' },
+    ])
+    // tool_result detail 保全文（采集层契约）：argv JSON + stdout + 退出码
+  })
+
+  it('declared + 未列命令 → 节点失败且错误带「已声明」清单（RPC 裁决路径经节点层）', async () => {
+    const execRunner = vi.fn(async () => ({ code: 0, stdout: '', stderr: '', truncated: false }))
+    const ctx = makeContext()
+    ctx.execRunner = execRunner
+    const node = new CustomFunctionNode()
+    await expect(
+      node.run(
+        {
+          id: 'n1',
+          name: 'customFunctionAgentflow',
+          inputs: {
+            functionCode: 'return $exec("sh", ["-c", "echo pwned"]).then((r) => r.stdout)',
+            allowedCommands: ['git'],
+          },
+        },
+        '',
+        ctx,
+      ),
+    ).rejects.toThrow(/sh 未在 allowedCommands 声明（已声明：git）/)
+    expect(execRunner).not.toHaveBeenCalled()
   })
 
   it('has correct static metadata', () => {

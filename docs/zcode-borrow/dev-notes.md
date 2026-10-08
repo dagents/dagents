@@ -730,3 +730,202 @@ R10（引擎件/gateway/console/e2e）**全部落地**。
   lineage——跨引擎/gateway 边界，仍留后续）。
 - console `lib/flows.ts` 与 flow-canvas kit 的 NodeRunStatus 同名双轨维持
   （两处均已加 'cached'）。
+
+### 测试补齐批（2026-10-08 晚，cluster: 提交裁决）
+
+在开发批（单测 30 项）之上按设计 §6.1 补齐**消费侧贯通**测试 11 项——
+开发批钉了「产出方」（节点状态机/校验器/CLI 客户端），本批钉「消费方」
+（span-writer 落库 → console 终端/轨迹投影），全部按邻近测试既有风格追加：
+
+1. **gateway `span-writer.test.ts`**（+2）：verdict 活动进 events 全量日志
+   且进 activity 环（非 status/log 噪音——摘要面板可见裁决轮次）；onNodeEnd
+   终态合并保留 verdict 轮次（output.json 与 events 同存）。
+   ⚠️ 坑：文件级 `triggerEventsFlush` 辅助锚定 2026-09-06 时间基——自定义
+   beforeEach 换日期会让 fake clock 倒退、节流门控永不放行（首跑即栽，已修）。
+2. **gateway `workflow-clients-resume.test.ts`**（+3）：resume 轮增量回喂
+   消息经 buildCliMessages 折叠 → systemPrompt=undefined（不重复注入 system
+   头/schema 契约块，设计 §3.2 定稿钉）；修复轮无 tools + claude 档 →
+   extraArgs 带 `--disallowedTools`（文本档自动收紧）；工具循环轮（带 tools）
+   不收紧——对照组。
+3. **console `run-terminal-format.test.ts`**（+4）：events 通道 verdict 行
+   全文保真映射；activity 环降级路同放行；直播路 verdict 帧保持专有 kind
+   （不降级 log，at 取服务端时间戳）；sectionTranscript 复制实录含裁决行。
+4. **console `run-trace-model.test.ts`**（+2）：DB 路 span events 的 verdict
+   行 → 台账专有 kind 记录（台账全局序 nodeStart→verdict→nodeEnd）；直播路
+   verdict 帧与未知 kind 降级 log 形成对照（F8 兜底边界双向钉）。
+
+自证：`pnpm vitest run`（workflow 2 文件 + gateway 3 文件 = 35 测）与
+console 包内 3 文件（55 测）全绿；eslint 4 个改动测试文件零告警；prettier
+仅校验本批追加块（共享测试文件既有段落存在先于本批的 prettier 偏差，未
+整文件重排）；console typecheck 唯一错误在 R6 的
+`canvas-deliverables-card.test.tsx`（缺地基批新增的必填 `ordinal`——该
+方向待修，非本批文件）。e2e 仍属集成期跑（dev server 禁启约束不变）。
+
+### 测试补齐批次（2026-10-08 第二问，cluster: 渐进产物）
+
+对照 §⑥ 测试计划把 UI 层逻辑从「仅 e2e 兜底」补到 vitest：
+
+- `apps/console/src/components/__tests__/canvas-deliverables-card.test.tsx`
+  （新，12 用例）：`groupDeliverables` 纯逻辑（实例键序→拓扑序重排、未知
+  节点垫底、迭代多 ordinal 聚组内升序、label 回退）、`sumTokensBadge`
+  求和/无量 null、`DeliverablesCard` 渲染（text 单行预览/继承 chip/子流程
+  chip/迭代「第 k/n 项」/未完成标注三分支——**failed span 不进「未执行」
+  灰行**/零产出禁用复制下载/空输入整卡不渲染/终端锚点回调/clipboard 桩
+  复制回执）。为此把 `groupDeliverables`/`sumTokensBadge`/`DeliverablesCard`
+  从 canvas-results-panel.tsx 追加导出（纯追加，生产行为零变化）。
+- `apps/console/src/lib/node-spans.test.ts`（追加 describe，+5 用例）：
+  `fetchRunNodeSpans` 的 deliverables 透传契约——在场透传 / 缺席 null
+  （旧网关）/ 空数组 []（诚实空态）/ 坏损防御归 null / 非 2xx 与网络异常
+  归 null。决策 F 的 null≠[] 语义在 fetch 层钉死。
+- `apps/console/src/components/__tests__/run-terminal-anchor.test.tsx`
+  （新，2 用例）：`data-terminal-section={nodeId}` 锚点属性——spans 快照
+  路与 live builder 路两数据源同键（AC-R6-5 载体防回归）。
+- 踩坑记录：userEvent.setup() 会自装 clipboard stub 覆写测试桩（v14 行为）
+  ——复制用例改 fireEvent.click；jsdom navigator.clipboard getter-only，
+  需 defineProperty 覆写。另：可恢复性方向已把 `RunNodeSpan.ordinal` 升
+  必填（§⑦ 共享表所述），测试桩需带 ordinal: 0。
+- 本批实测：console 四文件 46/46（`pnpm vitest run` 定向）、contracts
+  20/20、gateway 15/15、console lint 0 error（新文件零 finding）、
+  typecheck 相关文件干净。
+
+---
+
+## 可恢复性 · 测试补齐批次（2026-10-07，cluster: 可恢复性）
+
+对照 `docs/zcode-borrow/design-recover.md` 第 ⑥ 节测试计划补 vitest（地基与
+routes/console 两批已带的测试之外，逐条盘点缺口后补齐；先读邻近测试学风格：
+workflow-clients-resume.test.ts 的 scripted-backend mock / run-deliverables.test.ts
+与 boot-sweep.test.ts 的 dagents_gw_test 真库 fixture / db migrations-guard 的
+纯 node 测试）。
+
+### 本批新增测试（定向实跑全绿）
+
+1. **`apps/gateway/src/__tests__/journal-writer.test.ts`（8 例，真库）**——
+   AC-R7-2 的 writer 面 + §3.4(b)：decision 行全量读回（status/inputHash/
+   output/tokens/lineage/resolvedModel）、迭代控制器二次触发的
+   (nodeId, ordinal) 幂等 upsert（AC-R1-2 写侧）、per-ordinal 多档并存、
+   JournalFacade.lookup 两态、结构帧 write-through（nodeEnd 带 ordinal、
+   runEnd node_id='__run__'、payload 原样含 seq、seq 升序）、delta 微批 +
+   close() flush、单 run 上限拒收 + journal_overflow 留痕行。
+2. **`apps/gateway/src/__tests__/run-node-journal-repo.test.ts`（6 例，真库）**
+   ——读侧单点：findDecisions 的 statuses 过滤（failed 不进种子）、ordinal
+   寻址、findLatestDecisionByNodeAndHash 精确匹配 + **candidates 序即最近
+   优先（PRD R2.1）** + failed/空候选诚实 miss、listEventFrames 的 seq 升序
+   与回放上限截断标记（truncatedHead）、hasJournalRows。
+3. **`apps/gateway/src/__tests__/lineage.test.ts`（6 例，真库）**——谱系链：
+   三级链自根向后代、根运行、**断链（retention 清掉的前驱不进候选）**、
+   深度上限 16、幽灵 run 空链、lineageTokensSpent 按链 SUM。
+4. **`apps/gateway/src/__tests__/workflow-clients-recover.test.ts`（10 例，
+   mock）**——AC-R8-3 pin 禁降级：modelPinned + provider 500 → 响亮失败
+   （providerFailure/expectedModel/「因 pin 拒绝降级」活动行 + CLI 零调用）；
+   未 pin + 全局闸关 = 原样抛（基线对照）；熔断开启同样拒绝（含熔断上下文
+   活动行）。AC-R8-1 后半（取值单源）：首次不传 → 收尾采集真实
+   backendSessionId → 同键重入查表透传 --resume、显式传入优先、非 claude
+   档不透传（collectRunSessions 只回 claude）、initialSessions 跨进程注入、
+   ordinal 维度隔离（并发迭代多会话不串）、跨 run 不串。
+5. **`apps/gateway/src/__tests__/usage-events.test.ts` 追加（5 例）**——
+   rollupPrimaryModel（用量最大节点的 resolvedModel，双 token 命名、零用量
+   退位、诚实缺席 null）+ AC-R2-3 零重复记账的引擎前提对照。
+6. **`packages/db/src/__tests__/run-status-vocab.test.ts`（3 例，纯 node 捕获
+   型 QueryRunner）**——AC-R3-3 的迁移腿：runs_status_chk 九值 = RunStatus
+   联合、runs_stop_reason_chk 五值 = RunStopReason（down 路径八值无
+   stopped 有 cancelled）、快照列齐备（frozen_agents/models/ordinal）。
+7. **`apps/console/src/lib/__tests__/use-task-notification.test.tsx` 追加
+   （4 例，renderHook + 真 ToastProvider）**——AC-R3-6 的 chat 帧半（sharp
+   方向已在同文件钉 run-updated 半）：chat:done/chat:error 携带
+   stopReason='superseded' → 通知链零触发；无 stopReason / user 来源不误伤。
+
+### 本批逮到并修复的生产缺陷（3 处——测试先行的直接收益）
+
+1. `journal-writer.ts` 批量 INSERT **漏写 event_type 列**（调用方传入的
+   eventType 被忽略，event 行该列恒 NULL——回放按 event_type 分流的消费面
+   会整体失明；journal-writer.test 的 write-through 三例逮到）。
+2. `run-node-journal.repo.ts` 的 findLatestDecisionByNodeAndHash **ORDER BY
+   拼接 bug**（单引号字符串里的 `${runIds.length}` 未插值 → SQL 含字面
+   `${...}` → syntax error at or near "$"；repo.test 两例逮到）。修复改用
+   `array_position($3::uuid[], run_id)` 数组占位符（candidates 序即优先级，
+   一次传整表，不再逐 id 拼占位符）。
+3. `lineage.ts` 的 runLineageChain **断链 run 仍进链**（先 push 再查行——
+   被 retention 清掉的前驱进了候选，违背 R2.6「查不到 = 不进候选」；
+   lineage.test 断链例逮到）。修复为行存在才入链（空链 = 整链 miss）。
+
+### 定向自测（本批实跑命令）
+
+- `apps/gateway`：`npx vitest run`——**64 文件 584 passed | 1 todo**（含本批
+  新增 4 文件 + 2 处追加）；`npx tsc --noEmit` 绿。
+- `packages/db`：`npx vitest run`——3 文件 8 passed；`npx tsc --noEmit` 绿。
+- `apps/console`：`npx vitest run src/lib/__tests__/use-task-notification.test.tsx`
+  ——10 passed（本批追加 4 + sharp 既有 6）；`npx tsc --noEmit` 绿。
+- `packages/workflow`：`npx vitest run`——32 文件 374 passed（本批未动该包
+  生产代码，回归确认；上一批失败的 custom-function 元数据测试已被 R4 方向
+  同步修复）。
+- 全仓 pnpm test/build 未跑（约束 + dev server 在跑）；设计 §⑥ 的 e2e 面
+  （26-run-recovery.spec.ts 的 kill gateway/暖缓存 5 节点链）仍留给统一把关
+  ——理由见上一段「明确不做」。
+
+### 已有覆盖盘点（本批无需重写的部分）
+
+- AC-R1-3/AC-R1-2 引擎面（种子 hash 校验/per-ordinal 种子/cached 钩子/
+  journal decision 接缝/ordinal 分配）：`executor-resume.test.ts`（地基批，
+  22 例）；AC-R1-4：`input-hash.test.ts`（地基）。
+- AC-R2-1 单测面（暖缓存闭包/改输入全 miss/最近优先/诚实 miss）：
+  `warm-cache.test.ts`（routes 批，6 例）。
+- AC-R3-3 单源映射/classifyAbortReason/classifyFailureReason/deriveSessionId：
+  `recover-status.test.ts`（routes 批，12 例）；AC-R3-1 boot sweep：
+  `boot-sweep.test.ts`（地基）。
+- AC-R7-2 emit seq 单调 + finish(stopReason)：`run-live.test.ts`（routes 批
+  追加 2 例）；AC-R7-4 跨源一致：console `run-trace-model.test.ts`（追加 2 例）。
+
+---
+
+## 工程决策与试运行 · 测试补齐批（2026-10-08，cluster: 工程决策开发）
+
+对照 design-sharp §6 测试计划，首批未覆盖的缺口本批全部补齐（31 例新
+vitest）；测试实弹逮出并修复两处源码缺陷。
+
+### 本批落地
+
+1. **run-notify-ws.test.ts**（gateway，5 例）：ws-hub 真服务器全链路——
+   run-updated 帧形状、claim 幂等（第二次发射零新帧）、superseded/非终态
+   零发射、订阅维度定向（?chat= 客户端不收 run 帧）、控制帧动态订阅。
+   首批只钉了「不抛」，本批补齐可观测断言（AC-R9-3 服务端半）。
+2. **runs-source-filter.test.ts**（gateway，3 例）：listRunsHistory 缺省
+   排除 trial / ?source=trial 正向 / includeTrial 全量 / NULL 存量行不误伤；
+   persistWorkflowRunRow 的 source COALESCE 保已存值；canvas 直跑实写。
+3. **trial-subflow-depth.test.ts**（gateway，1 例）：5 层 flow 链试运行 →
+   第 4 层 executeFlow span 'rejected'（词首「节点被拒绝：」）+ 子引擎
+   LLM 输出 = mock 文本 + 零在途 CLI spawn（9d 第三来源的路由级钉子）。
+4. **trial-mock-equivalence.test.ts**（gateway，10 例）：真 spawn e2e
+   夹具 server.mjs（随机端口）与内核 resolveMockResponse 对共享语料逐例
+   比对（label/text/tool_calls/finish_reason/usage/未知谓词/error/malformed）
+   ——NFR-2「共用内核」的验收形式。
+5. **http.node.test.ts 追加 2 例**（workflow）：trialMode real 不短路
+   （fetch 照常调用、错误原样上抛）vs skip 零 fetch + 标注——两模式判别钉子。
+6. **run-notify-claim.test.ts**（console，4 例）：BroadcastChannel 缺席 →
+   null 单例（单标签页语义）；首 claim/幂等/异 runId；跨标签页异步投递后
+   claim 失败；单例复用 + reset。
+7. **use-task-notification.test.tsx**（console，6 例）：notifyOnRunUpdated
+   的 completed/failed 双路 toast+声音、superseded 零通知（AC-R3-6 最小
+   客户端路径）、非终态零通知、claim 幂等、跨标签页静默（真
+   BroadcastChannel 互投——本环境 Node 全局透传 jsdom，设计预判「jsdom
+   无 BC」已过时，测试头注释如实更正）。
+
+### 测试实弹修复（两处源码缺陷）
+
+- **workflow-engine-service.ts flowExecutor 不透传 llmClientOverride**：
+  含 executeFlow 的试运行子引擎会回落 createDefaultLlmClient 打真
+  provider/CLI（AC-R10-1「真 provider 调用数 0」对子流程不成立）——
+  trial-subflow-depth.test 实弹逮出，已修（递归装配透传 + sub.journal.
+  close() 收口对齐根路径）。
+- **trial-mock-llm.ts empty 模式投影漂移**：resolveMockResponse 返回原
+  text 而 server.mjs completionBody 强制 ''——等价钉子实弹逮出，归一化
+  收敛到解析器单点（chat/chatStream 消费端去重）。
+
+### 已跑验证（本会话，均为定向）
+
+- gateway 六文件连跑（含集成者的 trial-isolation 回归）：34/34 绿；
+  **gateway 全套 64 文件 584 通过/1 skip**。
+- workflow 全包：374/374 绿（含追加 2 例）。
+- console 新两件：10/10 绿；两包 tsc --noEmit 零错；新文件 eslint/
+  prettier 干净。
+- e2e 26-canvas-trial-run.spec.ts 本批仍未跑（Playwright 栈归统一脚本）。

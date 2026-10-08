@@ -283,6 +283,56 @@ describe('HttpNode', () => {
     }
   })
 
+  it('declared + 域名 ∈ 清单 → 放行（enforce 策略下也放行——矩阵左上格正例）', async () => {
+    const prev = process.env.DAGENTS_HTTP_DOMAIN_POLICY
+    process.env.DAGENTS_HTTP_DOMAIN_POLICY = 'enforce'
+    try {
+      const fakeResponse = {
+        ok: true,
+        status: 200,
+        headers: { get: () => 'application/json' },
+        text: async () => JSON.stringify({ pass: 1 }),
+      }
+      vi.mocked(fetch).mockResolvedValue(fakeResponse as any)
+      const node = new HttpNode()
+      const result = await node.run(
+        makeNodeData({ allowedDomains: ['api.example.com'] }),
+        '',
+        makeContext(),
+      )
+      expect(result.output).toEqual({ pass: 1 })
+      expect(fetch).toHaveBeenCalled()
+    } finally {
+      if (prev === undefined) delete process.env.DAGENTS_HTTP_DOMAIN_POLICY
+      else process.env.DAGENTS_HTTP_DOMAIN_POLICY = prev
+    }
+  })
+
+  it('同缝定序钉子：trialMode skip 分支在域名守卫之后——declared-but-violated 在试运行中原样暴露（零 fetch）', async () => {
+    // 定序裁决（design-permission §3.1-3a + design-sharp §3.4-③ 互认）：
+    // 协议 → SSRF → 域名守卫 → trialMode skip → fetch。skip 是验证场——
+    // 静态配置错误（域名未声明）必须在试运行中暴露，不被 skip 吞掉。
+    const node = new HttpNode()
+    await expect(
+      node.run(
+        makeNodeData({ url: 'https://api.gitlab.com/x', allowedDomains: ['api.github.com'] }),
+        '',
+        { ...makeContext(), trialMode: { http: 'skip' } },
+      ),
+    ).rejects.toThrow(/api\.gitlab\.com 未在 allowedDomains 声明/)
+    expect(fetch).not.toHaveBeenCalled()
+  })
+
+  it('同缝定序钉子：warn 缺席放行的 URL 在 skip 模式照常走 skip 分支（缺席非违规）', async () => {
+    const node = new HttpNode()
+    const output = await node.run(makeNodeData(), '', {
+      ...makeContext(),
+      trialMode: { http: 'skip' },
+    })
+    expect((output.output as { trialSkipped?: boolean }).trialSkipped).toBe(true)
+    expect(fetch).not.toHaveBeenCalled()
+  })
+
   it('off 策略 → 跳过域名守卫（declared-but-violated 也放行；SSRF 仍生效）', async () => {
     const prev = process.env.DAGENTS_HTTP_DOMAIN_POLICY
     process.env.DAGENTS_HTTP_DOMAIN_POLICY = 'off'
@@ -313,5 +363,28 @@ describe('HttpNode', () => {
       if (prev === undefined) delete process.env.DAGENTS_HTTP_DOMAIN_POLICY
       else process.env.DAGENTS_HTTP_DOMAIN_POLICY = prev
     }
+  })
+
+  // ── R10 试运行 skip/real 判别（design-sharp §3.4-③）───────────────────
+  // 定序契约：skip 在全部静态校验之后、fetch 之前；real 模式零变化照常真发。
+  it('trialMode http=real：不短路——fetch 照常调用，错误原样上抛（非 skip 标注）', async () => {
+    vi.mocked(fetch).mockRejectedValueOnce(new TypeError('fetch failed（模拟连接失败）'))
+    const node = new HttpNode()
+    await expect(
+      node.run(makeNodeData(), '', { ...makeContext(), trialMode: { http: 'real' } }),
+    ).rejects.toThrow(/fetch failed/)
+    expect(fetch).toHaveBeenCalledTimes(1)
+  })
+
+  it('trialMode http=skip：零 fetch + 输出带试运行标注（判别钉子——两模式互斥）', async () => {
+    const node = new HttpNode()
+    const result = await node.run(makeNodeData(), '', {
+      ...makeContext(),
+      trialMode: { http: 'skip' },
+    })
+    expect(fetch).not.toHaveBeenCalled()
+    const out = result.output as { content: string; trialSkipped: boolean }
+    expect(out.trialSkipped).toBe(true)
+    expect(out.content).toContain('[试运行]')
   })
 })

@@ -81,3 +81,75 @@ describe('normalizeRunNodeSpan', () => {
     }
   })
 })
+
+/* ── R6 渐进产物（2026-10-08）：fetchRunNodeSpans 的 deliverables 透传契约 ──
+ * 决策 F（design-artifacts.md §④-2）：null = 字段缺席（旧网关 / 投影读失败）
+ * → 聚合区整体不渲染；[] = 新网关零产出（诚实空态）——两种语义必须区分，
+ * 本组钉住 fetch 层不混淆两者。 */
+
+import { fetchRunNodeSpans } from './node-spans'
+import type { DeliverableItem } from '@dagents/contracts'
+// 原文件顶部 import 只有 describe/it/expect——本追加块补 afterEach
+//（ESM import 提升，追加位置合法）
+import { afterEach } from 'vitest'
+
+describe('fetchRunNodeSpans · deliverables 透传（R6 决策 F）', () => {
+  const originalFetch = globalThis.fetch
+
+  function stubFetch(payload: unknown, status = 200): void {
+    globalThis.fetch = (async () =>
+      new Response(JSON.stringify(payload), {
+        status,
+        headers: { 'content-type': 'application/json' },
+      })) as typeof globalThis.fetch
+  }
+
+  afterEach(() => {
+    globalThis.fetch = originalFetch
+  })
+
+  const sample: DeliverableItem = {
+    nodeId: 'a',
+    nodeLabel: '翻译',
+    nodeType: 'llmAgentflow',
+    ordinal: 0,
+    status: 'done',
+    tokens: { inputTokens: 1, outputTokens: 2 },
+    output: { text: 'hi' },
+    inheritedFromRunId: null,
+    subflowName: null,
+  }
+
+  it('字段在场 → 数组原样透传', async () => {
+    stubFetch({ success: true, data: { runId: 'r1', spans: [], deliverables: [sample] } })
+    const r = await fetchRunNodeSpans('r1')
+    expect(r.deliverables).toEqual([sample])
+  })
+
+  it('字段缺席（旧网关）→ null（≠ 空数组：聚合区整体不渲染）', async () => {
+    stubFetch({ success: true, data: { runId: 'r1', spans: [] } })
+    const r = await fetchRunNodeSpans('r1')
+    expect(r.deliverables).toBeNull()
+  })
+
+  it('字段为空数组（新网关零产出）→ []（诚实空态，非降级）', async () => {
+    stubFetch({ success: true, data: { runId: 'r1', spans: [], deliverables: [] } })
+    const r = await fetchRunNodeSpans('r1')
+    expect(r.deliverables).toEqual([])
+  })
+
+  it('字段形状坏损（非数组）→ 防御归 null', async () => {
+    stubFetch({ success: true, data: { runId: 'r1', spans: [], deliverables: { oops: true } } })
+    const r = await fetchRunNodeSpans('r1')
+    expect(r.deliverables).toBeNull()
+  })
+
+  it('非 2xx / 网络异常 → deliverables 随整个结果归 null（不造数据）', async () => {
+    stubFetch({ success: false }, 502)
+    expect((await fetchRunNodeSpans('r1')).deliverables).toBeNull()
+    globalThis.fetch = (async () => {
+      throw new Error('network down')
+    }) as typeof globalThis.fetch
+    expect((await fetchRunNodeSpans('r1')).deliverables).toBeNull()
+  })
+})

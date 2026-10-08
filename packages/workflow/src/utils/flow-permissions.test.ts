@@ -7,6 +7,8 @@ import {
   isDomainAllowed,
   httpDomainPolicy,
   extractFlowPermissions,
+  assertAllowedHttpDomain,
+  type NodePermissionState,
   validatePermissionDeclarations,
   PERMISSION_FIELDS,
   MAX_DOMAINS_PER_NODE,
@@ -339,5 +341,97 @@ describe('validatePermissionDeclarations（拓扑校验产出）', () => {
     })
     expect(errors).toHaveLength(1)
     expect(errors[0]?.message).toContain('port')
+  })
+})
+
+describe('assertAllowedHttpDomain 守卫判定表（design §2.3 直测）', () => {
+  const url = (u: string): URL => new URL(u)
+  // 显式标 NodePermissionState（as const 会把 values 固成 readonly，与
+  // 契约的可变 string[] 不兼容）
+  const DECLARED: NodePermissionState = { kind: 'declared', values: ['api.github.com'] }
+  const DECLARED_EMPTY: NodePermissionState = { kind: 'declared', values: [] }
+  const ABSENT: NodePermissionState = { kind: 'absent' }
+  const INVALID: NodePermissionState = { kind: 'invalid', reason: '应为字符串数组' }
+
+  /** env 隔离包装（policy 现读 env，测完恢复）。 */
+  const withPolicy = (policy: string | undefined, fn: () => void): void => {
+    const prev = process.env.DAGENTS_HTTP_DOMAIN_POLICY
+    if (policy === undefined) delete process.env.DAGENTS_HTTP_DOMAIN_POLICY
+    else process.env.DAGENTS_HTTP_DOMAIN_POLICY = policy
+    try {
+      fn()
+    } finally {
+      if (prev === undefined) delete process.env.DAGENTS_HTTP_DOMAIN_POLICY
+      else process.env.DAGENTS_HTTP_DOMAIN_POLICY = prev
+    }
+  }
+
+  it('declared + 域名 ∈ 清单 → 任何策略放行（矩阵左上格）', () => {
+    for (const policy of [undefined, 'enforce'] as const) {
+      withPolicy(policy, () => {
+        expect(() =>
+          assertAllowedHttpDomain(url('https://api.github.com/x'), DECLARED, 'HTTP 节点 h'),
+        ).not.toThrow()
+      })
+    }
+  })
+
+  it('declared + 域名 ∉ 清单（含 declared-empty）→ warn/enforce 都拒绝、错误含未声明域名与已声明清单', () => {
+    for (const policy of ['warn', 'enforce'] as const) {
+      withPolicy(policy, () => {
+        expect(() =>
+          assertAllowedHttpDomain(url('https://api.gitlab.com/x'), DECLARED, 'HTTP 节点 h'),
+        ).toThrow(
+          /h：目标域名 api\.gitlab\.com 未在 allowedDomains 声明（已声明：api\.github\.com）/,
+        )
+        expect(() =>
+          assertAllowedHttpDomain(url('https://any.test/x'), DECLARED_EMPTY, 'HTTP 节点 h'),
+        ).toThrow(/未在 allowedDomains 声明（已声明：）/)
+      })
+    }
+  })
+
+  it('absent × warn → 放行且 onWarn 留痕（NFR-6 不静默）', () => {
+    withPolicy(undefined, () => {
+      const warns: string[] = []
+      expect(() =>
+        assertAllowedHttpDomain(url('https://plain.test/x'), ABSENT, 'HTTP 节点 h', {
+          onWarn: (m) => warns.push(m),
+        }),
+      ).not.toThrow()
+      expect(warns).toEqual(['域名清单未声明（过渡期放行）: plain.test'])
+    })
+  })
+
+  it('absent × enforce → 拒绝并带「如何声明」指引（格式示例内嵌）', () => {
+    withPolicy('enforce', () => {
+      expect(() =>
+        assertAllowedHttpDomain(url('https://plain.test/x'), ABSENT, 'HTTP 节点 h'),
+      ).toThrow(/未声明 allowedDomains（网关已启用 enforce 策略）.*\["api\.github\.com"\]/s)
+    })
+  })
+
+  it('invalid → deny-all 与策略无关（warn/enforce 都拒；合法域名也拒）', () => {
+    for (const policy of ['warn', 'enforce'] as const) {
+      withPolicy(policy, () => {
+        expect(() =>
+          assertAllowedHttpDomain(url('https://api.github.com/x'), INVALID, 'HTTP 节点 h'),
+        ).toThrow(/allowedDomains 声明非法（应为字符串数组）——修复格式/)
+      })
+    }
+  })
+
+  it('off → 跳过本守卫（declared-but-violated / absent / invalid 全部不抛）', () => {
+    withPolicy('off', () => {
+      expect(() =>
+        assertAllowedHttpDomain(url('https://evil.test/x'), DECLARED, 'HTTP 节点 h'),
+      ).not.toThrow()
+      expect(() =>
+        assertAllowedHttpDomain(url('https://plain.test/x'), ABSENT, 'HTTP 节点 h'),
+      ).not.toThrow()
+      expect(() =>
+        assertAllowedHttpDomain(url('https://any.test/x'), INVALID, 'HTTP 节点 h'),
+      ).not.toThrow()
+    })
   })
 })

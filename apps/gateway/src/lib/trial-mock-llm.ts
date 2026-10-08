@@ -116,7 +116,10 @@ export function resolveMockResponse(
   return {
     label,
     mode: source.mode ?? 'ok',
-    text: source.text ?? '',
+    // empty 归一化（server.mjs completionBody 同款强制 text:''）——收敛在
+    // 解析器单点，chat/chatStream 直接消费（等价钉子 trial-mock-equivalence
+    // 在 resolveMockResponse 层比对两宿主投影）。
+    text: source.mode === 'empty' ? '' : (source.text ?? ''),
     toolCalls: source.toolCalls,
     usage: source.usage,
     delayMs: Number.isFinite(delayMs) && delayMs > 0 ? delayMs : 0,
@@ -250,7 +253,7 @@ export function createTrialLlmClient(deps: TrialLlmClientDeps): {
       record(params, resolved)
       if (resolved.delayMs > 0) await sleep(resolved.delayMs)
       injectOrFail(resolved)
-      const text = resolved.mode === 'empty' ? '' : resolved.text
+      const text = resolved.text
       const toolCalls = toToolCalls(resolved.toolCalls)
       return {
         text,
@@ -263,7 +266,7 @@ export function createTrialLlmClient(deps: TrialLlmClientDeps): {
       record(params, resolved)
       if (resolved.delayMs > 0) await sleep(resolved.delayMs)
       injectOrFail(resolved)
-      const text = resolved.mode === 'empty' ? '' : resolved.text
+      const text = resolved.text
       const chunkSize = Math.max(1, Number(resolved.streamChunkSize ?? 8))
       const intervalMs = Math.max(0, Number(resolved.streamIntervalMs ?? 10))
       const chunks: string[] = []
