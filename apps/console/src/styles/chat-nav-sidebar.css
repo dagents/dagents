@@ -17,6 +17,11 @@
 .chat-nav-history {
   scrollbar-width: thin;
   scrollbar-color: transparent transparent;
+  /* 底部渐隐面纱（.chat-nav-history-fade，24px）的让位垫——注释声称
+     「padding 让末行避开面纱」但从未兑现，最后一行被盖掉下半截
+     （2026-10-09 验收反馈：New project 行）。26px > 面纱高：滚到底时
+     末行完整可见，面纱只罩垫隙；未滚到底时溶解暗示照旧。 */
+  padding-bottom: 26px;
 }
 .chat-nav-sidebar.scroll-active .chat-nav-history {
   scrollbar-color: color-mix(in oklab, var(--fg) 18%, transparent) transparent;
