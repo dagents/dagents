@@ -11,9 +11,17 @@
   position: relative;
   display: flex;
   flex-direction: column;
-  min-height: 0;
+  min-height: min(50vh, 460px);
   max-height: 66vh;
   flex: 1;
+}
+
+/* 轨迹 tab 反塌陷（2026-10-09 验收修复）：台账分区默认收起 + 泳道矮
+ * （≤8 节点 pitch 22px）时内容高度撑不开面板——甘特/台账/Inspector
+ * 三层挤在 ~190px 的浮层里视觉错乱。非空轨迹给真高度（66vh 上限照旧，
+ * 台账区内滚）；空态不撑（无内容别留大空白框）。 */
+.canvas-trace:has(> .trace-empty) {
+  min-height: 0;
 }
 
 .canvas-trace .tnum {
@@ -466,7 +474,7 @@
 }
 
 .trace-inspector-empty {
-  padding: 24px 14px;
+  padding: 14px 12px;
   color: var(--muted);
   font-size: var(--text-xs, 12px);
   display: flex;

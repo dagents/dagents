@@ -366,10 +366,12 @@
 }
 .canvas-results-panel .rti-bar { padding: 4px 8px; }
 
-/* 轨迹视图加宽（2026-10-01）：节点泳道时间线需要横向空间——480px 放不下
- * 甘特 + 台账 + Inspector；轨迹 tab 激活时面板放宽到 760px（仍守 94vw）。 */
+/* 轨迹视图加宽（2026-10-01；2026-10-09 验收修复 760→880）：节点泳道时间线
+ * 需要横向空间——480px 放不下甘特 + 台账 + Inspector；760px 时台账被
+ * Inspector（默认 320px）压到 440px，行文与甘特条局促、右缘易被读作截断。
+ * 880px（仍守 94vw）给台账 ~560px 从容排版。 */
 .canvas-results-panel.wide {
-  width: min(760px, 94vw);
+  width: min(880px, 94vw);
 }
 
 /* ── 产出清单聚合区（R6 渐进产物，2026-10-07）──
