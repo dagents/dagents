@@ -450,6 +450,23 @@ export function CanvasTraceView({ runState, model, spans }: CanvasTraceViewProps
         <div className='trace-empty'>{t('暂无轨迹数据')}</div>
       ) : (
         <>
+          {/* 时间刻度轴（2026-10-09 设计重构）：时序投影无时间语义不画；
+              时间投影下 5 档刻度让甘特条可读出「何时开始、跑了多久」——
+              此前绿条满宽但无参照，时长感为零。独立行置于 plot 上方
+              （左缘对齐 96px 泳道名列），不挤压泳道几何。 */}
+          {mode !== 'sequence' && domain ? (
+            <div className='trace-axis' aria-hidden='true'>
+              {[0, 0.25, 0.5, 0.75, 1].map((f) => (
+                <span
+                  key={f}
+                  className={`trace-axis-tick${f === 0 ? ' first' : f === 1 ? ' last' : ''}`}
+                  style={{ left: `${f * 100}%` }}
+                >
+                  {formatTraceDuration(Math.max(0, Math.round(((domain.end - domain.start) * f))))}
+                </span>
+              ))}
+            </div>
+          ) : null}
           {/* 时间线概览（节点泳道甘特） */}
           <div
             className='trace-plot'
@@ -595,7 +612,9 @@ export function CanvasTraceView({ runState, model, spans }: CanvasTraceViewProps
                     >
                       <span className={`trace-node-dot st-${statusClass(lane.status)}`} aria-hidden='true' />
                       <span className='trace-node-label'>{lane.label}</span>
-                      <span className='trace-node-cmd'>{lane.command}</span>
+                      {/* cmd 仅在真有命令时显示（2026-10-09）：LLM/start 等
+                          无命令节点的空 `$ ` 列是排版噪音 */}
+                      {lane.command ? <span className='trace-node-cmd'>{lane.command}</span> : null}
                       <span className='trace-node-meta tnum'>
                         {statusLabel(lane.status)} · {durTxt} · {recs.length} {t('条记录')}
                       </span>
@@ -633,7 +652,10 @@ export function CanvasTraceView({ runState, model, spans }: CanvasTraceViewProps
               })}
             </div>
 
-            {/* Inspector 侧面板 */}
+            {/* Inspector 侧面板（2026-10-09 设计重构）：只在选中记录/节点时
+                渲染——未选中的空白柱曾立在整个台账右侧（320px×全高），是
+                「轨迹 tab 难看」的主源；选中时以浮层滑入，台账始终全宽。 */}
+            {selectedRecord || selectedLane ? (
             <aside className='trace-inspector' style={{ width: inspectorW }}>
               <div
                 className='trace-inspector-grip'
@@ -659,15 +681,17 @@ export function CanvasTraceView({ runState, model, spans }: CanvasTraceViewProps
                   span={spansByNode.get(selectedLane.nodeId) ?? null}
                   statusLabel={statusLabel}
                 />
-              ) : (
-                <div className='trace-inspector-empty'>
-                  {t('点击时间线横条或台账行查看详情')}
-                  <span className='trace-inspector-hint'>
-                    {t('拖拽框选可过滤台账，滚轮缩放，右键复位')}
-                  </span>
-                </div>
-              )}
+              ) : null}
+              <button
+                type='button'
+                className='trace-inspector-close'
+                aria-label={t('关闭')}
+                onClick={() => setSelected(null)}
+              >
+                ×
+              </button>
             </aside>
+            ) : null}
           </div>
         </>
       )}

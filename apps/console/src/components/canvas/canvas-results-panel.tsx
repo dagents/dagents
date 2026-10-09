@@ -593,6 +593,38 @@ export function CanvasResultsPanel({
   }, [answerText, answerBusy, onSubmitAnswer])
 
   const latestSpans = spans
+
+  // run 摘要行（2026-10-09 设计重构）：状态 + 总耗时 + tokens 合计 +
+  // 谱系继承（暖缓存时）。完成态用户最想看的三个数字第一眼可见——
+  // 此前散落在各行 meta 里要自己加总。
+  const runSummary = (() => {
+    const times = latestSpans
+      .flatMap((sp) => [sp.startedAt ? Date.parse(sp.startedAt) : NaN, sp.finishedAt ? Date.parse(sp.finishedAt) : NaN])
+      .filter((n) => !Number.isNaN(n))
+    const totalMs = times.length >= 2 ? Math.max(...times) - Math.min(...times) : null
+    let inputTokens = 0
+    let outputTokens = 0
+    let hasTokens = false
+    for (const sp of latestSpans) {
+      const u = sp.tokens as { inputTokens?: number; outputTokens?: number } | null
+      if (u && (u.inputTokens != null || u.outputTokens != null)) {
+        inputTokens += u.inputTokens ?? 0
+        outputTokens += u.outputTokens ?? 0
+        hasTokens = true
+      }
+    }
+    const fmt = (n: number): string => (n >= 1000 ? `${(n / 1000).toFixed(1)}k` : String(n))
+    return {
+      duration:
+        totalMs != null && totalMs > 0
+          ? totalMs >= 100_000
+            ? `${Math.round(totalMs / 60_000)}m ${Math.round((totalMs % 60_000) / 1000)}s`
+            : `${(totalMs / 1000).toFixed(1)}s`
+          : null,
+      tokens: hasTokens ? `↑${fmt(inputTokens)} ↓${fmt(outputTokens)}` : null,
+      dual: dualBasisTokens(latestSpans, lineageTokens),
+    }
+  })()
   return (
     <div
       ref={panelRootRef}
@@ -640,8 +672,90 @@ export function CanvasResultsPanel({
         </div>
       ) : null}
       <div className='canvas-results-title'>
-        <span className='canvas-results-title-row'>
-          {t('运行结果')}
+        {/* Row 1 · run 摘要行（2026-10-09 设计重构）：状态点 + 状态词 +
+            总耗时 + tokens 合计（+ 谱系继承）——读面第一行给全局结论；
+            动作全部降权到 Row 2 右侧。 */}
+        <div className='canvas-results-meta'>
+          <span
+            className={`canvas-results-meta-dot dot-${runState === 'done' ? 'done' : runState === 'failed' ? 'failed' : runState === 'running' ? 'running' : runState === 'awaiting' ? 'warn' : runState === 'stopped' ? 'warn' : 'unknown'}`}
+            aria-hidden='true'
+          />
+          <span className='canvas-results-meta-state'>
+            {runState === 'running'
+              ? t('运行中')
+              : runState === 'awaiting'
+                ? t('待输入')
+                : runState === 'failed'
+                  ? t('运行失败')
+                  : runState === 'stopped'
+                    ? t('已停止')
+                    : t('运行完成')}
+          </span>
+          {runSummary.duration ? (
+            <>
+              <span className='canvas-results-meta-sep'>·</span>
+              <span className='canvas-results-meta-num tnum'>{runSummary.duration}</span>
+            </>
+          ) : null}
+          {runSummary.tokens ? (
+            <>
+              <span className='canvas-results-meta-sep'>·</span>
+              <span className='canvas-results-meta-num tnum'>{runSummary.tokens}</span>
+            </>
+          ) : null}
+          {runSummary.dual && runSummary.dual.inherited > 0 ? (
+            <span
+              className='canvas-results-meta-inherited tnum'
+              title={t('谱系继承 = 前驱 runs 的累计用量（含本 run 复用的缓存产出）')}
+            >
+              ⇠ {t('谱系继承')} {runSummary.dual.inherited >= 1000 ? `${(runSummary.dual.inherited / 1000).toFixed(1)}k` : runSummary.dual.inherited}
+            </span>
+          ) : null}
+          <button
+            type='button'
+            className='canvas-results-close'
+            aria-label={t('关闭')}
+            onClick={onClose}
+          >
+            ×
+          </button>
+        </div>
+        {/* Row 2 · 工具行：tab 组居左（真正的导航），动作簇居右降权
+            （ghost 描边按钮，hover 才上色）——此前黄底重跑按钮是全行
+            视觉最重的元素，喧宾夺主。 */}
+        <div className='canvas-results-toolbar'>
+          <span className='canvas-results-view' role='tablist' aria-label={t('结果视图')}>
+          <button
+            type='button'
+            role='tab'
+            aria-selected={resultView === 'summary'}
+            className={`canvas-results-view-btn${resultView === 'summary' ? ' active' : ''}`}
+            onClick={() => switchResultView('summary')}
+          >
+            {t('摘要')}
+          </button>
+          <button
+            type="button"
+            role="tab"
+            aria-selected={resultView === 'terminal'}
+            className={`canvas-results-view-btn${resultView === 'terminal' ? ' active' : ''}`}
+            onClick={() => switchResultView('terminal')}
+            title={t('以终端形式查看完整过程（thinking/工具调用/输出全文）')}
+          >
+            {t('终端')}
+          </button>
+          <button
+            type="button"
+            role="tab"
+            aria-selected={resultView === 'trace'}
+            className={`canvas-results-view-btn${resultView === 'trace' ? ' active' : ''}`}
+            onClick={() => switchResultView('trace')}
+            title={t('节点泳道时间线 + 事件台账：按时间轴查看执行轨迹与过程事件')}
+          >
+            {t('轨迹')}
+          </button>
+          </span>
+          <span className='canvas-results-actions'>
           {/* 停止（PM 走查 2026-09-20）：监控中心缺停止入口 ——
               运行中可在面板内直接中止，轮询收敛为已取消。 */}
           {runState === 'running' ? (
@@ -701,46 +815,8 @@ export function CanvasResultsPanel({
               {t('在项目目录打开终端')}
             </Link>
           ) : null}
-          <span className='canvas-results-view' role='tablist' aria-label={t('结果视图')}>
-          <button
-            type='button'
-            role='tab'
-            aria-selected={resultView === 'summary'}
-            className={`canvas-results-view-btn${resultView === 'summary' ? ' active' : ''}`}
-            onClick={() => switchResultView('summary')}
-          >
-            {t('摘要')}
-          </button>
-          <button
-            type="button"
-            role="tab"
-            aria-selected={resultView === 'terminal'}
-            className={`canvas-results-view-btn${resultView === 'terminal' ? ' active' : ''}`}
-            onClick={() => switchResultView('terminal')}
-            title={t('以终端形式查看完整过程（thinking/工具调用/输出全文）')}
-          >
-            {t('终端')}
-          </button>
-          <button
-            type="button"
-            role="tab"
-            aria-selected={resultView === 'trace'}
-            className={`canvas-results-view-btn${resultView === 'trace' ? ' active' : ''}`}
-            onClick={() => switchResultView('trace')}
-            title={t('节点泳道时间线 + 事件台账：按时间轴查看执行轨迹与过程事件')}
-          >
-            {t('轨迹')}
-          </button>
           </span>
-        </span>
-        <button
-          type='button'
-          className='canvas-results-close'
-          aria-label={t('关闭')}
-          onClick={onClose}
-        >
-          ×
-        </button>
+        </div>
       </div>
       {/* run 级失败横幅（2026-09-22）：零 span 的整体失败（拓扑成环/启动
           即挂）没有任何节点行可看，这里是失败原因的唯一落点；摘要与终端
@@ -754,30 +830,9 @@ export function CanvasResultsPanel({
           <span className='canvas-results-run-error-text'>{runError}</span>
         </div>
       ) : null}
-      {/* token 双口径（R2.3，2026-10-08 修复）：resume/暖缓存 run 显示
-          「谱系继承 M · 本次新增 N · 合计 T」——继承 = 链上前驱 usage_events
-          累计 + 本 run cached span 继承值；新增 = 真实执行（= 账单口径）。 */}
-      {(() => {
-        const dual = dualBasisTokens(latestSpans, lineageTokens)
-        if (!dual || (dual.inherited === 0 && dual.fresh === 0)) return null
-        const fmt = (n: number): string =>
-          n >= 1000 ? `${(n / 1000).toFixed(1)}k` : String(n)
-        return (
-          <div className='canvas-results-tokens-dual' title={t('谱系继承 = 前驱 runs 的累计用量（含本 run 复用的缓存产出）；本次新增 = 真实执行节点（与账单口径一致）')}>
-            <span className='dual-inherited' title={t('谱系继承')}>
-              ⇠ {t('谱系继承')} {fmt(dual.inherited)}
-            </span>
-            <span className='dual-sep'>·</span>
-            <span className='dual-fresh' title={t('本次新增')}>
-              ⇢ {t('本次新增')} {fmt(dual.fresh)}
-            </span>
-            <span className='dual-sep'>·</span>
-            <span className='dual-total tnum' title={t('合计')}>
-              {t('合计')} {fmt(dual.total)}
-            </span>
-          </div>
-        )
-      })()}
+      {/* token 双口径已并入标题 meta 行（2026-10-09 设计重构）：谱系继承
+          作为 ⇠ chip 展示，本次新增与合计由 meta 行 tokens（= 账单口径）
+          承担——独立一行在小 run 上是噪音。 */}
       {runState === 'running' || runState === 'awaiting' ? (
         /* 状态行结构化（2026-09-19 走查优化点 1-3）：长句改为指标行
            「运行中 · n/m · 失败 k · ⏱ 12.4s」+ 迷你进度条 —— 总耗时
@@ -923,9 +978,18 @@ export function CanvasResultsPanel({
         })()
       ) : (
       <>
-      {/* 产出清单聚合区（R6 渐进产物）：摘要视图顶部、逐节点行之前——
-          「先看全部产物，再逐节点细读」。null（旧网关/读失败）整体不渲染。 */}
-      {deliverables != null ? (
+      {/* 产出清单聚合区（R6 渐进产物）：只在有聚合增益时渲染（2026-10-09
+          设计重构）——小 run 上它与逐节点行 1:1 重复，白占 40% 高度。门槛：
+          ≥4 项 / 失败停止挂起（未执行标注有价值）/ 聚合条目（迭代 ordinal /
+          子流程归属 / 谱系继承）。 */}
+      {deliverables != null &&
+      (deliverables.length >= 4 ||
+        runState === 'failed' ||
+        runState === 'stopped' ||
+        runState === 'awaiting' ||
+        deliverables.some(
+          (d) => d.ordinal > 0 || d.subflowName != null || d.inheritedFromRunId != null,
+        )) ? (
         <DeliverablesCard
           runId={runId}
           deliverables={deliverables}

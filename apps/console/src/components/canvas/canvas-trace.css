@@ -11,18 +11,45 @@
   position: relative;
   display: flex;
   flex-direction: column;
-  min-height: min(50vh, 460px);
-  max-height: 66vh;
+  /* 面板高度自适应（2026-10-09 设计重构）：视图体 min-height 兜底，
+   * 内容多时随面板 max-height 封顶内滚——工具条/刻度轴/甘特 flex-none，
+   * 台账区 flex-1。 */
   flex: 1;
+  min-height: 300px;
+  max-height: none;
 }
 
-/* 轨迹 tab 反塌陷（2026-10-09 验收修复）：台账分区默认收起 + 泳道矮
- * （≤8 节点 pitch 22px）时内容高度撑不开面板——甘特/台账/Inspector
- * 三层挤在 ~190px 的浮层里视觉错乱。非空轨迹给真高度（66vh 上限照旧，
- * 台账区内滚）；空态不撑（无内容别留大空白框）。 */
-.canvas-trace:has(> .trace-empty) {
-  min-height: 0;
+/* 时间刻度轴（2026-10-09 设计重构）：独立行置于甘特上方，左缘对齐
+ * 96px 泳道名列；tick 文字 + 发丝竖线，首尾各自对齐不溢出。 */
+.trace-axis {
+  position: relative;
+  flex: none;
+  height: 16px;
+  margin-left: 96px;
+  border-bottom: 0.5px solid var(--border-soft);
 }
+.trace-axis-tick {
+  position: absolute;
+  top: 1px;
+  transform: translateX(-50%);
+  font-size: 9px;
+  line-height: 1;
+  color: var(--meta);
+  font-variant-numeric: tabular-nums;
+  padding-left: 6px;
+}
+.trace-axis-tick::before {
+  content: '';
+  position: absolute;
+  left: 0;
+  top: -1px;
+  bottom: -3px;
+  width: 1px;
+  background: var(--border-soft);
+}
+.trace-axis-tick.first { transform: none; }
+.trace-axis-tick.last { transform: translateX(-100%); padding-left: 0; padding-right: 6px; }
+.trace-axis-tick.last::before { left: auto; right: 0; }
 
 .canvas-trace .tnum {
   font-variant-numeric: tabular-nums;
@@ -473,14 +500,23 @@
   background: color-mix(in srgb, var(--accent) 18%, transparent);
 }
 
-.trace-inspector-empty {
-  padding: 14px 12px;
+/* Inspector 关闭钮（2026-10-09 设计重构）：inspector 改为选中才出现的
+ * 浮层，右上角 × 收起回到全宽台账。 */
+.trace-inspector-close {
+  position: absolute;
+  top: 6px;
+  right: 8px;
+  z-index: 3;
+  border: 0;
+  background: transparent;
   color: var(--muted);
-  font-size: var(--text-xs, 12px);
-  display: flex;
-  flex-direction: column;
-  gap: 6px;
+  font-size: var(--text-md);
+  line-height: 1;
+  cursor: pointer;
+  padding: 2px 5px;
+  border-radius: var(--radius-xs);
 }
+.trace-inspector-close:hover { color: var(--fg); background: var(--surface); }
 
 .trace-inspector-hint {
   font-size: 10px;
