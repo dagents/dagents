@@ -470,7 +470,10 @@ const FlowEditorInner = forwardRef<FlowEditorHandle, FlowEditorProps>(function F
             >
               <Background variant={BackgroundVariant.Dots} gap={22} size={1.5} />
               <Controls showInteractive={false} position="bottom-right" />
-              <MiniMap pannable zoomable position="bottom-left" />
+              {/* MiniMap 归位右下（2026-10-09 验收反馈）：bottom-left 时紧贴
+                  侧栏、悬在对话记录旁且无任何标识——看起来像一块来历不明的
+                  浮动残影。挪到 Controls 上方的导航控件区，与缩放控件同列。 */}
+              <MiniMap pannable zoomable position="bottom-right" />
             </ReactFlow>
             {!readOnly && <Palette onAdd={addFromSpec} />}
             {inspectorNode && !readOnly && (

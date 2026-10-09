@@ -774,7 +774,12 @@ a.fc-field-link:hover {
   border-radius: 10px;
   overflow: hidden;
   box-shadow: 0 2px 10px rgb(13 13 13 / 0.08);
-  margin-bottom: 52px;
+  /* 右下归位（2026-10-09 验收反馈）：与 Controls 同列，位于其上方
+     （Controls 三钮 ~86px + 间距）——原 bottom-left 紧贴侧栏、悬在
+     对话记录旁且无标识，被当成来历不明的浮动残影。右缘让开 72px
+     给全局悬浮副驾 FAB，避免叠压。 */
+  margin-bottom: 96px;
+  margin-right: 72px;
   /* React Flow 默认白底 —— 不跟主题令牌（深色下死白、浅色下与画布无边界），
      显式覆盖为面板表面色；节点矩形同步走令牌。 */
   background: var(--surface);
