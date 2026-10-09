@@ -385,3 +385,26 @@
   --shiki-token-punctuation: #ced4da;
   --shiki-token-link: #74c0fc;
 }
+
+/* ═══════════════════════════════════════════════════════════════
+   语义别名（2026-10-09）：画布浮层组件族（flow-versions / flow-context /
+   trial-run-panel / canvas-results …）使用的另一套常见词汇——统一映射到
+   本文件真实 token，两套词汇并存皆成立。此前这批名字无定义，组件 fallback
+   全是暗色系（#1c1c1f / #111113——别的项目的词汇表），浅色主题下把
+   版本 / 上下文 / 试运行三个面板渲染成黑底深字。引用 var() 动态解析，
+   暗色主题经上方 [data-theme]/prefers 重绑自动跟随。
+   ═══════════════════════════════════════════════════════════════ */
+:root {
+  --bg-elevated: var(--bg);
+  --bg-primary: var(--bg);
+  --panel-bg: var(--bg);
+  --border-subtle: var(--border-soft);
+  --line: var(--border-soft);
+  --text-primary: var(--fg);
+  --text-secondary: var(--muted);
+  --text-tertiary: var(--meta);
+  --text: var(--fg);
+  --primary: var(--accent);
+  --ok: var(--success);
+  --hover: rgb(127 127 127 / 0.08);
+}
