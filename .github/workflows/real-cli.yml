@@ -29,11 +29,11 @@ jobs:
     # self-hosted 池不存在时 GitHub 会 queue 而非 fail —— 加 continue-on-error
     # 会掩盖排队；保留默认（排队 24h 自动取消），状态页可见「没有 runner」。
     steps:
-      - uses: actions/checkout@v4
+      - uses: actions/checkout@v7
 
-      - uses: pnpm/action-setup@v4
+      - uses: pnpm/action-setup@v6
 
-      - uses: actions/setup-node@v4
+      - uses: actions/setup-node@v7
         with:
           node-version: 22
           cache: pnpm
