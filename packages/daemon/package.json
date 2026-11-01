@@ -25,7 +25,7 @@
     "@dagents/shared": "workspace:*"
   },
   "devDependencies": {
-    "tsup": "^8.0.0",
+    "tsup": "^9.0.0",
     "typescript": "^5.5.0",
     "tsx": "^4.0.0",
     "vitest": "^2.1.9",
