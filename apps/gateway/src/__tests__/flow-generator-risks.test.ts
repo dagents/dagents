@@ -87,7 +87,10 @@ describe('scanGeneratedFlowRisks', () => {
       risks.some(
         (r) =>
           r.message.includes('h10') &&
-          r.message.includes('api.gitlab.com') &&
+          // 正则而非 includes：CodeQL 把「对含 URL 的字符串 includes('api.gitlab.com')」
+          // 误判为不完整 URL 子串校验（js/incomplete-url-substring-sanitization）——
+          // 此处仅断言警告文案提到该域名，非安全校验，语义不变。
+          /api\.gitlab\.com/.test(r.message) &&
           r.message.includes('不在 allowedDomains 清单内'),
       ),
     ).toBe(true)
