@@ -428,6 +428,6 @@ export const flows: Record<string, string> = {
   '谱系继承': 'inherited',
   '本次新增': 'new spend',
   '合计': 'total',
-  '谱系继承 = 前驱 runs 的累计用量（含本 run 复用的缓存产出）；本次新增 = 真实执行节点（与账单口径一致）':
-    'Inherited = total usage of ancestor runs (incl. outputs reused from cache by this run); new spend = actually executed nodes (same basis as billing)',
+  '谱系继承 = 前驱 runs 的累计用量（含本 run 复用的缓存产出）':
+    'Inherited = total usage of ancestor runs (incl. outputs reused from cache by this run)',
 }

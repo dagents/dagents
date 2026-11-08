@@ -1112,7 +1112,7 @@ export function CanvasResultsPanel({
                         </ResultViewer>
                       )
                     ) : (
-                      <div className='canvas-result-io muted' style={{ fontSize: 11 }}>
+                      <div className='canvas-result-io muted'>
                         {st === 'running' ? t('（执行中…）') : t('（无产出）')}
                       </div>
                     )}
