@@ -18,6 +18,12 @@
 export interface SchemaIssue {
   path: string
   message: string
+  /** 期望值的紧凑表达（schema 侧，2026-10-07 R5）：如 'string'、'enum: [...]'
+   *  的原串、'长度 ≥ 3'、'必填字段存在'——供回喂修复消息拼「期望 X，实际 Y」。 */
+  expected?: string
+  /** 实际值的紧凑表达（产出侧，2026-10-07 R5）：如 'number'、'缺失'、值的前
+   *  80 字 JSON 摘要。可选字段 + message 语义不变 → 既有消费方零改动零回归。 */
+  got?: string
 }
 
 export function validateAgainstSchema(
@@ -39,28 +45,60 @@ function walk(
 
   const type = schema.type
   if (typeof type === 'string' && !typeMatches(value, type)) {
-    issues.push({ path, message: `应为 ${type}，实际是 ${typeName(value)}` })
+    issues.push({
+      path,
+      message: `应为 ${type}，实际是 ${typeName(value)}`,
+      expected: type,
+      got: typeName(value),
+    })
     return // 类型不对，后续约束没意义
   }
 
   if (Array.isArray(schema.enum) && !schema.enum.some((v) => deepEqual(v, value))) {
-    issues.push({ path, message: `应为枚举值 ${JSON.stringify(schema.enum)} 之一` })
+    issues.push({
+      path,
+      message: `应为枚举值 ${JSON.stringify(schema.enum)} 之一`,
+      expected: JSON.stringify(schema.enum),
+      got: briefOf(value),
+    })
   }
 
   if (typeof value === 'string') {
     const min = typeof schema.minLength === 'number' ? schema.minLength : null
     const max = typeof schema.maxLength === 'number' ? schema.maxLength : null
     if (min != null && value.length < min)
-      issues.push({ path, message: `长度 ${value.length} 小于 minLength ${min}` })
+      issues.push({
+        path,
+        message: `长度 ${value.length} 小于 minLength ${min}`,
+        expected: `长度 ≥ ${min}`,
+        got: `长度 ${value.length}`,
+      })
     if (max != null && value.length > max)
-      issues.push({ path, message: `长度 ${value.length} 大于 maxLength ${max}` })
+      issues.push({
+        path,
+        message: `长度 ${value.length} 大于 maxLength ${max}`,
+        expected: `长度 ≤ ${max}`,
+        got: `长度 ${value.length}`,
+      })
   }
 
   if (typeof value === 'number') {
     const min = typeof schema.minimum === 'number' ? schema.minimum : null
     const max = typeof schema.maximum === 'number' ? schema.maximum : null
-    if (min != null && value < min) issues.push({ path, message: `${value} 小于 minimum ${min}` })
-    if (max != null && value > max) issues.push({ path, message: `${value} 大于 maximum ${max}` })
+    if (min != null && value < min)
+      issues.push({
+        path,
+        message: `${value} 小于 minimum ${min}`,
+        expected: `≥ ${min}`,
+        got: `${value}`,
+      })
+    if (max != null && value > max)
+      issues.push({
+        path,
+        message: `${value} 大于 maximum ${max}`,
+        expected: `≤ ${max}`,
+        got: `${value}`,
+      })
   }
 
   if (typeof value === 'object' && value !== null && !Array.isArray(value)) {
@@ -69,7 +107,12 @@ function walk(
     const record = value as Record<string, unknown>
     for (const key of required) {
       if (!(key in record) || record[key] === undefined) {
-        issues.push({ path: `${path}.${key}`, message: `缺少必填字段「${key}」` })
+        issues.push({
+          path: `${path}.${key}`,
+          message: `缺少必填字段「${key}」`,
+          expected: '必填字段存在',
+          got: '缺失',
+        })
       }
     }
     for (const [key, childSchema] of Object.entries(props)) {
@@ -112,6 +155,12 @@ function typeName(value: unknown): string {
   if (value === null) return 'null'
   if (Array.isArray(value)) return 'array'
   return typeof value
+}
+
+/** 实际值的紧凑 JSON 摘要（expected/got 填充用）：截 80 字，超长加省略号。 */
+function briefOf(value: unknown): string {
+  const s = JSON.stringify(value) ?? String(value)
+  return s.length > 80 ? s.slice(0, 80) + '…' : s
 }
 
 function deepEqual(a: unknown, b: unknown): boolean {

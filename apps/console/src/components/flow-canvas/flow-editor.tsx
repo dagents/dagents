@@ -56,6 +56,12 @@ export interface FlowEditorHandle {
   /** 注入节点运行态；边状态（完成段/活动段）由 FlowEditor 按自有连线派生。 */
   applyRunStates(nodeStates: Record<string, { status: NodeRunStatus; error?: string }>): void
   clearRunState(): void
+  /**
+   * 当前单选节点 id（R10 试运行 P0，design-sharp §4.1）：null = 无选中 →
+   * 「试运行」= 全图；有选中 →「试运行此节点」（scope.nodeIds=[id]）。
+   * P1 多选另加多值出口。
+   */
+  getSelectedNodeId(): string | null
 }
 
 export interface HeaderSlotProps {
@@ -377,9 +383,10 @@ const FlowEditorInner = forwardRef<FlowEditorHandle, FlowEditorProps>(function F
       fitView: () => fitView({ padding: 0.2, duration: 200 }),
       applyRunStates: (next: RunState['nodeStates']) => setNodeRunStates(next),
       clearRunState: () => setNodeRunStates({}),
+      getSelectedNodeId: () => selectedId,
       // nodes/edges 在 handle 闭包里必须是最新值 —— useImperativeHandle 依赖数组见下
     }),
-    [nodes, edges, dirty, fitView],
+    [nodes, edges, dirty, fitView, selectedId],
   )
 
   const onMoveEnd = useCallback(
@@ -463,7 +470,10 @@ const FlowEditorInner = forwardRef<FlowEditorHandle, FlowEditorProps>(function F
             >
               <Background variant={BackgroundVariant.Dots} gap={22} size={1.5} />
               <Controls showInteractive={false} position="bottom-right" />
-              <MiniMap pannable zoomable position="bottom-left" />
+              {/* MiniMap 归位右下（2026-10-09 验收反馈）：bottom-left 时紧贴
+                  侧栏、悬在对话记录旁且无任何标识——看起来像一块来历不明的
+                  浮动残影。挪到 Controls 上方的导航控件区，与缩放控件同列。 */}
+              <MiniMap pannable zoomable position="bottom-right" />
             </ReactFlow>
             {!readOnly && <Palette onAdd={addFromSpec} />}
             {inspectorNode && !readOnly && (

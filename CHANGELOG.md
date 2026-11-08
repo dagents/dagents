@@ -8,6 +8,70 @@ All notable changes to Dagents are documented here. The format follows
 
 ### Added
 
+- **zcode-borrow 验收遗留项清偿（2026-10-08，验收报告「建议后续」#2–#6）** —
+  - AC-R2-3 端到端复验通过并固化为常驻测试 `gateway __tests__/warm-cache-lineage-tokens.test.ts`
+    （断言经 `@dagents/workflow` dist 引擎消费段，兼作 src↔dist 漂移门禁）——R2 升级整体通过，十项全过。
+  - AC-R3-1 黄警行为断言：`__tests__/recover-budget-warning.test.ts` 去 mock 真执行，journal event 帧
+    逐字钉「预算重新起算（谱系链累计已耗 N tokens）——本次续跑预算 X」。
+  - OQ-4 终裁（版本线）：`DAGENTS_HTTP_DOMAIN_POLICY` **默认 warn → enforce**（warn/off 显式逃生门，
+    未知值回落更严一侧）；内置模板扫描升级 CI 阻断层（`scan-template-permissions.mjs` 内置缺席即
+    exit 1 + ci.yml `Template permission scan` 步；flow_templates 用户数据仍报告不阻断）。
+  - `$exec` 超时交互裁决落地：CustomFunction worker 墙钟改 deadline 模型——在途受控 exec 把 deadline
+    单调抬升「exec 超时 + 2s 余量」（等待宿主不烧计算预算、有界、宿主 abort 级联不变）。
+  - 全量 e2e 三跑收口（隔离栈 fresh `dagents_e2e`）：首轮暴露本机 e2e 库 schema 陈旧（缺 14 轮迁移
+    成片 502——环境性；「先迁移再起网关」配方补进 tests/e2e/README.md）；二轮 225/231，6 例失败全数
+    修复（WF-04/ED-07/AC-R10-5 补 allowedDomains 声明、ED-03 对齐 R9d 节点拒绝档 partial_success、
+    UI-02/OT-02a 定位器随 R6/R2 UI 演进消歧）；三轮全量全绿。
+  - 工程清理：console `NodeRunStatus` 同名双轨收敛（lib/flows.ts 更名 `NodeCardStatus`）；gateway 存量
+    lint warning 清零；「kill 网关」真 e2e 裁决维持等价模型并落档 `docs/workflow-engine.md`（锚点清单 +
+    自托管 runner 升级路径）；真机冒烟复跑 claude PASS / codex 环境性 FAIL（403 region，如实不虚标）。
+- **zcode-borrow：可恢复执行与权限闭环十项需求全量落地（2026-10-07/08，R1–R10，58 条 AC）** —
+  需求定稿 `docs/zcode-borrow/requirements.md`（PRD v1.3），终验收结论 `docs/zcode-borrow/acceptance-report.md`
+  （五路验收末轮 36 项通过 / 1 项未通过 AC-R2-3——该条已于 2026-10-08 复验通过并固化为常驻测试
+  `warm-cache-lineage-tokens.test.ts`，十项全部通过；终门禁 typecheck/lint/test 全绿）：
+  - **R1/R7 可恢复执行与统一回放**：新表 `run_node_journal` 为决策与事件流单一真相源
+    （decision 按 `(run_id,node_id,ordinal)` 幂等 + input_hash；event `(run_id,seq)` 全序——结构帧
+    write-through「先落库后发帧」、delta 帧 write-behind 微批，单 run 上限拒收留痕）；resume 种子
+    journal 化（hash 漂移抛 `SeedHashMismatchError` 响亮失败、迭代 per-ordinal 断点续项）；boot sweep
+    三件收敛（在途 runs→`stopped(interrupted)`、悬空 span、checkpoint→`resumable`）；live 404/断流 →
+    journal 前缀回放（hello.replay 重建，回放 ⊇ 重启前已收结构帧前缀）。
+  - **R2 暖缓存重跑**：run body `warmFromRunId` 沿谱系链 `(nodeId,inputHash)` 最近命中导入种子
+    （改一个节点只烧下游）；cached span tokens 记前驱继承值 + node-spans 信封 `lineageTokens`，
+    结果面板「谱系继承 · 本次新增 · 合计」双口径；`usage_events` 只记真实调用零重复记账；
+    端到端对账常驻测试 `gateway __tests__/warm-cache-lineage-tokens.test.ts`（2026-10-08 复验 AC-R2-3
+    固化——断言经 `@dagents/workflow` dist 引擎消费段，兼作 src↔dist 漂移门禁）。
+  - **R3 结算状态机**：run 状态九态 + `stop_reason` 五值（user/interrupted/superseded/model/provider），
+    cancelled→stopped 写新读旧双读兼容；failed/partial_success/budget_exceeded/stopped 全部保留可 resume；
+    budget resume 双路径（携 `tokenBudget` 覆盖 / 缺省沿用前驱预算且从零起算 + 谱系黄警披露）；
+    superseded 通知抑制；chat 执行卡 partial_success/budget_exceeded 轮询泄漏顺带修复。
+  - **R4 声明式权限闭环**：http `allowedDomains` / customFunction `allowedCommands`（受控 `$exec`
+    命令通道，缺席=通道不存在）fail-closed 三层（拓扑校验/保存门 422/运行时守卫）——详见
+    AGENTS.md 对应段（2026-10-07 已先行入档）。
+  - **R5 结构化提交裁决**：platformAgent `outputSchema` 三值裁决（accept 收 `json` 字段 / violations
+    按 path/期望/实际同会话回喂修复 / NUDGE 追问；预算 3 次交互耗尽诚实失败走节点拒绝档）；claude 档
+    `--resume` 会话延续（真机会话 id 守恒 PASS），其余 kind 逻辑会话重建留痕；裁决轮次 verdict 活动
+    进 events/终端/轨迹。
+  - **R6 渐进产物**：任意终态产出清单 `deliverables`（journal decision 主路 / spans 兜底，提取单源
+    `extractDeliverableText`）挂终态响应与 node-spans 信封；结果面板「产出清单」聚合卡（拓扑序/迭代
+    第 k 项/继承与子流程 chip/复制下载/终端锚点跳转）；`runs.output` 语义不变。
+  - **R8 会话身份与模型 pin**：`deriveSessionId(runId,nodeId,ordinal)` 确定性铸造 + persona run
+    创建期冻结（`runs.frozen_agents`/`models` 快照列，resume 跨进程注入）；显式声明模型的调用禁熔断降级
+    （provider 故障响亮失败 `failed(provider)` +「因 pin 拒绝降级」活动行），未声明维持 CLI 第一性基线；
+    插话 `POST /runs/:runId/message` 支持 ordinal 寻址（多实例 409 + 活跃清单）。
+  - **R9 工程决策包**：挂起态纯内存红线 ADR（`docs/superpowers/specs/2026-10-07-pending-state-in-memory-red-line.md`）；
+    run 终态通知 claim（`run-notify.ts` 单点 + ws `run-updated` `?run=` 订阅 + 跨标签页
+    BroadcastChannel claim——多入口至多一次、superseded 零通知）；`validateFlowTopology` 诊断三级
+    （error/warning/repairable，可修复不阻断保存）；上限失败语义两档对照表落 `docs/workflow-engine.md`
+    （节点拒绝 `NodeRejectedError`→span rejected→run partial_success vs run 失败）。
+  - **R10 画布试运行**：`POST /workflows/:id/trial`（gateway 内置 fake llmClient，单节点/全图、
+    byNode/default 规则脚本）+ `GET /runs/:runId/trial-calls` 逐调用 prompt 与未解析占位符证据面板；
+    `runs.source='trial'` 产物隔离（历史/账单/usage_events 不见，spans+journal 照写保三视图，无
+    checkpoint）；customFunction 真跑（超时/异常如实），http 默认跳过标注、真发时 SSRF/R4 守卫照常。
+  - 配套：迁移 4 条（run_node_journal / stop_reason+快照列 / spans 词表放宽 / runs.source）；新环境变量
+    `DAGENTS_JOURNAL_MAX_ROWS_PER_RUN`、`DAGENTS_JOURNAL_REPLAY_MAX`（见 AGENTS.md 配置节）；测试库存
+    增至 workflow 380 / gateway 626 / console 515 / contracts 20 / db 8 例级；e2e 新增 25/26×2/28 四份
+    spec（验收轮未重跑，等价模型验证——见验收报告 notCovered）。
+
 - **工作流多人格优化轮（2026-10-04，12 个人格 × 12 个方面）** — 从内置人格库选角，对
   `@dagents/workflow` 全链路的一揽子优化；引擎语义改动由新测试套 `executor-v2-semantics.test.ts`
   （17 例）钉死：

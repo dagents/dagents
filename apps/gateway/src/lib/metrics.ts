@@ -138,3 +138,21 @@ export function resetMetricsForTest(): void {
   counters.clear()
   gauges.clear()
 }
+
+// ─── R4 声明式权限闭环（2026-10-07）───────────────────────────────────────
+// 业务消费方：controlled-exec.ts（customExecTotal）、routes/workflows.ts
+// （permissionUndeclaredHttpRunsTotal）。在 metrics.ts 统一声明保持 §7 涉及
+// 文件清单口径；declareCounter 按名去重，消费方再 declare 也安全。
+
+/** customFunction $exec 受控通道结果计数（label result ∈ allowed/denied/timeout/shell_rejected）。 */
+export const customExecTotal = declareCounter(
+  'dagents_custom_exec_total',
+  'Controlled $exec channel outcomes (customFunction allowedCommands), by result',
+  ['result'],
+)
+
+/** warn 过渡期内带「未声明 allowedDomains 的 http 节点」启动的 run 计数（enforce 翻转的观测锚点）。 */
+export const permissionUndeclaredHttpRunsTotal = declareCounter(
+  'dagents_permission_undeclared_http_runs_total',
+  'Runs started with http nodes missing allowedDomains (R4 transition-period warn policy)',
+)

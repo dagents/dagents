@@ -659,6 +659,13 @@
   bottom: 0;
   height: 24px;
   background: linear-gradient(transparent, var(--surface-warm));
+  transition: opacity var(--motion-base, 180ms) var(--ease-standard);
+}
+
+/* 到底即隐（2026-10-09 验收反馈）：滚到底/内容不足一屏时垫隙上浮着
+   白雾带像没擦干净的残影——面纱只在「还能往下滚」时存在。 */
+.chat-nav-history-fade.at-bottom::after {
+  opacity: 0;
 }
 
 /* Footer seat (deepseek): controls only — settings left, theme right. */

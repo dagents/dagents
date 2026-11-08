@@ -96,6 +96,20 @@ export function ChatHistoryTree(): React.ReactElement {
   const [searchExpanded, setSearchExpanded] = useState(false)
   const searchDropdownRef = useRef<ChatSearchDropdownHandle>(null)
   const searchInputRef = useRef<HTMLInputElement>(null)
+  // 底部溶解面纱的「到底即隐」（2026-10-09 验收反馈）：滚到底/内容不足
+  // 一屏时面纱不该显示——垫隙空空还浮着一条白雾带，像没擦干净的残影。
+  const historyRef = useRef<HTMLDivElement | null>(null)
+  const [listAtBottom, setListAtBottom] = useState(false)
+  const syncListAtBottom = useCallback(() => {
+    const el = historyRef.current
+    if (!el) return
+    setListAtBottom(el.scrollHeight - el.scrollTop - el.clientHeight <= 28)
+  }, [])
+  useEffect(() => {
+    syncListAtBottom()
+    window.addEventListener('resize', syncListAtBottom)
+    return () => window.removeEventListener('resize', syncListAtBottom)
+  }, [syncListAtBottom, chatsByDir, loading])
 
   // Extract active chat id from pathname /chats/:id
   useEffect(() => {
@@ -466,7 +480,13 @@ export function ChatHistoryTree(): React.ReactElement {
             }}
           />
         ) : (
-        <div className="chat-nav-history" role="list" aria-label={t('对话列表')}>
+        <div
+          className="chat-nav-history"
+          role="list"
+          aria-label={t('对话列表')}
+          ref={historyRef}
+          onScroll={syncListAtBottom}
+        >
         {loading ? (
           <div className="chat-nav-history-status" role="status">{t('加载中…')}</div>
         ) : directories.length === 0 ? (
@@ -683,8 +703,13 @@ export function ChatHistoryTree(): React.ReactElement {
           })
         )}
           {/* Bottom gradient fade (deepseek .fade) — rows dissolve under the
-              sidebar edge; padding keeps the last row clear of the veil. */}
-          <span className="chat-nav-history-fade" aria-hidden="true" />
+              sidebar edge; padding keeps the last row clear of the veil.
+              到底即隐（2026-10-09）：滚到底/内容不足一屏时隐藏——垫隙上
+              浮着白雾带像残影。 */}
+          <span
+            className={`chat-nav-history-fade${listAtBottom ? ' at-bottom' : ''}`}
+            aria-hidden="true"
+          />
         </div>
         )}
       </div>

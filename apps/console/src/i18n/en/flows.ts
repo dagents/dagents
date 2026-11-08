@@ -325,4 +325,109 @@ export const flows: Record<string, string> = {
   '拖动调整宽度，双击复位': 'Drag to resize, double-click to reset',
   '节点泳道时间线 + 事件台账：按时间轴查看执行轨迹与过程事件':
     'Node-swimlane timeline + event ledger: execution trace on a time axis',
+
+  // ── 产出清单聚合区（R6 渐进产物，2026-10-07）──
+  // 「等待输入」复用既有词条（flows.ts:201），「终端」复用 common.ts——勿重加。
+  '产出清单': 'Deliverables',
+  '共 {n} 项产出': '{n} deliverable(s)',
+  '复制产出清单': 'Copy deliverables',
+  '下载产出': 'Download deliverables',
+  '已复制': 'Copied',
+  '{n} 项': '{n} items',
+  '第 {k}/{n} 项': 'Item {k}/{n}',
+  '继承自前次运行': 'Inherited from run',
+  '子流程': 'Subflow',
+  '未执行': 'Not executed',
+  '执行中': 'Running',
+  '在终端视图中查看该节点的完整过程': 'View this node’s full process in the terminal view',
+  '（无产出）': '(no output)',
+
+  // ── 运行前权限确认区（R4 声明式权限闭环，2026-10-07）──
+  // 查重口径：本组键对 settings/chat/common 三词典零同字面（提交前已 grep）。
+  '权限确认': 'Permission check',
+  '$exec 命令白名单': '$exec allowed commands:',
+  '允许域名': 'Allowed domains:',
+  '$exec 实际调用在白名单内即放行——运行时裁决':
+    '$exec calls pass only if within the whitelist — decided at run time',
+  'URL 含变量——运行时守卫裁决': 'URL contains variables — decided by the run-time guard',
+  'URL 域名不在清单中——运行时将拒绝': 'URL hostname is not on the list — rejected at run time',
+  '{n} 个 HTTP 节点未声明域名清单——当前过渡期放行，网关 enforce 后将拒绝运行':
+    '{n} HTTP node(s) have no allowedDomains — allowed during the transition period, rejected once the gateway enforces',
+  '节点 {id} 的声明非法：{reason}': 'Node {id} has an invalid declaration: {reason}',
+  '子流程内的声明以子流程画布为准':
+    'Declarations inside a subflow are governed by that subflow’s own canvas',
+
+  // ── 试运行（R10，2026-10-07 design-sharp §4.7）─────────────────────────
+  // 注：'已拒绝（可重试）' 是独立键——settings.ts:288 已有权限域的 '已拒绝'
+  // （'Denied'），语义不同不共用；词典六模块 spread 合并、同名键静默覆盖，
+  // 新增词条前已 grep 两道词典确认无冲突。
+  '试运行': 'Trial run',
+  '试运行此节点': 'Trial-run this node',
+  '试运行全图': 'Trial-run the whole flow',
+  '运行输入（{{$start.input}}）': 'Run input ({{$start.input}})',
+  '试运行的模拟输入': 'Simulated input for the trial run',
+  '外部上游输入（选中集外的入边来源）': 'External upstream inputs (incoming-edge sources outside the selection)',
+  '正在查找最近一次运行的输出…': 'Looking up the latest run output…',
+  '该上游节点的输出种子（留空 = 空串）': 'Output seed for this upstream node (blank = empty string)',
+  '默认预填最近一次正式运行中该节点的输出；试运行不写正式历史与账单。':
+    'Prefilled with this node’s output from the latest formal run; trial runs stay out of history and billing.',
+  'Mock 规则（按序匹配，命中即应答）': 'Mock rules (matched in order, first hit responds)',
+  '谓词值（子串/模型名）': 'Predicate value (substring / model name)',
+  '应答文本（scripted 输出）': 'Response text (scripted output)',
+  '添加规则': 'Add rule',
+  '兜底应答（无规则命中时）': 'Fallback response (when no rule hits)',
+  '真实发送请求（http 节点）': 'Send real requests (http nodes)',
+  '默认跳过：http 节点不发真实请求，输出带「试运行」标注。':
+    'Skipped by default: http nodes send no real requests; output carries a “trial” marker.',
+  '预供 HumanInput 答案（可选）': 'Pre-supplied HumanInput answers (optional)',
+  '提示语（prompt，精确匹配）': 'Prompt (exact match)',
+  '预供答案': 'Pre-supplied answer',
+  '添加答案': 'Add answer',
+  '未预供答案的 HumanInput 将挂起（试运行不支持挂起应答）。':
+    'HumanInput without a pre-supplied answer will hang (trial runs do not support awaited answers).',
+  '开始试运行': 'Start trial run',
+  '启动中…': 'Starting…',
+  '启动失败': 'Failed to start',
+  '试运行证据': 'Trial-run evidence',
+  '未解析占位符 {n} 处': '{n} unresolved placeholder(s)',
+  '进程内证据已随网关重启丢失，spans 仍可查（结果面板逐节点输入/输出）。':
+    'In-process evidence was lost with the gateway restart; spans are still queryable (per-node input/output in the results panel).',
+  '暂无 mock 调用记录': 'No mock call records yet',
+  '命中': 'Hit',
+  '未解析': 'Unresolved',
+  '用 mock 执行通道试运行（不烧真实调用、不写正式历史）——选中节点即单点试跑':
+    'Trial-run via the mock execution lane (no real calls, no formal history) — select a node to trial it alone',
+  '试运行进行中 / 已收尾——本次运行不写入正式历史与用量账单':
+    'Trial run in progress / finished — this run stays out of formal history and usage billing',
+  // ── 诊断分级 + 节点拒绝（R9 9c/9d，design-sharp §2.3/§2.4）────────────
+  '已拒绝（可重试）': 'Rejected (retryable)',
+  '已保存，有 {n} 处可修复': 'Saved — {n} fixable issue(s)',
+  '可修复：{repair}': 'Fixable: {repair}',
+
+  // ── 可恢复性（2026-10-07，design-recover §4.3——R3 stopped / R2 暖缓存）──
+  '已停止': 'Stopped',
+  '已中断': 'Interrupted',
+  '已中断（可恢复）': 'Interrupted (resumable)',
+  '已停止 · {n}s': 'Stopped · {n}s',
+  '部分成功 · {n}s': 'Partial success · {n}s',
+  '预算停机 · {n}s': 'Budget stop · {n}s',
+  '▶ 重新运行': '▶ Run again',
+  '来自缓存': 'From cache',
+  '暖缓存重跑': 'Warm re-run',
+  '全新重跑': 'Fresh re-run',
+  '暖缓存自 {id}': 'warm from {id}',
+  '暖缓存自：{id}': 'Warm-cached from run {id}',
+  '复用谱系链上未受影响节点的产出（⚡ 命中零调用），只重跑改过的部分':
+    'Reuse outputs of unaffected nodes along the lineage (⚡ hits cost nothing) — only re-run what changed',
+  // 服务端过程流 label 的词条占位（R8 pin / R3.4 黄警 / R5 会话重建——服务端
+  // 活动行不走 t()，词条供详情/通知等 UI 消费面复用；「会话重建」只此一处）。
+  '因 pin 拒绝降级': 'Fallback refused: model is pinned',
+  '会话重建': 'Session rebuilt',
+  '预算重新起算（谱系链累计已耗 {n} tokens）': 'Budget restarts from zero ({n} tokens already spent along the lineage)',
+  // token 双口径（R2.3，2026-10-08 修复）
+  '谱系继承': 'inherited',
+  '本次新增': 'new spend',
+  '合计': 'total',
+  '谱系继承 = 前驱 runs 的累计用量（含本 run 复用的缓存产出）':
+    'Inherited = total usage of ancestor runs (incl. outputs reused from cache by this run)',
 }

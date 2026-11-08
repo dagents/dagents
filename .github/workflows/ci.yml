@@ -123,6 +123,13 @@ jobs:
       - name: Lint
         run: pnpm exec turbo run lint
 
+      # OQ-4 终裁（2026-10-08）：DAGENTS_HTTP_DOMAIN_POLICY 默认 enforce，
+      # 内置模板必须全量带权限声明——缺席/非法即 CI 阻断（零依赖裸 node
+      # 脚本，先于 DB/Test 快速失败）。flow_templates 表（用户数据）部分
+      # 无 POSTGRES_URL 时自动跳过、有则仅报告不阻断。
+      - name: Template permission scan
+        run: node scripts/scan-template-permissions.mjs
+
       - name: Apply DB migrations
         run: pnpm --filter @dagents/db migration:run
 

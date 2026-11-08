@@ -51,6 +51,10 @@ describe('type contracts', () => {
       | 'awaiting'
       | 'partial_success'
       | 'budget_exceeded'
+      // 2026-10-07 可恢复性地基：种子命中的节点终态（run 级终态永不取此值）
+      | 'cached'
+      // 2026-10-07 工程决策 9d：声明型超限的节点拒绝终态（run 级终态永不取此值）
+      | 'rejected'
     >()
   })
 

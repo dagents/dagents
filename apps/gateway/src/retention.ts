@@ -29,17 +29,22 @@ export async function runRetentionSweep(now = new Date()): Promise<number> {
   if (!Number.isFinite(RETENTION_DAYS) || RETENTION_DAYS <= 0) return 0
   const cutoff = new Date(now.getTime() - RETENTION_DAYS * 24 * 60 * 60 * 1000)
 
-  // 先删轨迹子表（run_node_spans 有 (run_id) 外键与否不确定 —— 显式删最稳），
-  // 再删 runs 行；两者都限定在窗口内的终态 run。
+  // 终态清单（2026-10-07 R3，design-recover §1.5）：词表全集——现状只认
+  // completed/failed/cancelled，partial_success/budget_exceeded（2026-10-04
+  // 引入）已漏清，R3 的 stopped 必须同批补齐，否则终态行永不清。
+  // cancelled 是存量双读词（写新 stopped，存量行照清）。
   const { records } = await runQuery<{ id: string }>(
     `SELECT id FROM runs
       WHERE created_at < $1
-        AND status IN ('completed', 'failed', 'cancelled')`,
+        AND status IN ('completed', 'failed', 'cancelled', 'partial_success', 'budget_exceeded', 'stopped')`,
     [cutoff.toISOString()],
   )
   if (records.length === 0) return 0
   const ids = records.map((r) => r.id)
   await runQuery(`DELETE FROM run_node_spans WHERE run_id = ANY($1::uuid[])`, [ids])
+  // journal 级联（R1/R7，§1.5）：run_node_journal 随 run 行清理——暖缓存 miss
+  // 的诚实边界由此成立（前驱被清 = journal 行没了 = 查找 miss = 全量重跑）。
+  await runQuery(`DELETE FROM run_node_journal WHERE run_id = ANY($1::uuid[])`, [ids])
   await runQuery(`DELETE FROM run_checkpoints WHERE run_id = ANY($1::uuid[])`, [ids])
   await runQuery(`DELETE FROM dispatch_task_events WHERE task_id IN (
       SELECT id FROM dispatch_tasks WHERE run_id = ANY($1::text[])
@@ -49,8 +54,9 @@ export async function runRetentionSweep(now = new Date()): Promise<number> {
 
   // orphan 轨迹（run 行已不存在）一并回收 —— 含 checkpoints（2026-09-20
   // 补：此前 sweep 不覆盖 run_checkpoints，挂起/失败 run 的快照 JSONB
-  // 只进不出，无限堆积）与孤儿 task events
+  // 只进不出，无限堆积）与孤儿 task events；journal 同款（R7）
   await runQuery(`DELETE FROM run_node_spans WHERE run_id NOT IN (SELECT id FROM runs)`)
+  await runQuery(`DELETE FROM run_node_journal WHERE run_id NOT IN (SELECT id FROM runs)`)
   await runQuery(`DELETE FROM run_checkpoints WHERE run_id NOT IN (SELECT id FROM runs)`)
   await runQuery(`DELETE FROM dispatch_task_events WHERE task_id NOT IN (SELECT id FROM dispatch_tasks)`)
   // dispatch_tasks.run_id 是 text 列 —— 与 uuid 的 runs.id 比较须同域，

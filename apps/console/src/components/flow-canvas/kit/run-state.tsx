@@ -6,8 +6,10 @@
 
 import { createContext, useContext } from 'react'
 
-/** 与 console SPAN_STATUS_MAP 对齐的显示态。 */
-export type NodeRunStatus = 'running' | 'done' | 'failed' | 'waiting'
+/** 与 console SPAN_STATUS_MAP 对齐的显示态。`cached`（2026-10-07 R2，
+ * design-recover §4.2）：暖缓存/种子命中跳过执行的节点终态——画布徽章
+ * 独立于 done（AC-R2-2，⚡ 样式在 NodeView 渲染层）。 */
+export type NodeRunStatus = 'running' | 'done' | 'failed' | 'waiting' | 'cached'
 
 export interface RunState {
   nodeStates: Record<string, { status: NodeRunStatus; error?: string }>

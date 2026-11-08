@@ -7,11 +7,29 @@ import {
   type RunCheckpointSnapshot,
 } from '@dagents/workflow'
 import { executionRegistry, type ExecutionHandle } from '../execution-registry.js'
-import { aggregateExecutedNodesUsage, recordUsageEvent } from '../usage-events.js'
-import { getCheckpoint, updateCheckpointStatus, upsertCheckpoint } from '../repositories/run-checkpoints.repo.js'
+import {
+  aggregateExecutedNodesUsage,
+  recordUsageEvent,
+  rollupPrimaryModel,
+} from '../usage-events.js'
+import {
+  getCheckpoint,
+  updateCheckpointStatus,
+  upsertCheckpoint,
+} from '../repositories/run-checkpoints.repo.js'
+import { findDecisions } from '../repositories/run-node-journal.repo.js'
+import { runLineageChain, lineageTokensSpent } from '../lineage.js'
 import { persistWorkflowRunRow } from '../repositories/runs.repo.js'
+import { collectRunSessions } from './workflow-clients.js'
 import { tryAcquireRunSlot, recordRunFinished } from '../lib/run-gate.js'
-import { assembleWorkflowEngine } from './workflow-engine-service.js'
+import { notifyRunFinished } from '../lib/run-notify.js'
+import {
+  assembleWorkflowEngine,
+  toRunStatus,
+  classifyAbortReason,
+  classifyFailureReason,
+} from './workflow-engine-service.js'
+import { RUN_MARKER_NODE_ID } from '../journal-writer.js'
 
 const log = createLogger({ svc: 'gateway:resume' })
 
@@ -50,7 +68,9 @@ export function computeTopoHash(flowData: unknown): string {
         `${String((e as { target?: unknown }).target ?? '')}`,
     )
     .sort()
-  return createHash('sha1').update(`${nodes.join(',')}|${edges.join(';')}`).digest('hex')
+  return createHash('sha1')
+    .update(`${nodes.join(',')}|${edges.join(';')}`)
+    .digest('hex')
 }
 
 // ── checkpoint 生命周期 ─────────────────────────────────────────────────────
@@ -71,9 +91,18 @@ export interface CheckpointContext {
 export interface CheckpointHook {
   (snap: RunCheckpointSnapshot): void
   /** 链尾终态化：合并 failedAt（如有）与最后一次快照，status 一次到位。 */
-  terminalize: (status: 'resumable' | 'terminal', failedAt?: { nodeId: string; error: string }) => void
+  terminalize: (
+    status: 'resumable' | 'terminal',
+    failedAt?: { nodeId: string; error: string },
+  ) => void
   /** 链内挂起写：awaiting 载荷走同一串行链（直连写会被在途波次快照后发覆盖）。 */
-  suspend: (awaiting: { nodeId: string; prompt: string; inputType: string; options: unknown[]; deadlineAt: string }) => void
+  suspend: (awaiting: {
+    nodeId: string
+    prompt: string
+    inputType: string
+    options: unknown[]
+    deadlineAt: string
+  }) => void
 }
 
 export function makeCheckpointHook(ctx: CheckpointContext): CheckpointHook {
@@ -113,6 +142,15 @@ export function makeCheckpointHook(ctx: CheckpointContext): CheckpointHook {
   }
 
   hook.terminalize = (status, failedAt) => {
+    // 空快照守护（2026-10-08 集成批，RM-01 复现逮出）：resume/answer 的
+    // checkpointRunId 指向**原 run** 的 checkpoint 行——引擎顶层失败（如种子
+    // 哈希对账 SeedHashMismatchError）时本 run 零 onCheckpoint 快照，这里
+    // 若照常用空 lastSnapshot upsert 会把原 run 的进度快照（completed
+    // 节点清单 + failedAt）冲成空——断点信息丢失。空快照 = 只翻 status。
+    if (Object.keys(lastSnapshot).length === 0) {
+      enqueue(() => updateCheckpointStatus(ctx.checkpointRunId, status))
+      return
+    }
     const snapshot = failedAt ? { ...lastSnapshot, failedAt } : lastSnapshot
     enqueue(() =>
       upsertCheckpoint({
@@ -133,6 +171,12 @@ export function makeCheckpointHook(ctx: CheckpointContext): CheckpointHook {
  * 全路径统一的持久 resolver：先查预供答案（画布运行面板的答案区 /
  * answer 回流注入），无则 reject HumanInputPendingError —— 引擎收敛为
  * awaiting，本函数不持有任何内存 Promise（重启安全）。
+ *
+ * 边界判据互引（2026-10-07 R9a）：本 resolver 是挂起双轨制的「持久
+ * checkpoint 轨」（兑现者 = resume/应答回流的新执行，跨进程/跨时段可续）；
+ * 与 chat SSE 内存 promise 轨（pendingByChat，同连接续流、重启即死）的
+ * 选择规则见 ADR：
+ * docs/superpowers/specs/2026-10-07-pending-state-in-memory-red-line.md
  */
 export function makePersistentHumanInputResolver(
   answers: Record<string, string>,
@@ -159,6 +203,14 @@ export interface RunExecutionInput {
     seedOutputs: Record<string, Record<string, unknown>>
     seedRuntime: Record<string, unknown>
     iterationProgress?: Record<string, IterationProgress>
+    /** 种子携带的 expected input_hash（journal 化种子，§3.5(a)）——引擎
+     *  跳过种子节点前预演重算对账，不一致抛 SeedHashMismatchError（AC-R1-3）。 */
+    seedHashes?: Record<string, string>
+    /** 暖缓存标注（cached span/journal lineage 载荷，§3.7）。 */
+    seedSource?: { kind: 'resume' | 'warm-cache'; fromRunId: string }
+    /** 前驱 token 用量（PRD R2.3，2026-10-08）：cached span.tokens 记继承值
+     *  + journal lineage inheritedTokens——decision 行的 payload.tokens。 */
+    seedTokens?: Record<string, unknown>
   }
   /** checkpoint 行归属（resume 期间=原 run id；首跑=runId 自身）。 */
   checkpointRunId: string
@@ -167,6 +219,17 @@ export interface RunExecutionInput {
   cwd?: string
   /** 触发来源标记（runs 行溯源）。 */
   source?: string
+  /**
+   * run 级 token 预算（R3.4 budget resume 双路径，§3.3(d)）：覆盖前驱预算
+   * 或沿用其值；新 run 预算从零起算（引擎 tokensSpent 启动置 0、种子不
+   * 结转）。resume 启动时过程流黄警披露谱系链累计已耗（NFR-6）。
+   */
+  tokenBudget?: number
+  /**
+   * persona 冻结快照（R8 §3.6(b)，AC-R8-2 跨进程冻结）：路由层读
+   * runs.frozen_agents 注入——agent 行已删/改不影响在途与续跑 run。
+   */
+  frozenAgents?: Record<string, unknown> | null
 }
 
 export interface RunExecutionHandleResult {
@@ -223,12 +286,16 @@ function startWorkflowExecutionInner(req: RunExecutionInput): RunExecutionHandle
   const releaseRunSlot = tryAcquireRunSlot()
   if (!releaseRunSlot) throw new RunGateFullError()
 
-  const { executor, live, baseOptions } = assembleWorkflowEngine({
+  const { executor, live, journal, baseOptions } = assembleWorkflowEngine({
     flowData: req.flowData as Parameters<typeof assembleWorkflowEngine>[0]['flowData'],
     runId: req.runId,
     flowId: req.flowId,
     cwd: req.cwd,
     logger: log,
+    // persona 冻结（R8 §3.6(b)）：resume 跨进程注入前驱快照——agent 行
+    // 已删/改不影响续跑 run（AC-R8-2）；快照内的 sessions 映射同时是 CLI
+    // 会话 --resume 重挂的查表数据源。
+    ...(req.frozenAgents ? { frozenAgents: req.frozenAgents } : {}),
   })
 
   const checkpointHook = makeCheckpointHook({
@@ -239,6 +306,9 @@ function startWorkflowExecutionInner(req: RunExecutionInput): RunExecutionHandle
 
   const abort = new AbortController()
   const startedAt = Date.now()
+  // run 级模型快照（R8 §3.6(c)）：execute 终态聚合后 persistRunRow 读取
+  // （persist 定义在前、赋值在后——提升到本作用域）。
+  let runModels: Record<string, string> | null = null
   let resolveDone!: () => void
   const done = new Promise<void>((r) => {
     resolveDone = r
@@ -258,13 +328,21 @@ function startWorkflowExecutionInner(req: RunExecutionInput): RunExecutionHandle
   // persistWorkflowRunRow 统一承载（resumedFromRunId 已并入该 helper）。
   const persistRunRow = async (
     status: string,
-    extra?: { output?: unknown; durationMs?: number; resumedFrom?: string },
+    extra?: {
+      output?: unknown
+      durationMs?: number
+      resumedFrom?: string
+      stopReason?: string | null
+    },
   ): Promise<void> => {
     await persistWorkflowRunRow({
       runId: req.runId,
       flowId: req.flowId,
       status,
-      inputJson: JSON.stringify({ input: req.input }),
+      inputJson: JSON.stringify({
+        input: req.input,
+        ...(req.tokenBudget != null ? { tokenBudget: req.tokenBudget } : {}),
+      }),
       outputJson: extra?.output ? JSON.stringify(extra.output) : null,
       startedAt: new Date(startedAt),
       finishedAt: new Date(),
@@ -273,13 +351,50 @@ function startWorkflowExecutionInner(req: RunExecutionInput): RunExecutionHandle
       chatId: req.chatId || null,
       directoryId: req.directoryId ?? null,
       resumedFromRunId: extra?.resumedFrom ?? null,
-    }).catch((err) => log.warn('resume runs upsert failed', { runId: req.runId, error: String(err) }))
+      // 2026-10-07 R10：RunExecutionInput.source 从死字段接通为实写——
+      // resume/answer 路径缺省 'resume'，chat 应答回流由调用方传 'answer'。
+      source: req.source ?? 'resume',
+      // 2026-10-07 R3（§3.3(c)）：stop_reason 落库（stopped: user/superseded；
+      // failed: model/provider——五值词表见 RunStopReason）。
+      stopReason: extra?.stopReason ?? null,
+      // 2026-10-07 R8（§3.6(b)）：冻结快照谱系延续（新 run 继承前驱快照 +
+      // 本轮新采集的会话映射）。
+      frozenAgentsJson:
+        status !== 'running' && req.frozenAgents
+          ? JSON.stringify({ ...req.frozenAgents, sessions: collectRunSessions(req.runId) })
+          : null,
+      // 2026-10-07 R8（§3.6(c)）：run 级模型快照（终态聚合，execute 闭包
+      // 传入；running 先行行不落）。
+      modelsJson: status !== 'running' && runModels ? JSON.stringify(runModels) : null,
+    }).catch((err) =>
+      log.warn('resume runs upsert failed', { runId: req.runId, error: String(err) }),
+    )
   }
 
   const execute = async (): Promise<void> => {
     // 先落一行 running（旁观端立即有终态可查）；resume 首次也先翻 running
     await persistRunRow('running', { resumedFrom: req.resumedFromRunId })
+    // 预算黄警（R3.4，NFR-6）：resume 携带/沿用预算时披露谱系链累计已耗
+    // ——新 run 预算从零起算（引擎 tokensSpent 启动置 0、种子不结转），
+    // 没有这条黄警，用户会把「前驱烧掉的 tokens」误读成本次续跑消耗。
+    if (req.tokenBudget != null && req.resumedFromRunId) {
+      try {
+        const chain = await runLineageChain(req.resumedFromRunId)
+        const lineageTokens = await lineageTokensSpent(chain)
+        live.delta(
+          { nodeId: RUN_MARKER_NODE_ID, nodeName: 'Run' },
+          {
+            type: 'activity',
+            kind: 'status',
+            label: `预算重新起算（谱系链累计已耗 ${lineageTokens} tokens）——本次续跑预算 ${req.tokenBudget}`,
+          },
+        )
+      } catch {
+        /* 黄警是披露增益不是依赖：谱系查询失败静默跳过 */
+      }
+    }
     let finalStatus = 'failed'
+    let finalStopReason: string | null = null
     try {
       const result = await executor.execute(
         req.flowData as Parameters<typeof executor.execute>[0],
@@ -298,10 +413,23 @@ function startWorkflowExecutionInner(req: RunExecutionInput): RunExecutionHandle
                 resume: {
                   seedOutputs: req.resume.seedOutputs,
                   seedRuntime: req.resume.seedRuntime,
-                  ...(req.resume.iterationProgress ? { iterationProgress: req.resume.iterationProgress } : {}),
+                  ...(req.resume.iterationProgress
+                    ? { iterationProgress: req.resume.iterationProgress }
+                    : {}),
+                  ...(req.resume.seedHashes ? { seedHashes: req.resume.seedHashes } : {}),
+                  ...(req.resume.seedSource ? { seedSource: req.resume.seedSource } : {}),
+                  ...(req.resume.seedTokens
+                    ? {
+                        seedTokens: req.resume.seedTokens as Record<
+                          string,
+                          import('@dagents/workflow').ITokenUsage | null
+                        >,
+                      }
+                    : {}),
                 },
               }
             : {}),
+          ...(req.tokenBudget != null ? { tokenBudget: req.tokenBudget } : {}),
           onCheckpoint: checkpointHook,
         },
       )
@@ -316,44 +444,64 @@ function startWorkflowExecutionInner(req: RunExecutionInput): RunExecutionHandle
         return
       }
 
-      const runStatus =
-        result.status === 'success'
-          ? 'completed'
-          : result.status === 'cancelled'
-            ? 'cancelled'
-            : result.status === 'partial_success'
-              ? 'partial_success'
-              : result.status === 'budget_exceeded'
-                ? 'budget_exceeded'
-                : 'failed'
+      // 引擎状态 → runs 行（2026-10-07 R3 §3.3(a)：单源收敛——此前这里是
+      // 手写三元链（漂移温床），AC-R3-3 三入口一致：直跑/resume/answer 全走
+      // toRunStatus；cancelled→stopped 写新 + superseded 归属由 abort reason 判定）。
+      const { status: runStatus, stopReason } = toRunStatus(result.status, {
+        superseded: classifyAbortReason(abort.signal) === 'superseded',
+      })
       finalStatus = runStatus
-      // 运行实时终端：续跑 settle 同样上报终态（重开的条目再次收口）。
-      live.finish(runStatus)
+      finalStopReason = stopReason ?? null
+      // 运行实时终端：续跑 settle 同样上报终态（重开的条目再次收口）；
+      // runEnd 帧带 stopReason（客户端过滤 superseded 通知，R3.5）。
+      live.finish(runStatus, stopReason)
+      // run 完成通知（R9b）：单点发射 + 幂等 claim + superseded 抑制。
+      notifyRunFinished({
+        runId: req.runId,
+        flowId: req.flowId,
+        status: runStatus,
+        stopReason,
+      })
       // 终态经钩子串行链（快照 + status 合并一次写；failedAt 由引擎终态快照携带）
       checkpointHook.terminalize(runStatus === 'completed' ? 'terminal' : 'resumable')
+      runModels = (() => {
+        const modelsMap: Record<string, string> = {}
+        for (const en of result.executedNodes) {
+          if (en.resolvedModel) modelsMap[en.nodeId] = en.resolvedModel
+        }
+        return Object.keys(modelsMap).length > 0 ? modelsMap : null
+      })()
       await persistRunRow(runStatus, {
         output: result.finalOutput,
         durationMs: Date.now() - startedAt,
+        stopReason: stopReason ?? null,
       })
 
-      // usage rollup（对齐 workflows.ts AD-3 路径）
+      // usage rollup（对齐 workflows.ts AD-3 路径）；model（R8 §3.6(c)）=
+      // rollup 主模型（用量最大节点的 resolvedModel）。
       const usageRollup = aggregateExecutedNodesUsage(result.executedNodes)
       void recordUsageEvent({
         source: 'workflow_run',
         runId: req.runId,
         flowId: req.flowId,
         usage: usageRollup as unknown as object,
+        model: rollupPrimaryModel(result.executedNodes),
       }).catch(() => {})
     } catch (err) {
       log.error('resume execution crashed', { runId: req.runId, error: String(err) })
+      const stopReason = classifyFailureReason(err)
+      finalStatus = 'failed'
+      finalStopReason = stopReason
       await updateCheckpointStatus(req.checkpointRunId, 'resumable').catch(() => {})
-      await persistRunRow('failed', { durationMs: Date.now() - startedAt })
+      await persistRunRow('failed', { durationMs: Date.now() - startedAt, stopReason })
     } finally {
+      journal.close()
       resolveDone()
       executionRegistry.unregister(handle)
       activeResumeCheckpoints.delete(req.checkpointRunId)
       releaseRunSlot()
       recordRunFinished(finalStatus)
+      void finalStopReason
     }
   }
 
@@ -370,6 +518,13 @@ export async function buildResumeSeed(
   seedOutputs: Record<string, Record<string, unknown>>
   seedRuntime: Record<string, unknown>
   iterationProgress?: Record<string, IterationProgress>
+  /** journal 化种子携带的 expected input_hash（引擎预演对账，AC-R1-3）；
+   *  checkpoint 兜底路径无 hash（跳过校验照旧种子化，PRD R1.7）。 */
+  seedHashes?: Record<string, string>
+  /** 种子来源标注（cached 钩子/journal lineage 载荷）。 */
+  seedSource?: { kind: 'resume' | 'warm-cache'; fromRunId: string }
+  /** 前驱 token 用量（PRD R2.3）：journal decision 的 payload.tokens。 */
+  seedTokens?: Record<string, unknown>
 } | null> {
   const ckpt = await getCheckpoint(checkpointRunId)
   if (!ckpt) return null
@@ -383,7 +538,10 @@ export async function buildResumeSeed(
   // 一次。控制器重跑 planning（解析 items），游标让 body 从断点项续。
   const controllerIds = new Set<string>()
   const nodes = Array.isArray((flowData as { nodes?: unknown } | undefined)?.nodes)
-    ? ((flowData as { nodes: unknown[] }).nodes as Array<{ id?: unknown; data?: { name?: unknown } }>)
+    ? ((flowData as { nodes: unknown[] }).nodes as Array<{
+        id?: unknown
+        data?: { name?: unknown }
+      }>)
     : []
   for (const n of nodes) {
     if (n?.data?.name === 'iterationAgentflow' && typeof n.id === 'string') {
@@ -391,6 +549,61 @@ export async function buildResumeSeed(
     }
   }
   const seedOutputs: Record<string, Record<string, unknown>> = {}
+  // ── journal 化种子（2026-10-07 R1 §3.5(a)，AD-R2 真相源）──
+  // kind='decision' AND status IN ('done','cached') 的行按 (node_id, ordinal)
+  // 组装：ordinal=0 → 根图种子 + seedHashes（引擎跳过前预演对账，AC-R1-3）；
+  // ordinal>=1 → 迭代体 per-ordinal 种子（itemNodeOutputs，§3.1(c)3——断点
+  // 项的 body 部分短路）。failed 行不进种子（重跑语义）。checkpoint snapshot
+  // 兜底：无 journal 行的老 run（迁移前失败存量）回落现状种子（无 hash
+  // 跳过校验，行为不劣于今天，AC-R1-5）。
+  const decisions = await findDecisions(checkpointRunId, { statuses: ['done', 'cached'] }).catch(
+    () => [],
+  )
+  const seedHashes: Record<string, string> = {}
+  // 前驱 token 用量（PRD R2.3）：随种子传给引擎——cached span.tokens 记
+  // 继承值 + journal lineage inheritedTokens（双口径对账的继承侧）。
+  const seedTokens: Record<string, unknown> = {}
+  let iterationProgress: Record<string, IterationProgress> | undefined = snap.iterationProgress
+  if (decisions.length > 0) {
+    const itemNodeOutputs: Array<Record<string, Record<string, unknown>>> = []
+    for (const d of decisions) {
+      if (controllerIds.has(d.nodeId)) continue
+      const out = d.payload.output
+      if (out == null) continue
+      if (d.ordinal === 0) {
+        seedOutputs[d.nodeId] = out
+        if (d.payload.inputHash) seedHashes[d.nodeId] = d.payload.inputHash
+        if (d.payload.tokens != null) seedTokens[d.nodeId] = d.payload.tokens
+      } else {
+        // 迭代 body 的第 ordinal 项输出：`[i][nodeId] = output`——引擎串行
+        // 路径据此为第 i 项预填克隆（preseeded 短路，地基 §3.1(c)3）。
+        const slot = itemNodeOutputs[d.ordinal] ?? (itemNodeOutputs[d.ordinal] = {})
+        slot[d.nodeId] = out
+      }
+    }
+    // 游标（completed / itemOutputs 聚合）仍从 checkpoint snapshot —— journal
+    // 的 ordinal 行只有「项内 body 输出」没有「项完成度」（completed 的推进
+    // 语义在引擎游标，§3.5(a) 既有裁决）。
+    if (snap.iterationProgress) {
+      const merged: Record<string, IterationProgress> = {}
+      for (const [controllerId, progress] of Object.entries(snap.iterationProgress)) {
+        merged[controllerId] = {
+          ...progress,
+          ...(itemNodeOutputs.length > 0 ? { itemNodeOutputs } : {}),
+        }
+      }
+      iterationProgress = merged
+    }
+    return {
+      seedOutputs,
+      seedRuntime: snap.runtime ?? {},
+      ...(iterationProgress ? { iterationProgress } : {}),
+      ...(Object.keys(seedHashes).length > 0 ? { seedHashes } : {}),
+      seedSource: { kind: 'resume' as const, fromRunId: checkpointRunId },
+      ...(Object.keys(seedTokens).length > 0 ? { seedTokens } : {}),
+    }
+  }
+  // checkpoint snapshot 兜底（无 journal 行的老 run）。
   for (const [id, out] of Object.entries(snap.outputs ?? {})) {
     if (!controllerIds.has(id)) seedOutputs[id] = out
   }
@@ -408,7 +621,10 @@ export async function buildResumeSeed(
  * 未过期），把消息当作该 HumanInput 的应答原地续跑（同 runId）。
  * 返回续跑的 runId；无挂起/已过期返回 null（消息走正常路由）。
  */
-export async function answerAwaitingRunForChat(chatId: string, answer: string): Promise<string | null> {
+export async function answerAwaitingRunForChat(
+  chatId: string,
+  answer: string,
+): Promise<string | null> {
   try {
     const { records } = await runQuery<{ run_id: string }>(
       `SELECT c.run_id
@@ -461,9 +677,13 @@ export async function answerAwaitingRunForChat(chatId: string, answer: string): 
         seedOutputs: seed.seedOutputs,
         seedRuntime,
         ...(seed.iterationProgress ? { iterationProgress: seed.iterationProgress } : {}),
+        ...(seed.seedHashes ? { seedHashes: seed.seedHashes } : {}),
+        ...(seed.seedSource ? { seedSource: seed.seedSource } : {}),
+        ...(seed.seedTokens ? { seedTokens: seed.seedTokens } : {}),
       },
       checkpointRunId: runId,
       cwd,
+      source: 'answer',
     })
     log.info('chat answer resumed awaiting run', { chatId, runId })
     return runId

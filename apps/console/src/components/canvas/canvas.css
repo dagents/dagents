@@ -381,3 +381,14 @@
 .canvas-act-icon svg { width: 11px; height: 11px; }
 .canvas-first-run-dot { display: inline-flex; align-items: center; }
 .canvas-first-run-dot svg { width: 14px; height: 14px; }
+
+/* 试运行标记条（R10，design-sharp §4.4）：runSource='trial' 常驻提示。 */
+.canvas-trial-banner {
+  background: color-mix(in srgb, var(--warn, #f5a623) 12%, transparent);
+  border: 1px solid color-mix(in srgb, var(--warn, #f5a623) 45%, transparent);
+  border-radius: 8px;
+  color: var(--warn, #f5a623);
+  font-size: 12px;
+  margin: 8px 0 0;
+  padding: 6px 10px;
+}

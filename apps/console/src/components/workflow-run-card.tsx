@@ -21,6 +21,12 @@ import { SPAN_STATUS_CN } from '@/lib/flows'
 import { formatDuration } from '@/lib/format'
 import { fetchRunNodeSpans, type RunNodeSpan } from '@/lib/node-spans'
 import { extractOutputText } from '@/lib/run-terminal-format'
+import {
+  isTerminalRunStatus,
+  STATUS_LABEL,
+  STOP_REASON_LABEL,
+  stoppedStatusLabel,
+} from '@/lib/run-status'
 import '@/styles/workflow-run-card.css'
 
 export interface WorkflowRunCardProps {
@@ -49,6 +55,9 @@ export function WorkflowRunCard({ runId, flowName, flowId, live = false, onTermi
   const { t } = useI18n()
   const [spans, setSpans] = useState<RunNodeSpan[]>([])
   const [runStatus, setRunStatus] = useState<string | null>(null)
+  // run 级中止来源（AC-R1-6 第三消费点）：stopped 细分「已中断/已停止」的
+  // 数据面（node-spans 信封 runStopReason）。
+  const [runStopReason, setRunStopReason] = useState<string | null>(null)
   const [durationMs, setDurationMs] = useState<number | null>(null)
   // 默认展开（PRD F4）：聊天详情执行记录默认可见；live 卡保持自动展开 +
   // 手动收起记忆的既有行为。
@@ -68,6 +77,7 @@ export function WorkflowRunCard({ runId, flowName, flowId, live = false, onTermi
     }
     setSpans(r.spans)
     setRunStatus(r.runStatus)
+    setRunStopReason(r.runStopReason)
     if (r.runDurationMs != null) setDurationMs(r.runDurationMs)
     setLoaded(true)
     setFetchError(null)
@@ -76,15 +86,18 @@ export function WorkflowRunCard({ runId, flowName, flowId, live = false, onTermi
 
   useEffect(() => {
     // TODO(轮询收敛,2026-09-17): 本轮未迁移 —— 可换 @/lib/use-polling 单点实现（fetcher 返回是否继续 + restartKey）。
+    // 2026-10-07 R3.6（design-recover §4.1）：终态清单扩为词表全集（run-status.ts
+    // 单源，双读 stopped+cancelled）——顺带修轮询泄漏：此前三词清单下
+    // partial_success/budget_exceeded 终态永不 clearInterval（AC-R3-4）。
     let cancelled = false
     terminalFiredRef.current = false
     void fetchOnce().then((status) => {
       if (cancelled) return
-      if (live && status !== 'completed' && status !== 'failed' && status !== 'cancelled') {
+      if (live && !isTerminalRunStatus(status)) {
         pollRef.current = window.setInterval(async () => {
           const st = await fetchOnce()
           if (cancelled) return
-          if (st === 'completed' || st === 'failed' || st === 'cancelled') {
+          if (isTerminalRunStatus(st)) {
             window.clearInterval(pollRef.current)
             if (!terminalFiredRef.current) {
               terminalFiredRef.current = true
@@ -135,6 +148,27 @@ export function WorkflowRunCard({ runId, flowName, flowId, live = false, onTermi
         <span className='wf-run-badge' aria-hidden='true'><Icon name='zap' style={{ width: 11, height: 11 }} /></span>
         <span className='wf-run-kind'>{t('工作流')}</span>
         <span className='wf-run-flow' title={title}>{title}</span>
+        {/* run 级终态词（AC-R1-6 第三消费点，2026-10-08 修复）：收尾定格时
+            整卡可见的中止/非纯成功状态——stopped 按 stop_reason 细分
+            「已中断（chat 路径无 checkpoint，不假承诺恢复）」/「已停止」；
+            cancelled 存量双读。completed/failed 由卡片绿/红样式表达，不叠冗词。 */}
+        {runStatus != null &&
+        isTerminalRunStatus(runStatus) &&
+        runStatus !== 'completed' &&
+        runStatus !== 'failed' ? (
+          <span
+            className={`wf-run-state st-${runStatus}`}
+            title={
+              runStatus === 'stopped'
+                ? t(STOP_REASON_LABEL[runStopReason ?? ''] ?? '已停止')
+                : t(STATUS_LABEL[runStatus] ?? runStatus)
+            }
+          >
+            {runStatus === 'stopped'
+              ? t(stoppedStatusLabel(runStopReason, false))
+              : t(STATUS_LABEL[runStatus] ?? runStatus)}
+          </span>
+        ) : null}
         <span className='wf-run-chain' aria-hidden='true'>
           {spanFlags.map(({ sp, refused }) => {
             const st = refused ? 'warn' : sp.status ?? ''

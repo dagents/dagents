@@ -48,3 +48,18 @@ export interface FlowData {
   /** Optional viewport (canvas metadata). */
   viewport?: { x: number; y: number; zoom: number }
 }
+
+/**
+ * 节点级权限声明（R4 声明式权限闭环，2026-10-07）——随节点 data 走，
+ * data 保持 passthrough（不收紧 FlowNode.data：声明是节点类型专属约定，
+ * 收紧会误伤其余 10 类节点的 data 字段）。此类型是编译期文档 + 共享词面
+ * （'allowedCommands'/'allowedDomains' 字符串字面量），防引擎守卫 / console
+ * 预扫 / gateway preflight 三处消费点手抄字段名漂移。读/验/判/投影的单源
+ * 实现在 @dagents/workflow utils/flow-permissions.ts。
+ */
+export interface NodePermissionDeclarations {
+  /** customFunction：受控命令通道白名单（裸命令名数组）；缺席 = 通道不存在。 */
+  allowedCommands?: string[]
+  /** http：请求与重定向目标域名清单（hostname 精确匹配）；缺席按网关策略裁决。 */
+  allowedDomains?: string[]
+}

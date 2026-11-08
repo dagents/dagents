@@ -5,7 +5,7 @@ import { executeInline, INLINE_SUPPORTED_KINDS } from '../inline-executor.js'
 import { persistComplete } from './internal-runs-helpers.js'
 import { enqueueTask } from './dispatch/service.js'
 import { sendToRunNode } from './workflow-clients.js'
-import { assembleWorkflowEngine } from './workflow-engine-service.js'
+import { assembleWorkflowEngine, classifyAbortReason } from './workflow-engine-service.js'
 import { generateFlow, attachFlowIdToAttempt } from './flow-generator.js'
 import { executionRegistry, type ExecutionHandle } from '../execution-registry.js'
 import type { RunLiveTap } from '../run-live-registry.js'
@@ -499,13 +499,18 @@ async function routeFlowCommand(
 
       const durationMs = Date.now() - startedAt
       if (result.status === 'cancelled') {
-        live?.finish('cancelled')
-        finalRunStatus = 'cancelled'
+        // R3（§3.3，2026-10-07）：cancelled→stopped 写新 + stopReason 归属
+        // （superseded = chat 域 latest-wins）。@flow 路径不写 runs 行（现状），
+        // 中止来源经 chat:cancelled WS 帧透出（客户端过滤 superseded 通知）。
+        const stopReason = classifyAbortReason(abort.signal)
+        live?.finish('stopped', stopReason)
+        finalRunStatus = 'stopped'
         await persistCancelled({
           chatId,
           runId,
           durationMs,
           reason: 'user cancelled',
+          stopReason,
         })
         return
       }

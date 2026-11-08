@@ -15,12 +15,17 @@
  * 网关行形状不进客户端 bundle。
  */
 
+import type { DeliverableItem } from '@dagents/contracts'
+
 /** 节点 span 的规范形状（normalizeRunNodeSpan 的输出；BFF 端点即此形）。 */
 export interface RunNodeSpan {
   /** 规范 camelCase —— 消费方不再需要 `nodeId ?? node_id` 双读。 */
   nodeId: string
   nodeLabel: string | null
   nodeType: string | null
+  /** per-node 执行实例序号（R8，§1.3）：stdin 行 nodeId[ordinal] 与插话
+   *  寻址用；非迭代节点恒 0。旧网关缺省 0。 */
+  ordinal: number
   /** 网关已归一的运行态（running/done/failed/paused…），原样透传。 */
   status: string | null
   error: string | null
@@ -55,9 +60,24 @@ export interface NodeSpansEnvelope {
     /** 运行的项目目录锚（2026-09-19 P0 数据链）：失败入口「在项目目录打开
      *  终端」的数据源；老运行 / 无目录时 null。 */
     runDirectoryId?: string | null
-    /** 运行中插话能力位（2026-09-08 可操作终端）：该 run 当前有活着的
+    /** 运行中插话能力位（2026-09-08）：该 run 当前有活着的
      *  CLI 会话汇点。终端视图 stdin 行据此渲染禁用态。 */
     inputSupported?: boolean
+    /** 触发来源（2026-10-07 R10）：'trial' = 试运行行——结果面板顶部
+     *  常驻「⚡ 试运行」标记条；null = 旧网关（迁移前）。 */
+    runSource?: string | null
+    /** 中止/失败来源（2026-10-07 R3，design-recover §3.5(c)）：stopped/failed
+     *  行的 stop_reason（interrupted/user/superseded/model/provider）——画布
+     *  判「已中断（可恢复）」vs「已停止」的数据面；null = 非中止终态/旧网关。 */
+    runStopReason?: string | null
+    /** 谱系继承累计 token（R2.3 双口径）：resume/暖缓存 run 沿链前驱的
+     *  usage_events SUM——结果面板「谱系继承 M · 本次新增 N」的继承侧；
+     *  null = 根运行/旧网关（无双口径）。 */
+    lineageTokens?: number | null
+    /** 产出清单投影（R6 渐进产物，2026-10-07）：gateway journal 主路 +
+     *  spans 兜底的单点投影，与 spans 同信封同节拍。缺席 = 旧网关 / 投影
+     *  读失败 —— 聚合区整体不渲染（诚实降级，同 inputSupported 容忍模式）。 */
+    deliverables?: DeliverableItem[]
   }
   error?: string
 }
@@ -90,6 +110,7 @@ export function normalizeRunNodeSpan(raw: unknown): RunNodeSpan {
     nodeId,
     nodeLabel: str(r.nodeLabel),
     nodeType: str(r.nodeType),
+    ordinal: typeof r.ordinal === 'number' ? r.ordinal : 0,
     status: str(r.status),
     error: str(r.error),
     startedAt: str(r.startedAt),
@@ -120,6 +141,15 @@ export interface RunNodeSpansResult {
   inputSupported?: boolean
   /** 运行的项目目录锚（P0 数据链）；无目录 / 旧网关为 null。 */
   runDirectoryId: string | null
+  /** 触发来源（R10）：'trial' = 试运行；null = 旧网关。 */
+  runSource: string | null
+  /** 中止来源（R3）：stopped/failed 行的 stop_reason；null = 无/旧网关。 */
+  runStopReason: string | null
+  /** 谱系继承累计 token（R2.3）；null = 根运行/旧网关。 */
+  lineageTokens: number | null
+  /** 产出清单（R6 渐进产物）：null = 字段缺席（旧网关 / 投影读失败）→
+   *  聚合区整体不渲染；[] = 新网关但零产出（诚实空态）。 */
+  deliverables: DeliverableItem[] | null
 }
 
 /**
@@ -134,7 +164,19 @@ export async function fetchRunNodeSpans(runId: string): Promise<RunNodeSpansResu
       cache: 'no-store',
     })
     if (!res.ok)
-      return { ok: false, httpStatus: res.status, spans: [], runStatus: null, runError: null, runDurationMs: null, runDirectoryId: null }
+      return {
+        ok: false,
+        httpStatus: res.status,
+        spans: [],
+        runStatus: null,
+        runError: null,
+        runDurationMs: null,
+        runDirectoryId: null,
+        runSource: null,
+        runStopReason: null,
+        lineageTokens: null,
+        deliverables: null,
+      }
     const json = (await res.json()) as NodeSpansEnvelope
     const rows = json.data?.spans ?? []
     return {
@@ -145,9 +187,25 @@ export async function fetchRunNodeSpans(runId: string): Promise<RunNodeSpansResu
       runError: json.data?.runError ?? null,
       runDurationMs: json.data?.runDurationMs ?? null,
       runDirectoryId: json.data?.runDirectoryId ?? null,
+      runSource: json.data?.runSource ?? null,
+      runStopReason: json.data?.runStopReason ?? null,
+      lineageTokens: json.data?.lineageTokens ?? null,
       inputSupported: json.data?.inputSupported,
+      deliverables: Array.isArray(json.data?.deliverables) ? json.data!.deliverables! : null,
     }
   } catch {
-    return { ok: false, httpStatus: 0, spans: [], runStatus: null, runError: null, runDurationMs: null, runDirectoryId: null }
+    return {
+      ok: false,
+      httpStatus: 0,
+      spans: [],
+      runStatus: null,
+      runError: null,
+      runDurationMs: null,
+      runDirectoryId: null,
+      runSource: null,
+      runStopReason: null,
+      lineageTokens: null,
+      deliverables: null,
+    }
   }
 }

@@ -96,9 +96,11 @@ test.describe('可操作终端', () => {
 
     // 结束态不渲染任何 stdin 底栏（原 .rti-done「❯ 运行已结束 ↻重跑」
     // 2026-09-20 移除 —— 与标题行重跑/完成 toast 三重表达重复）；
-    // 重跑唯一入口 = 标题行「重跑」（打开预填输入面板）。
+    // 重跑入口在标题行（2026-10-08 R2 后为两枚：⚡ 暖缓存重跑 + 全新重跑
+    // ——原「重跑」更名「全新重跑」；本例点全新重跑，暖缓存入口在
+    // AC-R2-1 侧专测）。
     await expect(page.locator('.rti-bar')).toHaveCount(0)
-    await page.locator('.canvas-results-title').getByRole('button', { name: '重跑' }).click()
+    await page.locator('.canvas-results-title').getByRole('button', { name: '全新重跑' }).click()
 
     // 画布运行输入面板打开（输入记忆为空时预填空串 —— 画布直跑首跑）
     await expect(page.locator('.canvas-run-panel')).toBeVisible()

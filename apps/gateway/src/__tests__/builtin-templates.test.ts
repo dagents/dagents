@@ -5,7 +5,7 @@
  * provider), and parameterized templates must surface their `{{var}}` params.
  */
 import { describe, it, expect } from 'vitest'
-import { validateFlowTopology } from '@dagents/workflow'
+import { validateFlowTopology, readNodePermission, PERMISSION_FIELDS } from '@dagents/workflow'
 import { BUILTIN_FLOW_TEMPLATES } from '../flow-templates/builtin/index.js'
 import { scanTemplateParams } from '../flow-template-pipeline.js'
 
@@ -28,7 +28,9 @@ describe('BUILTIN_FLOW_TEMPLATES gate', () => {
   it('every template passes topology validation with zero errors', () => {
     for (const tpl of BUILTIN_FLOW_TEMPLATES) {
       const verdict = validateFlowTopology(tpl.flowData)
-      expect(verdict.ok, `${tpl.id}: ${verdict.ok ? '' : JSON.stringify(verdict.errors)}`).toBe(true)
+      expect(verdict.ok, `${tpl.id}: ${verdict.ok ? '' : JSON.stringify(verdict.errors)}`).toBe(
+        true,
+      )
     }
   })
 
@@ -77,6 +79,50 @@ describe('BUILTIN_FLOW_TEMPLATES gate', () => {
     expect(fanoutEdges.length).toBe(3)
     const convergeEdges = tpl.flowData.edges.filter((e) => e.target === 'node_5')
     expect(convergeEdges.length).toBe(3)
+  })
+
+  // R4 权限声明 gate（2026-10-07，AC-R4-6 内置半边）：现状 10 个内置模板
+  // 零 http/customFunction 节点（断言空转通过）；未来新增模板凡出现此类
+  // 节点必须带合法声明——gate 钉住「模板中心不发货未声明的权限面」。
+  it('http/customFunction templates must carry valid permission declarations (R4 gate)', () => {
+    for (const tpl of BUILTIN_FLOW_TEMPLATES) {
+      for (const raw of tpl.flowData.nodes) {
+        // 内置模板的 nodes 是宽松 JSON（Record<string, unknown>）——按引擎
+        // 消费形态收窄（data.name 分发即 resolveNodeType 同款规则）
+        const node = raw as unknown as { id: string; data: Record<string, unknown> }
+        const kind = (node.data as { name?: string }).name
+        if (kind === 'httpAgentflow') {
+          const perm = readNodePermission(node, PERMISSION_FIELDS.domain)
+          expect(
+            perm.kind === 'declared' || perm.kind === 'absent',
+            `${tpl.id}/${node.id}: allowedDomains ${perm.kind === 'invalid' ? `invalid: ${perm.reason}` : 'unexpected'}`,
+          ).toBe(true)
+          if (perm.kind === 'declared') {
+            expect(
+              perm.values.length,
+              `${tpl.id}/${node.id}: 空 declared 等于全拒，模板不应声明空集`,
+            ).toBeGreaterThan(0)
+          }
+        }
+        if (kind === 'customFunctionAgentflow') {
+          const perm = readNodePermission(node, PERMISSION_FIELDS.command)
+          expect(perm.kind !== 'invalid', `${tpl.id}/${node.id}: allowedCommands invalid`).toBe(
+            true,
+          )
+          const code = String(
+            (node.data as Record<string, unknown>).functionCode ??
+              (node.data as Record<string, unknown>).code ??
+              '',
+          )
+          if (code.includes('$exec')) {
+            expect(
+              perm.kind === 'declared' && perm.values.length > 0,
+              `${tpl.id}/${node.id}: 代码用 $exec 必须带非空 allowedCommands`,
+            ).toBe(true)
+          }
+        }
+      }
+    }
   })
 })
 

@@ -15,6 +15,8 @@ export interface NodeSpanRow {
   node_id: string
   node_label: string | null
   node_type: string | null
+  /** per-node 执行实例序号（R8，design-recover §1.3 标注列——不参与键）。 */
+  ordinal: number
   status: string
   started_at: Date | string | null
   finished_at: Date | string | null
@@ -47,8 +49,21 @@ export function toNodeSpanStatus(raw: string): NodeSpanStatus {
       return 'running'
     case 'cancel':
     case 'cancelled':
-    case 'STOPPED':
     case 'paused':
+      return 'paused'
+    // 2026-10-07 可恢复性地基（随写方批次改齐，design-recover §1.3）：
+    // cached = 种子命中跳过执行的节点终态（引擎 cached 钩子回放）；
+    // stopped = boot sweep 对悬空 running span 的收敛。DB CHECK 词表由
+    // 1720000106200 一次放宽到位（三方共同前置）。
+    case 'cached':
+      return 'cached'
+    case 'stopped':
+      return 'stopped'
+    // 2026-10-07 工程决策 9d（design-sharp §2.4）：声明型超限拒绝的节点
+    // 终态——可重试黄警档（run 走 partial_success），与 failed 视觉区分。
+    case 'rejected':
+      return 'rejected'
+    case 'STOPPED':
       return 'paused'
     default:
       return 'unknown'
@@ -58,7 +73,7 @@ export function toNodeSpanStatus(raw: string): NodeSpanStatus {
 /** 画布旁观读路径：一个 run 的全部节点 span（按开始时间升序）。 */
 export async function getRunNodeSpans(runId: string): Promise<NodeSpanRow[]> {
   const { records } = await runQuery<NodeSpanRow>(
-    `SELECT node_id, node_label, node_type, status, started_at, finished_at, duration_ms, tokens, cost, error, trace_id, input, output
+    `SELECT node_id, node_label, node_type, ordinal, status, started_at, finished_at, duration_ms, tokens, cost, error, trace_id, input, output
        FROM run_node_spans
        WHERE run_id = $1
        ORDER BY COALESCE(started_at, created_at) ASC`,
@@ -68,15 +83,37 @@ export async function getRunNodeSpans(runId: string): Promise<NodeSpanRow[]> {
 }
 
 /** runs 行的状态/耗时（旁观端终态判断；无行 → null，端侧回退启发式）。
- *  2026-09-19 P0：附带 directory_id —— node-spans 响应的目录锚数据源。 */
+ *  2026-09-19 P0：附带 directory_id —— node-spans 响应的目录锚数据源。
+ *  2026-10-07 R10：附带 source —— 结果面板「⚡ 试运行」标记条数据源。
+ *  2026-10-07 R3（design-recover §3.5(c)）：附带 stop_reason —— console
+ *  判「已中断（可恢复）」vs「已停止」的中止来源（interrupted/user）。 */
 export async function getRunStatusAndDuration(
   runId: string,
-): Promise<{ status: string; duration_ms: number | null; directory_id: string | null } | null> {
+): Promise<
+  | {
+      status: string
+      duration_ms: number | null
+      directory_id: string | null
+      source: string | null
+      stop_reason: string | null
+      /** 谱系锚（R2.3 双口径）：非空 = resume/暖缓存 run——node-spans 端点
+       *  据此计算谱系继承累计 token（前驱 usage_events SUM）。 */
+      resumed_from_run_id: string | null
+    }
+  | null
+> {
   const { records } = await runQuery<{
     status: string
     duration_ms: number | null
     directory_id: string | null
-  }>(`SELECT status, duration_ms, directory_id FROM runs WHERE id = $1`, [runId])
+    source: string | null
+    stop_reason: string | null
+    resumed_from_run_id: string | null
+  }>(
+    `SELECT status, duration_ms, directory_id, source, stop_reason, resumed_from_run_id
+       FROM runs WHERE id = $1`,
+    [runId],
+  )
   return records[0] ?? null
 }
 
@@ -140,13 +177,28 @@ export interface RunHistoryRow {
   directory_id: string | null
   /** 2026-10-04 谱系：本 run 从哪个 run 断点续跑/应答回流而来（无 = 根运行）。 */
   resumed_from_run_id: string | null
+  /** 2026-10-07 R10：触发来源（canvas/chat/trial/resume/answer；NULL = 迁移前旧行）。 */
+  source: string | null
+  /** 2026-10-07 R3（design-recover §3.3）：中止/失败来源（stopped/failed 行）。 */
+  stop_reason: string | null
 }
 
-/** 跨 Flow 运行历史（Workflow-First 运行页）：可选状态/flow 过滤 + 失败摘要。 */
+/**
+ * 跨 Flow 运行历史（Workflow-First 运行页）：可选状态/flow 过滤 + 失败摘要。
+ *
+ * 2026-10-07 R10 试运行隔离（design-sharp §1.1）：`source` 缺省（不传）时
+ * 追加 `IS DISTINCT FROM 'trial' OR IS NULL`——正式历史视图零试运行混入
+ * （FlowRunsPanel 拉本端点零改动即隔离，AC-R10-3 第一隔离面）；显式传
+ * `{ includeTrial: true }` 或 `source: 'trial'` 才看得到试运行行。
+ */
 export async function listRunsHistory(opts: {
   status?: string
   flowId?: string
   limit: number
+  /** 显式正向过滤某个来源（'trial' 试运行历史显式查询用）。 */
+  source?: string
+  /** 缺省 false = 排除试运行行；true = 不过滤（管理/调试视图）。 */
+  includeTrial?: boolean
 }): Promise<RunHistoryRow[]> {
   const where: string[] = []
   const params: unknown[] = []
@@ -158,6 +210,12 @@ export async function listRunsHistory(opts: {
     params.push(opts.flowId)
     where.push(`r.pipeline_id = $${params.length}`)
   }
+  if (opts.source) {
+    params.push(opts.source)
+    where.push(`r.source = $${params.length}`)
+  } else if (!opts.includeTrial) {
+    where.push(`(r.source IS DISTINCT FROM 'trial' OR r.source IS NULL)`)
+  }
   const whereSql = where.length > 0 ? `WHERE ${where.join(' AND ')}` : ''
 
   params.push(opts.limit)
@@ -166,7 +224,7 @@ export async function listRunsHistory(opts: {
     `SELECT r.id, r.pipeline_id AS flow_id, f.name AS flow_name,
             r.status, r.started_at, r.finished_at, r.duration_ms,
             r.input, r.chat_id, r.created_at, r.directory_id,
-            r.resumed_from_run_id,
+            r.resumed_from_run_id, r.source, r.stop_reason,
             (SELECT left(s.error, 160) FROM run_node_spans s
               WHERE s.run_id = r.id AND s.status = 'failed' AND s.error IS NOT NULL
               ORDER BY s.started_at ASC LIMIT 1) AS first_error
@@ -227,10 +285,20 @@ export async function persistWorkflowRunRow(input: {
   directoryId?: string | null
   /** 断点续跑谱系：新 run 行指向原 run（COALESCE 保已存值）。 */
   resumedFromRunId?: string | null
+  /** 2026-10-07 R10：触发来源（canvas/trial/resume/answer…）；COALESCE 保已存值。 */
+  source?: string | null
+  /** 2026-10-07 R3（design-recover §3.3(c)）：中止/失败来源（stop_reason 列，
+   *  五值词表见 RunStopReason）——stopped/failed 终态行携带，其余传 null。 */
+  stopReason?: string | null
+  /** 2026-10-07 R8（design-recover §3.6(b)）：persona 冻结快照 JSON（含可选
+   *  sessions 会话映射）——终态行落库（running 先行行不落，冷启动无快照）。 */
+  frozenAgentsJson?: string | null
+  /** 2026-10-07 R8（§3.6(c)）：run 级模型快照 JSON（{ [nodeId]: resolvedModel }）。 */
+  modelsJson?: string | null
 }): Promise<void> {
   await runQuery(
-    `INSERT INTO runs (id, identifier, pipeline_id, status, input, output, started_at, finished_at, duration_ms, cost, chat_id, resumed_from_run_id, directory_id)
-     VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12::uuid, $13::uuid)
+    `INSERT INTO runs (id, identifier, pipeline_id, status, input, output, started_at, finished_at, duration_ms, cost, chat_id, resumed_from_run_id, directory_id, source, stop_reason, frozen_agents, models)
+     VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12::uuid, $13::uuid, $14, $15, $16::jsonb, $17::jsonb)
      ON CONFLICT (id) DO UPDATE SET
        status = EXCLUDED.status,
        output = EXCLUDED.output,
@@ -239,7 +307,11 @@ export async function persistWorkflowRunRow(input: {
        cost = EXCLUDED.cost,
        chat_id = COALESCE(EXCLUDED.chat_id, runs.chat_id),
        resumed_from_run_id = COALESCE(EXCLUDED.resumed_from_run_id, runs.resumed_from_run_id),
-       directory_id = COALESCE(EXCLUDED.directory_id, runs.directory_id)`,
+       directory_id = COALESCE(EXCLUDED.directory_id, runs.directory_id),
+       source = COALESCE(EXCLUDED.source, runs.source),
+       stop_reason = EXCLUDED.stop_reason,
+       frozen_agents = COALESCE(EXCLUDED.frozen_agents, runs.frozen_agents),
+       models = COALESCE(EXCLUDED.models, runs.models)`,
     [
       input.runId,
       input.runId,
@@ -254,6 +326,10 @@ export async function persistWorkflowRunRow(input: {
       input.chatId ?? null,
       input.resumedFromRunId ?? null,
       input.directoryId ?? null,
+      input.source ?? null,
+      input.stopReason ?? null,
+      input.frozenAgentsJson ?? null,
+      input.modelsJson ?? null,
     ],
   )
 }
@@ -265,10 +341,12 @@ export async function initAsyncWorkflowRunRow(input: {
   inputJson: string
   startedAt: Date
   directoryId?: string | null
+  /** 2026-10-07 R10：触发来源（画布直跑 'canvas' / 试运行 'trial'）。 */
+  source?: string | null
 }): Promise<void> {
   await runQuery(
-    `INSERT INTO runs (id, identifier, pipeline_id, status, input, output, started_at, duration_ms, cost, directory_id)
-     VALUES ($1::uuid, $2::text, $3::uuid, 'running', $4, NULL, $5, NULL, 0, $6::uuid)
+    `INSERT INTO runs (id, identifier, pipeline_id, status, input, output, started_at, duration_ms, cost, directory_id, source)
+     VALUES ($1::uuid, $2::text, $3::uuid, 'running', $4, NULL, $5, NULL, 0, $6::uuid, $7)
      ON CONFLICT (id) DO NOTHING`,
     [
       input.runId,
@@ -277,6 +355,7 @@ export async function initAsyncWorkflowRunRow(input: {
       input.inputJson,
       input.startedAt,
       input.directoryId ?? null,
+      input.source ?? null,
     ],
   )
 }
@@ -293,16 +372,23 @@ export async function upsertChatWorkflowRunRow(input: {
   durationMs: number
   /** 2026-09-19 P0：chat 起源运行的目录锚继承自 chats.directory_id。 */
   directoryId?: string | null
+  /** 2026-10-07 R10：触发来源（chat 流式路径恒 'chat'）。 */
+  source?: string | null
+  /** 2026-10-07 R3（design-recover §3.3(c)）：chat 流式路径 cancelled→stopped
+   *  写新的中止来源（user/superseded，classifyAbortReason 判定）。 */
+  stopReason?: string | null
 }): Promise<void> {
   await runQuery(
-    `INSERT INTO runs (id, identifier, pipeline_id, chat_id, status, input, output, started_at, finished_at, duration_ms, cost, directory_id)
-     VALUES ($1::uuid, $2::text, $3::uuid, $4::text, $5, $6, $7, $8, NOW(), $9, 0, $10::uuid)
+    `INSERT INTO runs (id, identifier, pipeline_id, chat_id, status, input, output, started_at, finished_at, duration_ms, cost, directory_id, source, stop_reason)
+     VALUES ($1::uuid, $2::text, $3::uuid, $4::text, $5, $6, $7, $8, NOW(), $9, 0, $10::uuid, $11, $12)
      ON CONFLICT (id) DO UPDATE SET
        status = EXCLUDED.status,
        output = EXCLUDED.output,
        finished_at = EXCLUDED.finished_at,
        duration_ms = EXCLUDED.duration_ms,
-       directory_id = COALESCE(EXCLUDED.directory_id, runs.directory_id)`,
+       directory_id = COALESCE(EXCLUDED.directory_id, runs.directory_id),
+       source = COALESCE(EXCLUDED.source, runs.source),
+       stop_reason = EXCLUDED.stop_reason`,
     [
       input.runId,
       input.runId,
@@ -314,6 +400,8 @@ export async function upsertChatWorkflowRunRow(input: {
       input.startedAtIso,
       input.durationMs,
       input.directoryId ?? null,
+      input.source ?? 'chat',
+      input.stopReason ?? null,
     ],
   )
 }

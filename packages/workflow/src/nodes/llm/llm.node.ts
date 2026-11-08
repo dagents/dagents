@@ -208,6 +208,9 @@ export class LLMNode implements INode {
 
     let text = ''
     let usage: import('../../types/index.js').ITokenUsage | undefined
+    // resolved model（2026-10-07 R8 §3.6(c)）：本次实际使用的模型——流式随
+    // 末个 usage chunk 上抛、非流式在 chat 返回值；缺省回落声明的 model。
+    let resolvedModel: string | undefined
     if (streamable) {
       let accumulated = ''
       for await (const chunk of options.llmClient.chatStream!({
@@ -219,6 +222,10 @@ export class LLMNode implements INode {
         // 登记进插话汇点表；onDelta 供插话送达后回写 user_input 事件。
         nodeId: nodeData.id,
         onDelta: options.onNodeDelta,
+        // R8（§3.6(a)(d)）：实例序号（汇点键 runId:nodeId:ordinal）+ 模型
+        // pin 位（显式声明 model 时禁降级——空串 = 未声明，维持基线）。
+        ordinal: options.nodeOrdinal,
+        modelPinned: model !== '',
       })) {
         if (chunk.delta && chunk.delta.length > 0) {
           accumulated += chunk.delta
@@ -231,6 +238,7 @@ export class LLMNode implements INode {
         if (chunk.usage) {
           usage = chunk.usage
         }
+        if (chunk.model) resolvedModel = chunk.model
       }
       text = accumulated
     } else {
@@ -245,10 +253,15 @@ export class LLMNode implements INode {
           onDelta: options.onNodeDelta,
           // 可操作终端（2026-09-08）：上报调用方节点 id（插话汇点登记）
           nodeId: nodeData.id,
+          // R8（§3.6(a)(d)）：实例序号 + 模型 pin 位（同流式路径）。
+          ordinal: options.nodeOrdinal,
+          modelPinned: model !== '',
           ...(responseSchema ? { responseSchema } : {}),
         })
         text = result.text
         usage = result.usage
+        // resolved model（R8 §3.6(c)）：HTTP = 实际请求 model；CLI = cli:<kind>。
+        resolvedModel = result.model ?? resolvedModel
         if (!responseSchema) break
         // 契约校验（2026-10-04）：解析 + 子集校验；失败带错误清单喂回模型
         // 做一轮修复重试（只修一轮——反复修不好就该让节点失败）。
@@ -265,7 +278,12 @@ export class LLMNode implements INode {
                 prompt: effectivePrompt,
                 temperature,
               },
-              output: { text, content: text, json: parsed },
+              output: {
+                text,
+                content: text,
+                json: parsed,
+                ...(resolvedModel ? { resolvedModel } : {}),
+              },
               usage,
             }
           }
@@ -326,6 +344,7 @@ export class LLMNode implements INode {
         text,
         content: text,
         contextBudget: assembled.accounting,
+        ...(resolvedModel ? { resolvedModel } : {}),
         ...(unresolved.length > 0 ? { unresolvedPlaceholders: unresolved.slice(0, 5) } : {}),
       },
       usage,

@@ -40,6 +40,7 @@ import {
   playSuccessSound,
   playErrorSound,
 } from '@/lib/notification-sound'
+import { sharedRunNotifyClaim } from '@/lib/run-notify-claim'
 
 export interface NotificationSettings {
   /** Master switch for desktop (OS-level) notifications. */
@@ -107,6 +108,19 @@ export interface UseTaskNotificationResult {
    * return anything or block the caller's UI updates.
    */
   notifyOnFrame: (frame: ChatWsFrame) => void
+  /**
+   * run-updated 帧的姊妹入口（R9b，design-sharp §2.2 console 侧第 2 条）：
+   * 终态 status 触发「工作流运行完成/失败」通知链；superseded 过滤（帧带
+   * stopReason==='superseded' 直接 return——AC-R3-6 最小实现双路径之一）；
+   * 跨标签页 BroadcastChannel claim（至多一次）。
+   */
+  notifyOnRunUpdated: (frame: {
+    type: 'run-updated'
+    runId: string
+    status: string
+    flowId?: string
+    stopReason?: string
+  }) => void
   /**
    * Wraps an existing frame handler: notifications fire first, then the
    * base handler runs unchanged. Use this when you don't want to split
@@ -211,6 +225,11 @@ export function useTaskNotification({
     (frame: ChatWsFrame): void => {
       // Only terminal frames trigger notifications.
       if (frame.type !== 'chat:done' && frame.type !== 'chat:error') return
+      // superseded 抑制（2026-10-07 R3.6 最小实现，design-recover §4.4）：
+      // 被 chat 域 latest-wins 取代的执行不是用户关心的完成——帧携带
+      // stopReason='superseded' 时零通知（通知链整体早退；载体落地后由
+      // 服务端 run-notify 单点 claim 收口，本过滤是客户端兜底层）。
+      if ((frame as { stopReason?: string }).stopReason === 'superseded') return
 
       const settings = readNotificationSettings()
       const isHidden = typeof document !== 'undefined' && document.hidden
@@ -272,5 +291,64 @@ export function useTaskNotification({
     [notifyOnFrame],
   )
 
-  return { notifyOnFrame, wrapHandler, requestPermission }
+  // ── run-updated 分支（R9b，design-sharp §2.2）──────────────────────────
+  // 与 chat 域 notifyOnFrame 同款判定（隐藏页/非活跃才升级桌面+声音），
+  // 叠加：superseded 零通知（AC-R3-6 最小实现）+ 跨标签页 claim（AC-R9-3
+  // 并发单测的客户端半）。
+  const notifyOnRunUpdated = useCallback(
+    (frame: {
+      type: 'run-updated'
+      runId: string
+      status: string
+      flowId?: string
+      stopReason?: string
+    }): void => {
+      // superseded 抑制（R3.5 客户端兜底）：被新执行取代的 run 不产生用户
+      // 可见通知——服务端已抑制为主，这里是帧标注层的第二道闸。
+      if (frame.stopReason === 'superseded') return
+      const TERMINAL = new Set([
+        'completed',
+        'failed',
+        'partial_success',
+        'budget_exceeded',
+        'stopped',
+        'cancelled',
+      ])
+      if (!TERMINAL.has(frame.status)) return
+
+      // 跨标签页 claim：BroadcastChannel 上 per-runId 首个 claim 者发通知。
+      const claim = sharedRunNotifyClaim()
+      if (claim && !claim.claim(frame.runId)) return
+
+      const settings = readNotificationSettings()
+      const isHidden = typeof document !== 'undefined' && document.hidden
+      // run 通知没有「活跃会话」代理——只在页面隐藏或用户允许前台提醒时发。
+      const shouldNotify = isHidden || !settings.onlyWhenHidden
+      if (!shouldNotify) return
+
+      const ok = frame.status === 'completed' || frame.status === 'partial_success'
+      const title = ok ? '✅ 工作流运行完成' : '❌ 工作流运行失败'
+      const statusLabel: Record<string, string> = {
+        completed: '已完成',
+        partial_success: '部分成功',
+        budget_exceeded: '预算超限停机',
+        stopped: '已停止',
+        cancelled: '已取消',
+        failed: '失败',
+      }
+      const body = `运行 ${frame.runId.slice(0, 8)} ${statusLabel[frame.status] ?? frame.status}`
+      if (settings.desktopEnabled) {
+        showDesktop(title, body, 'dagents-task-done', frame.flowId ?? frame.runId)
+      }
+      if (settings.soundEnabled) {
+        if (ok) playSuccessSound()
+        else playErrorSound()
+      }
+      if (ok) toast.success(body, { duration: 5000 })
+      else toast.error(body, 6000)
+    },
+    [showDesktop, toast],
+  )
+
+  return { notifyOnFrame, notifyOnRunUpdated, wrapHandler, requestPermission }
 }

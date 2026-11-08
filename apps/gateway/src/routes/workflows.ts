@@ -7,24 +7,31 @@ import { exportRunTraceToLangfuse, isLangfuseConfigured } from '@dagents/shared/
 import {
   CANVAS_NODES,
   type FlowData,
-  type IExecutedNode,
   type ExecutionResult,
+  validatePermissionDeclarations,
+  extractFlowPermissions,
+  httpDomainPolicy,
 } from '@dagents/workflow'
+// R4 指标（metrics.ts 统一声明；warn 过渡期缺席放行计数）
+import { permissionUndeclaredHttpRunsTotal } from '../lib/metrics.js'
 import { sendToRunNode, runHasLiveSinks } from './workflow-clients.js'
-import { assembleWorkflowEngine, toRunStatus } from './workflow-engine-service.js'
 import {
-  makePersistentHumanInputResolver,
-  makeCheckpointHook,
-  computeTopoHash,
-} from './resume-execution.js'
-import {
-  getCheckpoint,
-  upsertCheckpoint,
-  updateCheckpointStatus,
-} from '../repositories/run-checkpoints.repo.js'
+  assembleWorkflowEngine,
+  toRunStatus,
+  classifyAbortReason,
+  snapshotFlowAgents,
+} from './workflow-engine-service.js'
+import { buildWarmCacheSeed } from './warm-cache.js'
+import { runLineageChain, lineageTokensSpent } from '../lineage.js'
+import { collectRunSessions } from './workflow-clients.js'
+import { makePersistentHumanInputResolver, makeCheckpointHook } from './resume-execution.js'
 import { recordAudit } from '../audit.js'
 import { executionRegistry, type ExecutionHandle } from '../execution-registry.js'
-import { aggregateExecutedNodesUsage, recordUsageEvent } from '../usage-events.js'
+import {
+  aggregateExecutedNodesUsage,
+  recordUsageEvent,
+  rollupPrimaryModel,
+} from '../usage-events.js'
 import {
   listFlows,
   getFlowById,
@@ -39,6 +46,11 @@ import {
 } from '../repositories/workflows.repo.js'
 import { getDirectoryPath } from '../repositories/directories.repo.js'
 import {
+  getRunDeliverables,
+  buildRunDeliverables,
+  deliverablesCounter,
+} from '../repositories/run-deliverables.repo.js'
+import {
   getRunNodeSpans,
   getRunStatusAndDuration,
   getRunError,
@@ -49,6 +61,7 @@ import {
   toNodeSpanStatus,
 } from '../repositories/runs.repo.js'
 import { ok, fail, UUID_RE } from '../lib/http.js'
+import { notifyRunFinished } from '../lib/run-notify.js'
 import { runQuery } from '@dagents/db'
 import {
   tryAcquireRunSlot,
@@ -131,6 +144,17 @@ workflowsRoutes.post('/', async (c) => {
   }
   const data = parsed.data
 
+  // R4 保存门（2026-10-07）：只拒权限声明非法（allowedDomains/allowedCommands
+  // 形状/条目），不跑全量拓扑校验——草稿自由（环可存不可跑）是现状语义，
+  // 本门不扩大拒绝面。invalid 由拓扑校验器（console 保存干跑标红）与运行门
+  // 双层兜底，改 JSON 绕不过。
+  if (data.flowData !== undefined) {
+    const permErrors = validatePermissionDeclarations(data.flowData)
+    if (permErrors.length > 0) {
+      return fail(c, 422, 'flow 权限声明非法', { errors: permErrors })
+    }
+  }
+
   let row: FlowRow | null
   try {
     row = await createFlow({
@@ -173,6 +197,14 @@ workflowsRoutes.put('/:id', async (c) => {
     return fail(c, 400, 'invalid body', { detail: parsed.error.message })
   }
   const data = parsed.data
+
+  // R4 保存门（同 POST /：只拒声明非法，不扩大拒绝面）
+  if (data.flowData !== undefined) {
+    const permErrors = validatePermissionDeclarations(data.flowData)
+    if (permErrors.length > 0) {
+      return fail(c, 422, 'flow 权限声明非法', { errors: permErrors })
+    }
+  }
 
   const hasUpdates =
     data.name !== undefined ||
@@ -351,6 +383,12 @@ const runBodySchema = z.object({
   directoryId: z.string().uuid().optional(),
   /** run 级 token 预算（2026-10-04）：累计用量越线即停，终态 budget_exceeded。 */
   tokenBudget: z.number().int().positive().max(100_000_000).optional(),
+  /**
+   * 暖缓存重跑（2026-10-07 R2，design-recover §3.7(a)）：被重跑的 run id
+   * ——console「暖缓存重跑」入口传当前 runId（谱系书写 + 沿链 (nodeId,
+   * inputHash) 种子匹配）；「全新重跑」不传（缺省 = 零缓存零谱系）。
+   */
+  warmFromRunId: z.string().uuid().optional(),
 })
 
 const MAX_RUN_ID_LEN = 128
@@ -398,6 +436,48 @@ workflowsRoutes.post('/:id/run', async (c) => {
     return fail(c, 400, 'invalid flow data', { id })
   }
 
+  // R4 运行门（2026-10-07）：① 声明非法 → 422（invalid = deny-all 的提前
+  // 失败；节点层守卫是最终不变量，这里把「跑到才炸」提前到提交时）；
+  // ② enforce 策略下存在未声明 allowedDomains 的 http 节点 → 400（缺席即拒
+  // 的提前失败）；warn 过渡期放行 + 计数（NFR-6 不静默，翻转时点的观测锚点）。
+  // resume / answer / chat @flow 路径不加重复 preflight——节点层守卫天然覆盖
+  // 全部执行路径（含子流程递归装配）。
+  const permErrors = validatePermissionDeclarations(flowData)
+  if (permErrors.length > 0) {
+    return fail(c, 422, 'flow 权限声明非法', { errors: permErrors })
+  }
+  const flowPermissions = extractFlowPermissions(flowData)
+  if (flowPermissions.undeclaredHttp.length > 0) {
+    if (httpDomainPolicy() === 'enforce') {
+      return fail(c, 400, '存在未声明 allowedDomains 的 HTTP 节点（网关已启用 enforce 策略）', {
+        nodes: flowPermissions.undeclaredHttp,
+        hint: '在画布节点配置「域名清单」声明，格式 ["api.github.com"]',
+      })
+    }
+    permissionUndeclaredHttpRunsTotal.inc()
+  }
+  // 审计（只记闭合集非空的 run，低频不淹审计日志）：声明了命令/域名清单的
+  // run 是权限敏感操作，留档「谁在何时以什么声明面跑了哪个 flow」。
+  if (flowPermissions.commandNodes.length > 0 || flowPermissions.domainNodes.length > 0) {
+    await recordAudit(c, {
+      action: 'workflow.run',
+      target: { type: 'workflow', id },
+      detail: {
+        permissions: {
+          commandNodes: flowPermissions.commandNodes.map((n) => ({
+            node: n.nodeId,
+            commands: n.commands,
+          })),
+          domainNodes: flowPermissions.domainNodes.map((n) => ({
+            node: n.nodeId,
+            domains: n.domains,
+          })),
+          undeclaredHttp: flowPermissions.undeclaredHttp.length,
+        },
+      },
+    })
+  }
+
   // x-run-id 必须是 UUID：runs.id 是 UUID 列，任何非 UUID 值都会让 INSERT
   // 静默失败（被 catch 吞成 warn）——运行历史/取消级联/chat 关联全部失效
   // 且调用方不知情（2026-09-17 评审修复）。
@@ -439,8 +519,12 @@ workflowsRoutes.post('/:id/run', async (c) => {
   }
 
   const startedAt = new Date()
+  // persona 冻结快照（R8 §3.6(b)，AC-R8-2）：run 创建期读一次 agents 行——
+  // run 执行中改人格不再影响本 run；终态行落 runs.frozen_agents（含会话
+  // 映射，跨进程 resume 重挂用）。读取失败回落实时 fetcher（行为不变）。
+  const frozenAgents = await snapshotFlowAgents(flowData)
   // 引擎装配单一来源（与 chat 流式 / @flow 路径共用；此前三处复制漂移）
-  const { executor, spanWriter, live, nodeLabelById, nodeTypeById, baseOptions } =
+  const { executor, spanWriter, live, journal, nodeLabelById, nodeTypeById, baseOptions } =
     assembleWorkflowEngine({
       flowData,
       runId,
@@ -448,6 +532,7 @@ workflowsRoutes.post('/:id/run', async (c) => {
       cwd: runCwd,
       logger: log,
       flowContextMd: row.context_md ?? null,
+      ...(frozenAgents ? { frozenAgents } : {}),
     })
   // Non-interactive run: HumanInput answers must be pre-supplied via the
   // request's state.humanInputs map (keyed by prompt); a missing answer
@@ -462,6 +547,27 @@ workflowsRoutes.post('/:id/run', async (c) => {
   // 断点续跑：波次/迭代粒度快照（失败后可从断点续跑）
   const checkpointHook = makeCheckpointHook({ checkpointRunId: runId, flowId: id, flowData })
 
+  // 暖缓存种子（2026-10-07 R2，§3.7(d)）：「暖缓存重跑」携带 warmFromRunId
+  // ——沿谱系链 (nodeId, inputHash) 匹配导入前驱输出为种子，未受影响子图
+  // 零调用命中；全 miss / 链断返回 null（全量执行，不报错——R2.6 诚实
+  // miss）。「全新重跑」不传（缺省）——零缓存零谱系。
+  let warmResumeOptions: Awaited<ReturnType<typeof buildWarmCacheSeed>> = null
+  if (data.warmFromRunId) {
+    warmResumeOptions = await buildWarmCacheSeed({
+      warmFromRunId: data.warmFromRunId,
+      flowData,
+      startInput: data.input,
+      chatId,
+    }).catch((err: unknown) => {
+      log.warn('warm cache seed build failed — running cold', {
+        id,
+        warmFromRunId: data.warmFromRunId,
+        error: err instanceof Error ? err.message : String(err),
+      })
+      return null
+    })
+  }
+
   // 闭包（runAndPersist）内赋值、闭包外（同步响应）读取：
   // `!` 明确赋值断言 + runStatus 用 string（TS 无法跨闭包收窄）
   type RunResultAwaiting = { nodeId: string; prompt: string; inputType: string; options: unknown[] }
@@ -470,6 +576,8 @@ workflowsRoutes.post('/:id/run', async (c) => {
   let finishedAt = new Date()
   let durationMs = 0
   let runStatus: string = 'running'
+  // R3（§3.3）：终态中止来源随 runs 行/runEnd 帧/同步响应透出（闭包外可读）。
+  let runStopReason: string | undefined
   // Cancellation handle (spec D4): workflow runs register by runId —
   // POST /workflows/runs/:runId/cancel aborts the engine signal.
   const abort = new AbortController()
@@ -485,7 +593,8 @@ workflowsRoutes.post('/:id/run', async (c) => {
     abort: (reason?: string) => abort.abort(new Error(reason ?? 'cancelled by caller')),
     // 运行中插话（2026-09-08 可操作终端）：abort 的姊妹控制动词 —— 经
     // workflow-clients 的汇点表路由到目标节点的活 CLI 会话。
-    sendToNode: (nodeId: string, text: string) => sendToRunNode(runId, nodeId, text),
+    sendToNode: (nodeId: string, text: string, ordinal?: number) =>
+      sendToRunNode(runId, nodeId, text, ordinal),
     done,
   }
   executionRegistry.register(execHandle)
@@ -506,6 +615,9 @@ workflowsRoutes.post('/:id/run', async (c) => {
         humanInputResolver,
         onCheckpoint: checkpointHook,
         ...(data.tokenBudget != null ? { tokenBudget: data.tokenBudget } : {}),
+        // 暖缓存种子（R2 §3.7(d)）：命中子图以 cached 终态短路（引擎种子
+        // 跳过机制 + cached 钩子回放，地基 §3.1(c)2）。
+        ...(warmResumeOptions ? { resume: warmResumeOptions } : {}),
       })
     } catch (err) {
       log.error('workflow execution failed', { id, error: String(err) })
@@ -523,13 +635,15 @@ workflowsRoutes.post('/:id/run', async (c) => {
       releaseRunSlot()
       // 终态计数（与 run-gate 的 started 计数成对——成功率的分子分母同源）。
       // 挂在 finally：后续落库步骤再抛错也不会丢这一笔。
+      // 2026-10-07 R3：经 toRunStatus 单源（cancelled→stopped 写新，指标
+      // 标签自动带新词——recordRunFinished 的 status 字符串透传）。
       recordRunFinished(
         result.status === 'awaiting'
           ? 'awaiting_input'
-          : result.status === 'success'
-            ? 'completed'
-            : result.status,
+          : toRunStatus(result.status).status,
       )
+      // journal 收口（R7）：flush delta 微批（write-behind 尾部落库）。
+      journal.close()
     }
     // 持久挂起（P2 §6.3）：不判失败 —— checkpoint awaiting + runs awaiting_input
     if (result.status === 'awaiting' && result.awaiting) {
@@ -557,9 +671,19 @@ workflowsRoutes.post('/:id/run', async (c) => {
 
     finishedAt = new Date()
     durationMs = Math.round(finishedAt.getTime() - startedAt.getTime())
-    runStatus = result.status === 'awaiting' ? 'awaiting_input' : toRunStatus(result.status)
-    // 运行实时终端：settle 即上报终态帧（SSE 观看者收 runEnd 后关流）。
-    live.finish(runStatus)
+    // 引擎状态 → runs 行（2026-10-07 R3 §3.3：单源映射 + superseded 归属；
+    // cancelled→stopped 写新，存量 cancelled 行读侧双读——NFR-1）。
+    const { status: mapped, stopReason } = toRunStatus(result.status, {
+      superseded: classifyAbortReason(abort.signal) === 'superseded',
+    })
+    runStatus = result.status === 'awaiting' ? 'awaiting_input' : mapped
+    runStopReason = stopReason
+    // 运行实时终端：settle 即上报终态帧（SSE 观看者收 runEnd 后关流）；
+    // stopReason 随帧（客户端过滤 superseded 通知，R3.5）。
+    live.finish(runStatus, stopReason)
+    // run 完成通知（R9b）：单点发射 + 进程内幂等 claim + superseded 抑制
+    // （chat @flow 路径走既有 chat:done，不在此接——避免双通知）。
+    notifyRunFinished({ runId, flowId: id, status: runStatus, stopReason })
 
     // AD-3（方案 D b 路径）：run 级用量聚合 —— sum 各节点 tokens，cost 只在
     // 所有 token 节点都有价格时成立（引擎目前 cost 恒 null → priced=false，
@@ -577,7 +701,13 @@ workflowsRoutes.post('/:id/run', async (c) => {
         runId,
         flowId: id,
         status: runStatus,
-        inputJson: JSON.stringify(data.input ?? null),
+        // runs.input 形状（R3.4）：带预算的 run 把 tokenBudget 并进 input
+        // 载荷（{input, tokenBudget}）——resume 缺省沿用前驱预算的读取面
+        // （extractInput*/originalTokenBudget 对 .input 的读取不受影响）。
+        inputJson:
+          data.tokenBudget != null
+            ? JSON.stringify({ input: data.input ?? null, tokenBudget: data.tokenBudget })
+            : JSON.stringify(data.input ?? null),
         outputJson: JSON.stringify(result.finalOutput ?? null),
         startedAt,
         finishedAt,
@@ -585,6 +715,28 @@ workflowsRoutes.post('/:id/run', async (c) => {
         cost: usageRollup.cost ?? 0,
         chatId: chatId || null,
         directoryId: data.directoryId ?? null,
+        // 2026-10-07 R10：触发来源实写（此前读面按 chat_id 派生——迁移后
+        // source 列成为真相源，读面派生退位为 COALESCE 兜底）。
+        source: 'canvas',
+        // 2026-10-07 R3（§3.3(c)）：stop_reason 落库（stopped: user/superseded）。
+        stopReason: stopReason ?? null,
+        // 2026-10-07 R2（§3.7(a)）：暖缓存重跑写谱系指向被重跑 run——
+        // 谱系列从 resume 专用升格为暖缓存第一等公民；「全新重跑」不写。
+        resumedFromRunId: warmResumeOptions?.seedSource?.fromRunId ?? null,
+        // 2026-10-07 R8（§3.6(b)）：persona 冻结快照 + 会话映射（chat 收尾
+        // 采集的 deriveSessionId → 后端真实会话 id，跨进程 resume 重挂查表）。
+        frozenAgentsJson: frozenAgents
+          ? JSON.stringify({ ...frozenAgents, sessions: collectRunSessions(runId) })
+          : null,
+        // 2026-10-07 R8（§3.6(c)）：run 级模型快照 { [nodeId]: resolvedModel }。
+        modelsJson:
+          (() => {
+            const modelsMap: Record<string, string> = {}
+            for (const en of result.executedNodes) {
+              if (en.resolvedModel) modelsMap[en.nodeId] = en.resolvedModel
+            }
+            return Object.keys(modelsMap).length > 0 ? JSON.stringify(modelsMap) : null
+          })(),
       })
     } catch (err) {
       log.warn('persist runs row failed, spans still written below', {
@@ -595,6 +747,8 @@ workflowsRoutes.post('/:id/run', async (c) => {
     }
 
     // 账单真相源（AD-3）：workflow run 终态各写一条 usage_events。
+    // model（R8 §3.6(c)）：rollup 主模型（用量最大节点的 resolvedModel）——
+    // 账单页每节点实际模型可查（AC-R8-4；此前 workflow 路径恒空）。
     await recordUsageEvent({
       source: 'workflow_run',
       chatId,
@@ -602,6 +756,7 @@ workflowsRoutes.post('/:id/run', async (c) => {
       flowId: id,
       usage: usageRollup.usage,
       cost: usageRollup.cost,
+      model: rollupPrimaryModel(result.executedNodes),
     })
 
     // Persist one run_node_spans row per executed node so the canvas /
@@ -621,11 +776,15 @@ workflowsRoutes.post('/:id/run', async (c) => {
             ? 'done'
             : en.status === 'failed'
               ? 'failed'
-              : en.status === 'running'
-                ? 'running'
-                : en.status === 'cancelled'
-                  ? 'paused'
-                  : 'unknown'
+              : en.status === 'rejected'
+                ? 'rejected'
+                : en.status === 'cached'
+                  ? 'cached'
+                  : en.status === 'running'
+                    ? 'running'
+                    : en.status === 'cancelled'
+                      ? 'paused'
+                      : 'unknown'
         spanRows.push({
           run_id: runId,
           flow_id: id,
@@ -658,7 +817,18 @@ workflowsRoutes.post('/:id/run', async (c) => {
         flowId: id,
         flowName: row.name,
         chatId,
-        status: runStatus as 'completed' | 'failed' | 'cancelled' | 'running',
+        // Langfuse 导出器的 status 是四词联合（观测侧历史形状）：R3 新词
+        // 就近归一（stopped→cancelled；awaiting_input→running；有产出的
+        // 非纯成功→failed——Langfuse 只是观测投影，终态真相在 runs 行）。
+        status: (
+          runStatus === 'stopped'
+            ? 'cancelled'
+            : runStatus === 'awaiting_input'
+              ? 'running'
+              : runStatus === 'completed'
+                ? 'completed'
+                : 'failed'
+        ) as 'running' | 'completed' | 'failed' | 'cancelled',
         startedAt: startedAt.toISOString(),
         finishedAt: finishedAt.toISOString(),
         input: data.input ?? null,
@@ -685,9 +855,14 @@ workflowsRoutes.post('/:id/run', async (c) => {
       await initAsyncWorkflowRunRow({
         runId,
         flowId: id,
-        inputJson: JSON.stringify(data.input ?? null),
+        // 与终态行同口径（R3.4）：带预算的 run 把 tokenBudget 并进 input 载荷。
+        inputJson:
+          data.tokenBudget != null
+            ? JSON.stringify({ input: data.input ?? null, tokenBudget: data.tokenBudget })
+            : JSON.stringify(data.input ?? null),
         startedAt,
         directoryId: data.directoryId ?? null,
+        source: 'canvas',
       })
     } catch (err) {
       log.warn('async runs row init failed', { id, runId, error: String(err) })
@@ -703,12 +878,24 @@ workflowsRoutes.post('/:id/run', async (c) => {
 
   c.header('x-run-id', runId)
 
+  // 终态产出清单（R6 渐进产物，2026-10-07）：全部终态分支交付已完成节点
+  // 清单（含挂起分支——HumanInput 中断也交付已完成部分；R6 需求 3）。
+  // 引擎视角投影（success 过滤、无 flow 语境 → subflowName 恒 null）；
+  // 读面（node-spans 投影）与 runs.output 语义均不变（§①-5 / §⑤-6）。
+  const deliverables = buildRunDeliverables(
+    result.executedNodes,
+    nodeLabelById,
+    nodeTypeById,
+  )
+  deliverablesCounter.inc(deliverables.length, { source: 'response' })
+
   if (runStatus === 'awaiting_input' && result.awaiting) {
     // 持久挂起（P2）：非失败 —— 返回挂起载荷（应答端点/聊天回复续跑）
     return ok(c, {
       status: 'awaiting_input',
       awaiting: result.awaiting,
       executedNodes: result.executedNodes,
+      deliverables,
     })
   }
   if (runStatus === 'completed') {
@@ -716,6 +903,7 @@ workflowsRoutes.post('/:id/run', async (c) => {
       output: result.finalOutput,
       executedNodes: result.executedNodes,
       state: result.state,
+      deliverables,
     })
   }
   // partial_success（2026-10-04 失败分支隔离）：有产出的非纯成功——
@@ -726,6 +914,7 @@ workflowsRoutes.post('/:id/run', async (c) => {
       executedNodes: result.executedNodes,
       state: result.state,
       status: 'partial_success',
+      deliverables,
     })
   }
   // budget_exceeded（2026-10-04 token 预算停机）：主动停机非缺陷——
@@ -737,20 +926,25 @@ workflowsRoutes.post('/:id/run', async (c) => {
       state: result.state,
       status: 'budget_exceeded',
       error: result.error,
+      deliverables,
     })
   }
-  if (runStatus === 'cancelled') {
-    // User-initiated cancel is a distinct terminal — not a 500-style failure.
+  if (runStatus === 'stopped') {
+    // 用户/替代中止是独立终态（2026-10-07 R3 写新：cancelled→stopped +
+    // stop_reason）——不是 500 型失败；存量 cancelled 行读侧双读（NFR-1）。
     return ok(c, {
       output: null,
       executedNodes: result.executedNodes,
       state: result.state,
-      status: 'cancelled',
+      status: 'stopped',
+      stopReason: runStopReason,
+      deliverables,
     })
   }
   return fail(c, 500, result.error ?? 'workflow execution failed', {
     executedNodes: result.executedNodes,
     state: result.state,
+    deliverables,
   })
 })
 
@@ -906,6 +1100,14 @@ workflowsRoutes.get('/runs/:runId/node-spans', async (c) => {
   let runStatus: string | null = null
   let runDurationMs: number | null = null
   let runDirectoryId: string | null = null
+  let runSource: string | null = null
+  // stop_reason（2026-10-07 R3，§3.5(c)）：console 判「已中断（可恢复）」vs
+  // 「已停止」的中止来源（interrupted/user/superseded…）。
+  let runStopReason: string | null = null
+  // 谱系继承累计 token（R2.3 双口径，2026-10-08 修复）：resume/暖缓存 run
+  // （有谱系锚）沿链 SUM 前驱 usage_events——结果面板「谱系继承 M · 本次
+  // 新增 N」的继承侧数据源；根运行为 null（无双口径）。
+  let lineageTokens: number | null = null
   try {
     rows = await getRunNodeSpans(runId)
   } catch (err) {
@@ -915,11 +1117,19 @@ workflowsRoutes.get('/runs/:runId/node-spans', async (c) => {
   // 附带 runs 行的状态/耗时 —— 画布旁观（canvas?run=）据此判断终态。
   // 没有 runs 行（老数据 / 尚未落库）时为 null，旁观端回退到启发式判断。
   // directoryId（2026-09-19 P0）：旁观端「在项目目录打开终端」的目录锚。
+  // source（2026-10-07 R10）：结果面板「⚡ 试运行」常驻标记条数据源。
   try {
     const runRow = await getRunStatusAndDuration(runId)
     runStatus = runRow?.status ?? null
     runDurationMs = runRow?.duration_ms ?? null
     runDirectoryId = runRow?.directory_id ?? null
+    runSource = runRow?.source ?? null
+    runStopReason = runRow?.stop_reason ?? null
+    if (runRow?.resumed_from_run_id) {
+      const chain = await runLineageChain(runId).catch(() => [] as string[])
+      // 链自根向后代（自身在末位）——前驱 = 去掉末位自身。
+      lineageTokens = await lineageTokensSpent(chain.slice(0, -1)).catch(() => 0)
+    }
   } catch {
     // runs 查询失败不影响 spans 返回
   }
@@ -942,6 +1152,9 @@ workflowsRoutes.get('/runs/:runId/node-spans', async (c) => {
       nodeId: r.node_id,
       nodeLabel: r.node_label,
       nodeType: r.node_type,
+      // per-node 实例序号（R8 §1.3）：stdin 行 `nodeId[ordinal]` 与插话寻址
+      // 的标注数据源（迭代 body 第 n 次执行 = n；非迭代恒 0）。
+      ordinal: r.ordinal ?? 0,
       status: toNodeSpanStatus(r.status),
       startedAt,
       finishedAt,
@@ -968,7 +1181,33 @@ workflowsRoutes.get('/runs/:runId/node-spans', async (c) => {
     runError = await getRunError(runId).catch(() => null)
   }
 
-  return ok(c, { runId, runStatus, runDurationMs, runDirectoryId, inputSupported, runError, spans })
+  // 产出清单投影（R6 渐进产物，2026-10-07）：与 spans 同信封、同节拍——
+  // console 已按 700ms 轮询本端点，聚合区需要与 spans 同步的数据，新开端点
+  // 即第二轮询（design-artifacts.md §③-3 裁决）。journal 主路 + spans 兜底
+  // 在 repo 单点裁决；读失败 → 字段缺席（console 聚合区整体不渲染的诚实
+  // 降级，同 inputSupported 旧网关容忍模式）。
+  let deliverables: Awaited<ReturnType<typeof getRunDeliverables>>['items'] | undefined
+  try {
+    const r = await getRunDeliverables(runId)
+    deliverables = r.items
+    deliverablesCounter.inc(r.items.length, { source: r.source })
+  } catch (err) {
+    log.warn('deliverables projection failed — field omitted', { runId, error: String(err) })
+  }
+
+  return ok(c, {
+    runId,
+    runStatus,
+    runDurationMs,
+    runDirectoryId,
+    runSource,
+    runStopReason,
+    lineageTokens,
+    inputSupported,
+    runError,
+    spans,
+    deliverables,
+  })
 })
 
 /**

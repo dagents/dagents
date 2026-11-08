@@ -7,6 +7,7 @@
  * need DB or network access — the workflow package stays storage-free.
  */
 
+import { createHash } from 'node:crypto'
 import { runQuery } from '@dagents/db'
 import { createLogger } from '@dagents/shared'
 import { createBackend } from '@dagents/agent-adapters'
@@ -46,16 +47,30 @@ const llmHttpTotal = declareCounter(
 // ────────────────────────────────────────────────────────────────────────────
 // 运行中节点会话汇点（2026-09-08 可操作终端 PRD，docs/prd-operable-terminal.md）
 //
-// `runId:nodeId → 活着的 CLI 会话` 的进程内登记表：LLM/PlatformAgent 节点
-// 每次 chat 调用创建会话时注册（节点经 chat 参数上报自己的 nodeId），插话
-// 路由 POST /workflows/runs/:runId/message 据此找到正确的 CLI stdin。
-// PlatformAgent 工具循环每轮新建会话 —— 新会话覆盖注册；旧会话结束时仅在
-// 表项仍指向自己时才清除，不误删后继会话。
+// `runId:nodeId:ordinal → 活着的 CLI 会话` 的进程内登记表：LLM/PlatformAgent
+// 节点每次 chat 调用创建会话时注册（节点经 chat 参数上报自己的 nodeId +
+// ordinal），插话路由 POST /workflows/runs/:runId/message 据此找到正确的 CLI
+// stdin。PlatformAgent 工具循环每轮新建会话 —— 新会话覆盖注册；旧会话结束
+// 时仅在表项仍指向自己时才清除，不误删后继会话。
+//
+// 2026-10-07 R8（design-recover §3.6(a)，PRD R8 风险条款声明的破坏性扩展）：
+// 键从 `runId:nodeId` 扩为 `runId:nodeId:ordinal`——并发 iteration 的同节点
+// 多会话并存可寻址；键的规范拼写 = `deriveSessionId(runId, nodeId, ordinal)`
+// （dagents 侧确定性寻址键，AD-R6 划界：它不对应任何 CLI 后端会话，后端
+// 真实会话 id 是另一空间、由 chat 返回值 sessionId 采集，绝不互换）。
 // ────────────────────────────────────────────────────────────────────────────
 
 /** 插话送达回执：sent=已写入 CLI stdin；unsupported=执行路径无双向通道
- *  （HTTP provider / 不支持插话的适配器）；not_running=节点当前没有活会话。 */
-export type NodeSendAck = 'sent' | 'unsupported' | 'not_running'
+ *  （HTTP provider / 不支持插话的适配器）；not_running=节点当前没有活会话；
+ *  ambiguous=该 nodeId 有多个并发实例、调用方须带 ordinal 重试（409 语义，
+ *  PRD R8.5 定稿——附带活跃实例清单）。 */
+export type NodeSendAck = 'sent' | 'unsupported' | 'not_running' | 'ambiguous'
+
+/** 多实例歧义回执的载荷：活跃 ordinal 清单（客户端列供选择）。 */
+export interface NodeSendAmbiguous {
+  ack: 'ambiguous'
+  ordinals: number[]
+}
 
 interface RunNodeSink {
   /** 会话的插话入口（contracts AgentSession.send；undefined = 适配器不支持）。 */
@@ -66,34 +81,83 @@ interface RunNodeSink {
 
 const runNodeSinks = new Map<string, RunNodeSink>()
 
-const sinkKey = (runId: string, nodeId: string): string => `${runId}:${nodeId}`
+/**
+ * dagents 侧确定性会话寻址键（R8，design-recover §3.6(a)，AC-R8-1）：
+ * SHA-1(runId:nodeId:ordinal) 前 16 hex——同键同 id、异 run 异 id、resume
+ * 同节点同 id（可单测预测）。**绝不进 `ExecOptions.resumeSessionId`**（该字段
+ * 取值单源 = 后端真实会话 id，见 CliChatParams.resumeSessionId 注释）；它只
+ * 用于 runNodeSinks 键拼写 / resume 重挂查表 / 插话寻址。
+ */
+export function deriveSessionId(runId: string, nodeId: string, ordinal: number): string {
+  return createHash('sha1').update(`${runId}:${nodeId}:${ordinal}`).digest('hex').slice(0, 16)
+}
+
+const sinkKey = (runId: string, nodeId: string, ordinal: number): string =>
+  `${runId}:${nodeId}:${ordinal}`
 
 function registerRunNodeSink(
   runId: string,
   nodeId: string,
+  ordinal: number | undefined,
   session: AgentSession,
   onDelta: ((chunk: IStreamDelta) => void) | undefined,
 ): RunNodeSink {
   const sink: RunNodeSink = { send: session.send, onDelta }
-  runNodeSinks.set(sinkKey(runId, nodeId), sink)
+  runNodeSinks.set(sinkKey(runId, nodeId, ordinal ?? 0), sink)
   return sink
 }
 
 /** 会话收尾：仅当表项仍指向本 sink 才清除（工具循环已换新会话时不覆盖）。 */
-function unregisterRunNodeSink(runId: string, nodeId: string, sink: RunNodeSink): void {
-  const key = sinkKey(runId, nodeId)
+function unregisterRunNodeSink(
+  runId: string,
+  nodeId: string,
+  ordinal: number | undefined,
+  sink: RunNodeSink,
+): void {
+  const key = sinkKey(runId, nodeId, ordinal ?? 0)
   if (runNodeSinks.get(key) === sink) runNodeSinks.delete(key)
 }
 
-/** 插话路由：送达后经同一节点的增量通道回写 user_input（span-writer 落库，
- *  终端视图渲染为高亮行 —— 「谁在何时对哪个节点说了什么」完整可审计）。 */
-export function sendToRunNode(runId: string, nodeId: string, text: string): NodeSendAck {
-  const sink = runNodeSinks.get(sinkKey(runId, nodeId))
+/** 该 nodeId 在本 run 下的活跃实例 ordinal 清单（多实例 409 的载荷）。 */
+function liveOrdinalsOf(runId: string, nodeId: string): number[] {
+  const prefix = `${runId}:${nodeId}:`
+  const ordinals: number[] = []
+  for (const key of runNodeSinks.keys()) {
+    if (!key.startsWith(prefix)) continue
+    const ordinal = Number(key.slice(prefix.length))
+    if (Number.isFinite(ordinal)) ordinals.push(ordinal)
+  }
+  return ordinals.sort((a, b) => a - b)
+}
+
+/**
+ * 插话路由（R8.5，design-recover §3.6(a)）：送达后经同一节点的增量通道回写
+ * user_input（span-writer 落库，终端视图渲染为高亮行）。ordinal 缺省 = 该
+ * nodeId 唯一活跃实例直接寻址；多实例并存（并发 iteration）返回 'ambiguous'
+ * + 活跃实例清单（调用方映射 409，PRD R8.5 定稿）。
+ */
+export function sendToRunNode(
+  runId: string,
+  nodeId: string,
+  text: string,
+  ordinal?: number,
+): NodeSendAck {
+  if (ordinal == null) {
+    const ordinals = liveOrdinalsOf(runId, nodeId)
+    if (ordinals.length > 1) return 'ambiguous'
+  }
+  const sink = runNodeSinks.get(sinkKey(runId, nodeId, ordinal ?? 0))
   if (!sink) return 'not_running'
   if (!sink.send) return 'unsupported'
   if (!sink.send(text)) return 'not_running'
   sink.onDelta?.({ type: 'activity', kind: 'user_input', label: text })
   return 'sent'
+}
+
+/** 多实例歧义的清单载荷（路由层 409 响应用；本模块不感知 HTTP）。 */
+export function sendToRunNodeAmbiguous(runId: string, nodeId: string): NodeSendAmbiguous | null {
+  const ordinals = liveOrdinalsOf(runId, nodeId)
+  return ordinals.length > 1 ? { ack: 'ambiguous', ordinals } : null
 }
 
 /** 该 run 当前是否有任何活着的 CLI 会话汇点（node-spans 端点的
@@ -104,6 +168,52 @@ export function runHasLiveSinks(runId: string): boolean {
     if (key.startsWith(prefix)) return true
   }
   return false
+}
+
+// ── 会话延续表（R8 §3.6(a)，进程内）────────────────────────────────────────
+// deriveSessionId → 后端真实会话 id（chat 收尾从 result.sessionId 采集）。
+// 同键重入（resume 重挂、工具循环新一轮）查表命中且 kind=claude → 透传
+// `--resume`（跨进程后端会话延续——claude -p 一次问答即退，延续靠后端
+// 会话而非进程存活）；非 claude kind 不透传（诚实降级为逻辑会话重放，
+// AC-R8-6/R5 同款边界）。跨进程重挂查 runs.frozen_agents.sessions 载荷
+// （执行路径终态经 collectRunSessions 落库，resume 路径注入 initialSessions）。
+
+const backendSessions = new Map<string, { sessionId: string; kind: AgentType; runId: string }>()
+
+function rememberBackendSession(
+  derivedKey: string,
+  sessionId: string | undefined,
+  kind: AgentType,
+  runId: string,
+): void {
+  if (!sessionId) return
+  backendSessions.set(derivedKey, { sessionId, kind, runId })
+}
+
+/** 查表透传（取值单源：只回后端真实会话 id；未命中 = 不传，绝不伪造）。 */
+function lookupBackendSession(derivedKey: string, kind: AgentType): string | undefined {
+  const found = backendSessions.get(derivedKey)
+  if (!found || found.kind !== 'claude' || kind !== 'claude') return undefined
+  return found.sessionId
+}
+
+/**
+ * 该 run 的会话映射采集（执行路径终态落 runs.frozen_agents.sessions 用）：
+ * `{ [deriveSessionId]: backendSessionId }`——resume 跨进程重挂的查表数据源
+ * （§1.2 的「实施时择一」落此：frozen_agents.sessions 载荷）。
+ */
+export function collectRunSessions(runId: string): Record<string, string> {
+  const out: Record<string, string> = {}
+  for (const [key, entry] of backendSessions) {
+    if (entry.runId === runId && entry.kind === 'claude') out[key] = entry.sessionId
+  }
+  return out
+}
+
+/** 测试隔离（生产代码禁用）。 */
+export function resetRunNodeSessionsForTest(): void {
+  runNodeSinks.clear()
+  backendSessions.clear()
 }
 
 /** LLM provider row from the `llm_providers` table. */
@@ -163,6 +273,26 @@ export interface CliChatParams {
   onDelta?: (chunk: IStreamDelta) => void
   /** 调用方节点 id（2026-09-08 可操作终端）：登记进插话汇点表用。 */
   nodeId?: string
+  /**
+   * per-node 执行实例序号（2026-10-07 R8，AD-R4）：节点经 buildNodeContext
+   * 透传——runNodeSinks 键 / deriveSessionId / 插话寻址（nodeId[ordinal]）
+   * 用；缺省 0（非迭代节点恒 0）。
+   */
+  ordinal?: number
+  /**
+   * 模型 pin 位（2026-10-07 R8.4，design-recover §3.6(d)）：节点/Agent 显式
+   * 声明过模型时置位——pin 的调用**禁熔断/瞬时降级**（provider 故障响亮
+   * 失败 stop_reason='provider'，错误含期望/实际模型 + 「因 pin 拒绝降级」
+   * 活动行）；未声明维持基线（降级保可用，CLI 第一性不破坏）。
+   */
+  modelPinned?: boolean
+  /**
+   * 会话延续（2026-10-07 R5 三值裁决）：非空 = CLI 后端以 --resume 恢复该
+   * 会话（claude 已接线）。取值单源——gateway 只透传节点层递来的上一轮
+   * chat 返回的后端真实会话 id，本层不做任何 id 换算/铸造；不支持 resume
+   * 的适配器静默忽略（能力披露协议靠返回值 sessionId 兜底）。
+   */
+  resumeSessionId?: string
 }
 
 /**
@@ -279,7 +409,28 @@ const CLI_TEXT_MODE_ARGS = [
   'Task,Bash,Glob,Grep,Read,Edit,Write,NotebookEdit,WebFetch,WebSearch,TodoWrite,TodoRead,BashOutput,KillShell',
 ]
 
-export function createCliLlmClient(kind: AgentType = 'claude', cliCwd?: string, runId?: string) {
+export function createCliLlmClient(
+  kind: AgentType = 'claude',
+  cliCwd?: string,
+  runId?: string,
+  /** 跨进程重挂的会话映射（R8 §3.6(a)）：runs.frozen_agents.sessions 载荷，
+   *  key = deriveSessionId(runId, nodeId, ordinal) → 后端真实会话 id。 */
+  initialSessions?: Record<string, string>,
+) {
+  /**
+   * 会话延续的取值单源（R8，与 R5 透传协议同一语义）：调用方显式传入的
+   * resumeSessionId 优先；否则查进程内延续表 / 跨进程注入映射——命中且
+   * claude 档才透传（后端 --resume 延续），缺席 = 不传（诚实首跑，绝不
+   * 伪造 resume 目标——自铸 id 塞进去 claude 首跳即炸）。
+   */
+  const resolveResumeSessionId = (params: CliChatParams): string | undefined => {
+    if (params.resumeSessionId) return params.resumeSessionId
+    if (!runId || !params.nodeId) return undefined
+    const derivedKey = deriveSessionId(runId, params.nodeId, params.ordinal ?? 0)
+    return (
+      lookupBackendSession(derivedKey, kind) ?? (initialSessions ?? {})[derivedKey]
+    )
+  }
   /** 共享：为本次执行创建 backend session（chat 与 chatStream 同款启动）。
    *  CLI spawn 闸（稳定性专项）：子进程总量护栏——并发 run × 分支并行时
    *  按 FIFO 排队而非打爆本机；槽位随 session.result settle 释放。 */
@@ -290,6 +441,7 @@ export function createCliLlmClient(kind: AgentType = 'claude', cliCwd?: string, 
     // 适配器无对应机制，保持原行为 —— 与 D4「非 claude 标注未真机」一致）
     const textModeArgs = kind === 'claude' && !agentToolsDeclared ? CLI_TEXT_MODE_ARGS : undefined
     const release = await acquireCliSlot(`${kind}-node`)
+    const resumeSessionId = resolveResumeSessionId(params)
     try {
       const backend = createBackend(kind, { executablePath: '', logger: log })
       const session = backend.execute(prompt, {
@@ -301,6 +453,9 @@ export function createCliLlmClient(kind: AgentType = 'claude', cliCwd?: string, 
         cwd: cliCwd,
         // 文本档：无工具声明的调用禁用全部内建工具（见 CLI_TEXT_MODE_ARGS）
         ...(textModeArgs ? { extraArgs: textModeArgs } : {}),
+        // R5 会话延续 / R8 查表透传（同一取值单源）：非空 = CLI 后端以
+        // --resume 恢复该真实会话；其余适配器忽略（能力披露靠返回值）。
+        ...(resumeSessionId ? { resumeSessionId } : {}),
       })
       void session.result
         .finally(() => release())
@@ -313,15 +468,29 @@ export function createCliLlmClient(kind: AgentType = 'claude', cliCwd?: string, 
       throw err
     }
   }
+  /** 会话采集（R8 §3.6(a)）：chat 收尾把后端真实会话 id 记进延续表——同键
+   *  重入（resume 重挂/工具循环新一轮）查表透传；跨进程由执行路径落
+   *  runs.frozen_agents.sessions（见 workflow-engine-service 的收尾采集）。 */
+  const rememberSession = (params: CliChatParams, sessionId: string | undefined): void => {
+    if (!runId || !params.nodeId || !sessionId) return
+    rememberBackendSession(
+      deriveSessionId(runId, params.nodeId, params.ordinal ?? 0),
+      sessionId,
+      kind,
+      runId,
+    )
+  }
   return {
-    async chat(params: CliChatParams): Promise<{ text: string; usage?: ITokenUsage }> {
+    async chat(
+      params: CliChatParams,
+    ): Promise<{ text: string; usage?: ITokenUsage; sessionId?: string; model?: string }> {
       const session = await startSession(params)
-      // 插话汇点登记（2026-09-08）：节点上报 nodeId + 客户端持有 runId 才
-      // 登记 —— chat 与 chatStream 同款。收尾注销（PlatformAgent 工具循环
-      // 换新会话时 unregister 的 same-sink 守卫不误删后继）。
+      // 插话汇点登记（2026-09-08；R8 键扩 runId:nodeId:ordinal）：节点上报
+      // nodeId + 客户端持有 runId 才登记 —— chat 与 chatStream 同款。收尾
+      // 注销（PlatformAgent 工具循环换新会话时 same-sink 守卫不误删后继）。
       const sink =
         runId && params.nodeId
-          ? registerRunNodeSink(runId, params.nodeId, session, params.onDelta)
+          ? registerRunNodeSink(runId, params.nodeId, params.ordinal, session, params.onDelta)
           : null
       try {
         let text = ''
@@ -401,9 +570,22 @@ export function createCliLlmClient(kind: AgentType = 'claude', cliCwd?: string, 
             outputTokens: output,
           }
         }
-        return { text: text || result.output || '', usage }
+        // sessionId 回传（2026-10-07 R5 能力披露协议）：本次调用的 CLI 会话
+        // id 原样上抛——节点层据此决定修复轮 --resume（同会话）还是 messages
+        // 全量回放（逻辑会话）。适配器没采集到 = 缺席 = 无会话延续能力。
+        // R8：同键采集进延续表（进程内重挂查表透传）。
+        rememberSession(params, result.sessionId)
+        return {
+          text: text || result.output || '',
+          usage,
+          sessionId: result.sessionId,
+          // resolved model（R8 §3.6(c)）：CLI 路径 = cli:<kind> 形态。
+          model: `cli:${kind}`,
+        }
       } finally {
-        if (sink && runId && params.nodeId) unregisterRunNodeSink(runId, params.nodeId, sink)
+        if (sink && runId && params.nodeId) {
+          unregisterRunNodeSink(runId, params.nodeId, params.ordinal, sink)
+        }
       }
     },
     /**
@@ -415,7 +597,7 @@ export function createCliLlmClient(kind: AgentType = 'claude', cliCwd?: string, 
       const session = await startSession(params)
       const sink =
         runId && params.nodeId
-          ? registerRunNodeSink(runId, params.nodeId, session, params.onDelta)
+          ? registerRunNodeSink(runId, params.nodeId, params.ordinal, session, params.onDelta)
           : null
       try {
         for await (const evt of session.events as AsyncIterable<AgentEvent>) {
@@ -440,6 +622,7 @@ export function createCliLlmClient(kind: AgentType = 'claude', cliCwd?: string, 
         if (result.status !== 'completed') {
           throw new Error(`CLI agent 未完成（${result.status}）：${result.error ?? '未知错误'}`)
         }
+        rememberSession(params, result.sessionId)
         let usage: ITokenUsage | undefined
         const models = Object.keys(result.usage ?? {})
         if (models.length > 0) {
@@ -459,9 +642,13 @@ export function createCliLlmClient(kind: AgentType = 'claude', cliCwd?: string, 
             outputTokens: output,
           }
         }
-        if (usage) yield { usage }
+        // resolved model（R8 §3.6(c)）：CLI 路径 = cli:<kind>，随末个
+        // usage chunk 上抛（流式路径的 resolvedModel 数据源）。
+        if (usage) yield { usage, model: `cli:${kind}` }
       } finally {
-        if (sink && runId && params.nodeId) unregisterRunNodeSink(runId, params.nodeId, sink)
+        if (sink && runId && params.nodeId) {
+          unregisterRunNodeSink(runId, params.nodeId, params.ordinal, sink)
+        }
       }
     },
   }
@@ -485,10 +672,10 @@ export function createCliLlmClient(kind: AgentType = 'claude', cliCwd?: string, 
  */
 export function createDefaultLlmClient(
   kind: AgentType = 'claude',
-  opts: { cwd?: string; runId?: string } = {},
+  opts: { cwd?: string; runId?: string; initialSessions?: Record<string, string> } = {},
 ) {
   const http = createLlmClient()
-  const cli = createCliLlmClient(kind, opts.cwd, opts.runId)
+  const cli = createCliLlmClient(kind, opts.cwd, opts.runId, opts.initialSessions)
 
   // e2e 确定性总闸（2026-10-04）：mock provider 用 error 规则钉「节点失败」
   // 断言时，CLI 降级会把确定性失败变成真 claude 慢成功（15s+ 且烧 token）。
@@ -496,19 +683,58 @@ export function createDefaultLlmClient(
   // 抛出）——e2e/CI 环境专用（见 tests/e2e/README），生产默认不设。
   const fallbackDisabled = process.env.DAGENTS_DISABLE_LLM_FALLBACK === '1'
 
+  /**
+   * pin 拒绝降级（2026-10-07 R8.4，design-recover §3.6(d)）：显式声明过模型
+   * 的调用（modelPinned）**禁熔断/瞬时降级**——provider 故障节点响亮失败，
+   * 错误对象挂 `providerFailure: true`（执行路径落 failed(stop_reason=
+   * 'provider')，R3.2 唯一归属）+ 期望/实际模型；过程流明示活动行。等价于
+   * 把 DAGENTS_DISABLE_LLM_FALLBACK 的语义按调用粒度产品化（全局闸语义
+   * 不变，pin 是其调用粒度版）。未声明模型维持基线（降级保可用）。
+   */
+  const rejectFallbackForPin = (params: CliChatParams, err: unknown): Error => {
+    const pinnedErr = new Error(
+      `因 pin 拒绝降级（期望模型 ${params.model}）：${err instanceof Error ? err.message : String(err)}`,
+      { cause: err }
+    ) as Error & { providerFailure?: boolean; expectedModel?: string; actualModel?: string }
+    pinnedErr.providerFailure = true
+    pinnedErr.expectedModel = params.model
+    return pinnedErr
+  }
+
   /** 瞬时故障 → 记熔断 + 降级 CLI；配置错误 → 原样抛。附状态码/无状态码
    *  （网络错误）判定瞬时；降级前在过程流留痕。调用前 providerKey 已被
-   *  chat 主路径按当次 provider 设置。 */
+   *  chat 主路径按当次 provider 设置。pin 首查（R8.4）：置位的调用不降级。 */
   const fallbackOrRethrow = (
     err: unknown,
     params: CliChatParams,
-  ): Promise<{ text: string; tool_calls?: IToolCall[]; usage?: ITokenUsage }> => {
+  ): Promise<{
+    text: string
+    tool_calls?: IToolCall[]
+    usage?: ITokenUsage
+    sessionId?: string
+  }> => {
     const status = (err as { status?: number } | null)?.status
     const transient = status == null || isRetryableStatus(status)
     if (!transient || fallbackDisabled) {
       llmHttpTotal.inc(1, { result: transient ? 'transient_error' : 'config_error' })
       if (transient) recordLlmFailure(providerKey())
       throw err
+    }
+    // R8.4 pin 禁降级：provider 瞬时故障但模型被显式声明——响亮失败。
+    if (params.modelPinned) {
+      recordLlmFailure(providerKey())
+      llmHttpTotal.inc(1, { result: 'pin_rejected' })
+      log.warn('llm http failed but model is pinned — refusing CLI fallback', {
+        providerId: providerKey(),
+        expectedModel: params.model,
+        status: status ?? null,
+      })
+      params.onDelta?.({
+        type: 'activity',
+        kind: 'status',
+        label: `── 因 pin 拒绝降级（期望模型 ${params.model}）──`,
+      })
+      throw rejectFallbackForPin(params, err)
     }
     recordLlmFailure(providerKey())
     llmHttpTotal.inc(1, { result: 'transient_error' })
@@ -528,13 +754,31 @@ export function createDefaultLlmClient(
   let providerKey = (): string => 'default'
 
   return {
-    async chat(
-      params: CliChatParams,
-    ): Promise<{ text: string; tool_calls?: IToolCall[]; usage?: ITokenUsage }> {
+    async chat(params: CliChatParams): Promise<{
+      text: string
+      tool_calls?: IToolCall[]
+      usage?: ITokenUsage
+      sessionId?: string
+      model?: string
+    }> {
       const provider = await getActiveProvider()
       if (!provider) return cli.chat(params)
       providerKey = () => provider.id
       if (!fallbackDisabled && isLlmCircuitOpen(provider.id)) {
+        // R8.4：pin 的调用熔断期间也不降级（期望模型不可用 = 响亮失败）。
+        if (params.modelPinned) {
+          countLlmFallback(provider.id)
+          llmHttpTotal.inc(1, { result: 'pin_rejected' })
+          params.onDelta?.({
+            type: 'activity',
+            kind: 'status',
+            label: `── 因 pin 拒绝降级（期望模型 ${params.model}，LLM Provider 熔断中）──`,
+          })
+          throw rejectFallbackForPin(
+            params,
+            new Error(`LLM Provider 熔断中（${provider.id}），期望模型 ${params.model}`),
+          )
+        }
         countLlmFallback(provider.id)
         llmHttpTotal.inc(1, { result: 'fallback' })
         log.warn('llm breaker open — serving this chat from CLI', { providerId: provider.id })
@@ -562,6 +806,20 @@ export function createDefaultLlmClient(
       }
       providerKey = () => provider.id
       if (!fallbackDisabled && isLlmCircuitOpen(provider.id)) {
+        // R8.4：pin 的调用熔断期间不降级（同 chat 分支）。
+        if (params.modelPinned) {
+          countLlmFallback(provider.id)
+          llmHttpTotal.inc(1, { result: 'pin_rejected' })
+          params.onDelta?.({
+            type: 'activity',
+            kind: 'status',
+            label: `── 因 pin 拒绝降级（期望模型 ${params.model}，LLM Provider 熔断中）──`,
+          })
+          throw rejectFallbackForPin(
+            params,
+            new Error(`LLM Provider 熔断中（${provider.id}），期望模型 ${params.model}`),
+          )
+        }
         countLlmFallback(provider.id)
         llmHttpTotal.inc(1, { result: 'fallback' })
         log.warn('llm breaker open — serving this stream from CLI', { providerId: provider.id })
@@ -598,6 +856,16 @@ export function createDefaultLlmClient(
             status: status ?? null,
           })
           throw err
+        }
+        // R8.4：pin 的调用首 chunk 前失败也不降级（与 chat 同款响亮失败）。
+        if (params.modelPinned) {
+          llmHttpTotal.inc(1, { result: 'pin_rejected' })
+          params.onDelta?.({
+            type: 'activity',
+            kind: 'status',
+            label: `── 因 pin 拒绝降级（期望模型 ${params.model}）──`,
+          })
+          throw rejectFallbackForPin(params, err)
         }
         if (fallbackDisabled) throw err
         log.warn('llm http stream failed before first chunk — falling back to CLI', {
@@ -665,7 +933,7 @@ export function createLlmClient(
 ): HttpLlmClient {
   return {
     async chat(params) {
-      const { url, headers, body } = await prepareRequest(params, false, override)
+      const { url, headers, body, model: resolvedModel } = await prepareRequest(params, false, override)
       // 瞬时故障重试（稳定性专项 2026-10-04）：429/5xx/网络抖动带退避重试
       //（LLM_HTTP_RETRY_ATTEMPTS 可调，默认 3 次；Retry-After 被尊重），
       // 配置错误 4xx 与外部取消直通。耗尽后仍 5xx 的 Response 原样返回，
@@ -729,11 +997,15 @@ export function createLlmClient(
           }
         : undefined
 
-      return { text, tool_calls, usage }
+      // resolved model（R8 §3.6(c)）：HTTP 路径 = 实际请求 model（prepareRequest
+      // 解析 override.model || params.model || provider.default_model 后的终值）。
+      return { text, tool_calls, usage, model: resolvedModel }
     },
 
     async *chatStream(params): AsyncGenerator<IChatStreamChunk> {
-      const { url, headers, body } = await prepareRequest(params, true, override)
+      // resolved model（R8 §3.6(c)）：HTTP 实际请求的 model 终值——随末个
+      // usage chunk 上抛（流式路径的 resolvedModel 数据源）。
+      const { url, headers, body, model: resolvedModel } = await prepareRequest(params, true, override)
       // Idle watchdog: fires when no byte arrives within the budget — covers
       // both a hung upstream (no first byte) and a stream stalled mid-flight.
       // Every chunk read re-arms the timer, so long healthy streams survive.
@@ -827,6 +1099,8 @@ export function createLlmClient(
                     completion_tokens: frame.usage.completion_tokens,
                     total_tokens: frame.usage.total_tokens,
                   },
+                  // resolved model（R8 §3.6(c)）：随末个 usage chunk 上抛。
+                  model: resolvedModel,
                 }
               }
             } catch {
@@ -852,7 +1126,7 @@ async function prepareRequest(
   },
   stream: boolean,
   override: { providerId?: string; model?: string } = {},
-): Promise<{ url: string; headers: Record<string, string>; body: string }> {
+): Promise<{ url: string; headers: Record<string, string>; body: string; model: string }> {
   // Explicit provider override (canvas generator picking `providerId::model`):
   // bypass the active-provider cache and read that row directly.
   let provider: LlmProviderRow | null
@@ -906,6 +1180,8 @@ async function prepareRequest(
       authorization: `Bearer ${apiKey}`,
     },
     body: JSON.stringify(body),
+    // resolved model（R8 §3.6(c)）：本调用实际请求的 model 终值。
+    model,
   }
 }
 

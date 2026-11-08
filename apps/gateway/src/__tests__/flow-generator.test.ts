@@ -12,6 +12,7 @@ import {
   extractJson,
   normalizeToCanonicalFlow,
   parseSelectedModel,
+  buildWorkflowGeneratorPrompt,
   buildRepairInstruction,
   combineEngineFailure,
   generateFlow,
@@ -380,5 +381,150 @@ describe('combineEngineFailure', () => {
     const err = combineEngineFailure(new Error('a'), new Error('b'))
     expect(err.message.startsWith('CLI 生成失败：a；')).toBe(true)
     expect(err.message).not.toContain('Error:')
+  })
+})
+
+// ── R4 权限声明 · 生成器半边（2026-10-08 测试补齐，AC-R4-6）────────────────
+// 钉「模板中心与生成器产物全量带声明」的三段链条：prompt 教 LLM 产出声明 →
+// normalize 保真透传（不丢字段）→ 声明非法进修复轮（校验器强制而非自觉）。
+
+describe('R4 权限声明（生成器半边）', () => {
+  it('prompt 规则教 LLM 产出声明：http 节点 allowedDomains + customFunction $exec 白名单（§3.4.1）', () => {
+    const prompt = buildWorkflowGeneratorPrompt('测试描述', [], [])
+    // http 节点域名清单规则（请求与重定向都受清单约束）
+    expect(prompt).toContain('httpAgentflow')
+    expect(prompt).toContain('data.inputs.allowedDomains')
+    expect(prompt).toMatch(/redirects are rejected on any other host/)
+    // customFunction $exec 白名单规则（缺席 = 通道不可用）
+    expect(prompt).toContain('data.inputs.allowedCommands')
+    expect(prompt).toContain('$exec() is unavailable without it')
+  })
+
+  it('normalizeToCanonicalFlow 保真透传权限声明（§3.4.2 ...data 展开钉子——平铺形态）', () => {
+    const raw = {
+      nodes: [
+        { id: 'node_1', type: 'customNode', data: { name: 'startAgentflow', label: 'Start' } },
+        {
+          id: 'node_2',
+          type: 'customNode',
+          data: {
+            name: 'httpAgentflow',
+            label: '查 API',
+            url: 'https://api.github.com/x',
+            allowedDomains: ['api.github.com'],
+          },
+        },
+        {
+          id: 'node_3',
+          type: 'customNode',
+          data: {
+            name: 'customFunctionAgentflow',
+            label: '跑命令',
+            functionCode: 'return 1',
+            allowedCommands: ['git', 'rg'],
+          },
+        },
+      ],
+      edges: [
+        { id: 'e1', source: 'node_1', target: 'node_2' },
+        { id: 'e2', source: 'node_2', target: 'node_3' },
+      ],
+    }
+    const { flowData, droppedNodes } = normalizeToCanonicalFlow(raw)
+    expect(droppedNodes).toEqual([])
+    const http = flowData.nodes.find((n) => n.id === 'node_2')?.data as Record<string, unknown>
+    const fn = flowData.nodes.find((n) => n.id === 'node_3')?.data as Record<string, unknown>
+    // 逐字保真：改名/丢字段 = 生成产物声明静默蒸发（下游守卫拒跑 / $exec 消失）
+    expect(http.allowedDomains).toEqual(['api.github.com'])
+    expect(fn.allowedCommands).toEqual(['git', 'rg'])
+  })
+
+  it('嵌套 data.inputs 形态的声明同样保真（AI 常给嵌套形态）', () => {
+    const raw = {
+      nodes: [
+        { id: 'node_1', type: 'customNode', data: { name: 'startAgentflow', label: 'Start' } },
+        {
+          id: 'node_2',
+          type: 'customNode',
+          data: {
+            name: 'httpAgentflow',
+            label: 'H',
+            inputs: { url: 'https://api.test/x', allowedDomains: ['api.test'] },
+          },
+        },
+      ],
+      edges: [{ id: 'e1', source: 'node_1', target: 'node_2' }],
+    }
+    const { flowData } = normalizeToCanonicalFlow(raw)
+    const http = flowData.nodes.find((n) => n.id === 'node_2')?.data as {
+      inputs?: Record<string, unknown>
+    }
+    expect(http.inputs?.allowedDomains).toEqual(['api.test'])
+  })
+
+  it('修复循环吃声明错误：invalid allowedDomains → repair 轮收到声明错误 → 修正后成功（§3.4.4）', async () => {
+    const withDeclaration = (domains: unknown) => ({
+      nodes: [
+        {
+          id: 'node_1',
+          type: 'customNode',
+          position: { x: 0, y: 0 },
+          data: { name: 'startAgentflow', label: 'Start' },
+        },
+        {
+          id: 'node_2',
+          type: 'customNode',
+          position: { x: 250, y: 0 },
+          data: {
+            name: 'httpAgentflow',
+            label: '查 API',
+            url: 'https://api.github.com/x',
+            allowedDomains: domains,
+          },
+        },
+        {
+          id: 'node_3',
+          type: 'customNode',
+          position: { x: 500, y: 0 },
+          data: { name: 'directReplyAgentflow', label: 'Reply', content: 'ok' },
+        },
+      ],
+      edges: [
+        { id: 'e1', source: 'node_1', target: 'node_2' },
+        { id: 'e2', source: 'node_2', target: 'node_3' },
+      ],
+    })
+    // 首产物：声明写成非数组（invalid）；修复产物：合法数组。拓扑本身合法
+    // ——第一轮唯一 error 是权限声明（生成侧「全量带声明」由校验器强制）
+    const outputs = [
+      JSON.stringify(withDeclaration('api.github.com')),
+      JSON.stringify(withDeclaration(['api.github.com'])),
+    ]
+    let call = 0
+    const calls: { role: string; content: string }[][] = []
+    const { deps, attempts } = makeDeps({
+      callEngine: async (_engine, messages) => {
+        calls.push(messages as { role: string; content: string }[])
+        return { text: outputs[call++]!, engineUsed: 'test-engine' }
+      },
+    })
+
+    const result = await generateFlow({ userDesc: '查仓库', source: 'chat' }, deps)
+
+    expect(result.status).toBe('success')
+    if (result.status === 'success') expect(result.repairRounds).toBe(1)
+    // repair 指令携带的是**声明错误**（错误文案含 allowedDomains 字面量）
+    expect(calls).toHaveLength(2)
+    const repairContent = calls[1]!.map((m) => m.content).join('\n')
+    expect(repairContent).toContain('allowedDomains 声明非法')
+    expect(attempts[0]!.outcome).toBe('success')
+    // 最终产物的声明逐字保留
+    if (result.status === 'success') {
+      const http = result.flowData.nodes.find((n) => n.id === 'node_2')?.data as Record<
+        string,
+        unknown
+      >
+      expect(http.allowedDomains).toEqual(['api.github.com'])
+    }
   })
 })

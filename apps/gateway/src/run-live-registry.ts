@@ -42,18 +42,56 @@ interface RunLiveEntry {
   ended: boolean
   finalStatus?: string
   subscribers: Set<(frame: RunLiveFrame) => void>
+  /**
+   * per-run 单调全序计数器（R7，design-recover §3.4(a)，AD-R5）：emit()
+   * 单点分配 `frame.seq`——live 帧与 journal 行共用同一取号空间，跨源排序
+   * 不依赖墙钟；decision 行取号同源（journal-writer 经 allocRunLiveSeq）。
+   * run 执行的帧发射都在 gateway 进程内串行（引擎钩子同步语义），无跨进程
+   * 取号（单写者模型，(run_id, seq) 唯一索引只是抢号保险丝）。
+   */
+  seqCounter: number
 }
 
 /** 引擎侧的发射入口（assembleWorkflowEngine 组合钩子时持有）。 */
 export interface RunLiveTap {
-  nodeStart: (node: { nodeId: string; nodeName: string }) => void
+  nodeStart: (node: { nodeId: string; nodeName: string; ordinal?: number }) => void
   nodeEnd: (node: IExecutedNode) => void
   delta: (node: { nodeId: string; nodeName: string }, chunk: IStreamDelta) => void
-  /** run settle（终态写入 runs 行时调用；status 与 runs 行一致）。 */
-  finish: (status: string) => void
+  /** run settle（终态写入 runs 行时调用；status 与 runs 行一致）。
+   *  stopReason（R3.5 最小实现，design-recover §3.3(e)）：stopped/failed 行的
+   *  中止来源（user/interrupted/superseded/model/provider）——runEnd 帧携带，
+   *  客户端据此过滤 superseded 等不该产生用户可见通知的终态。 */
+  finish: (status: string, stopReason?: string) => void
+}
+
+/**
+ * journal 持久层挂点（R7，design-recover §3.4；实现 = journal-writer.ts，
+ * registry 只依赖此接口）：`run_node_journal` 是本协议帧流的持久层——
+ *  - 结构帧（nodeStart/nodeEnd/runEnd）write-through：captureStructural
+ *    resolve 后 registry 才把帧投给缓冲与订阅者（「先落库后发帧」——任意
+ *    kill 时机下回放 ⊇ 客户端已收前缀、至多多一条在途边界帧，AC-R7-1）；
+ *  - delta 帧 write-behind：captureDelta 异步微批落库（崩溃窗口的未落库
+ *    尾部允许丢失，回放侧如实截断呈现）。
+ */
+export interface RunLiveJournalSink {
+  captureStructural(frame: RunLiveFrame): Promise<void>
+  captureDelta(frame: RunLiveFrame): void
 }
 
 const entries = new Map<string, RunLiveEntry>()
+
+/**
+ * decision 行的 seq 取号（journal-writer 用）：与 emit() 同一 per-run 计数器
+ * （AD-R5 单点）——decision 行与 nodeEnd event 行在同一取号空间交错，
+ * (run_id, seq) 唯一索引兜底。entry 惰性存在（journal-writer 与 live tap
+ * 同一装配点创建，同 runId 恒有 entry）。
+ */
+export function allocRunLiveSeq(runId: string): number {
+  const entry = entries.get(runId)
+  if (!entry) throw new Error(`allocRunLiveSeq: no live entry for run ${runId}`)
+  entry.seqCounter += 1
+  return entry.seqCounter
+}
 
 // 水位指标（稳定性专项 2026-10-04）：缓冲截断与条目驱逐从「静默发生的
 // 降级」变成可观测事件——截断意味着晚订阅者丢前缀（回放降级），驱逐
@@ -131,29 +169,48 @@ function trimToCap(entry: RunLiveEntry): void {
   }
 }
 
-function emit(entry: RunLiveEntry, frame: RunLiveFrame): void {
-  // 服务端时间戳（2026-10-01 轨迹时间线）：单点收口打点——真实事件一律
-  // 带入缓冲时刻，客户端把直播与回放事件摆上同一面墙钟；truncated 是
-  // 回放标记不是事件，不打。就地补字段：帧在各 tap 调用点现造现传，
-  // 无共享引用。
-  if (frame.type !== 'truncated') frame.at = new Date().toISOString()
+/** 结构帧 = 需 write-through 先落库后发帧的事件类型（R7 一致性模型）。 */
+const isStructuralFrame = (frame: RunLiveFrame): boolean =>
+  frame.type === 'nodeStart' || frame.type === 'nodeEnd' || frame.type === 'runEnd'
+
+function emit(entry: RunLiveEntry, frame: RunLiveFrame, journal?: RunLiveJournalSink): void {
+  // 服务端时间戳（2026-10-01 轨迹时间线）+ seq（2026-10-07 R7 全序）：
+  // 单点收口打点——真实事件一律带入缓冲时刻与 per-run 单调序号，客户端
+  // 把直播与回放事件摆上同一面墙钟/同一全序；truncated 是回放标记不是
+  // 事件，不打。就地补字段：帧在各 tap 调用点现造现传，无共享引用。
+  if (frame.type !== 'truncated') {
+    frame.at = new Date().toISOString()
+    frame.seq = ++entry.seqCounter
+  }
   // 重开语义：runEnd 之外的任何帧都会唤醒已结束的条目（断点续跑同 runId）。
   if (entry.ended && frame.type !== 'runEnd' && frame.type !== 'truncated') {
     entry.ended = false
     entry.finalStatus = undefined
   }
-  entry.frames.push(frame)
-  entry.approxBytes += frameBytes(frame)
-  entry.updatedAt = Date.now()
-  trimToCap(entry)
-  // 复制遍历：runEnd 送达时订阅方可能当场退订（路由关流）。
-  for (const sub of [...entry.subscribers]) {
-    try {
-      sub(frame)
-    } catch {
-      /* 单个订阅方异常不波及其他 */
+  const deliver = (): void => {
+    entry.frames.push(frame)
+    entry.approxBytes += frameBytes(frame)
+    entry.updatedAt = Date.now()
+    trimToCap(entry)
+    // 复制遍历：runEnd 送达时订阅方可能当场退订（路由关流）。
+    for (const sub of [...entry.subscribers]) {
+      try {
+        sub(frame)
+      } catch {
+        /* 单个订阅方异常不波及其他 */
+      }
     }
   }
+  // 结构帧 write-through（R7 §3.4(b)）：先落库（journal INSERT 排进 per-run
+  // 串行链）再发帧——落库失败也照发（journal 是持久层不是直播闸门，丢失
+  // 由回放侧诚实呈现）。delta 帧 write-behind：入 journal-writer 微批缓冲
+  // 后立即发帧。无 journal 挂点（旧装配/测试）行为不变。
+  if (journal && isStructuralFrame(frame)) {
+    journal.captureStructural(frame).then(deliver, deliver)
+    return
+  }
+  if (journal && frame.type === 'delta') journal.captureDelta(frame)
+  deliver()
 }
 
 /** IStreamDelta → 契约帧（显式映射，杜绝 contracts 反向依赖 workflow）。 */
@@ -191,11 +248,14 @@ function evictForSlot(): void {
   }
 }
 
-/** 取（或惰性创建）run 的发射入口。assembleWorkflowEngine 装配时调用一次。 */
+/** 取（或惰性创建）run 的发射入口。assembleWorkflowEngine 装配时调用一次。
+ *  journal（R7 §3.4，design-recover）：run_node_journal 持久层挂点——结构帧
+ *  先落库后发帧、delta 帧异步微批；缺省无持久层（行为与既有完全一致）。 */
 export function forRunLive(
   runId: string,
   flowId: string,
   nodeTypeOf?: (nodeId: string) => string | null | undefined,
+  journal?: RunLiveJournalSink,
 ): RunLiveTap {
   startSweeper()
   let entry = entries.get(runId)
@@ -212,12 +272,25 @@ export function forRunLive(
       truncationLogged: false,
       ended: false,
       subscribers: new Set(),
+      seqCounter: 0,
     }
     entries.set(runId, entry)
   }
   return {
     nodeStart: (n) => {
-      emit(entry, { type: 'nodeStart', nodeId: n.nodeId, nodeName: n.nodeName, nodeType: nodeTypeOf?.(n.nodeId) ?? null })
+      emit(
+        entry,
+        {
+          type: 'nodeStart',
+          nodeId: n.nodeId,
+          nodeName: n.nodeName,
+          nodeType: nodeTypeOf?.(n.nodeId) ?? null,
+          // 2026-10-07 地基：per-node 实例序号（AD-R4）随帧透传——终端 stdin
+          // 行 `nodeId[ordinal]` 与并发迭代插话寻址用；缺省 0。
+          ...(n.ordinal != null ? { ordinal: n.ordinal } : {}),
+        },
+        journal,
+      )
     },
     nodeEnd: (en) => {
       const durationMs = Math.max(
@@ -228,25 +301,38 @@ export function forRunLive(
         type: 'nodeEnd',
         nodeId: en.nodeId,
         nodeName: en.nodeName,
-        status: en.status === 'failed' ? 'failed' : 'done',
+        // 2026-10-07 地基：cached（种子命中跳过）作为独立帧终态（契约枚举
+        // 追加，帧形状不变——console 双 builder 兼容）；rejected（工程决策
+        // 9d，design-sharp §2.4）= 声明型超限拒绝的可重试黄警档。
+        status:
+          en.status === 'failed'
+            ? 'failed'
+            : en.status === 'cached'
+              ? 'cached'
+              : en.status === 'rejected'
+                ? 'rejected'
+                : 'done',
       }
       if (en.error) frame.error = en.error
       if (Number.isFinite(durationMs)) frame.durationMs = durationMs
-      emit(entry, frame)
+      if (en.ordinal != null) frame.ordinal = en.ordinal
+      emit(entry, frame, journal)
     },
     delta: (n, chunk) => {
       // 与 span-writer 同款噪音闸：空文本 / 空 label 且无 detail 的活动不发射。
       if (chunk.type === 'text' && chunk.text.length === 0) return
       if (chunk.type === 'activity' && chunk.label.length === 0 && chunk.detail == null) return
-      emit(entry, toDeltaFrame(n, chunk))
+      emit(entry, toDeltaFrame(n, chunk), journal)
     },
-    finish: (status) => {
+    finish: (status, stopReason) => {
       // 幂等：终态可能从多条路径收口（正常 settle + 异常 catch 兜底），
       // 已 ended 再 finish 直接吞掉，不重发 runEnd（重开由 emit 的非 runEnd 帧负责）。
       if (!entries.has(runId) || entry.ended) return
       entry.ended = true
       entry.finalStatus = status
-      emit(entry, { type: 'runEnd', status })
+      const frame: RunLiveFrame = { type: 'runEnd', status }
+      if (stopReason != null) frame.stopReason = stopReason
+      emit(entry, frame, journal)
     },
   }
 }

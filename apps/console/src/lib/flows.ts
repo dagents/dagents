@@ -85,18 +85,24 @@ export type Chatflow = z.infer<typeof chatflowSchema>
 
 // ─── Console domain types ───────────────────────────────────────────────────
 
-/** Node-card status the design colors (design/js/flows-data.js STATUS set). */
-export type NodeRunStatus = 'running' | 'done' | 'failed' | 'queued' | 'idle' | 'paused'
+/** Node-card status the design colors (design/js/flows-data.js STATUS set).
+ *  2026-10-08 更名（验收遗留 #6a 收敛）：历史名 NodeRunStatus 与 flow-canvas
+ *  kit 的同名类型撞名（dev-notes 双轨注记）——kit 的 `NodeRunStatus`
+ * （'waiting' 词汇、画布徽章域）是唯一持有者；本域（卡片/词条域）改用
+ *  准确名 NodeCardStatus，语义与词表零变化。 */
+export type NodeCardStatus = 'running' | 'done' | 'failed' | 'queued' | 'idle' | 'paused' | 'cached'
 
 /** 节点/run 状态中文词条（t() 的 key，en 词典翻译）—— flows-view 与
  *  flow-dag 共用的单一来源，此前两处各抄一份。 */
-export const NODE_STATUS_CN: Record<NodeRunStatus, string> = {
+export const NODE_STATUS_CN: Record<NodeCardStatus, string> = {
   running: '运行',
   done: '完成',
   failed: '失败',
   queued: '排队',
   paused: '人工暂停',
   idle: '未触发',
+  // 2026-10-07 R2（design-recover §4.2）：暖缓存/种子命中——独立徽章态。
+  cached: '来自缓存',
 }
 
 /** Chinese label for a node-span status (the M6.4 domain adds `unknown`). */
@@ -112,7 +118,7 @@ export const SPAN_STATUS_CN: Record<string, string> = {
  * failed; `STOPPED` → paused. Anything unrecognized maps to `idle` (the default
  * for a node that hasn't run in this execution).
  */
-export function mapExecutionState(state: string | undefined): NodeRunStatus {
+export function mapExecutionState(state: string | undefined): NodeCardStatus {
   switch (state) {
     case 'INPROGRESS':
       return 'running'
@@ -148,7 +154,7 @@ export interface FlowNodeView {
   /** React Flow node `type` (e.g. `customNode`, `Agent`…). */
   type: string
   position: { x: number; y: number }
-  status: NodeRunStatus
+  status: NodeCardStatus
   /** 节点配置（model, systemPrompt, prompt, agentId 等）—来自 flowData.nodes[i].data */
   config?: Record<string, unknown>
   /** 节点类型描述（来自 CanvasNodeMeta.description） */
@@ -169,7 +175,7 @@ export interface FlowEdgeView {
 /** The per-node run metrics shown in the inspector. */
 export interface NodeRunMetrics {
   nodeId: string
-  status: NodeRunStatus
+  status: NodeCardStatus
   /** Most recent execution id that touched this node, if any. */
   executionId?: string
   /** Per-node log lines (from the executed node `data`). */
@@ -184,7 +190,7 @@ export interface FlowDetailView {
   /** Short version hash (repro snapshot, if available; else ''). */
   versionHash: string
   /** Overall flow status — derived from the latest execution's state. */
-  status: NodeRunStatus
+  status: NodeCardStatus
   /** Most recent execution id for this flow, if any. */
   latestExecutionId?: string
   /**
@@ -207,7 +213,7 @@ export interface FlowSummary {
   id: string
   name: string
   type: string
-  status: NodeRunStatus
+  status: NodeCardStatus
   nodeCount: number
   updatedAt: string
   /**
@@ -251,7 +257,7 @@ export interface FlowSummary {
  * the last is the most recent status). `executionData` may be a JSON string or
  * an already-parsed array; both are handled. A malformed value yields `{}`.
  */
-export function nodeStatusFromExecution(exec: Execution): Record<string, NodeRunStatus> {
+export function nodeStatusFromExecution(exec: Execution): Record<string, NodeCardStatus> {
   const data = exec.executionData
   let arr: ExecutedNode[] = []
   if (Array.isArray(data)) {
@@ -264,7 +270,7 @@ export function nodeStatusFromExecution(exec: Execution): Record<string, NodeRun
       arr = []
     }
   }
-  const out: Record<string, NodeRunStatus> = {}
+  const out: Record<string, NodeCardStatus> = {}
   for (const entry of arr) {
     if (!entry?.nodeId) continue
     // last entry wins (most recent status for that node)
@@ -391,7 +397,7 @@ export function summarizeFlows(
   return flows.map((f) => {
     const execs = executionsByFlow[f.id] ?? []
     const latest = latestExecution(execs)
-    const status: NodeRunStatus = latest ? mapExecutionState(latest.state) : 'idle'
+    const status: NodeCardStatus = latest ? mapExecutionState(latest.state) : 'idle'
     const dag = parseFlowData(f.flowData)
     return {
       id: f.id,

@@ -81,3 +81,26 @@
 .wf-run-badge svg { width: 11px; height: 11px; }
 .wf-run-warn-flag { display: inline-flex; align-items: center; gap: 3px; }
 .wf-run-warn-flag svg { width: 11px; height: 11px; }
+
+/* ── run 级终态词（AC-R1-6 第三消费点，2026-10-08）：收尾定格的整卡状态
+   chip——stopped 中性（细分见 title）、cancelled 双读、partial/budget 黄。 ── */
+.wf-run-state {
+  font-size: var(--text-xs);
+  flex-shrink: 0;
+  padding: 0 6px;
+  border-radius: 999px;
+  border: 1px solid var(--border, #d8d8dc);
+  color: var(--muted);
+  white-space: nowrap;
+}
+.wf-run-state.st-stopped,
+.wf-run-state.st-cancelled {
+  color: var(--muted);
+  background: var(--bg-inset, #f4f4f5);
+}
+.wf-run-state.st-partial_success,
+.wf-run-state.st-budget_exceeded {
+  color: #a16207;
+  border-color: rgba(250, 204, 21, 0.45);
+  background: rgba(250, 204, 21, 0.12);
+}

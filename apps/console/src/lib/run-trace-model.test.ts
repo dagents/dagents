@@ -25,6 +25,7 @@ function span(p: Partial<RunNodeSpan> & { nodeId: string }): RunNodeSpan {
     nodeId: p.nodeId,
     nodeLabel: p.nodeLabel ?? null,
     nodeType: p.nodeType ?? 'llmAgentflow',
+    ordinal: p.ordinal ?? 0,
     status: p.status ?? 'done',
     error: p.error ?? null,
     startedAt: p.startedAt ?? null,
@@ -349,5 +350,120 @@ describe('直播与回放一致性（同一执行两路数据源）', () => {
     })
     expect(fromLive.records.map((r) => r.kind)).toEqual(fromSpans.records.map((r) => r.kind))
     expect(fromLive.records.map((r) => r.atMs)).toEqual(fromSpans.records.map((r) => r.atMs))
+  })
+})
+
+// ── 跨源一致性（AC-R7-4，design-recover §⑥：帧流 vs journal 行 → 同一模型）──
+// journal 的 event 行 payload = RunLiveFrame 原样（含 at/seq 原值，不重打）；
+// 回放 = 行按 seq 排序后重放进同一 builder。本测试锚定「payload 序列化往返
+// + 按 seq 排序（模拟 ORDER BY seq 的乱序输入）」后双 builder 产出逐字节一致。
+describe('跨源一致（R7：帧流 vs journal 回放，AC-R7-4）', () => {
+  const mkFrames = (): RunLiveFrame[] => [
+    { type: 'nodeStart', nodeId: 'n1', nodeName: 'LLM 1', nodeType: 'llmAgentflow', at: '2026-10-01T10:00:00.000Z', seq: 1, ordinal: 0 },
+    { type: 'delta', nodeId: 'n1', nodeName: 'LLM 1', at: '2026-10-01T10:00:01.000Z', seq: 2, delta: { type: 'text', text: '部分' } },
+    { type: 'nodeEnd', nodeId: 'n1', nodeName: 'LLM 1', at: '2026-10-01T10:00:02.000Z', seq: 3, status: 'done', durationMs: 2000, ordinal: 0 },
+    { type: 'nodeStart', nodeId: 'n2', nodeName: 'LLM 2', nodeType: 'llmAgentflow', at: '2026-10-01T10:00:02.500Z', seq: 4, ordinal: 0 },
+    { type: 'nodeEnd', nodeId: 'n2', nodeName: 'LLM 2', at: '2026-10-01T10:00:03.000Z', seq: 5, status: 'cached', durationMs: 0, ordinal: 0 },
+    { type: 'runEnd', at: '2026-10-01T10:00:03.500Z', seq: 6, status: 'completed' },
+  ]
+
+  it('journal payload 往返 + 按 seq 排序 → 与直播产出逐字节一致', () => {
+    const frames = mkFrames()
+    // 直播路：按发射序 push。
+    const liveBuilder = createLiveTraceBuilder()
+    for (const f of frames) liveBuilder.push(f)
+    // journal 路：payload JSON 往返（DB jsonb 存取等价）+ 乱序输入按 seq 排序
+    //（回放端 ORDER BY seq 的客户端侧模拟）后 push。
+    const journalBuilder = createLiveTraceBuilder()
+    const roundTripped = frames
+      .map((f) => JSON.parse(JSON.stringify(f)) as RunLiveFrame)
+      .reverse()
+      .sort((a, b) => ((a as { seq?: number }).seq ?? 0) - ((b as { seq?: number }).seq ?? 0))
+    for (const f of roundTripped) journalBuilder.push(f)
+    expect(JSON.stringify(journalBuilder.model())).toBe(JSON.stringify(liveBuilder.model()))
+  })
+
+  it('cached 终态透传（R2 §4.2）：nodeEnd(cached) → lane.status=cached 零时长段', () => {
+    const builder = createLiveTraceBuilder()
+    for (const f of mkFrames()) builder.push(f)
+    const model = builder.model()
+    const lane = model.nodes.find((n) => n.nodeId === 'n2')
+    expect(lane?.status).toBe('cached')
+    expect(lane?.durationMs).toBe(0)
+  })
+})
+
+/* ── R5 三值裁决（2026-10-08）：verdict 记录进台账（DB 路 + 直播路）── */
+
+describe('verdict 裁决记录（R5，2026-10-08）', () => {
+  it('DB 路：span events 的 verdict 行 → 台账记录（专有 kind，违规明细在 detail）', () => {
+    const trace = buildTraceFromSpans([
+      span({
+        nodeId: 'n1',
+        nodeLabel: '评审',
+        nodeType: 'platformAgentAgentflow',
+        status: 'done',
+        startedAt: iso(T0),
+        finishedAt: iso(T0 + 3000),
+        durationMs: 3000,
+        output: {
+          events: [
+            {
+              kind: 'verdict',
+              label: '第 1 轮裁决：violations（2 项违规）',
+              detail: '- $.decision：期望 ["accept","reject"]，实际 "maybe"',
+              at: iso(T0 + 100),
+            },
+            {
+              kind: 'verdict',
+              label: '第 2 轮裁决：accept（合规收下）',
+              at: iso(T0 + 200),
+            },
+          ],
+        },
+      }),
+    ])
+    const verdicts = trace.records.filter((r) => r.kind === 'verdict')
+    expect(verdicts).toHaveLength(2)
+    expect(verdicts[0]!.label).toContain('violations')
+    expect(verdicts[0]!.detail).toContain('$.decision')
+    expect(verdicts[1]!.label).toContain('accept')
+    // 台账全局序：nodeStart → 两轮裁决 → nodeEnd
+    expect(trace.records.map((r) => r.kind)).toEqual(['nodeStart', 'verdict', 'verdict', 'nodeEnd'])
+  })
+
+  it('直播路：verdict 帧保持专有 kind（与未知 kind 降级 log 形成对照）', () => {
+    const b = createLiveTraceBuilder()
+    b.push({
+      type: 'nodeStart',
+      nodeId: 'n1',
+      nodeName: '评审',
+      nodeType: 'platformAgentAgentflow',
+      at: iso(T0),
+    })
+    b.push({
+      type: 'delta',
+      nodeId: 'n1',
+      nodeName: '评审',
+      delta: {
+        type: 'activity',
+        kind: 'verdict',
+        label: '第 2 轮 · 违规修复回喂（会话重建·对话回放）',
+        detail: '你上一条输出不符合节点 outputSchema…',
+      },
+      at: iso(T0 + 50),
+    })
+    b.push({
+      type: 'delta',
+      nodeId: 'n1',
+      nodeName: '评审',
+      delta: { type: 'activity', kind: 'future-kind', label: 'x' },
+      at: iso(T0 + 60),
+    })
+    const m = b.model()
+    const kinds = m.records.filter((r) => r.kind !== 'nodeStart').map((r) => r.kind)
+    // verdict 专有台账行；未知 kind 才降级 log（F8 兜底对照）
+    expect(kinds).toEqual(['verdict', 'log'])
+    expect(m.records[1]!.isError).toBe(false)
   })
 })

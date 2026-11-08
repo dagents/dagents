@@ -15,3 +15,6 @@ gui-test-screenshots/
 .gstack/
 .DS_Store
 backups/
+
+# zcode 会话目录（工作流运行时产物，不入库）
+.zcode/

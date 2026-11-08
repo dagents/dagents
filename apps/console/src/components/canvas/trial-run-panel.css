@@ -1,0 +1,218 @@
+/* 试运行面板（R10，design-sharp §4.2）——就近 import，遵守孤儿 CSS 护栏。 */
+
+.trial-panel-backdrop {
+  position: fixed;
+  inset: 0;
+  background: rgba(15, 15, 15, 0.45);
+  display: flex;
+  align-items: flex-start;
+  justify-content: center;
+  padding: 6vh 16px 16px;
+  z-index: 60;
+}
+
+.trial-panel {
+  background: var(--bg-elevated, #1c1c1e);
+  color: var(--text, #e8e8e8);
+  border: 1px solid var(--border, #333);
+  border-radius: 10px;
+  width: min(640px, 100%);
+  max-height: 86vh;
+  overflow-y: auto;
+  padding: 14px 16px 16px;
+  display: flex;
+  flex-direction: column;
+  gap: 12px;
+}
+
+.trial-panel-head {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  font-size: 14px;
+}
+
+.trial-panel-close,
+.trial-rule-remove {
+  background: none;
+  border: none;
+  color: var(--meta, #888);
+  font-size: 16px;
+  cursor: pointer;
+  padding: 0 4px;
+}
+.trial-panel-close:hover,
+.trial-rule-remove:hover {
+  color: var(--danger, #e5484d);
+}
+
+.trial-field {
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+  font-size: 12px;
+}
+.trial-field > span {
+  color: var(--meta, #999);
+}
+
+.trial-field textarea,
+.trial-field input,
+.trial-rule-row input,
+.trial-rule-row select,
+.trial-human-row input,
+.trial-fallback textarea {
+  background: var(--bg, #141416);
+  border: 1px solid var(--border, #333);
+  border-radius: 6px;
+  color: inherit;
+  font-size: 12px;
+  padding: 6px 8px;
+  width: 100%;
+  box-sizing: border-box;
+}
+
+.trial-seed-row {
+  display: grid;
+  grid-template-columns: 140px 1fr;
+  gap: 8px;
+  align-items: start;
+}
+.trial-seed-row code {
+  font-size: 11px;
+  word-break: break-all;
+  color: var(--meta, #aaa);
+  padding-top: 4px;
+}
+
+.trial-rule-row {
+  display: grid;
+  grid-template-columns: 150px 1fr 100px auto;
+  gap: 6px;
+  align-items: center;
+}
+.trial-rule-row textarea {
+  grid-column: 1 / -1;
+  background: var(--bg, #141416);
+  border: 1px solid var(--border, #333);
+  border-radius: 6px;
+  color: inherit;
+  font-size: 12px;
+  padding: 6px 8px;
+}
+.trial-rule-row textarea:disabled {
+  opacity: 0.45;
+}
+
+.trial-rule-add {
+  align-self: flex-start;
+  background: none;
+  border: 1px dashed var(--border, #444);
+  border-radius: 6px;
+  color: var(--meta, #aaa);
+  cursor: pointer;
+  font-size: 12px;
+  padding: 4px 10px;
+}
+.trial-rule-add:hover {
+  color: inherit;
+  border-color: var(--meta, #888);
+}
+
+.trial-fallback {
+  display: flex;
+  flex-direction: column;
+  gap: 4px;
+  font-size: 12px;
+}
+
+.trial-check {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  font-size: 13px;
+  cursor: pointer;
+}
+
+.trial-hint {
+  color: var(--warn, #f5a623);
+  font-size: 11px;
+  margin-top: -6px;
+}
+
+.trial-human-row {
+  display: grid;
+  grid-template-columns: 1fr 1fr auto;
+  gap: 6px;
+}
+
+.trial-error {
+  border: 1px solid var(--danger, #e5484d);
+  border-radius: 8px;
+  color: var(--danger-text, #ff6369);
+  font-size: 12px;
+  padding: 8px 10px;
+}
+.trial-error ul {
+  margin: 6px 0 0 16px;
+}
+
+.trial-actions {
+  display: flex;
+  justify-content: flex-end;
+  gap: 8px;
+}
+.trial-actions button {
+  border-radius: 8px;
+  border: 1px solid var(--border, #3a3a3c);
+  background: none;
+  color: inherit;
+  cursor: pointer;
+  font-size: 13px;
+  padding: 7px 14px;
+}
+.trial-actions .trial-start {
+  background: var(--primary, #4f46e5);
+  border-color: transparent;
+  color: #fff;
+}
+.trial-actions .trial-start:disabled {
+  opacity: 0.55;
+  cursor: default;
+}
+
+.trial-evidence {
+  border-top: 1px solid var(--border, #333);
+  padding-top: 10px;
+  font-size: 12px;
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+}
+.trial-evidence-head {
+  color: var(--meta, #aaa);
+}
+.trial-evidence-warn {
+  color: var(--warn, #f5a623);
+  margin-left: 8px;
+}
+.trial-calls {
+  list-style: none;
+  margin: 0;
+  padding: 0;
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+}
+.trial-calls pre {
+  background: var(--bg, #141416);
+  border: 1px solid var(--border, #2a2a2c);
+  border-radius: 6px;
+  font-size: 11px;
+  margin: 4px 0 0;
+  max-height: 180px;
+  overflow: auto;
+  padding: 8px;
+  white-space: pre-wrap;
+  word-break: break-all;
+}

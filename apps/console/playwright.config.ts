@@ -69,6 +69,10 @@ export default defineConfig({
       stdout: 'ignore',
       stderr: 'pipe',
       cwd: __dirname,
+      // NEXT_DIST_DIR：e2e 的 next dev 写独立构建目录 —— 与 dev console 共写
+      // .next 曾把两边同时打烂（2026-10-09：dev 全站 500 → 桌面附加判定失败
+      // 连锁让位）。next.config.mjs 的 NEXT_DIST_DIR 隔离机制（E-17）复用。
+      env: { ...process.env, NEXT_DIST_DIR: '.next-e2e' },
     },
   ],
 })

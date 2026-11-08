@@ -14,6 +14,12 @@
  *     CONTROL channel (find + abort + await settle).
  *   - One execution per chat at a time (the existing model); runId is the
  *     secondary key used by workflow-run cancels.
+ *
+ * ── 红线论证互引（2026-10-07 R9a）──────────────────────────────────────
+ * 「持久表只会说谎」的完整论证与挂起双轨制的边界判据表见 ADR：
+ * docs/superpowers/specs/2026-10-07-pending-state-in-memory-red-line.md
+ * （本 registry 与 pendingByChat / run-live-registry / trial-registry /
+ * run-notify claim 同属「进程内 = 控制通道，DB = 状态真相源」模型。）
  */
 import { createLogger } from '@dagents/shared'
 import { declareGauge } from './lib/metrics.js'
@@ -42,7 +48,16 @@ export interface ExecutionHandle {
    * kinds without CLI sinks (inline chat). Sync ack — the HTTP reply IS the
    * receipt: sent / unsupported (no bidirectional channel) / not_running.
    */
-  sendToNode?(nodeId: string, text: string): 'sent' | 'unsupported' | 'not_running'
+  /**
+   * 插话寻址（R8.5，design-recover §3.6(e)）：ordinal 缺省 = 该 nodeId 唯一
+   * 活跃实例直达；并发迭代多实例并存时返回 'ambiguous'（路由层 409 + 活跃
+   * 实例清单，客户端列供选择）。
+   */
+  sendToNode?(
+    nodeId: string,
+    text: string,
+    ordinal?: number,
+  ): 'sent' | 'unsupported' | 'not_running' | 'ambiguous'
   /** Resolves when the execution has fully settled (persisted + broadcast). */
   done: Promise<void>
 }

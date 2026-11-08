@@ -13,6 +13,8 @@ import { chatCancelRoutes, runCancelRoutes } from './routes/execution-cancel.js'
 import { runLiveRoutes } from './routes/execution-live.js'
 import { runMessageRoutes } from './routes/execution-message.js'
 import { runResumeRoutes } from './routes/execution-resume.js'
+// 画布试运行（R10）：POST /workflows/:id/trial + GET /runs/:runId/trial-calls
+import { workflowTrialRoutes, trialCallsRoutes } from './routes/workflow-trial.js'
 import { llmProviderRoutes } from './routes/llm-providers.js'
 import { workflowsRoutes } from './routes/workflows.js'
 import { runsRoutes } from './routes/runs.js'
@@ -236,6 +238,11 @@ app.route('/api/v1/workflows', runMessageRoutes)
 app.route('/api/v1/workflows', runLiveRoutes)
 // 断点续跑（§6.5）：GET checkpoint / POST resume / POST answer
 app.route('/api/v1/workflows', runResumeRoutes)
+// 画布试运行（R10，design-sharp §3.4-④）：POST /workflows/:id/trial（fake
+// llmClient 注入 + source='trial' 隔离写入口径）；trial-calls 证据端点挂
+// /api/v1/runs 前缀（契约路径 GET /api/v1/runs/:runId/trial-calls）。
+app.route('/api/v1/workflows', workflowTrialRoutes)
+app.route('/api/v1/runs', trialCallsRoutes)
 
 /**
  * LLM Provider CRUD API: llm provider list + detail + create + update + delete + test.

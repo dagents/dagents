@@ -15,6 +15,15 @@
  * The pending state is deliberately in-memory (single-process gateway, local
  * mode): a gateway restart or a HUMAN_INPUT_TIMEOUT_MS expiry (default 5min)
  * fails the node with a clear error instead of hanging the run forever.
+ *
+ * ── 红线论证（2026-10-07 R9a 收编）─────────────────────────────────────
+ * 「持久表只会说谎」：挂起态的真相是进程内的 Promise——若把「挂起中」写进
+ * 持久表，重启后表说「可继续」而兑现承诺的执行上下文已死（诚实失败优于
+ * 假承诺）。本文件是 chat SSE 内存挂起轨（兑现者 = 同连接的下一条消息）；
+ * 画布/answer 走持久 checkpoint 轨（兑现者 = resume/应答回流的新执行）。
+ * 两轨边界判据表与完整论证见 ADR：
+ * docs/superpowers/specs/2026-10-07-pending-state-in-memory-red-line.md
+ * 补偿机制（历史不说谎）：markOrphanedHumanInputs + boot sweep。
  */
 
 import { createLogger } from '@dagents/shared'

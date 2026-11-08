@@ -25,7 +25,10 @@ interface RunRow {
   runId: string
   flowId: string | null
   status: string
-  source: 'chat' | 'canvas'
+  /** 触发来源（R10 source 列）：chat/canvas/resume/answer/trial——暖缓存
+   *  lineage chip 的判据（resumedFromRunId 非空且 source 非 resume/answer
+   *  = 暖缓存重跑谱系，R2.5）；旧网关缺席按 chat_id 派生（gateway 侧兜底）。 */
+  source: 'chat' | 'canvas' | 'resume' | 'answer' | 'trial'
   startedAt: string | null
   durationMs: number | null
   inputPreview: string | { input?: string } | null
@@ -40,17 +43,10 @@ interface RunRow {
   resumedFromRunId?: string | null
 }
 
-const STATUS_LABEL: Record<string, string> = {
-  completed: '已完成',
-  failed: '失败',
-  cancelled: '已取消',
-  running: '运行中',
-  pending: '排队中',
-  // 2026-10-04 引擎新终态：失败分支隔离 / token 预算停机
-  partial_success: '部分成功',
-  budget_exceeded: '预算停机',
-  awaiting_input: '等待输入',
-}
+// 终态/状态词表单源（2026-10-07 R3.6，design-recover §4.1 第 4 点）：
+// 从 lib/run-status.ts 导入——九态 + stopped（写新）/cancelled（存量双读），
+// 四消费点同一批改齐，禁再回填本地清单。
+import { STATUS_LABEL } from '@/lib/run-status'
 
 /** 节点类型画像（/api/workflows/:id/analytics 的 nodeTypes 行）。 */
 interface NodeTypeStat {
@@ -223,7 +219,17 @@ export function FlowRunsPanel({
                 <span className="chip chip-outline flow-runs-source">
                   {r.source === 'chat' ? t('聊天') : t('画布')}
                 </span>
-                {isResume ? (
+                {isResume && r.source !== 'resume' && r.source !== 'answer' ? (
+                  // 暖缓存谱系（2026-10-07 R2.5，AC-R2-5）：暖缓存重跑写谱系指向
+                  // 被重跑 run（R2.1 定稿）——source 仍是 canvas/chat，与 resume
+                  // 专用谱系（↩ 续跑 chip）区分。
+                  <span
+                    className="chip chip-outline flow-runs-lineage"
+                    title={t('暖缓存自：{id}', { id: r.resumedFromRunId!.slice(0, 8) })}
+                  >
+                    ⚡ {t('暖缓存自 {id}', { id: r.resumedFromRunId!.slice(0, 8) })}
+                  </span>
+                ) : isResume ? (
                   <span
                     className="chip chip-outline flow-runs-lineage"
                     title={t('从断点续跑：{id}', { id: r.resumedFromRunId!.slice(0, 8) })}
