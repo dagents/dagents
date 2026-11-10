@@ -241,7 +241,7 @@ export function AgentSelector({
             }}
             onMouseEnter={() => setHighlighted(0)}
           >
-            <Icon name="bot" style={{ width: 14, height: 14 }} />
+            <Icon name="bot" className="ic-14" />
             <span>auto</span>
             <span className="agent-selector-option-hint">{t('让 chat 自动选择')}</span>
           </button>
@@ -263,7 +263,7 @@ export function AgentSelector({
                 }}
                 onMouseEnter={() => setHighlighted(idx)}
               >
-                <Icon name="bot" style={{ width: 14, height: 14 }} />
+                <Icon name="bot" className="ic-14" />
                 <span>{a.name}</span>
               </button>
             )

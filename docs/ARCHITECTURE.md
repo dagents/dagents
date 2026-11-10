@@ -86,9 +86,10 @@ console watchLoop 轮询 GET /runs/:runId/node-spans（700ms）
 |---|---|
 | `agents` | 已启用 Agent（kind=CLI 类型；`library_meta` 人格库溯源） |
 | `flows` | 工作流定义（`flow_data` JSONB = nodes/edges/viewport） |
-| `runs` | 运行记录（status/input/output/duration；chat 触发的也写，含 `chat_id`） |
+| `runs` | 运行记录（status/input/output/duration；chat 触发的也写，含 `chat_id`；`directory_id` 目录锚、`goal_id` 目标轮次谱系、`resumed_from_run_id` 续跑谱系） |
 | `run_node_spans` | 节点级进度（status/tokens/error/input/output；唯一索引 `(run_id,node_id)`） |
 | `run_checkpoints` | 断点续跑控制态（topo_hash/snapshot/awaiting；与 spans 观测态分离，见 §2 runError 来源） |
+| `goals` | 目标环实体（标题/验收标准/绑定 flow·目录/预算/轮次状态机；supervisor 每 30s tick 评估+推进，见 AGENTS.md 目标环段） |
 | `chats` / `chat_messages` | 会话与消息（消息 `run_id` + `metadata.source='workflow'` 可判别工作流回复） |
 | `llm_providers` | HTTP Provider 配置（key AES-GCM 加密存储） |
 
@@ -102,6 +103,8 @@ console watchLoop 轮询 GET /runs/:runId/node-spans（700ms）
 | 画布页装配 | `components/canvas/canvas-kit-page.tsx` | 运行输入面板/进度轮询/结果面板/未保存守卫 |
 | 结果面板 | `components/canvas/canvas-results-panel.tsx` | 摘要/终端/轨迹三视图（2026-10-01 起含轨迹） |
 | 轨迹投影 + 视图 | `lib/run-trace-model.ts` + `components/canvas/canvas-trace-view.tsx` | 帧流/spans → 统一 `RunTraceModel`（纯函数+单测）；节点泳道甘特/事件台账/Inspector |
+| 公司作战室 | `components/team/team-view.tsx` + `lib/team-overview.ts` | `/team` 实时聚合观察台（KPI/活动墙/公司时间线/黑板/值班卡；帧 diff 纯投影+单测，2026-11-10） |
+| 目标看板 | `components/goals/goals-view.tsx` + `lib/goals.ts` | `/goals` 目标 CRUD+推进+轮次谱系（2026-11-10） |
 | 聊天详情 | `components/chat-detail.tsx` | WS+SSE 双通道、工作流执行卡（`workflow-run-card.tsx`） |
 | 悬浮副驾 | `components/floating-chat.tsx` | 全局聊天（目录/Agent/Flow 三选择器） |
 | 执行 hook | `lib/use-chat-execution.ts` | F0 单一实现（resolveDirectoryId/AgentId/FlowId） |

@@ -1,0 +1,553 @@
+/* goals.css — 目标看板（GoalsView 专属，样式就近；token 复用全局变量） */
+
+.goals-view {
+  display: flex;
+  flex-direction: column;
+  gap: 14px;
+  padding: 20px 24px 28px;
+  max-width: 1080px;
+  margin: 0 auto;
+}
+
+.goals-header {
+  display: flex;
+  align-items: flex-end;
+  justify-content: space-between;
+  gap: 16px;
+  flex-wrap: wrap;
+}
+
+.goals-title {
+  font-size: var(--text-xl, 20px);
+  font-weight: 650;
+  margin: 0;
+  letter-spacing: var(--tracking-label);
+}
+
+.goals-subtitle {
+  margin: 4px 0 0;
+  color: var(--muted);
+  font-size: var(--text-sm);
+}
+
+.goals-header-actions {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+}
+
+.goals-team-link {
+  color: var(--accent);
+  text-decoration: none;
+  font-size: var(--text-sm);
+  border: 1px solid var(--border);
+  border-radius: var(--radius-pill);
+  padding: 5px 12px;
+  background: var(--surface);
+}
+
+.goals-team-link:hover {
+  border-color: var(--accent);
+}
+
+.goals-error {
+  border: 1px solid var(--danger);
+  background: var(--danger-soft);
+  color: var(--danger-text);
+  border-radius: var(--radius-md);
+  padding: 8px 12px;
+  font-size: var(--text-sm);
+}
+
+.goals-toast {
+  position: fixed;
+  bottom: 24px;
+  left: 50%;
+  transform: translateX(-50%);
+  background: var(--elev-raised, var(--surface));
+  color: var(--fg);
+  border: 1px solid var(--border);
+  border-radius: var(--radius-md);
+  padding: 9px 16px;
+  font-size: var(--text-sm);
+  box-shadow: var(--elev-overlay, 0 4px 16px rgba(0, 0, 0, 0.18));
+  z-index: 60;
+}
+
+.goals-empty {
+  text-align: center;
+  color: var(--muted);
+  padding: 56px 12px;
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+  align-items: center;
+}
+
+.goals-empty-hint {
+  font-size: var(--text-sm);
+  max-width: 420px;
+}
+
+.goals-section-title {
+  font-size: var(--text-xs);
+  font-weight: 600;
+  letter-spacing: var(--tracking-label);
+  color: var(--muted);
+  text-transform: uppercase;
+  margin: 8px 0;
+}
+
+.goals-cards {
+  display: flex;
+  flex-direction: column;
+  gap: 12px;
+}
+
+/* ── 目标卡 ── */
+
+.goal-card {
+  background: var(--surface);
+  border: 1px solid var(--border-soft);
+  border-radius: var(--radius-lg);
+  padding: 14px 16px;
+  display: flex;
+  flex-direction: column;
+  gap: 10px;
+}
+
+.goal-card.running {
+  border-color: var(--accent);
+}
+
+.goal-card.achieved {
+  opacity: 0.78;
+}
+
+.goal-card-head {
+  display: flex;
+  justify-content: space-between;
+  align-items: flex-start;
+  gap: 12px;
+  flex-wrap: wrap;
+}
+
+.goal-card-title-wrap {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  min-width: 0;
+  flex-wrap: wrap;
+}
+
+.goal-card-title {
+  margin: 0;
+  font-size: 16px;
+  font-weight: 650;
+}
+
+.goal-status-badge {
+  font-size: var(--text-xs);
+  border-radius: var(--radius-pill);
+  padding: 1px 9px;
+  border: 1px solid var(--border);
+  color: var(--muted);
+  white-space: nowrap;
+}
+
+.goal-status-badge.running {
+  color: var(--accent);
+  border-color: var(--accent);
+}
+
+.goal-status-badge.achieved {
+  color: var(--success);
+  border-color: var(--success);
+}
+
+.goal-card-actions {
+  display: flex;
+  gap: 8px;
+  flex-wrap: wrap;
+}
+
+/* 删除按钮沿用全局 .btn 家族，仅做危险色覆写（轮8 一致性收敛） */
+.goal-btn-danger {
+  color: var(--danger);
+}
+
+/* ── 进度 ── */
+
+.goal-card-progress {
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+}
+
+.goal-progress-row {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  font-size: var(--text-xs);
+}
+
+.goal-progress-label {
+  color: var(--muted);
+  min-width: 34px;
+}
+
+.goal-progress-track {
+  flex: 1;
+  height: 6px;
+  background: var(--border-soft);
+  border-radius: var(--radius-pill);
+  overflow: hidden;
+}
+
+.goal-progress-fill {
+  height: 100%;
+  border-radius: var(--radius-pill);
+  background: var(--accent);
+  transition: width var(--motion-fast, 160ms) ease;
+}
+
+.goal-progress-fill.rounds {
+  background: var(--accent);
+}
+
+.goal-progress-fill.budget {
+  background: var(--success);
+}
+
+.goal-progress-fill.budget.warn {
+  background: var(--warn);
+}
+
+.goal-progress-fill.budget.exhausted {
+  background: var(--danger);
+}
+
+.goal-progress-value {
+  font-variant-numeric: tabular-nums;
+  color: var(--fg);
+  white-space: nowrap;
+}
+
+/* ── 元信息行 ── */
+
+.goal-card-meta {
+  display: flex;
+  align-items: center;
+  gap: 12px;
+  flex-wrap: wrap;
+  font-size: var(--text-sm);
+}
+
+.goal-next-action {
+  color: var(--accent);
+  font-weight: 600;
+}
+
+.goal-card.achieved .goal-next-action {
+  color: var(--success);
+}
+
+.goal-flow-link {
+  color: var(--fg);
+  text-decoration: none;
+  border-bottom: 1px dashed var(--border);
+}
+
+.goal-flow-link:hover {
+  color: var(--accent);
+  border-color: var(--accent);
+}
+
+.goal-flow-missing,
+.goal-dir {
+  color: var(--meta);
+  font-size: var(--text-xs);
+}
+
+.goal-run-link {
+  color: var(--muted);
+  font-size: var(--text-xs);
+  text-decoration: none;
+}
+
+.goal-run-link:hover {
+  color: var(--accent);
+}
+
+/* ── 评估结论 ── */
+
+.goal-eval {
+  border-left: 3px solid var(--warn);
+  background: var(--surface-warm, var(--surface));
+  border-radius: 0 var(--radius-sm) var(--radius-sm) 0;
+  padding: 8px 12px;
+}
+
+.goal-eval.passed {
+  border-left-color: var(--success);
+}
+
+.goal-eval-title {
+  font-size: var(--text-xs);
+  font-weight: 600;
+  letter-spacing: var(--tracking-label);
+}
+
+.goal-eval p {
+  margin: 4px 0 0;
+  font-size: var(--text-sm);
+  color: var(--muted);
+  white-space: pre-wrap;
+  word-break: break-word;
+  display: -webkit-box;
+  -webkit-line-clamp: 5;
+  -webkit-box-orient: vertical;
+  overflow: hidden;
+}
+
+/* ── 轮次谱系 ── */
+
+.goal-expand {
+  align-self: flex-start;
+  background: none;
+  border: none;
+  color: var(--meta);
+  font-size: var(--text-xs);
+  cursor: pointer;
+  padding: 0;
+}
+
+.goal-expand:hover {
+  color: var(--accent);
+}
+
+.goal-runs {
+  display: flex;
+  flex-direction: column;
+  gap: 4px;
+  border-top: 1px dashed var(--border-soft);
+  padding-top: 8px;
+}
+
+.goal-run-row {
+  display: grid;
+  grid-template-columns: 92px minmax(0, 1fr) 52px;
+  align-items: center;
+  gap: 10px;
+  font-size: var(--text-xs);
+  text-decoration: none;
+  color: var(--fg);
+}
+
+.goal-run-row:hover {
+  color: var(--accent);
+}
+
+.goal-run-status {
+  color: var(--muted);
+}
+
+.goal-run-row.completed .goal-run-status {
+  color: var(--success);
+}
+
+.goal-run-row.failed .goal-run-status,
+.goal-run-row.cancelled .goal-run-status {
+  color: var(--danger);
+}
+
+.goal-run-row.running .goal-run-status,
+.goal-run-row.awaiting_input .goal-run-status {
+  color: var(--accent);
+}
+
+.goal-run-row.partial_success .goal-run-status,
+.goal-run-row.budget_exceeded .goal-run-status {
+  color: var(--warn);
+}
+
+.goal-run-dur-track {
+  height: 8px;
+  background: var(--border-soft);
+  border-radius: var(--radius-pill);
+  overflow: hidden;
+}
+
+.goal-run-dur {
+  height: 100%;
+  background: var(--meta);
+  border-radius: var(--radius-pill);
+}
+
+.goal-run-dur.failed {
+  background: var(--danger);
+}
+
+.goal-run-dur-label {
+  text-align: right;
+  font-variant-numeric: tabular-nums;
+  color: var(--meta);
+}
+
+.goal-runs-error,
+.goal-runs-loading,
+.goal-runs-empty {
+  font-size: var(--text-sm);
+  color: var(--meta);
+  padding: 6px 0;
+}
+
+/* ── 创建对话框 ── */
+
+.goal-dialog-backdrop {
+  position: fixed;
+  inset: 0;
+  background: rgba(0, 0, 0, 0.45);
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  z-index: 70;
+  padding: 20px;
+}
+
+.goal-dialog {
+  background: var(--surface);
+  border: 1px solid var(--border);
+  border-radius: var(--radius-lg);
+  width: min(640px, 100%);
+  max-height: 86vh;
+  overflow: auto;
+  padding: 18px 20px;
+  display: flex;
+  flex-direction: column;
+  gap: 12px;
+}
+
+.goal-dialog-title {
+  margin: 0;
+  font-size: 16px;
+  font-weight: 650;
+}
+
+.goal-field {
+  display: flex;
+  flex-direction: column;
+  gap: 4px;
+  font-size: var(--text-sm);
+  flex: 1;
+}
+
+.goal-field > span {
+  color: var(--muted);
+  font-size: var(--text-xs);
+}
+
+.goal-field input,
+.goal-field textarea,
+.goal-field select {
+  background: var(--bg);
+  color: var(--fg);
+  border: 1px solid var(--border);
+  border-radius: var(--radius-sm);
+  padding: 7px 10px;
+  font-size: var(--text-sm);
+  font-family: inherit;
+}
+
+.goal-field input:focus,
+.goal-field textarea:focus,
+.goal-field select:focus {
+  outline: none;
+  border-color: var(--accent);
+}
+
+.goal-field-row {
+  display: flex;
+  gap: 12px;
+  flex-wrap: wrap;
+}
+
+.goal-auto {
+  flex-direction: row;
+  align-items: center;
+  gap: 8px;
+}
+
+.goal-auto input {
+  width: auto;
+}
+
+.goal-auto span {
+  color: var(--fg);
+}
+
+.goal-dialog-error {
+  color: var(--danger-text);
+  font-size: var(--text-sm);
+}
+
+.goal-dialog-actions {
+  display: flex;
+  justify-content: flex-end;
+  gap: 10px;
+}
+
+/* ── 交互反馈（轮5）：焦点环 + 悬停过渡 ── */
+
+button,
+a.goal-flow-link,
+a.goal-run-link,
+a.goals-team-link,
+button.goal-expand,
+.goal-dialog input,
+.goal-dialog textarea,
+.goal-dialog select {
+  transition:
+    border-color var(--motion-fast, 160ms) ease,
+    background-color var(--motion-fast, 160ms) ease,
+    color var(--motion-fast, 160ms) ease;
+}
+
+button:focus-visible,
+button.goal-expand:focus-visible,
+a.goal-flow-link:focus-visible,
+a.goal-run-link:focus-visible,
+a.goals-team-link:focus-visible,
+.goal-dialog input:focus-visible,
+.goal-dialog textarea:focus-visible,
+.goal-dialog select:focus-visible {
+  outline: 2px solid var(--accent);
+  outline-offset: 1px;
+}
+
+.goal-card {
+  transition: border-color var(--motion-fast, 160ms) ease, opacity var(--motion-fast, 160ms) ease;
+}
+
+/* ── 响应式（轮7）：窄视口 ── */
+
+@media (max-width: 720px) {
+  .goals-view {
+    padding: 14px 14px 24px;
+  }
+
+  .goal-card-head,
+  .goal-card-actions {
+    flex-direction: column;
+    align-items: stretch;
+  }
+
+  .goal-card-actions {
+    flex-direction: row;
+    flex-wrap: wrap;
+  }
+
+  .goal-dialog {
+    padding: 14px;
+  }
+}

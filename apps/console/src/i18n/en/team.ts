@@ -1,0 +1,105 @@
+/**
+ * 英文词典 — 团队作战室 + 目标看板界面模块（方向 A/B/C，2026-11-10）。
+ * key 为现有中文文案（自然键）；zh-CN 模式直接显示 key。
+ */
+
+export const team: Record<string, string> = {
+  // ── 导航 ──
+  '团队': 'Team',
+  '目标': 'Goals',
+
+  // ── Team Room ──
+  '公司作战室': 'Team Room',
+  '多 Agent 团队的实时鸟瞰——运行、成员、黑板与目标，一屏尽收':
+    'Live bird\'s-eye view of your agent team — runs, members, blackboard and goals on one screen',
+  '黑板项目目录': 'Blackboard project directory',
+  '跟随团队（自动）': 'Follow the team (auto)',
+  '目标看板': 'Goal Board',
+  '作战室数据拉取失败': 'Failed to load team overview',
+  '个运行': 'runs',
+  '个 agent 值班中': 'agents on duty',
+  '个活跃目标': 'active goals',
+  '今日成本': 'Today cost',
+  '今日 Token': 'Today tokens',
+  '此刻': 'NOW',
+  '24 小时': '24H',
+  '成本': 'Cost',
+  'Token': 'Tokens',
+  '活跃': 'Active',
+  '今日达成': 'Done today',
+  '更新于': 'Updated',
+  '另有 {n} 未计价 token': '{n} unpriced tokens not included',
+  '公司活动墙': 'Company activity wall',
+  '公司时间线 · 24h': 'Company timeline · 24h',
+  '文件黑板': 'File blackboard',
+  '成员值班': 'Members on duty',
+  '公司时间线': 'Company timeline',
+  '还没有事件': 'No events yet',
+  '团队开工后，这里实时滚动每个节点的开始 / 完成 / 失败':
+    'Once the team starts working, node starts / finishes / failures stream here live',
+  '24 小时内还没有节点执行': 'No node executions in the last 24h',
+  '去工作流发起一次运行 →': 'Start a run from Flows →',
+  '该项目还没有黑板——在项目目录下创建 .agents/（BOARD.md + knowledge/ + handoff/），Agent 们就会通过它共享知识':
+    'No blackboard in this project yet — create .agents/ (BOARD.md + knowledge/ + handoff/) in the project directory and your agents will share knowledge through it',
+  'BOARD.md 还是空的——写下目标与任务行，让团队认领':
+    'BOARD.md is empty — write down goals and task lines for the team to claim',
+  '共享知识': 'Shared knowledge',
+  '本轮交接': 'This round handoffs',
+  '还有 {n} 行——在编辑器里看完整任务板': '{n} more lines — open the file in your editor for the full board',
+  '还没有启用的 Agent': 'No enabled agents yet',
+  '去广场启用第一批员工 →': 'Enable your first employees from the plaza →',
+  '空闲': 'Idle',
+
+  // ── Goal Board ──
+  '给「同一目标」一个实体——团队按轮次推进，验收通过或预算耗尽才停':
+    'Give one goal an entity — the team advances in rounds until acceptance passes or the budget runs out',
+  '新建目标': 'New goal',
+  '还没有目标': 'No goals yet',
+  '写下一个目标 + 验收标准，绑定一条流程——你的虚拟团队就会围绕它一轮轮推进':
+    'Write down a goal + acceptance criteria and bind a flow — your virtual team will advance it round by round',
+  '创建第一个目标': 'Create the first goal',
+  '进行中': 'In progress',
+  '已达成': 'Achieved',
+  '已暂停': 'Paused',
+  '本轮进行中': 'Round in progress',
+  '推进中': 'Advancing',
+  '暂停': 'Pause',
+  '恢复': 'Resume',
+  '轮': 'rounds',
+  '自动': 'auto',
+  '推一轮': 'Advance one round',
+  '停自动': 'Stop auto',
+  '开自动': 'Start auto',
+  '轮次': 'Rounds',
+  '预算': 'Budget',
+  '已投入': 'Spent',
+  '本轮': 'This round',
+  '未绑定流程': 'No flow bound',
+  '✓ 验收通过': '✓ Acceptance passed',
+  '上轮评估差距': 'Gaps from last evaluation',
+  '收起轮次谱系': 'Collapse round lineage',
+  '展开轮次谱系': 'Expand round lineage',
+  '还没有轮次——点「推一轮」开始第一轮': 'No rounds yet — click "Advance one round" to start',
+  '例如：把旧官网重构为落地页优先的新站': 'e.g. Rebuild the old site into a landing-page-first new site',
+  '背景与要求': 'Context & requirements',
+  '给团队交代这个目标的来龙去脉与约束（可选）': 'Tell the team the background and constraints (optional)',
+  '验收标准': 'Acceptance criteria',
+  '逐条列出「做到什么才算达成」——评估员每轮按此打分，不放宽':
+    'List line by line what counts as done — the evaluator scores strictly against this every round',
+  '绑定流程': 'Bind flow',
+  '稍后绑定': 'Bind later',
+  '项目目录': 'Project directory',
+  '不绑定': 'None',
+  '预算上限（美元）': 'Budget cap (USD)',
+  '留空 = 不设预算': 'Empty = no budget',
+  '自动推进（评估通过才停；预算/轮次护栏照常生效）':
+    'Auto-advance (stops only on acceptance; budget/round guardrails still apply)',
+  '创建中…': 'Creating…',
+  '创建目标': 'Create goal',
+  '目标不能为空': 'Goal title cannot be empty',
+  '删除目标「{title}」？轮次 run 记录保留。': 'Delete goal "{title}"? Round run records are kept.',
+  '删除目标「{title}」？': 'Delete goal "{title}"?',
+  '第 {n} 轮已启动': 'Round {n} started',
+  '先在编辑里绑定流程': 'Bind a flow first (edit the goal)',
+  '按目标推进一轮（supervisor 同一代码路径）': 'Advance one round toward the goal (same code path as the supervisor)',
+}

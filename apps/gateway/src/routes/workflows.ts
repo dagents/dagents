@@ -389,6 +389,8 @@ const runBodySchema = z.object({
    * inputHash) 种子匹配）；「全新重跑」不传（缺省 = 零缓存零谱系）。
    */
   warmFromRunId: z.string().uuid().optional(),
+  /** 目标环（2026-11-10 方向 C）：本轮 run 归属的 goal —— 轮次谱系/预算 rollup 依赖。 */
+  goalId: z.string().uuid().optional(),
 })
 
 const MAX_RUN_ID_LEN = 128
@@ -737,6 +739,8 @@ workflowsRoutes.post('/:id/run', async (c) => {
             }
             return Object.keys(modelsMap).length > 0 ? JSON.stringify(modelsMap) : null
           })(),
+        // 2026-11-10 目标环：本轮 run 的 goal 谱系。
+        goalId: data.goalId ?? null,
       })
     } catch (err) {
       log.warn('persist runs row failed, spans still written below', {
@@ -863,6 +867,7 @@ workflowsRoutes.post('/:id/run', async (c) => {
         startedAt,
         directoryId: data.directoryId ?? null,
         source: 'canvas',
+        goalId: data.goalId ?? null,
       })
     } catch (err) {
       log.warn('async runs row init failed', { id, runId, error: String(err) })

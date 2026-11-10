@@ -33,9 +33,11 @@ export const NAV: readonly NavSection[] = [
   {
     section: '',
     items: [
+      { id: 'team', label: '团队', href: '/team', icon: 'dashboard' },
       { id: 'agents', label: 'Agent', href: '/agents', icon: 'agents' },
       { id: 'skills', label: '技能', href: '/skills', icon: 'zap' },
       { id: 'flows', label: 'Flow', href: '/flows', icon: 'flows' },
+      { id: 'goals', label: '目标', href: '/goals', icon: 'target' },
       { id: 'terminal', label: '终端', href: '/terminal', icon: 'terminal' },
       { id: 'daemons', label: 'Daemon', href: '/daemons', icon: 'daemons' },
     ],
@@ -56,6 +58,8 @@ export interface CrumbSegment {
  */
 const CRUMBS: readonly { match: string; segments: readonly CrumbSegment[] }[] = [
   { match: '/chats/', segments: [{ label: '对话' }] },
+  { match: '/team', segments: [{ label: '团队' }] },
+  { match: '/goals', segments: [{ label: '目标' }] },
   { match: '/agents/', segments: [{ label: 'Agent', href: '/agents' }, { label: '详情' }] },
   { match: '/agents', segments: [{ label: 'Agent' }] },
   { match: '/skills', segments: [{ label: '技能' }] },

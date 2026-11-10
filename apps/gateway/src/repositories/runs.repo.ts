@@ -283,6 +283,8 @@ export async function persistWorkflowRunRow(input: {
   chatId?: string | null
   /** 2026-09-19 P0 数据链：运行的项目目录锚（终端入口「一扇门」的数据源）。 */
   directoryId?: string | null
+  /** 2026-11-10 目标环：本轮 run 归属的 goal（轮次谱系/预算 rollup 依赖）。 */
+  goalId?: string | null
   /** 断点续跑谱系：新 run 行指向原 run（COALESCE 保已存值）。 */
   resumedFromRunId?: string | null
   /** 2026-10-07 R10：触发来源（canvas/trial/resume/answer…）；COALESCE 保已存值。 */
@@ -297,8 +299,8 @@ export async function persistWorkflowRunRow(input: {
   modelsJson?: string | null
 }): Promise<void> {
   await runQuery(
-    `INSERT INTO runs (id, identifier, pipeline_id, status, input, output, started_at, finished_at, duration_ms, cost, chat_id, resumed_from_run_id, directory_id, source, stop_reason, frozen_agents, models)
-     VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12::uuid, $13::uuid, $14, $15, $16::jsonb, $17::jsonb)
+    `INSERT INTO runs (id, identifier, pipeline_id, status, input, output, started_at, finished_at, duration_ms, cost, chat_id, resumed_from_run_id, directory_id, source, stop_reason, frozen_agents, models, goal_id)
+     VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12::uuid, $13::uuid, $14, $15, $16::jsonb, $17::jsonb, $18::uuid)
      ON CONFLICT (id) DO UPDATE SET
        status = EXCLUDED.status,
        output = EXCLUDED.output,
@@ -311,7 +313,8 @@ export async function persistWorkflowRunRow(input: {
        source = COALESCE(EXCLUDED.source, runs.source),
        stop_reason = EXCLUDED.stop_reason,
        frozen_agents = COALESCE(EXCLUDED.frozen_agents, runs.frozen_agents),
-       models = COALESCE(EXCLUDED.models, runs.models)`,
+       models = COALESCE(EXCLUDED.models, runs.models),
+       goal_id = COALESCE(EXCLUDED.goal_id, runs.goal_id)`,
     [
       input.runId,
       input.runId,
@@ -330,6 +333,7 @@ export async function persistWorkflowRunRow(input: {
       input.stopReason ?? null,
       input.frozenAgentsJson ?? null,
       input.modelsJson ?? null,
+      input.goalId ?? null,
     ],
   )
 }
@@ -343,10 +347,12 @@ export async function initAsyncWorkflowRunRow(input: {
   directoryId?: string | null
   /** 2026-10-07 R10：触发来源（画布直跑 'canvas' / 试运行 'trial'）。 */
   source?: string | null
+  /** 2026-11-10 目标环：本轮 run 归属的 goal（轮次谱系/预算 rollup 依赖）。 */
+  goalId?: string | null
 }): Promise<void> {
   await runQuery(
-    `INSERT INTO runs (id, identifier, pipeline_id, status, input, output, started_at, duration_ms, cost, directory_id, source)
-     VALUES ($1::uuid, $2::text, $3::uuid, 'running', $4, NULL, $5, NULL, 0, $6::uuid, $7)
+    `INSERT INTO runs (id, identifier, pipeline_id, status, input, output, started_at, duration_ms, cost, directory_id, source, goal_id)
+     VALUES ($1::uuid, $2::text, $3::uuid, 'running', $4, NULL, $5, NULL, 0, $6::uuid, $7, $8::uuid)
      ON CONFLICT (id) DO NOTHING`,
     [
       input.runId,
@@ -356,6 +362,7 @@ export async function initAsyncWorkflowRunRow(input: {
       input.startedAt,
       input.directoryId ?? null,
       input.source ?? null,
+      input.goalId ?? null,
     ],
   )
 }
