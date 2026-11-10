@@ -50,7 +50,9 @@ export function AppNavSidebar({
   const { t } = useI18n()
 
   const navItems: NavItem[] = [
+    { href: '/team', label: t('团队'), icon: 'dashboard' },
     { href: '/', label: t('工作流'), icon: 'flows', exact: true },
+    { href: '/goals', label: t('目标'), icon: 'target' },
     { href: '/agents', label: t('智能体'), icon: 'agents' },
     { href: '/skills', label: t('技能'), icon: 'zap' },
     { href: '/terminal', label: t('终端'), icon: 'terminal' },

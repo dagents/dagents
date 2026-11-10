@@ -8,6 +8,33 @@ All notable changes to Dagents are documented here. The format follows
 
 ### Added
 
+- **团队化多 Agent 协作四方向（2026-11-10，研究见 `docs/team-collaboration-ui-research.md`）** —
+  把「一个人指挥一个虚拟团队」从一次性 DAG 编排升级为持续运作的公司层：
+  - **公司作战室 `/team`（方向 A）**：跨 run/跨 agent 实时聚合观察台——KPI 条（运行/值班/
+    完成·失败/目标/成本·token）、公司活动墙（`GET /api/v1/team/overview` 3s 轮询帧 diff
+    派生事件流，行内深链画布旁观）、公司时间线（24h 多 run 泳道甘特，lane 按 **agent 身份**
+    透视聚合——`flows.flow_data` jsonb 解析 platformAgent 的 agentId）、成员值班卡、文件黑板
+    面板。纯投影层 `lib/team-overview.ts`（deriveTeamFeed/deriveCompanyTimeline/deriveRoster，
+    单测钉死）；主导航新增「团队」（首位）。
+  - **文件黑板（方向 B）**：项目目录 `.agents/`（`BOARD.md` 任务板 / `knowledge/` 沉淀 /
+    `handoff/` 交接）成为 agent 间共享知识真相源——引擎注入（`assembleWorkflowEngine` 把
+    黑板块拼进 flowContext 前部，`DAGENTS_BOARD_CONTEXT_CAP` 默认 4KB 子预算，mtime 缓存
+    全容错，CRLF 归一）；观察端点 `GET /api/v1/directories/:id/blackboard`；并行分支写
+    handoff/汇总读，绕开 `{{id.output}}` 的 64KB 单向管道；多机语义 = 文件 + git。
+  - **目标环 Goal Loop（方向 C）**：`goals` 表（验收标准/预算/轮次状态机；迁移
+    1720000106000，`runs.goal_id` 谱系）+ `/api/v1/goals` CRUD + `:id/advance`；supervisor
+    `goal-loop-service.ts` 30s tick **先评估后推进**（CLI judge 对照 goal 上固定验收标准，
+    `parseEvalVerdict` JSON→关键词降级解析；产出优先 run.output、空则回退节点 span），
+    passed⇒achieved、预算/轮次耗尽自动 paused（诚实停机）；推进自 POST run 端点复用全部
+    护栏（并发闸/取消注册表/usage 落账），轮次输入带目标+验收+上轮差距+黑板摘要。界面
+    `/goals` 目标看板（轮次/预算水位条、下一动作、评估差距、轮次谱系时长条）。
+  - **可视化增强（方向 D）**：公司时间线（多 run 拼接泳道）+ 轮次谱系时长条 + 黑板任务行
+    结构化渲染（免费 kanban）；导航/命令面板/面包屑接入团队与目标。
+  - 测试：`blackboard.test.ts`（6）+ `blackboard-inject.test.ts`（2）+ `goal-loop.test.ts`
+    （9）+ console `team-overview.test.ts`（7）；内联样式棘轮收紧 264→263（icon 定寸改
+    `.ic-14` 工具类）。
+- **环境修复**：`@dagents/db` 显式声明 `glob` 依赖（typeorm 0.3.20 运行时 require 但未声明，
+  曾靠 node_modules 里的 npm 残影遮蔽——清理后显式化）。
 - **zcode-borrow 验收遗留项清偿（2026-10-08，验收报告「建议后续」#2–#6）** —
   - AC-R2-3 端到端复验通过并固化为常驻测试 `gateway __tests__/warm-cache-lineage-tokens.test.ts`
     （断言经 `@dagents/workflow` dist 引擎消费段，兼作 src↔dist 漂移门禁）——R2 升级整体通过，十项全过。

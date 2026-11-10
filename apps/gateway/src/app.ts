@@ -18,6 +18,8 @@ import { workflowTrialRoutes, trialCallsRoutes } from './routes/workflow-trial.j
 import { llmProviderRoutes } from './routes/llm-providers.js'
 import { workflowsRoutes } from './routes/workflows.js'
 import { runsRoutes } from './routes/runs.js'
+import { teamRoutes } from './routes/team.js'
+import { goalRoutes } from './routes/goals.js'
 import { usageRoutes } from './routes/usage.js'
 import { cliRuntimeRoutes } from './routes/cli-runtimes.js'
 import { skillsRoutes } from './routes/skills.js'
@@ -258,6 +260,18 @@ app.route('/api/v1/workflows', workflowsRoutes)
  * 跨 Flow 运行历史（PRD F5）：runs 按时间倒序 + 流程名 + 失败摘要。
  */
 app.route('/api/v1/runs', runsRoutes)
+
+/**
+ * 公司作战室（Team Room，方向 A，2026-11-10）：GET /team/overview 一次给齐
+ * KPI / 运行中 run·节点 / 24h 谱系·span / agent 花名册 / goal 计数 / 黑板快照。
+ */
+app.route('/api/v1/team', teamRoutes)
+
+/**
+ * 目标环（Goal Loop，方向 C，2026-11-10）：goals CRUD + :id/advance 手动推进。
+ * 自动推进/评估在 goal-loop-service 的 tick 循环（index.ts 启动）。
+ */
+app.route('/api/v1/goals', goalRoutes)
 
 /**
  * Usage & cost billing API (方案 D / AD-3): SQL aggregation over the

@@ -14,6 +14,7 @@ import {
 } from '../repositories/directories.repo.js'
 import { ok, fail } from '../lib/http.js'
 import { UUID_RE } from '../lib/http.js'
+import { readBlackboardSnapshot } from '../lib/blackboard.js'
 
 export const directoryRoutes = new Hono()
 
@@ -317,4 +318,30 @@ directoryRoutes.delete('/:id', async (c) => {
   }
 
   return ok(c, { deleted: true, id: deletedId })
+})
+
+/**
+ * `GET /:id/blackboard` — 项目目录的文件黑板快照（方向 B 观察层，2026-11-10）。
+ *
+ * `.agents/`（BOARD.md / knowledge/ / handoff/）的只读快照：console 黑板
+ * 面板的数据源。无黑板 → exists:false（界面渲染引导态，不是错误）；
+ * 目录本身不存在才 404。
+ */
+directoryRoutes.get('/:id/blackboard', async (c) => {
+  const id = c.req.param('id')
+  if (!UUID_RE.test(id)) {
+    return fail(c, 400, 'invalid directory id', { id })
+  }
+  let row: DirectoryRow | null
+  try {
+    row = await getDirectoryById(id)
+  } catch (err) {
+    log.error('directory blackboard query failed', { id, error: String(err) })
+    return fail(c, 502, 'directory blackboard failed')
+  }
+  if (!row) {
+    return fail(c, 404, 'directory not found', { id })
+  }
+  const snap = readBlackboardSnapshot(row.path)
+  return ok(c, { blackboard: { ...snap, directoryId: id, directoryName: row.name } })
 })

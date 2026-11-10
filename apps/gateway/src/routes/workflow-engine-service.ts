@@ -17,6 +17,7 @@ import { makeJournalWriter, type JournalWriter } from '../journal-writer.js'
 import { getFlowById } from '../repositories/workflows.repo.js'
 import { composeSystemPrompt } from '../skill-injection.js'
 import { getChatContextSummary, CHAT_SUMMARY_MAX_CHARS } from '../lib/chat-context-summary.js'
+import { readBlackboardSnapshot, buildBlackboardContext } from '../lib/blackboard.js'
 import { declareCounter } from '../lib/metrics.js'
 // R4 受控命令通道宿主侧（no-shell spawn + 闸 + 超时强杀 + viaShell 拒）
 import { runControlledExec } from '../lib/controlled-exec.js'
@@ -172,7 +173,7 @@ export function assembleWorkflowEngine(
     return Number.isFinite(raw) && raw > 0 ? raw : 8192
   })()
   const rawCtx = (opts.flowContextMd ?? '').trim()
-  const flowContext =
+  const flowContextCapped =
     rawCtx.length <= FLOW_CONTEXT_CAP
       ? rawCtx
       : rawCtx.slice(0, Math.floor(FLOW_CONTEXT_CAP * 0.85)) +
@@ -184,6 +185,14 @@ export function assembleWorkflowEngine(
       cap: FLOW_CONTEXT_CAP,
     })
   }
+
+  // 文件黑板（方向 B，2026-11-10）：项目目录 `.agents/` 的共享知识注入
+  // system 前部（比 flow 上下文更「团队层」——跨 flow/跨 run 存在的任务板
+  // 与知识沉淀）。mtime 缓存 + 全容错：黑板是增益不是依赖。
+  const boardBlock = opts.cwd
+    ? buildBlackboardContext(readBlackboardSnapshot(opts.cwd))
+    : null
+  const flowContext = [boardBlock, flowContextCapped].filter(Boolean).join('\n\n')
 
   // 子流程执行器（2026-10-04 ExecuteFlow 复活）：引擎侧 DB-free，这里持有
   // flows 表访问。递归装配同 runId 的子引擎——spans 自然并入同一 run 的

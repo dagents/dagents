@@ -10,6 +10,7 @@ import { sweepDanglingExecutions } from './boot-sweep.js'
 import { markOrphanedHumanInputs } from './routes/human-input.js'
 import { reportErrorToSink } from './lib/error-sink.js'
 import { retryUntilDeadline, DB_INIT_RETRY_MS } from './lib/db-init-retry.js'
+import { startGoalLoop, stopGoalLoop } from './goal-loop-service.js'
 
 const tracing = startTracing('gateway')
 const log = createLogger({ svc: 'gateway:main' })
@@ -105,6 +106,7 @@ async function shutdown(signal: string, server: ServerType | undefined): Promise
   const hardExit = setTimeout(() => process.exit(0), 3_000)
   hardExit.unref?.()
   if (reaperTimer) clearInterval(reaperTimer)
+  stopGoalLoop()
 
   // 停止接受新连接（已有 keep-alive 连接随 server.closeIdleConnections 收敛）
   try {
@@ -143,6 +145,10 @@ async function shutdown(signal: string, server: ServerType | undefined): Promise
 const server = serve({ fetch: app.fetch, port, hostname })
 wsHub.attachToServer(server as unknown as import('node:http').Server)
 console.log(`gateway on ${hostname}:${port} (ws: /ws)`)
+
+// 目标环 supervisor（方向 C，2026-11-10）：tick 驱动的推进/评估状态机。
+// 放在 serve 之后——自 POST 触发 run 需要监听已就绪；间隔 0 可关闭。
+startGoalLoop()
 
 process.on('SIGTERM', () => void shutdown('SIGTERM', server))
 process.on('SIGINT', () => void shutdown('SIGINT', server))

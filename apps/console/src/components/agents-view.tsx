@@ -224,7 +224,7 @@ export function AgentsView({ initialTab = 'agents' }: AgentsViewProps): React.Re
           className="btn btn-primary btn-sm"
           onClick={() => setCreateOpen(true)}
         >
-          <Icon name="plus" style={{ width: 14, height: 14 }} />
+          <Icon name="plus" className="ic-14" />
           {t('新建 Agent')}
         </button>
       </div>
@@ -363,7 +363,7 @@ export function AgentsView({ initialTab = 'agents' }: AgentsViewProps): React.Re
                           className="btn btn-primary"
                           onClick={() => setCreateOpen(true)}
                         >
-                          <Icon name="plus" style={{ width: 14, height: 14 }} />
+                          <Icon name="plus" className="ic-14" />
                           {t('新建 Agent')}
                         </button>
                         <button
@@ -371,7 +371,7 @@ export function AgentsView({ initialTab = 'agents' }: AgentsViewProps): React.Re
                           className="btn btn-secondary"
                           onClick={() => switchTab('plaza')}
                         >
-                          <Icon name="bot" style={{ width: 14, height: 14 }} />
+                          <Icon name="bot" className="ic-14" />
                           {t('去广场逛逛')}
                         </button>
                       </div>

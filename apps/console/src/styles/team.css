@@ -1,0 +1,610 @@
+/* team.css — 公司作战室（TeamView 专属，样式就近原则；token 复用全局变量） */
+
+.team-view {
+  display: flex;
+  flex-direction: column;
+  gap: 14px;
+  padding: 20px 24px 28px;
+  max-width: 1320px;
+  margin: 0 auto;
+}
+
+.team-header {
+  display: flex;
+  align-items: flex-end;
+  justify-content: space-between;
+  gap: 16px;
+  flex-wrap: wrap;
+}
+
+.team-title {
+  font-size: var(--text-xl, 20px);
+  font-weight: 650;
+  margin: 0;
+  letter-spacing: var(--tracking-label);
+}
+
+.team-subtitle {
+  margin: 4px 0 0;
+  color: var(--muted);
+  font-size: var(--text-sm);
+}
+
+.team-fresh {
+  color: var(--meta);
+  font-size: var(--text-xs);
+  font-variant-numeric: tabular-nums;
+}
+
+.team-header-actions {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+}
+
+.team-dir-select {
+  background: var(--surface);
+  color: var(--fg);
+  border: 1px solid var(--border);
+  border-radius: var(--radius-sm);
+  padding: 5px 8px;
+  font-size: var(--text-xs);
+  max-width: 220px;
+}
+
+.team-goals-link {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  color: var(--accent);
+  text-decoration: none;
+  font-size: var(--text-sm);
+  border: 1px solid var(--border);
+  border-radius: var(--radius-pill);
+  padding: 5px 12px;
+  background: var(--surface);
+}
+
+.team-goals-link:hover {
+  border-color: var(--accent);
+}
+
+.team-goals-count {
+  background: var(--accent-soft);
+  color: var(--accent);
+  border-radius: var(--radius-pill);
+  font-size: var(--text-xs);
+  padding: 0 7px;
+  line-height: 18px;
+}
+
+.team-error {
+  border: 1px solid var(--danger);
+  background: var(--danger-soft);
+  color: var(--danger-text);
+  border-radius: var(--radius-md);
+  padding: 8px 12px;
+  font-size: var(--text-sm);
+}
+
+/* ── KPI 条（分组：此刻 / 24 小时 / 目标） ── */
+
+.team-kpis {
+  display: flex;
+  gap: 18px;
+  flex-wrap: wrap;
+  align-items: stretch;
+}
+
+.team-kpi-group {
+  display: flex;
+  gap: 8px;
+  flex-wrap: wrap;
+  align-items: stretch;
+  padding-right: 18px;
+  border-right: 1px solid var(--border-soft);
+}
+
+.team-kpi-group:last-child {
+  border-right: none;
+  padding-right: 0;
+}
+
+.team-kpi-group-label {
+  align-self: center;
+  writing-mode: vertical-rl;
+  text-orientation: upright;
+  font-size: 10px;
+  letter-spacing: 0.14em;
+  color: var(--meta);
+  line-height: 1;
+  padding: 2px 0;
+}
+
+.team-kpi {
+  display: flex;
+  align-items: baseline;
+  gap: 8px;
+  background: var(--surface);
+  border: 1px solid var(--border-soft);
+  border-radius: var(--radius-md);
+  padding: 8px 14px;
+  min-width: 88px;
+}
+
+.team-kpi.primary {
+  border-color: var(--accent);
+  background: var(--accent-soft);
+}
+
+.team-kpi-value {
+  font-size: 20px;
+  font-weight: 650;
+  font-variant-numeric: tabular-nums;
+}
+
+.team-kpi.primary .team-kpi-value {
+  font-size: 26px;
+}
+
+.team-kpi.accent .team-kpi-value {
+  color: var(--accent);
+}
+
+.team-kpi.success .team-kpi-value {
+  color: var(--success);
+}
+
+.team-kpi.danger .team-kpi-value {
+  color: var(--danger);
+}
+
+.team-kpi-label {
+  font-size: var(--text-xs);
+  color: var(--muted);
+  white-space: nowrap;
+}
+
+/* ── 面板网格 ── */
+
+.team-grid {
+  display: grid;
+  grid-template-columns: minmax(0, 3fr) minmax(0, 2fr);
+  gap: 14px;
+  align-items: start;
+}
+
+@media (max-width: 1080px) {
+  .team-grid {
+    grid-template-columns: 1fr;
+  }
+}
+
+.team-panel {
+  background: var(--surface);
+  border: 1px solid var(--border-soft);
+  border-radius: var(--radius-lg);
+  overflow: hidden;
+}
+
+.team-panel-title {
+  font-size: var(--text-xs);
+  font-weight: 600;
+  letter-spacing: var(--tracking-label);
+  color: var(--muted);
+  text-transform: uppercase;
+  margin: 0;
+  padding: 10px 14px 8px;
+  border-bottom: 1px solid var(--border-soft);
+}
+
+.team-panel-body {
+  padding: 10px 14px 14px;
+  max-height: 340px;
+  overflow: auto;
+}
+
+.team-empty {
+  color: var(--muted);
+  font-size: var(--text-sm);
+  padding: 18px 10px;
+  text-align: center;
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+  align-items: center;
+}
+
+.team-empty p {
+  margin: 0;
+  color: var(--fg);
+  font-weight: 550;
+}
+
+.team-empty-hint {
+  font-size: var(--text-xs);
+  color: var(--meta);
+}
+
+.team-empty-link {
+  color: var(--accent);
+  text-decoration: none;
+  font-size: var(--text-sm);
+}
+
+.team-empty-link:hover {
+  text-decoration: underline;
+}
+
+/* ── 活动墙 ── */
+
+.team-feed {
+  display: flex;
+  flex-direction: column;
+  gap: 2px;
+  padding: 8px 8px 10px;
+}
+
+.team-feed-row {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  padding: 5px 8px;
+  border-radius: var(--radius-sm);
+  font-size: var(--text-sm);
+  text-decoration: none;
+  color: var(--fg);
+}
+
+a.team-feed-row:hover {
+  background: var(--accent-soft);
+}
+
+.team-feed-time {
+  color: var(--meta);
+  font-size: var(--text-xs);
+  font-variant-numeric: tabular-nums;
+  min-width: 62px;
+}
+
+.team-feed-agent {
+  font-weight: 600;
+  white-space: nowrap;
+  max-width: 128px;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+
+.team-feed-text {
+  flex: 1;
+  min-width: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+  color: var(--muted);
+}
+
+.team-feed-row.failed .team-feed-text {
+  color: var(--danger-text);
+}
+
+.team-feed-fail {
+  color: var(--danger);
+  font-size: var(--text-xs);
+  border: 1px solid var(--danger);
+  border-radius: var(--radius-pill);
+  padding: 0 8px;
+  line-height: 18px;
+}
+
+/* ── 公司时间线 ── */
+
+.team-timeline {
+  display: grid;
+  grid-template-columns: minmax(0, 1fr) 148px;
+  gap: 10px;
+}
+
+.team-timeline-svg {
+  width: 100%;
+  height: auto;
+  display: block;
+}
+
+.team-tl-seg {
+  fill: var(--meta);
+  opacity: 0.55;
+}
+
+.team-tl-seg.running {
+  fill: var(--accent);
+  opacity: 1;
+}
+
+.team-tl-seg.failed {
+  fill: var(--danger);
+  opacity: 0.9;
+}
+
+.team-tl-now {
+  stroke: var(--accent);
+  stroke-width: 1;
+  stroke-dasharray: 3 3;
+  opacity: 0.7;
+}
+
+.team-tl-lanes {
+  display: flex;
+  flex-direction: column;
+  font-size: var(--text-xs);
+}
+
+.team-tl-lane-label {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  height: 26px;
+  overflow: hidden;
+}
+
+.team-tl-lane-name {
+  flex: 1;
+  min-width: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.team-tl-lane-count {
+  color: var(--meta);
+  font-variant-numeric: tabular-nums;
+}
+
+/* ── 文件黑板 ── */
+
+.team-blackboard {
+  display: flex;
+  flex-direction: column;
+  gap: 10px;
+}
+
+.team-board-md {
+  display: flex;
+  flex-direction: column;
+  gap: 2px;
+  font-size: var(--text-sm);
+}
+
+.team-board-heading {
+  font-weight: 650;
+  margin-top: 8px;
+  letter-spacing: var(--tracking-label);
+}
+
+.team-board-gap {
+  height: 6px;
+}
+
+.team-board-more {
+  color: var(--meta);
+  font-size: var(--text-xs);
+  padding-top: 6px;
+  border-top: 1px dashed var(--border-soft);
+  margin-top: 4px;
+}
+
+.team-board-line {
+  color: var(--muted);
+  white-space: pre-wrap;
+  word-break: break-word;
+}
+
+.team-board-task {
+  display: flex;
+  align-items: baseline;
+  gap: 8px;
+}
+
+.team-board-task.done > span:last-child {
+  color: var(--meta);
+  text-decoration: line-through;
+}
+
+.team-board-files {
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+  border-top: 1px dashed var(--border-soft);
+  padding-top: 10px;
+}
+
+.team-board-file-title {
+  font-size: var(--text-xs);
+  color: var(--muted);
+  letter-spacing: var(--tracking-label);
+}
+
+.team-board-file {
+  display: flex;
+  justify-content: space-between;
+  gap: 8px;
+  font-size: var(--text-sm);
+  overflow: hidden;
+}
+
+.team-board-file-time {
+  color: var(--meta);
+  font-size: var(--text-xs);
+  font-variant-numeric: tabular-nums;
+  flex-shrink: 0;
+}
+
+.team-board-dir {
+  color: var(--meta);
+  font-size: var(--text-xs);
+  font-family: var(--font-mono);
+}
+
+/* ── 成员值班卡 ── */
+
+.team-roster {
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+}
+
+.team-roster-card {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  padding: 7px 10px;
+  border: 1px solid var(--border-soft);
+  border-radius: var(--radius-md);
+  font-size: var(--text-sm);
+}
+
+.team-roster-card.busy {
+  border-color: var(--accent);
+  background: var(--accent-soft);
+}
+
+.team-roster-name {
+  font-weight: 600;
+  max-width: 120px;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.team-roster-task {
+  flex: 1;
+  min-width: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+  color: var(--fg);
+}
+
+.team-roster-idle {
+  flex: 1;
+  color: var(--meta);
+}
+
+.team-roster-count {
+  color: var(--meta);
+  font-size: var(--text-xs);
+  font-variant-numeric: tabular-nums;
+}
+
+/* ── 交互反馈（轮5）：焦点环 + 悬停过渡 ── */
+
+a.team-feed-row,
+a.team-empty-link,
+a.team-goals-link,
+.team-dir-select {
+  transition:
+    border-color var(--motion-fast, 160ms) ease,
+    background-color var(--motion-fast, 160ms) ease,
+    color var(--motion-fast, 160ms) ease;
+}
+
+a.team-feed-row:focus-visible,
+a.team-empty-link:focus-visible,
+a.team-goals-link:focus-visible,
+.team-dir-select:focus-visible {
+  outline: 2px solid var(--accent);
+  outline-offset: 1px;
+}
+
+.team-roster-card {
+  transition: border-color var(--motion-fast, 160ms) ease, background-color var(--motion-fast, 160ms) ease;
+}
+
+.team-tl-seg {
+  transition: opacity var(--motion-fast, 160ms) ease;
+}
+
+.team-tl-seg:hover {
+  opacity: 1;
+}
+
+/* ── 响应式（轮7）：窄视口 ── */
+
+@media (max-width: 860px) {
+  .team-view {
+    padding: 14px 14px 24px;
+  }
+
+  .team-kpis {
+    gap: 10px;
+  }
+
+  .team-kpi-group {
+    padding-right: 10px;
+    gap: 6px;
+  }
+
+  .team-kpi {
+    min-width: 72px;
+    padding: 6px 10px;
+  }
+
+  .team-kpi.primary .team-kpi-value {
+    font-size: 22px;
+  }
+
+  /* 时间线：标签列转为图表上方的横向条 */
+  .team-timeline {
+    grid-template-columns: 1fr;
+  }
+
+  .team-tl-lanes {
+    flex-direction: row;
+    flex-wrap: wrap;
+    gap: 6px 12px;
+    border-top: 1px dashed var(--border-soft);
+    padding-top: 8px;
+  }
+
+  .team-tl-lane-label {
+    height: auto;
+  }
+}
+
+/* ── 实时性动效（轮9）：数值变化的轻脉冲；尊重系统减动效偏好 ── */
+
+@keyframes team-kpi-in {
+  from {
+    opacity: 0.35;
+    transform: translateY(-2px);
+  }
+  to {
+    opacity: 1;
+    transform: none;
+  }
+}
+
+.team-kpi-value {
+  animation: team-kpi-in 320ms ease;
+}
+
+@keyframes team-tl-now-pulse {
+  0%,
+  100% {
+    opacity: 0.7;
+  }
+  50% {
+    opacity: 0.25;
+  }
+}
+
+.team-tl-now {
+  animation: team-tl-now-pulse 2s ease-in-out infinite;
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .team-kpi-value,
+  .team-tl-now {
+    animation: none;
+  }
+}

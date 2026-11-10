@@ -8,6 +8,7 @@ import { flows } from './flows'
 import { daemons } from './daemons'
 import { settings } from './settings'
 import { chat } from './chat'
+import { team } from './team'
 
 export const en: Record<string, string> = {
   ...common,
@@ -16,4 +17,5 @@ export const en: Record<string, string> = {
   ...daemons,
   ...settings,
   ...chat,
+  ...team,
 }
